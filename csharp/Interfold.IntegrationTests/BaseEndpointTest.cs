@@ -601,12 +601,12 @@ public class BaseEndpointTest
     {
         var rev = factory.Services.GetRequiredService<IAuthTokenRevocationRepository>();
         // See InterfoldWebApplicationFactory.CreateToken for the IOptionsMonitor vs
-        // IConfiguration.Get<T>() rationale — we want the SecretsBootstrapService-patched
-        // instance, not a fresh binding from IConfiguration.
+        // IConfiguration.Get<T>() rationale — we want the AuthenticationSecretsPostConfigure-
+        // patched (cached-in-monitor) instance, not a fresh binding from IConfiguration.
         var authConfig = factory.Services.GetRequiredService<IOptionsMonitor<AuthenticationConfiguration>>().CurrentValue;
 
         // Mirror the fixture-side seed of the ES256 keypair so the JWT we issue here verifies
-        // against the API's SecretsBootstrapService-patched configuration on the server side.
+        // against the API's SecretsSnapshotLoader-primed configuration on the server side.
         authConfig.JwtEs256PrivateKeyPem = TestDbCredentials.JwtEs256PrivateKeyPem;
 
         var jti = Guid.NewGuid().ToString("N");

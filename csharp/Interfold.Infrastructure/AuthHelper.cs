@@ -33,7 +33,7 @@ public class AuthHelper
 
         // ES256 signing with ECDSA P-256
         using var ecdsa = ECDsa.Create();
-        ecdsa.ImportFromPem(NormalizePem(authConfig.JwtEs256PrivateKeyPem!).AsSpan());
+        ecdsa.ImportFromPem(NormalizePem(authConfig.JwtEs256PrivateKeyPem).AsSpan());
         var signature = ecdsa.SignData(
             Encoding.UTF8.GetBytes(signingInput),
             HashAlgorithmName.SHA256,

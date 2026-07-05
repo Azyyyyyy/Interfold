@@ -143,18 +143,20 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
 
     internal string CreateToken(string systemId)
     {
-        // IOptionsMonitor.CurrentValue is the same instance SecretsBootstrapService patches
-        // at boot, so we get the live signing material (JwtAuthority, deep-link secret, etc.)
-        // that the API is using. IConfiguration.Get<T>() would allocate a fresh binding that
-        // bypasses those patches — that's the drift Slice 3 closes here.
+        // IOptionsMonitor.CurrentValue is the cached instance the SecretsSnapshotLoader
+        // populated (via AuthenticationSecretsPostConfigure), so we get the live signing
+        // material (JwtAuthority, deep-link secret, etc.) that the API is using.
+        // IConfiguration.Get<T>() would allocate a fresh binding that bypasses those
+        // patches — that's the drift Slice 3 closes here.
         var authConfig = Services.GetRequiredService<IOptionsMonitor<AuthenticationConfiguration>>().CurrentValue;
 
-        // ApplyAuthentication leaves the ES256 signing material null on purpose (the API
-        // consumes it via SecretsBootstrapService at runtime). For the client-side token
-        // mint, plug in the same PEM that the fixtures seeded into internal.secrets.
-        // Safe to mutate CurrentValue here — the factory has already resolved everything
-        // that depended on the pre-mutation snapshot, so the read-after-write matches the
-        // pattern SecretsBootstrapService itself uses inside the API.
+        // ApplyAuthentication leaves the ES256 signing material at its default on purpose
+        // (the API consumes it via SecretsSnapshotLoader + AuthenticationSecretsPostConfigure
+        // at runtime). For the client-side token mint, plug in the same PEM that the
+        // fixtures seeded into internal.secrets. Safe to mutate CurrentValue here — the
+        // factory has already forced host start (so PostConfigure has run and the monitor
+        // cache is warm); this read-after-write on the cached instance is observable to
+        // every downstream consumer via the same OptionsMonitor cache.
         authConfig.JwtEs256PrivateKeyPem = TestDbCredentials.JwtEs256PrivateKeyPem;
 
         if (string.IsNullOrWhiteSpace(authConfig.JwtAuthority))
@@ -209,11 +211,12 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
             // factory host so the heavy DDL doesn't replay on every WebApplicationFactory
             // build — those rebuilds add tens of seconds of cold start otherwise.
             //
-            // SecretsBootstrapService stays registered on purpose: it's the production
-            // path that reads internal.secrets and patches IOptionsMonitor<*Configuration>
-            // (notably the JWT verification keys IssuingKeyPem / JwtEs256PublicKeyPem and
-            // the encryption pepper). Re-running it per factory is cheap (a single
-            // SELECT round-trip against the already-seeded msg-db) and exercises the same
+            // SecretsSnapshotLoader stays registered on purpose: it's the production path
+            // that reads internal.secrets into ISecretsSnapshot, which
+            // AuthenticationSecretsPostConfigure / FirebaseClientSecretsPostConfigure then
+            // fold into the options pipeline (notably the JWT verification keys and the
+            // encryption pepper). Re-running it per factory is cheap (a single SELECT
+            // round-trip against the already-seeded msg-db) and exercises the same
             // hosted-service ordering production relies on, so any regression in that
             // service surfaces in tests instead of staging.
             //

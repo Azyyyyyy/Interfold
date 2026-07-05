@@ -8,6 +8,7 @@ using Interfold.Api.Middleware;
 using Interfold.Api.Services;
 using Interfold.Api.Services.Http;
 using Interfold.Api.Services.ImportJobs;
+using Interfold.Api.Services.Secrets;
 using Interfold.Api.Socket;
 using Interfold.Api.Swagger;
 using Interfold.Contracts;
@@ -46,24 +47,24 @@ PostgresServiceCollectionExtensions.Register();
 
 // --- Configuration ---
 // Register every typed option (bound via AddInterfoldOptions) BEFORE we take any startup
-// snapshots — the JWT bearer + CORS + persistence + cluster wiring below all read one-shot
-// values that must go through the IOptions pipeline so tests can override them via the
+// snapshots — the CORS + persistence + cluster wiring below all read one-shot values that
+// must go through the IOptions pipeline so tests can override them via the
 // FactoryConfigurationProvider without a bespoke Bind*() helper.
 IOptionsMonitor<AuthenticationConfiguration>? authOptionsMonitor = null;
 builder.Services.AddInterfoldOptions();
 
-// Startup snapshots resolved once from a probe service provider. The probe is throwaway;
-// it exists solely to materialise IOptions<T>.Value against the current registrations so
-// the CORS/JWT/persistence/cluster wiring downstream sees the same env-bound values
-// SecretsBootstrapService will later patch on top of (via the real IOptionsMonitor).
-// Values consumed live at request time still flow through the DI-container's own
-// IOptionsMonitor<T> — this probe only feeds one-shot startup reads.
+// Startup snapshots for the three purely-env-bound options. AuthenticationConfiguration is
+// deliberately absent: post-Slice-5 it goes through the AuthenticationSecretsPostConfigure
+// pipeline which pulls from an ISecretsSnapshot populated by SecretsSnapshotLoader on
+// IHostedLifecycleService.StartingAsync — probing it here would resolve validation before
+// the loader has run and trip [Required] on the mandatory secret fields. The two probe
+// consumers (JWT bearer ValidAudience and AddInterfoldAuthChallengeSchemes) read directly
+// from builder.Configuration for the four env-bound values they need, below.
 //
 // ASP0000: BuildServiceProvider inside application code duplicates singleton graphs — that's
 // the intended cost here (see the Slice 3 plan "Program.cs startup rebuild penalty" note).
 // The alternative — hand-maintained Bind*(IConfiguration) helpers — is exactly what this
 // slice retired to keep the options pipeline the single source of truth.
-AuthenticationConfiguration authConfig;
 PersistenceConfiguration persistenceConfig;
 CorsOptions corsOptions;
 ClusterConfiguration clusterConfig;
@@ -71,7 +72,6 @@ ClusterConfiguration clusterConfig;
 using (var probeProvider = builder.Services.BuildServiceProvider(validateScopes: false))
 #pragma warning restore ASP0000
 {
-    authConfig = probeProvider.GetRequiredService<IOptions<AuthenticationConfiguration>>().Value;
     persistenceConfig = probeProvider.GetRequiredService<IOptions<PersistenceConfiguration>>().Value;
     corsOptions = probeProvider.GetRequiredService<IOptions<CorsOptions>>().Value;
     clusterConfig = probeProvider.GetRequiredService<IOptions<ClusterConfiguration>>().Value;
@@ -102,8 +102,14 @@ builder.Services.AddCors(options =>
 });
 
 // Registered BEFORE persistence services so its StartingAsync runs before migration services
-// try to read admin creds / OAuth secrets out of IConfiguration.
-builder.Services.AddHostedService<SecretsBootstrapService>();
+// try to read admin creds / OAuth secrets out of IConfiguration, and — new in Slice 5 —
+// before ValidationHostedService dereferences AuthenticationConfiguration / FirebaseClient-
+// Configuration to enforce [Required] via .ValidateOnStart().
+builder.Services.AddSingleton<SecretsSnapshot>();
+builder.Services.AddSingleton<ISecretsSnapshot>(sp => sp.GetRequiredService<SecretsSnapshot>());
+builder.Services.AddSingleton<IPostConfigureOptions<AuthenticationConfiguration>, AuthenticationSecretsPostConfigure>();
+builder.Services.AddSingleton<IPostConfigureOptions<FirebaseClientConfiguration>, FirebaseClientSecretsPostConfigure>();
+builder.Services.AddHostedService<SecretsSnapshotLoader>();
 
 // --- Dependency Injection ---
 // The snapshots above already reflect the env-bound IOptions<T> values; passing them into
@@ -172,6 +178,15 @@ builder.Services.AddHttpClient(LoopbackHttpClient.Name)
 // JWTs are self-issued post-OAuth (the provider only identifies the user); no external OIDC
 // authority to validate iss against, so issuer validation is off and we rely on aud + lifetime.
 // TODO: Look into how we can make this better WITHOUT breaking existing clients
+//
+// ValidAudience and the OAuth client IDs are env-bound values that must be read at
+// registration time to wire into the JWT handler / challenge schemes. Post-Slice-5 we
+// deliberately do not resolve IOptions<AuthenticationConfiguration>.Value here — that would
+// trigger .ValidateOnStart() before SecretsSnapshotLoader.StartingAsync populates the
+// [Required] secret fields. builder.Configuration is the same source ApplyAuthentication
+// reads from, so this is byte-identical to the pre-Slice-5 probe for the four public fields
+// we still need at boot.
+var jwtAudienceAtBoot = builder.Configuration[OctoconEnvKeys.JwtAudience] ?? "octocon";
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -182,25 +197,32 @@ builder.Services
             NameClaimType = "sub",
             ValidateIssuer = false,
             ValidateAudience = false,
-            ValidAudience = authConfig.JwtAudience, //Has to be done at startup to wire into the JWT handler
+            ValidAudience = jwtAudienceAtBoot, //Has to be done at startup to wire into the JWT handler
             ValidateLifetime = true,
             RequireExpirationTime = true,
             ClockSkew = TimeSpan.FromMinutes(1),
             ValidateIssuerSigningKey = false,
             RequireSignedTokens = true,
+            // authOptionsMonitor is assigned right after app.Build() and this closure only
+            // fires at request time (long after startup completes and PostConfigure has
+            // patched the ES256 verification key from the snapshot), so a null-forgive is
+            // safe here.
             SignatureValidator = (token, _) =>
                 ValidateJwtTokenSignatureForBearer(
                     token,
-                    authOptionsMonitor?.CurrentValue ?? authConfig)
+                    authOptionsMonitor!.CurrentValue)
         };
         // JTI revocation check is wired after app.Build() to access IAuthTokenRevocationRepository
     });
 
-// OAuth challenge schemes are registered once at startup; only the parameters in
-// IOptionsMonitor<AuthenticationConfiguration> are live-reloadable per request. The snapshot
-// we hand it here comes from the same probe provider that fed the JWT bearer wiring above,
-// so both surfaces see identical OAuth client-ID values at boot.
-builder.Services.AddInterfoldAuthChallengeSchemes(authConfig);
+// OAuth challenge schemes are registered once at startup; only the client_id per provider is
+// per-deployment, and each ClientId is env-bound (ApplyAuthentication:275/277/279). Reading
+// builder.Configuration directly here mirrors that binding without materialising an
+// AuthenticationConfiguration snapshot — same rationale as jwtAudienceAtBoot above.
+builder.Services.AddInterfoldAuthChallengeSchemes(
+    discordOAuthClientId: builder.Configuration[OctoconEnvKeys.DiscordOAuthClientId],
+    googleOAuthClientId: builder.Configuration[OctoconEnvKeys.GoogleOAuthClientId],
+    appleOAuthClientId: builder.Configuration[OctoconEnvKeys.AppleOAuthClientId]);
 
 builder.Services.AddAuthorizationBuilder()
             .SetFallbackPolicy(new AuthorizationPolicyBuilder()
@@ -303,15 +325,26 @@ builder.Services.AddExceptionHandler<ExceptionHandler>();
 
 var app = builder.Build();
 
-// Capture once after Build so we can log ES256 configuration details.
+// Capture the monitor once so the JWT SignatureValidator closure has a stable handle. The
+// closure only fires at request time (after startup completes and PostConfigure has run),
+// so this assignment is safe even though the monitor's CurrentValue isn't dereferenced yet.
 authOptionsMonitor = app.Services.GetRequiredService<IOptionsMonitor<AuthenticationConfiguration>>();
 
+// Defer the ES256 verification-key log to ApplicationStarted so we don't dereference
+// IOptionsMonitor<AuthenticationConfiguration>.CurrentValue between app.Build() and
+// app.Run(). Post-Slice-5 .ValidateOnStart() + [Required] on the secret fields means an
+// early CurrentValue resolution would trip validation before SecretsSnapshotLoader has
+// populated the snapshot — the log fires after both the loader and the ValidateOnStart
+// hosted service have run, so the count reflects the fully-patched configuration.
 var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("AuthStartup");
-var effectiveAuthConfig = authOptionsMonitor.CurrentValue;
-var verificationKeyCount = effectiveAuthConfig.JwtEs256VerificationKeyPems?.Length ?? 0;
-startupLogger.LogInformation(
-    "ES256 token issuance is enabled. Verification key count: {VerificationKeyCount}.",
-    verificationKeyCount);
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    var effectiveAuthConfig = authOptionsMonitor.CurrentValue;
+    var verificationKeyCount = effectiveAuthConfig.JwtEs256VerificationKeyPems?.Length ?? 0;
+    startupLogger.LogInformation(
+        "ES256 token issuance is enabled. Verification key count: {VerificationKeyCount}.",
+        verificationKeyCount);
+});
 
 app.UseExceptionHandler("/error");
 

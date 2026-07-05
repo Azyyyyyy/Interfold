@@ -84,19 +84,29 @@ internal static class OAuthChallengeServiceCollectionExtensions
     /// <summary>
     /// Registers the Discord / Google / Apple challenge schemes against the hardcoded
     /// provider endpoints + static parameter sets. A scheme is only registered when the
-    /// matching OAuth client ID is set in <see cref="AuthenticationConfiguration"/>; that's
-    /// the operator's signal that they intend to use the provider. When the client ID is
-    /// absent the scheme stays unregistered and
+    /// matching OAuth client ID is set; that's the operator's signal that they intend to
+    /// use the provider. When the client ID is absent the scheme stays unregistered and
     /// <see cref="Controllers.Base.OAuthControllerBase.IssueChallengeIfRegisteredAsync"/>
     /// falls through to a 403.
+    /// <para>
+    /// Takes the three client IDs individually rather than a whole
+    /// <see cref="AuthenticationConfiguration"/> snapshot so the boundary between "env-bound,
+    /// safe to read at builder-time" and "secret-store-sourced, requires the post-configure
+    /// pipeline" is explicit at the call site — post-Slice-5 the caller reads directly from
+    /// <c>builder.Configuration</c> to avoid resolving the options monitor before
+    /// <c>SecretsSnapshotLoader.StartingAsync</c> populates the <see cref="RequiredAttribute"/>
+    /// secret fields.
+    /// </para>
     /// </summary>
     public static IServiceCollection AddInterfoldAuthChallengeSchemes(
         this IServiceCollection services,
-        AuthenticationConfiguration authConfig)
+        string? discordOAuthClientId,
+        string? googleOAuthClientId,
+        string? appleOAuthClientId)
     {
-        AddSchemeIfConfigured(services, DiscordSchemeName, DiscordEndpoint, authConfig.DiscordOAuthClientId, DiscordParams);
-        AddSchemeIfConfigured(services, GoogleSchemeName,  GoogleEndpoint,  authConfig.GoogleOAuthClientId,  GoogleParams);
-        AddSchemeIfConfigured(services, AppleSchemeName,   AppleEndpoint,   authConfig.AppleOAuthClientId,   AppleParams);
+        AddSchemeIfConfigured(services, DiscordSchemeName, DiscordEndpoint, discordOAuthClientId, DiscordParams);
+        AddSchemeIfConfigured(services, GoogleSchemeName,  GoogleEndpoint,  googleOAuthClientId,  GoogleParams);
+        AddSchemeIfConfigured(services, AppleSchemeName,   AppleEndpoint,   appleOAuthClientId,   AppleParams);
 
         return services;
     }

@@ -49,28 +49,26 @@ public static class ConfigurationServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
-        // Startup-baked: AuthenticationConfiguration is a hybrid of env-bound values (OAuth
-        // client IDs, callback base URL, JWT authority) and secret-store-bound values
-        // (RSA/ES256 signing material, deep-link secret, encryption pepper, OAuth client
-        // secrets). SecretsBootstrapService patches the secret fields directly into the
-        // IOptionsMonitor.CurrentValue snapshot at startup. Wiring an
-        // IOptionsChangeTokenSource here would cause every IConfiguration reload to
-        // re-run ApplyAuthentication and overwrite the patched secrets with the empty
-        // initial values, breaking JWT verification and the encryption pepper guard.
-        // Treat auth as startup-only until the secret bootstrap moves to
-        // IPostConfigureOptions or a dedicated reload-aware patcher.
+        // Startup-baked hybrid: env-bound public fields + internal.secrets-sourced secret
+        // fields (patched in by AuthenticationSecretsPostConfigure). Post-configure runs
+        // between Configure and validate inside the options factory, so [Required] on the
+        // four mandatory secret fields (EncryptionPepper, DeepLinkSecret,
+        // JwtEs256PrivateKeyPem, Rsa256PrivateKey) trips ValidateOnStart at boot when the
+        // matching internal.secrets row is missing.
         services.AddOptions<AuthenticationConfiguration>()
-            .Configure<IConfiguration>(ApplyAuthentication);
+            .Configure<IConfiguration>(ApplyAuthentication)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
-        // Startup-only: FirebaseClientConfiguration is populated entirely from
-        // internal.secrets (firebase:client:{android,ios,web}) by SecretsBootstrapService
-        // ahead of any request-time consumer. The initial ApplyFirebaseClient callback
-        // just leaves the platform variants null so a bad seed manifests as a 503 rather
-        // than as a config-binding error; wiring an IOptionsChangeTokenSource here would
-        // clobber the patched values on any IConfiguration reload (see the equivalent
-        // AuthenticationConfiguration note above).
+        // Startup-baked: platform variants are deserialised from internal.secrets by
+        // FirebaseClientSecretsPostConfigure. ValidateOnStart forces the post-configure to
+        // run at boot so a malformed row surfaces immediately (ParseOrThrow raises
+        // InvalidOperationException, which OptionsFactory bubbles up like a validation
+        // failure).
         services.AddOptions<FirebaseClientConfiguration>()
-            .Configure<IConfiguration>(ApplyFirebaseClient);
+            .Configure<IConfiguration>(ApplyFirebaseClient)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         // Registered for completeness; OTLP exporters are wired at startup so runtime changes
         // to OtlpEndpoint only take effect after a restart. ValidateOnStart runs
@@ -251,12 +249,11 @@ public static class ConfigurationServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Initial bind of <see cref="AuthenticationConfiguration"/> from env. JWT signing keys
-    /// (RSA + ES256), the deep-link HMAC secret, and the encryption pepper override get
-    /// patched in over the top by <c>SecretsBootstrapService</c> on startup from
-    /// <c>internal.secrets</c>; the rest of the fields stay env-bound. OAuth client IDs are
-    /// public values and remain env-only; the matching client secrets live in the store and
-    /// are also overridden by <c>SecretsBootstrapService</c>.
+    /// Initial bind of <see cref="AuthenticationConfiguration"/> from env. Public / env-bound
+    /// fields land here; every secret-store-sourced field (JWT signing keys, deep-link HMAC
+    /// secret, encryption pepper, OAuth client secrets) is layered on top by
+    /// <c>AuthenticationSecretsPostConfigure</c> inside the options factory pipeline before
+    /// <c>.ValidateOnStart()</c> runs.
     /// </summary>
     private static void ApplyAuthentication(AuthenticationConfiguration opts, IConfiguration config)
     {
@@ -268,8 +265,10 @@ public static class ConfigurationServiceCollectionExtensions
         opts.JwtAudience = config[OctoconEnvKeys.JwtAudience] ?? opts.JwtAudience;
 
         // OAuth client IDs are public values (they appear in OAuth redirect URLs); keep them
-        // env-bound. The matching secrets are placeholders here and get overwritten by
-        // SecretsBootstrapService from the store before they're consumed.
+        // env-bound. The matching client secrets are env-bound as a fallback here, then
+        // overwritten by AuthenticationSecretsPostConfigure when the corresponding
+        // internal.secrets row is present — preserving the pre-Slice-5 "env wins when the
+        // store row is absent" contract.
         opts.DiscordOAuthClientId = config[OctoconEnvKeys.DiscordOAuthClientId];
         opts.DiscordOAuthClientSecret = config[OctoconEnvKeys.DiscordOAuthClientSecret];
         opts.GoogleOAuthClientId = config[OctoconEnvKeys.GoogleOAuthClientId];
@@ -277,24 +276,12 @@ public static class ConfigurationServiceCollectionExtensions
         opts.AppleOAuthClientId = config[OctoconEnvKeys.AppleOAuthClientId];
         opts.AppleOAuthClientSecret = config[OctoconEnvKeys.AppleOAuthClientSecret];
 
-        // JWT signing material, deep-link secret, and the encryption pepper are intentionally
-        // left null/empty here. SecretsBootstrapService.StartingAsync runs before any consumer
-        // touches these fields (its registration order in Program.cs sits ahead of every
-        // migration service and request-time handler) and fills them from
-        // `auth:jwt_rsa256_private_pem`, `auth:jwt_es256_private_pem`, `auth:deep_link_secret`,
-        // and `encryption:pepper` respectively. The pepper row is enforced as required
-        // inside SecretsBootstrapService — if it's missing the API refuses to boot. The
-        // JWT and deep-link rows fail at first signing/verification (visible in startup
-        // logs) rather than at boot, matching the pattern established for those fields.
-        opts.Rsa256PublicKey = string.Empty;
-        opts.Rsa256PrivateKey = string.Empty;
-        opts.JwtEs256PrivateKeyPem = null;
-        opts.JwtEs256VerificationKeyPems = null;
-        opts.DeepLinkSecret = null;
-        // Left empty for the SecretsBootstrapService to overwrite. The service throws if
-        // the internal.secrets:encryption:pepper row is missing, so the empty default
-        // never survives past startup in a well-seeded deployment.
-        opts.EncryptionPepper = string.Empty;
+        // JWT signing material, deep-link secret, and encryption pepper are intentionally
+        // left at their property-initialiser defaults here. AuthenticationSecretsPostConfigure
+        // runs after this apply callback, reads the values from the SecretsSnapshot the
+        // SecretsSnapshotLoader primed on IHostedLifecycleService.StartingAsync, and
+        // .ValidateOnStart() enforces [Required] on the four mandatory fields — a missing
+        // row surfaces as an OptionsValidationException naming the offending property.
 
         // The OAuth challenge query parameters (scopes / response_type / response_mode) plus
         // each provider's scheme name + authorization endpoint are constants in
@@ -305,11 +292,12 @@ public static class ConfigurationServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Initial bind of <see cref="FirebaseClientConfiguration"/>. Every platform variant
-    /// is intentionally left <c>null</c> here — <c>SecretsBootstrapService</c> patches
-    /// them in from <c>internal.secrets:firebase:client:{android,ios,web}</c> before any
-    /// request-time consumer runs. A missing row is a supported state (returns 503 for
-    /// that platform) so there is nothing to bind from env vars.
+    /// Initial bind of <see cref="FirebaseClientConfiguration"/>. Every platform variant is
+    /// left at its default (<c>null</c>) — <c>FirebaseClientSecretsPostConfigure</c>
+    /// deserialises the three optional <c>internal.secrets:firebase:client:{android,ios,web}</c>
+    /// rows onto the options instance inside the factory pipeline. A missing row is a
+    /// supported state (returns 503 for that platform) so there is nothing to bind from env
+    /// vars.
     /// </summary>
     private static void ApplyFirebaseClient(FirebaseClientConfiguration opts, IConfiguration config)
     {
