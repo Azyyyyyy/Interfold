@@ -1,6 +1,7 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
 using TUnit.Core;
 
@@ -65,7 +66,7 @@ public sealed class BackupCommandBuildingTests
         var (snap, resolveContainer, clear) = BackupPhase.BuildScyllaSnapshotArgs(
             composeFile: "/srv/deploy/docker-compose.yaml",
             service: "scylla",
-            dataPath: "/var/lib/scylla",
+            dataPath: ContainerMountPaths.ScyllaData,
             tag: "interfold-backup-20260301-120000");
 
         await Assert.That(snap).IsEquivalentTo(new[]
@@ -102,11 +103,11 @@ public sealed class BackupCommandBuildingTests
         // in a host-side GZipStream to produce the final .tar.gz on disk.
         var args = BackupPhase.BuildContainerCpArgs(
             containerId: "63fe606f0e95",
-            dataPath: "/var/lib/scylla");
+            dataPath: ContainerMountPaths.ScyllaData);
 
         await Assert.That(args).IsEquivalentTo(new[]
         {
-            "cp", "63fe606f0e95:/var/lib/scylla", "-",
+            "cp", $"63fe606f0e95:{ContainerMountPaths.ScyllaData}", "-",
         });
     }
 
@@ -118,7 +119,7 @@ public sealed class BackupCommandBuildingTests
         // would interpret as a source-side host path, not a container path. Rejecting
         // early gives a clear error at the phase boundary.
         Assert.Throws<ArgumentException>(
-            () => BackupPhase.BuildContainerCpArgs(containerId: "", dataPath: "/var/lib/scylla"));
+            () => BackupPhase.BuildContainerCpArgs(containerId: "", dataPath: ContainerMountPaths.ScyllaData));
         Assert.Throws<ArgumentException>(
             () => BackupPhase.BuildContainerCpArgs(containerId: "abc", dataPath: "   "));
         await Task.CompletedTask;
@@ -133,7 +134,7 @@ public sealed class BackupCommandBuildingTests
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
         await Assert.That(service).IsEqualTo("scylla");
-        await Assert.That(dataPath).IsEqualTo("/var/lib/scylla");
+        await Assert.That(dataPath).IsEqualTo(ContainerMountPaths.ScyllaData);
     }
 
     [Test]
@@ -146,7 +147,7 @@ public sealed class BackupCommandBuildingTests
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
         await Assert.That(service).IsEqualTo("scylla-nam");
-        await Assert.That(dataPath).IsEqualTo("/var/lib/scylla");
+        await Assert.That(dataPath).IsEqualTo(ContainerMountPaths.ScyllaData);
     }
 
     [Test]
@@ -158,7 +159,7 @@ public sealed class BackupCommandBuildingTests
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
         await Assert.That(service).IsEqualTo("cassandra");
-        await Assert.That(dataPath).IsEqualTo("/var/lib/cassandra");
+        await Assert.That(dataPath).IsEqualTo(ContainerMountPaths.CassandraData);
     }
 
     [Test]

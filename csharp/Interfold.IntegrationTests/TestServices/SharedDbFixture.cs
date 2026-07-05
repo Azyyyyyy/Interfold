@@ -86,30 +86,30 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         LifecycleProbe.Log("SharedDbFixture.BuildArgs");
         var args = new List<string>
         {
-            "Parameters:include-api=false",
-            "Parameters:include-web=false",
-            "Parameters:persistent-containers=false",
-            "Parameters:include-postgres=true",
-            $"Parameters:include-scylla={(RequiredFixtures.NeedScylla ? "true" : "false")}",
-            $"Parameters:include-cassandra={(RequiredFixtures.NeedCassandra ? "true" : "false")}",
-            "Ports:postgres=14200",
-            "Ports:scylla=19042",
-            "Ports:cassandra=19043",
-            $"Parameters:postgres-user={TestDbCredentials.PostgresAppUser}",
-            $"Parameters:postgres-password={TestDbCredentials.PostgresAppPassword}",
+            $"{AppHostParameterKeys.IncludeApi}=false",
+            $"{AppHostParameterKeys.IncludeWeb}=false",
+            $"{AppHostParameterKeys.PersistentContainers}=false",
+            $"{AppHostParameterKeys.IncludePostgres}=true",
+            $"{AppHostParameterKeys.IncludeScylla}={BoolWire.ToWireValue(RequiredFixtures.NeedScylla)}",
+            $"{AppHostParameterKeys.IncludeCassandra}={BoolWire.ToWireValue(RequiredFixtures.NeedCassandra)}",
+            $"{AppHostParameterKeys.PortsPostgres}=14200",
+            $"{AppHostParameterKeys.PortsScylla}=19042",
+            $"{AppHostParameterKeys.PortsCassandra}=19043",
+            $"{AppHostParameterKeys.PostgresUser}={TestDbCredentials.PostgresAppUser}",
+            $"{AppHostParameterKeys.PostgresPassword}={TestDbCredentials.PostgresAppPassword}",
             // db_init bootstrap superuser password. Pinning a deterministic value here keeps
             // the test process and DbInitHelper aligned without having to read back the
             // GenerateParameterDefault output from the AppHost service provider.
-            $"Parameters:postgres-init-password={TestDbCredentials.PostgresInitPassword}",
+            $"{AppHostParameterKeys.PostgresInitPassword}={TestDbCredentials.PostgresInitPassword}",
             // Pin the application database name so the AppHost's `Parameters:postgres-db`
             // default and the in-process DbInitHelper.DefaultPostgresDb cannot silently diverge
             // (e.g. if someone changes the AppHost default later). Both currently resolve to
             // "interfold"; routing both through the same constant means a single rename moves
             // them in lockstep.
-            $"Parameters:postgres-db={DbInitHelper.DefaultPostgresDb}",
-            $"Parameters:scylla-user={TestDbCredentials.ScyllaAppUser}",
-            $"Parameters:scylla-password={TestDbCredentials.ScyllaAppPassword}",
-            "Parameters:encryption-private-key=TEST",
+            $"{AppHostParameterKeys.PostgresDb}={DbInitHelper.DefaultPostgresDb}",
+            $"{AppHostParameterKeys.ScyllaUser}={TestDbCredentials.ScyllaAppUser}",
+            $"{AppHostParameterKeys.ScyllaPassword}={TestDbCredentials.ScyllaAppPassword}",
+            $"{AppHostParameterKeys.EncryptionPrivateKey}=TEST",
         };
         return args.ToArray();
     }

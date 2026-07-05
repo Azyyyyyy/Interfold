@@ -49,6 +49,11 @@ public static class InterfoldAppHost
     private const string HttpEndpointName = "http";
     private const string HttpsEndpointName = "https";
 
+    /// <summary>The <c>scheme</c> argument to <c>WithEndpoint</c> for raw TCP endpoints
+    /// (Postgres, CQL). HTTP/HTTPS endpoints go through the typed <c>WithHttp[s]Endpoint</c>
+    /// overloads and don't need this.</summary>
+    private const string TcpScheme = "tcp";
+
     /// <summary>The Aspire resource name of the Docker Compose publish environment.</summary>
     private const string ComposeEnvironmentName = "docker-compose";
 
@@ -341,10 +346,9 @@ public static class InterfoldAppHost
         // can write to it without any chown gymnastics. Operators that supply a non-blank
         // value opt out of the managed volume (see the WithVolume guard in
         // ConfigureApiSelfHostEnv) and are on the hook for their own mount and ownership.
-        const string DefaultContainerAvatarStorageRoot = "/app/data/avatars";
         var rawAvatarStorageRoot = builder.Configuration[AppHostParameterKeys.AvatarStorageRoot];
         var effectiveAvatarStorageRoot = string.IsNullOrWhiteSpace(rawAvatarStorageRoot)
-            ? DefaultContainerAvatarStorageRoot
+            ? ContainerMountPaths.InterfoldAvatars
             : rawAvatarStorageRoot;
         var useDefaultAvatarStorageRoot = string.IsNullOrWhiteSpace(rawAvatarStorageRoot);
         var otlpEndpoint = builder.AddParameter(ParamName(AppHostParameterKeys.OtlpEndpoint), "", publishValueAsDefault: true);
@@ -437,9 +441,9 @@ public static class InterfoldAppHost
         {
             msgDb = builder.AddContainer(ComposeServices.Postgres, "timescale/timescaledb", "latest-pg18")
                 .WithContainerNetworkAlias(ComposeServices.Postgres)
-                .WithEnvironment(ContainerEnvNames.PostgresUser, "db_init")
+                .WithEnvironment(ContainerEnvNames.PostgresUser, PostgresRoles.Init)
                 .WithEnvironment(ContainerEnvNames.PostgresPassword, postgresInitPassword)
-                .WithEnvironment(ContainerEnvNames.PgData, "/var/lib/postgresql/data/pgdata")
+                .WithEnvironment(ContainerEnvNames.PgData, ContainerMountPaths.PostgresPgData)
                 // initdb's default --auth-host is `trust`, which produces `host all all 127.0.0.1/32 trust`
                 // in pg_hba.conf BEFORE the entrypoint appends `host all all all scram-sha-256`. With
                 // first-match-wins ordering, TCP loopback connections (e.g. `psql -h 127.0.0.1` from
@@ -467,7 +471,7 @@ public static class InterfoldAppHost
                 // docker-compose.override.yaml without re-running the bootstrapper.
                 .WithEnvironment(ContainerEnvNames.TsTuneMemory, "1GB")
                 .WithEnvironment(ContainerEnvNames.TsTuneNumCpus, "2")
-                .WithEndpoint(port: postgresPort, targetPort: 5432, name: PostgresEndpointName, scheme: "tcp")
+                .WithEndpoint(port: postgresPort, targetPort: 5432, name: PostgresEndpointName, scheme: TcpScheme)
                 .PublishAsDockerComposeService((_, service) =>
                 {
                     service.Networks = [ComposeNetworks.Postgres];
@@ -484,7 +488,7 @@ public static class InterfoldAppHost
                 msgDb.WithHealthCheck(MsgDbHealthCheckName);
             if (persistentContainers)
             {
-                msgDb.WithVolume(ComposeVolumes.PostgresData, "/var/lib/postgresql/data");
+                msgDb.WithVolume(ComposeVolumes.PostgresData, ContainerMountPaths.PostgresData);
                 msgDb.WithLifetime(ContainerLifetime.Persistent);
             }
         }
@@ -568,7 +572,7 @@ public static class InterfoldAppHost
 
                 if (persistentContainers)
                 {
-                    node.WithVolume(isMultiScyllaNode ? ComposeVolumes.ScyllaRegionData(regionWire) : ComposeVolumes.ScyllaData, "/var/lib/scylla");
+                    node.WithVolume(isMultiScyllaNode ? ComposeVolumes.ScyllaRegionData(regionWire) : ComposeVolumes.ScyllaData, ContainerMountPaths.ScyllaData);
                     node.WithLifetime(ContainerLifetime.Persistent);
                 }
 
@@ -581,7 +585,7 @@ public static class InterfoldAppHost
 
                 if (previousNode is null)
                 {
-                    node.WithEndpoint(port: scyllaPort, targetPort: 9042, name: CqlEndpointName, scheme: "tcp");
+                    node.WithEndpoint(port: scyllaPort, targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
                     cqlEndpointOwners.Add(node);
                 }
                 else
@@ -626,7 +630,7 @@ public static class InterfoldAppHost
                 .WithEnvironment(ContainerEnvNames.HeapNewSize, "256M")
                 .WithEnvironment(ContainerEnvNames.CqlshUser, scyllaUser)
                 .WithEnvironment(ContainerEnvNames.CqlshPassword, scyllaPassword)
-                .WithEndpoint(port: cassandraEndpointPort, targetPort: 9042, name: CqlEndpointName, scheme: "tcp")
+                .WithEndpoint(port: cassandraEndpointPort, targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme)
                 .PublishAsDockerComposeService((_, service) =>
                 {
                     service.Networks = [ComposeNetworks.Scylla];
@@ -649,7 +653,7 @@ public static class InterfoldAppHost
             }
             if (persistentContainers)
             {
-                cassandra.WithVolume(ComposeVolumes.CassandraData, "/var/lib/cassandra");
+                cassandra.WithVolume(ComposeVolumes.CassandraData, ContainerMountPaths.CassandraData);
                 cassandra.WithLifetime(ContainerLifetime.Persistent);
             }
 
@@ -789,7 +793,7 @@ public static class InterfoldAppHost
                 // story (documented in the Phase-3 bootstrapper prompt copy).
                 if (persistentContainers && useDefaultAvatarStorageRoot)
                 {
-                    api.WithVolume(ComposeVolumes.InterfoldAvatars, DefaultContainerAvatarStorageRoot);
+                    api.WithVolume(ComposeVolumes.InterfoldAvatars, ContainerMountPaths.InterfoldAvatars);
                 }
             }
 

@@ -142,7 +142,7 @@ public static class Extensions
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Services.AddHealthChecks()
-            .AddCheck("self", () => HealthCheckResult.Healthy(), [HealthCheckTags.Live]);
+            .AddCheck(HealthCheckNames.Self, () => HealthCheckResult.Healthy(), [HealthCheckTags.Live]);
 
         return builder;
     }

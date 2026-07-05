@@ -39,3 +39,14 @@ public static class HealthCheckTags
     public const string Ready = "ready";
     public const string Startup = "startup";
 }
+
+/// <summary>
+/// Well-known <c>IHealthCheck</c> registration names shared between the writers (health-check
+/// registrations) and the readers (health-check UI / dashboards). Keeping them here lets a
+/// downstream operator inspect the surface without grepping the source.
+/// </summary>
+public static class HealthCheckNames
+{
+    /// <summary>The built-in "always healthy" liveness check ServiceDefaults registers.</summary>
+    public const string Self = "self";
+}

@@ -64,22 +64,22 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
     [
         // Drives a 7-region multi-DC Scylla layout in this fixture's own Aspire host. Postgres
         // lives in SharedDbFixture's host instead — see class-level remarks.
-        "Parameters:include-postgres=false",
-        "Parameters:include-scylla=true",
-        "Parameters:include-cassandra=false",
-        "Parameters:scylla-topology=multi",
-        "Parameters:include-api=false",
-        "Parameters:include-web=false",
-        "Parameters:persistent-containers=false",
+        $"{AppHostParameterKeys.IncludePostgres}=false",
+        $"{AppHostParameterKeys.IncludeScylla}=true",
+        $"{AppHostParameterKeys.IncludeCassandra}=false",
+        $"{AppHostParameterKeys.ScyllaTopology}={ScyllaTopologyExtensions.MultiWireValue}",
+        $"{AppHostParameterKeys.IncludeApi}=false",
+        $"{AppHostParameterKeys.IncludeWeb}=false",
+        $"{AppHostParameterKeys.PersistentContainers}=false",
         // Distinct port range so the Aspire host can run side-by-side with SharedDbFixture
         // without the Aspire test-mode port allocator complaining about reuse. SharedDbFixture
         // claims 14200 / 19042 / 19043; this fixture claims 39042.
-        "Ports:scylla=39042",
+        $"{AppHostParameterKeys.PortsScylla}=39042",
         // postgres-* parameters intentionally omitted — they're only consumed by the msg-db
         // container, which include-postgres=false skips entirely.
-        $"Parameters:scylla-user={TestDbCredentials.ScyllaAppUser}",
-        $"Parameters:scylla-password={TestDbCredentials.ScyllaAppPassword}",
-        "Parameters:encryption-private-key=TEST"
+        $"{AppHostParameterKeys.ScyllaUser}={TestDbCredentials.ScyllaAppUser}",
+        $"{AppHostParameterKeys.ScyllaPassword}={TestDbCredentials.ScyllaAppPassword}",
+        $"{AppHostParameterKeys.EncryptionPrivateKey}=TEST"
     ];
 
     // Multi-DC Scylla startup itself takes ~2 minutes, then SeedScyllaAsync, the per-keyspace

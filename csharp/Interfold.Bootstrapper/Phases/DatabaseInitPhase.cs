@@ -34,7 +34,7 @@ internal static class DatabaseInitPhase
 {
     private static readonly string Phase = BootstrapPhase.DbInit.ToWireName();
     private const string PostgresService = ComposeServices.Postgres;
-    private const string PostgresInitUser = "db_init";
+    private const string PostgresInitUser = PostgresRoles.Init;
 
     public static async Task RunAsync(
         BootstrapOptions options,

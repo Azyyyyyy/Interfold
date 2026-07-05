@@ -171,9 +171,9 @@ internal static class BackupPhase
     {
         return config.DatabaseMode switch
         {
-            DatabaseMode.Cassandra => (ComposeServices.Cassandra, "/var/lib/cassandra"),
-            DatabaseMode.Multi => (ComposeServices.ScyllaNam, "/var/lib/scylla"),
-            _ => (ComposeServices.ScyllaSingle, "/var/lib/scylla"),
+            DatabaseMode.Cassandra => (ComposeServices.Cassandra, ContainerMountPaths.CassandraData),
+            DatabaseMode.Multi => (ComposeServices.ScyllaNam, ContainerMountPaths.ScyllaData),
+            _ => (ComposeServices.ScyllaSingle, ContainerMountPaths.ScyllaData),
         };
     }
 
