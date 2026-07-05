@@ -1,9 +1,10 @@
 using Cassandra;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
-using Interfold.Contracts.Ids;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
@@ -16,11 +17,11 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
     public ScyllaEncryptionStateRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaKeyspaceResolver keyspaceResolver,
-        PersistenceConfiguration options)
+        IOptions<PersistenceConfiguration> options)
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
-        _options = options;
+        _options = options.Value;
     }
 
     public async Task<EncryptionState?> GetAsync(SystemId systemId, CancellationToken cancellationToken = default)

@@ -45,22 +45,43 @@ InMemoryServiceCollectionExtensions.Register();
 PostgresServiceCollectionExtensions.Register();
 
 // --- Configuration ---
-// Register all typed options. consumed via IOptionsMonitor in services. 
-// or by their registration helpers below.
+// Register every typed option (bound via AddInterfoldOptions) BEFORE we take any startup
+// snapshots — the JWT bearer + CORS + persistence + cluster wiring below all read one-shot
+// values that must go through the IOptions pipeline so tests can override them via the
+// FactoryConfigurationProvider without a bespoke Bind*() helper.
 IOptionsMonitor<AuthenticationConfiguration>? authOptionsMonitor = null;
-var authConfig = builder.Configuration.BindAuthenticationConfiguration();
-var persistenceConfig = builder.Configuration.BindPersistenceConfiguration();
 builder.Services.AddInterfoldOptions();
 
-// Comma-separated allow-list from OCTOCON_CORS_ALLOWED_ORIGINS; blank falls back to
-// allow-any (dev-only — production stacks must set it explicitly). Trailing slashes
-// trimmed for parity with the ASP.NET Core CORS matcher.
-var configuredCorsOrigins = (builder.Configuration[OctoconEnvKeys.CorsAllowedOrigins] ?? string.Empty)
-    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-    .Select(static origin => origin.TrimEnd('/'))
-    .Where(static origin => !string.IsNullOrWhiteSpace(origin))
-    .Distinct(StringComparer.OrdinalIgnoreCase)
-    .ToArray();
+// Startup snapshots resolved once from a probe service provider. The probe is throwaway;
+// it exists solely to materialise IOptions<T>.Value against the current registrations so
+// the CORS/JWT/persistence/cluster wiring downstream sees the same env-bound values
+// SecretsBootstrapService will later patch on top of (via the real IOptionsMonitor).
+// Values consumed live at request time still flow through the DI-container's own
+// IOptionsMonitor<T> — this probe only feeds one-shot startup reads.
+//
+// ASP0000: BuildServiceProvider inside application code duplicates singleton graphs — that's
+// the intended cost here (see the Slice 3 plan "Program.cs startup rebuild penalty" note).
+// The alternative — hand-maintained Bind*(IConfiguration) helpers — is exactly what this
+// slice retired to keep the options pipeline the single source of truth.
+AuthenticationConfiguration authConfig;
+PersistenceConfiguration persistenceConfig;
+CorsOptions corsOptions;
+ClusterConfiguration clusterConfig;
+#pragma warning disable ASP0000
+using (var probeProvider = builder.Services.BuildServiceProvider(validateScopes: false))
+#pragma warning restore ASP0000
+{
+    authConfig = probeProvider.GetRequiredService<IOptions<AuthenticationConfiguration>>().Value;
+    persistenceConfig = probeProvider.GetRequiredService<IOptions<PersistenceConfiguration>>().Value;
+    corsOptions = probeProvider.GetRequiredService<IOptions<CorsOptions>>().Value;
+    clusterConfig = probeProvider.GetRequiredService<IOptions<ClusterConfiguration>>().Value;
+}
+
+// Comma-separated allow-list from OCTOCON_CORS_ALLOWED_ORIGINS via IOptions<CorsOptions>;
+// blank falls back to allow-any (dev-only — production stacks must set it explicitly).
+// Trailing-slash trimming and de-dup live inside ApplyCors for parity with the ASP.NET Core
+// CORS matcher.
+var configuredCorsOrigins = corsOptions.AllowedOrigins.ToArray();
 
 builder.Services.AddCors(options =>
 {
@@ -85,8 +106,12 @@ builder.Services.AddCors(options =>
 builder.Services.AddHostedService<SecretsBootstrapService>();
 
 // --- Dependency Injection ---
-builder.Services.AddInterfoldCluster(builder.Configuration);
-builder.Services.AddInterfoldPersistence(builder.Configuration);
+// The snapshots above already reflect the env-bound IOptions<T> values; passing them into
+// the mode/role-scoped extension methods layers them onto the mode-registration lambdas
+// (which capture PersistenceConfiguration synchronously) while every other consumer still
+// resolves IOptions<PersistenceConfiguration> from the DI container.
+builder.Services.AddInterfoldCluster(clusterConfig.NodeGroup);
+builder.Services.AddInterfoldPersistence(persistenceConfig.Mode, persistenceConfig);
 builder.Services.AddInterfoldDomainHandlers();
 
 // --- Health Checks ---
@@ -172,8 +197,10 @@ builder.Services
     });
 
 // OAuth challenge schemes are registered once at startup; only the parameters in
-// IOptionsMonitor<AuthenticationConfiguration> are live-reloadable per request.
-builder.Services.AddInterfoldAuthChallengeSchemes(builder.Configuration);
+// IOptionsMonitor<AuthenticationConfiguration> are live-reloadable per request. The snapshot
+// we hand it here comes from the same probe provider that fed the JWT bearer wiring above,
+// so both surfaces see identical OAuth client-ID values at boot.
+builder.Services.AddInterfoldAuthChallengeSchemes(authConfig);
 
 builder.Services.AddAuthorizationBuilder()
             .SetFallbackPolicy(new AuthorizationPolicyBuilder()

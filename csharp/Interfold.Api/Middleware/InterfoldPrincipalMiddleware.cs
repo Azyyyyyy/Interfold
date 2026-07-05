@@ -46,11 +46,22 @@ public sealed class InterfoldPrincipalMiddleware(RequestDelegate next)
                && typeof(InterfoldControllerBase).IsAssignableFrom(actionDescriptor.ControllerTypeInfo.AsType());
     }
 
-    private static Interfold.Contracts.Ids.SystemId? ResolvePrincipalId(ClaimsPrincipal user)
+    /// <summary>
+    /// Slice 4: the JWT <c>sub</c> claim is the one place a scoped-system-id string crosses
+    /// the trust boundary into the process. TryParseScoped enforces the wire invariant here
+    /// — a legacy or hand-crafted token that omits the region prefix (or names an unknown
+    /// region) surfaces as a 401 rather than propagating an ambiguous <c>SystemId</c>
+    /// deeper into the command pipeline. Every downstream site reads a
+    /// <see cref="Interfold.Contracts.Ids.ScopedSystemId"/> from
+    /// <c>HttpContext.Items[PrincipalIdItemKey]</c> and can rely on the type to prove it.
+    /// </summary>
+    private static Interfold.Contracts.Ids.ScopedSystemId? ResolvePrincipalId(ClaimsPrincipal user)
     {
         var sub = user.FindFirst(JwtClaimNames.Sub)?.Value
                   ?? user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-        return string.IsNullOrWhiteSpace(sub) ? null : new Interfold.Contracts.Ids.SystemId(sub);
+        return Interfold.Contracts.Ids.ScopedSystemId.TryParseScoped(sub, out var scoped)
+            ? scoped
+            : null;
     }
 }

@@ -3,10 +3,11 @@ using Cassandra;
 using System.Security.Cryptography;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
-using Interfold.Contracts.Ids;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
@@ -26,12 +27,12 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     public ScyllaAccountRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaKeyspaceResolver keyspaceResolver,
-        PersistenceConfiguration options
+        IOptions<PersistenceConfiguration> options
     )
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
-        _options = options;
+        _options = options.Value;
     }
 
     public async Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
@@ -53,7 +54,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 $"UPDATE {keyspace}.users SET username = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 username.Value, normalizedSystemId));
             batch.Add(new SimpleStatement(
-                $"UPDATE global.user_registry SET username = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
+                $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET username = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
                 username.Value, normalizedSystemId));
 
             // Remove old lookup entry
@@ -62,7 +63,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 batch.Add(new SimpleStatement(
                     $"DELETE FROM {keyspace}.users_by_username WHERE username = ?", oldUsername));
                 batch.Add(new SimpleStatement(
-                    "DELETE FROM global.user_registry_by_username WHERE username = ?", oldUsername));
+                    $"DELETE FROM {ScyllaGlobalKeyspace.Name}.user_registry_by_username WHERE username = ?", oldUsername));
             }
 
             // Insert new lookup entry
@@ -72,7 +73,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                     $"INSERT INTO {keyspace}.users_by_username (username, user_id) VALUES (?, ?)",
                     username.Value, normalizedSystemId));
                 batch.Add(new SimpleStatement(
-                    "INSERT INTO global.user_registry_by_username (username, user_id, region) VALUES (?, ?, ?)",
+                    $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry_by_username (username, user_id, region) VALUES (?, ?, ?)",
                     username.Value, normalizedSystemId, keyspace));
             }
 
@@ -145,7 +146,9 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var scopedSystemId = $"{keyspace}:{normalizedSystemId}";
+        // Compose is idempotent on already-scoped inputs; the extra safety net is why we're
+        // routing every partition-key composition through it in Slice 4.
+        var scopedSystemId = ScopedSystemId.Compose(keyspace, normalizedSystemId).Value;
         var systemKey = scopedSystemId;
         var now = DateTimeOffset.UtcNow;
 
@@ -176,7 +179,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var systemKey = $"{keyspace}:{normalizedSystemId}";
+        var systemKey = ScopedSystemId.Compose(keyspace, normalizedSystemId).Value;
         var now = DateTimeOffset.UtcNow;
 
         lock (_linkTokenLock)
@@ -231,7 +234,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var systemKey = $"{keyspace}:{normalizedSystemId}";
+        var systemKey = ScopedSystemId.Compose(keyspace, normalizedSystemId).Value;
 
         lock (_linkTokenLock)
         {
@@ -291,7 +294,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             
             var deleteBatch = new BatchStatement();
             deleteBatch.Add(new SimpleStatement($"DELETE FROM {keyspace}.users WHERE id = ?", normalizedSystemId));
-            deleteBatch.Add(new SimpleStatement("DELETE FROM global.user_registry WHERE user_id = ?", normalizedSystemId));
+            deleteBatch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE user_id = ?", normalizedSystemId));
 
             // Clean up denormalized identity lookup tables
             var identityColumns = new[] { "discord_id", "email", "username", "apple_id", "google_id" };
@@ -301,7 +304,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 if (!string.IsNullOrWhiteSpace(value))
                 {
                     deleteBatch.Add(new SimpleStatement($"DELETE FROM {keyspace}.users_by_{col} WHERE {col} = ?", value));
-                    deleteBatch.Add(new SimpleStatement($"DELETE FROM global.user_registry_by_{col} WHERE {col} = ?", value));
+                    deleteBatch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.user_registry_by_{col} WHERE {col} = ?", value));
                 }
             }
 
@@ -357,7 +360,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var query = new SimpleStatement(
-                $"SELECT user_id, region FROM global.user_registry_by_{columnName} WHERE {columnName} = ? LIMIT 1",
+                $"SELECT user_id, region FROM {ScyllaGlobalKeyspace.Name}.user_registry_by_{columnName} WHERE {columnName} = ? LIMIT 1",
                 value
             );
 
@@ -366,7 +369,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             {
                 var userId = NormalizeRegistryUserId(row.GetValue<string>("user_id"));
                 var region = row.GetValue<string?>("region") ?? _keyspaceResolver.DefaultKeyspace;
-                return new SystemId($"{region}:{userId}");
+                return ScopedSystemId.Compose(region, userId).AsSystemId();
             }
 
             return null;
@@ -409,7 +412,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                     value
                 ))
                 .Add(new SimpleStatement(
-                    $"INSERT INTO global.user_registry (user_id, {columnName}, region, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
+                    $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry (user_id, {columnName}, region, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
                     newUserId,
                     value,
                     newRegion
@@ -421,7 +424,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                     newUserId
                 ))
                 .Add(new SimpleStatement(
-                    $"INSERT INTO global.user_registry_by_{columnName} ({columnName}, user_id, region) VALUES (?, ?, ?)",
+                    $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry_by_{columnName} ({columnName}, user_id, region) VALUES (?, ?, ?)",
                     value,
                     newUserId,
                     newRegion
@@ -429,7 +432,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             await session.ExecuteAsync(createUserBatch);
 
-            return new SystemId($"{newRegion}:{newUserId}");
+            return ScopedSystemId.Compose(newRegion, newUserId).AsSystemId();
         }, _options, cancellationToken);
     }
 
@@ -494,7 +497,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 value,
                 normalizedSystemId));
             linkBatch.Add(new SimpleStatement(
-                $"UPDATE global.user_registry SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
+                $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
                 value,
                 normalizedSystemId));
             // Maintain denormalized lookup tables
@@ -503,7 +506,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 value,
                 normalizedSystemId));
             linkBatch.Add(new SimpleStatement(
-                $"INSERT INTO global.user_registry_by_{columnName} ({columnName}, user_id, region) VALUES (?, ?, ?)",
+                $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry_by_{columnName} ({columnName}, user_id, region) VALUES (?, ?, ?)",
                 value,
                 normalizedSystemId,
                 keyspace));
@@ -533,7 +536,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 null,
                 normalizedSystemId));
             unlinkBatch.Add(new SimpleStatement(
-                $"UPDATE global.user_registry SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
+                $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
                 null,
                 normalizedSystemId));
 
@@ -544,7 +547,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                     $"DELETE FROM {keyspace}.users_by_{columnName} WHERE {columnName} = ?",
                     oldValue));
                 unlinkBatch.Add(new SimpleStatement(
-                    $"DELETE FROM global.user_registry_by_{columnName} WHERE {columnName} = ?",
+                    $"DELETE FROM {ScyllaGlobalKeyspace.Name}.user_registry_by_{columnName} WHERE {columnName} = ?",
                     oldValue));
             }
 

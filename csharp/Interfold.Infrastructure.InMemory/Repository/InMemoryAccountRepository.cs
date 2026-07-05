@@ -11,12 +11,29 @@ namespace Interfold.Infrastructure.InMemory.Repository;
 
 public sealed class InMemoryAccountRepository : IAccountRepository
 {
+    /// <summary>
+    /// Slice 4 TTL — matches the 5-minute expiry the Scylla port enforces. Pre-Slice-4 the
+    /// InMemory adapter had no expiry at all, so a link token issued at T+0 was still
+    /// resolvable at T+1h, which diverged from the Scylla adapter and let integration
+    /// tests silently accept stale tokens.
+    /// </summary>
+    private static readonly TimeSpan LinkTokenTtl = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Reverse map from link-token → (scoped systemId, expiry). Retyped in Slice 4 to
+    /// carry a <see cref="ScopedSystemId"/> and an expiry timestamp so
+    /// <see cref="ResolveSystemIdByLinkTokenAsync"/> can honour the same TTL contract as
+    /// the Scylla port. The value tuple also lets us scrub stale entries lazily on the
+    /// first read that sees them expired.
+    /// </summary>
+    private readonly record struct LinkTokenEntry(ScopedSystemId Scoped, DateTimeOffset ExpiresAt);
+
     private readonly ConcurrentDictionary<string, string> _usernameBySystem = new();
     private readonly ConcurrentDictionary<string, string> _descriptionBySystem = new();
     private readonly ConcurrentDictionary<string, string> _avatarBySystem = new();
     private readonly ConcurrentDictionary<string, AvatarSource> _avatarSourceBySystem = new();
     private readonly ConcurrentDictionary<string, string> _linkTokenBySystem = new();
-    private readonly ConcurrentDictionary<string, string> _systemByLinkToken = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, LinkTokenEntry> _systemByLinkToken = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _discordBySystem = new();
     private readonly ConcurrentDictionary<string, string> _emailBySystem = new();
     private readonly ConcurrentDictionary<string, string> _appleBySystem = new();
@@ -26,11 +43,20 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     private readonly IEncryptionStateRepository? _encryptionStates;
     private readonly IRegionContext _regionContext;
+    // Slice 4 bug A: injectable clock so unit tests can exercise the TTL branch without a
+    // 5-minute wall wait. Defaults to TimeProvider.System, so production wiring is
+    // unchanged. Kept internal-shape (no interface indirection beyond TimeProvider) because
+    // we only need "now" — no scheduled work runs on the repository.
+    private readonly TimeProvider _timeProvider;
 
-    public InMemoryAccountRepository(IRegionContext regionContext, IEncryptionStateRepository? encryptionStates = null)
+    public InMemoryAccountRepository(
+        IRegionContext regionContext,
+        IEncryptionStateRepository? encryptionStates = null,
+        TimeProvider? timeProvider = null)
     {
         _regionContext = regionContext;
         _encryptionStates = encryptionStates;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
@@ -66,13 +92,20 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     public Task<LinkToken> GetOrCreateLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
+        var scoped = ResolveScoped(systemId);
+        var now = _timeProvider.GetUtcNow();
+
+        // Deterministic token derivation kept intact — the InMemory adapter's convention
+        // is "same system → same token", which the integration tests lean on. Every call
+        // refreshes the expiry so a live client that keeps calling get-or-create doesn't
+        // spuriously expire.
         var token = _linkTokenBySystem.GetOrAdd(systemKey, static key =>
         {
             var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key));
             return Convert.ToHexString(hash)[..32].ToLowerInvariant();
         });
 
-        _systemByLinkToken[token] = _regionContext.ResolveUserRegion(systemId).ToWireValue() + ":" + systemId.Value;
+        _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkTokenTtl));
 
         return Task.FromResult(new LinkToken(token));
     }
@@ -80,8 +113,20 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     public Task<LinkToken?> GetLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
-        _linkTokenBySystem.TryGetValue(systemKey, out var token);
-        return Task.FromResult<LinkToken?>(token is null ? null : new LinkToken(token));
+        if (!_linkTokenBySystem.TryGetValue(systemKey, out var token))
+        {
+            return Task.FromResult<LinkToken?>(null);
+        }
+
+        // Slice 4 bug A fix: honour the TTL on the read path so a client that only calls
+        // "get" never sees a token that ResolveSystemIdByLinkTokenAsync would refuse.
+        if (_systemByLinkToken.TryGetValue(token, out var entry) && entry.ExpiresAt > _timeProvider.GetUtcNow())
+        {
+            return Task.FromResult<LinkToken?>(new LinkToken(token));
+        }
+
+        ScrubLinkToken(systemKey, token);
+        return Task.FromResult<LinkToken?>(null);
     }
 
     public Task<SystemId?> ResolveSystemIdByLinkTokenAsync(LinkToken linkToken, CancellationToken cancellationToken = default)
@@ -91,8 +136,16 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(null);
         }
 
-        _systemByLinkToken.TryGetValue(linkToken.Value, out var scopedSystemId);
-        return Task.FromResult<SystemId?>(scopedSystemId is null ? null : new SystemId(scopedSystemId));
+        // Slice 4 bug A + B fix: check TTL on lookup, and on miss (nonexistent or expired)
+        // scrub BOTH sides so the deterministic-token semantics don't leave a dangling
+        // pointer that a later GetOrCreate would silently re-adopt.
+        if (_systemByLinkToken.TryGetValue(linkToken.Value, out var entry) && entry.ExpiresAt > _timeProvider.GetUtcNow())
+        {
+            return Task.FromResult<SystemId?>(entry.Scoped.AsSystemId());
+        }
+
+        ScrubLinkToken(linkTokenValue: linkToken.Value);
+        return Task.FromResult<SystemId?>(null);
     }
 
     public Task<bool> ClearLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
@@ -118,9 +171,8 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(new SystemId(scopedSystemId));
         }
 
-        // Auto-create new system
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNewSystemId = _regionContext.ResolveUserRegion(newSystemId).ToWireValue() + ":" + newSystemId;
+        var scopedNewSystemId = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(newSystemId), newSystemId).Value;
         _discordBySystem[newSystemId] = discordId.Value;
         _systemByDiscord[discordId.Value] = scopedNewSystemId;
 
@@ -140,9 +192,8 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(new SystemId(scopedSystemId));
         }
 
-        // Auto-create new system
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNewSystemId = _regionContext.ResolveUserRegion(newSystemId).ToWireValue() + ":" + newSystemId;
+        var scopedNewSystemId = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(newSystemId), newSystemId).Value;
         _emailBySystem[newSystemId] = email.Value;
         _systemByEmail[email.Value] = scopedNewSystemId;
 
@@ -162,9 +213,8 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(new SystemId(scopedSystemId));
         }
 
-        // Auto-create new system
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNewSystemId = _regionContext.ResolveUserRegion(newSystemId).ToWireValue() + ":" + newSystemId;
+        var scopedNewSystemId = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(newSystemId), newSystemId).Value;
         _appleBySystem[newSystemId] = appleId.Value;
         _systemByApple[appleId.Value] = scopedNewSystemId;
 
@@ -222,7 +272,10 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         _descriptionBySystem.TryRemove(systemKey, out _);
         _avatarBySystem.TryRemove(systemKey, out _);
         _avatarSourceBySystem.TryRemove(systemKey, out _);
-        _linkTokenBySystem.TryRemove(systemKey, out _);
+        if (_linkTokenBySystem.TryRemove(systemKey, out var token))
+        {
+            _systemByLinkToken.TryRemove(token, out _);
+        }
 
         if (_discordBySystem.TryRemove(systemKey, out var discordId) && !string.IsNullOrWhiteSpace(discordId))
         {
@@ -272,6 +325,38 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
+    private ScopedSystemId ResolveScoped(SystemId systemId)
+        => ScopedSystemId.Compose(_regionContext.ResolveUserRegion(systemId), systemId);
+
+    /// <summary>
+    /// Drop a link-token from both maps. Used by the two read paths that discover a stale
+    /// or missing entry — the deterministic-token hash means we cannot rely on a
+    /// re-issued token to bury the stale mapping, so lazy scrub on read is the guardrail
+    /// against dangling reverse-map pointers (Slice 4 bug B).
+    /// </summary>
+    private void ScrubLinkToken(string? systemKey = null, string? linkTokenValue = null)
+    {
+        if (linkTokenValue is not null)
+        {
+            _systemByLinkToken.TryRemove(linkTokenValue, out _);
+            // Also drop the systemKey → token pointer if it still references this token
+            // (deterministic-hash tokens make this cheap; no scan of the entire dictionary).
+            foreach (var kvp in _linkTokenBySystem)
+            {
+                if (string.Equals(kvp.Value, linkTokenValue, StringComparison.Ordinal))
+                {
+                    _linkTokenBySystem.TryRemove(kvp.Key, out _);
+                    break;
+                }
+            }
+        }
+
+        if (systemKey is not null && _linkTokenBySystem.TryRemove(systemKey, out var token))
+        {
+            _systemByLinkToken.TryRemove(token, out _);
+        }
+    }
+
     private AccountLinkResult LinkIdentifier(
         SystemId systemId,
         string identifier,
@@ -284,7 +369,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         }
 
         var systemKey = GetSystemKey(systemId);
-        var scopedSystemId = _regionContext.ResolveUserRegion(systemId).ToWireValue() + ":" + systemId.Value;
+        var scopedSystemId = ResolveScoped(systemId).Value;
 
         if (_usernameBySystem.ContainsKey(systemKey) is false &&
             _descriptionBySystem.ContainsKey(systemKey) is false &&

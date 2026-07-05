@@ -14,6 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Interfold.IntegrationTests.TestServices;
@@ -142,13 +143,18 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
 
     internal string CreateToken(string systemId)
     {
-        var config = Services.GetRequiredService<IConfiguration>();
-        var authConfig = config.Get<AuthenticationConfiguration>()
-            ?? throw new InvalidOperationException("Authentication configuration was not available for token creation.");
+        // IOptionsMonitor.CurrentValue is the same instance SecretsBootstrapService patches
+        // at boot, so we get the live signing material (JwtAuthority, deep-link secret, etc.)
+        // that the API is using. IConfiguration.Get<T>() would allocate a fresh binding that
+        // bypasses those patches — that's the drift Slice 3 closes here.
+        var authConfig = Services.GetRequiredService<IOptionsMonitor<AuthenticationConfiguration>>().CurrentValue;
 
-        // ApplyAuthentication leaves the signing material null on purpose (the API consumes
-        // it via SecretsBootstrapService at runtime). For the client-side token mint, plug
-        // in the same PEM that the fixtures seeded into internal.secrets.
+        // ApplyAuthentication leaves the ES256 signing material null on purpose (the API
+        // consumes it via SecretsBootstrapService at runtime). For the client-side token
+        // mint, plug in the same PEM that the fixtures seeded into internal.secrets.
+        // Safe to mutate CurrentValue here — the factory has already resolved everything
+        // that depended on the pre-mutation snapshot, so the read-after-write matches the
+        // pattern SecretsBootstrapService itself uses inside the API.
         authConfig.JwtEs256PrivateKeyPem = TestDbCredentials.JwtEs256PrivateKeyPem;
 
         if (string.IsNullOrWhiteSpace(authConfig.JwtAuthority))

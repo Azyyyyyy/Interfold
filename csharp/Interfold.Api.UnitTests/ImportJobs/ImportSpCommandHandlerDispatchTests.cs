@@ -23,7 +23,10 @@ namespace Interfold.Api.UnitTests.ImportJobs;
 /// </summary>
 public sealed class ImportSpCommandHandlerDispatchTests
 {
-    private static readonly Interfold.Contracts.Ids.SystemId SystemId = new("nam:sys-sp-dispatch-test");
+    // Slice 4: PrincipalId is now ScopedSystemId; ParseScoped enforces the wire-canonical
+    // form so the test fixture matches what the middleware constructs at ingress.
+    private static readonly Interfold.Contracts.Ids.ScopedSystemId SystemId
+        = Interfold.Contracts.Ids.ScopedSystemId.ParseScoped("nam:sys-sp-dispatch-test");
 
     /// <summary>
     /// First dispatch for a clean system: handler returns <c>queued</c> and enqueues a job

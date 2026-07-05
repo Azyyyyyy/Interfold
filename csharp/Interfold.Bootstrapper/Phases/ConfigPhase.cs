@@ -5,6 +5,7 @@ using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Configuration.Validation;
 using Interfold.Contracts.Enums;
 using Spectre.Console;
 
@@ -1008,28 +1009,38 @@ internal static class ConfigPhase
         // Both optional; AvatarStorageRoot lives inside the API container so we don't try
         // to verify the path exists on the bootstrapper host.
         ValidateOptionalAbsoluteHttpUri(config.Storage.AvatarPublicBase, "config.storage.avatarPublicBase");
-        if (!string.IsNullOrEmpty(config.Storage.AvatarStorageRoot)
-            && !Path.IsPathRooted(config.Storage.AvatarStorageRoot))
-        {
-            throw new InvalidOperationException(
-                $"config.storage.avatarStorageRoot='{config.Storage.AvatarStorageRoot}' must be an " +
-                "absolute path inside the API container (e.g. '/var/lib/interfold/avatars').");
-        }
+        ValidateOptionalAbsolutePath(
+            config.Storage.AvatarStorageRoot,
+            "config.storage.avatarStorageRoot",
+            "must be an absolute path inside the API container (e.g. '/var/lib/interfold/avatars').");
 
         // OTLP endpoint optional; http:// is legal (SDK accepts gRPC-over-HTTP/2).
         ValidateOptionalAbsoluteHttpUri(config.Observability.OtlpEndpoint, "config.observability.otlpEndpoint");
 
-        // 16 MiB cap: anything larger would defeat batching (message always exceeds the flush cap).
+        // Socket + persistence numeric bounds are pulled from the shared
+        // ConfigurationBounds table (Interfold.Contracts.Configuration.Validation) so the
+        // bootstrapper's operator-prompt validation and the API's [Range] attributes on
+        // the matching options classes stay lockstep — a tweak in one place lands in both.
         if (config.Socket.BatchBytesThreshold is { } socketThreshold)
         {
-            ValidateIntRange(socketThreshold, 1, 16 * 1024 * 1024, "config.socket.batchBytesThreshold");
+            ValidateIntRange(socketThreshold,
+                ConfigurationBounds.SocketBatchBytesThresholdMin,
+                ConfigurationBounds.SocketBatchBytesThresholdMax,
+                "config.socket.batchBytesThreshold");
         }
 
         // Persistence tuning: max-vs-initial cross-check catches the easy inverted-values mistake.
-        ValidateIntRange(config.Persistence.DbRetryAttempts, 1, 100, "config.persistence.dbRetryAttempts");
-        ValidateIntRange(config.Persistence.DbRetryInitialDelayMs, 1, 60_000,
+        ValidateIntRange(config.Persistence.DbRetryAttempts,
+            ConfigurationBounds.DbRetryAttemptsMin,
+            ConfigurationBounds.DbRetryAttemptsMax,
+            "config.persistence.dbRetryAttempts");
+        ValidateIntRange(config.Persistence.DbRetryInitialDelayMs,
+            ConfigurationBounds.DbRetryInitialDelayMsMin,
+            ConfigurationBounds.DbRetryInitialDelayMsMax,
             "config.persistence.dbRetryInitialDelayMs");
-        ValidateIntRange(config.Persistence.DbRetryMaxDelayMs, 1, 600_000,
+        ValidateIntRange(config.Persistence.DbRetryMaxDelayMs,
+            ConfigurationBounds.DbRetryMaxDelayMsMin,
+            ConfigurationBounds.DbRetryMaxDelayMsMax,
             "config.persistence.dbRetryMaxDelayMs");
         if (config.Persistence.DbRetryMaxDelayMs < config.Persistence.DbRetryInitialDelayMs)
         {
@@ -1037,7 +1048,9 @@ internal static class ConfigPhase
                 $"config.persistence.dbRetryMaxDelayMs ({config.Persistence.DbRetryMaxDelayMs}) " +
                 $"must be >= dbRetryInitialDelayMs ({config.Persistence.DbRetryInitialDelayMs}).");
         }
-        ValidateIntRange(config.Persistence.HydrationMaxConcurrency, 1, 1024,
+        ValidateIntRange(config.Persistence.HydrationMaxConcurrency,
+            ConfigurationBounds.HydrationMaxConcurrencyMin,
+            ConfigurationBounds.HydrationMaxConcurrencyMax,
             "config.persistence.hydrationMaxConcurrency");
 
         // Schedule check is intentionally permissive — the real validation is
@@ -1056,14 +1069,11 @@ internal static class ConfigPhase
                 "valid in a systemd OnCalendar expression. Allowed: letters, digits, spaces, and " +
                 "the punctuation '.-:,*/'.");
         }
-        if (!string.IsNullOrEmpty(config.Backup.Directory)
-            && !Path.IsPathRooted(config.Backup.Directory))
-        {
-            throw new InvalidOperationException(
-                $"config.backup.directory='{config.Backup.Directory}' must be an absolute path " +
-                "(systemd-driven backup invocations have an unpredictable CWD; relative paths " +
-                "would not resolve consistently). Leave blank to default to '{outputDir}/backups'.");
-        }
+        ValidateOptionalAbsolutePath(
+            config.Backup.Directory,
+            "config.backup.directory",
+            "must be an absolute path (systemd-driven backup invocations have an unpredictable CWD; " +
+            "relative paths would not resolve consistently). Leave blank to default to '{outputDir}/backups'.");
 
         // Range covers realistic cold-starts (Postgres+Scylla+API ~60-120s on modest hardware);
         // 3600s cap matches UpdateImagesPhase's "give up eventually" contract.
@@ -1089,15 +1099,19 @@ internal static class ConfigPhase
         }
     }
 
-    /// <summary>Accepts absolute http(s) URIs; rejects with the field name for a clear operator error.</summary>
+    /// <summary>
+    /// Accepts absolute http(s) URIs; rejects with the field name for a clear operator error.
+    /// Delegates the actual scheme check to <see cref="AbsoluteHttpUriAttribute.IsAbsoluteHttpUri"/>
+    /// so the API's <c>[AbsoluteHttpUri]</c> validation and this bootstrapper check share the
+    /// same "is this an absolute http(s) URL" rule.
+    /// </summary>
     private static void ValidateAbsoluteHttpUri(string value, string fieldLabel)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
             throw new InvalidOperationException($"{fieldLabel} must be a non-empty http(s) URL.");
         }
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
-            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        if (!AbsoluteHttpUriAttribute.IsAbsoluteHttpUri(value))
         {
             throw new InvalidOperationException(
                 $"{fieldLabel}='{value}' is not a valid absolute http(s) URL.");
@@ -1112,6 +1126,23 @@ internal static class ConfigPhase
             return;
         }
         ValidateAbsoluteHttpUri(value, fieldLabel);
+    }
+
+    /// <summary>
+    /// Blank-legal absolute-path check. Delegates to
+    /// <see cref="AbsolutePathAttribute.IsAbsolutePath"/> so the API's <c>[AbsolutePath]</c>
+    /// validation and this bootstrapper check share the same rule.
+    /// </summary>
+    private static void ValidateOptionalAbsolutePath(string? value, string fieldLabel, string hint)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return;
+        }
+        if (!AbsolutePathAttribute.IsAbsolutePath(value))
+        {
+            throw new InvalidOperationException($"{fieldLabel}='{value}' {hint}");
+        }
     }
 
     /// <summary>Shared int range check; error reports both field label and observed value.</summary>

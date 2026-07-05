@@ -1,4 +1,5 @@
 using Cassandra;
+using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
@@ -35,7 +36,7 @@ internal static class ScyllaSharedQueries
         }
 
         var query = new SimpleStatement(
-            "SELECT level FROM global.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
+            $"SELECT level FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
             ownerSystemId.Value,
             normalizedViewerSystemId.Value);
 

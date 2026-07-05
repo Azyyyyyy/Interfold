@@ -2,8 +2,8 @@
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
 using Interfold.Infrastructure.Scylla;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.IntegrationTests.Services.Scylla;
 
@@ -18,11 +18,12 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
 
     private static ScyllaUserRegistryRegionContext BuildContext(string defaultRegion = "nam")
     {
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["OCTOCON_SCYLLA_KEYSPACE"] = defaultRegion })
-            .Build();
-        return new(new ThrowingSessionProvider(), new PersistenceConfiguration { ScyllaKeyspace = Interfold.Contracts.Enums.EnumWireExtensions.ParseScyllaKeyspace(defaultRegion) },
-            config,
+        var persistenceOptions = Options.Create(new PersistenceConfiguration
+        {
+            ScyllaKeyspace = EnumWireExtensions.ParseScyllaKeyspace(defaultRegion),
+        });
+        return new(new ThrowingSessionProvider(),
+            persistenceOptions,
             NullLogger<ScyllaUserRegistryRegionContext>.Instance);
     }
 

@@ -22,7 +22,7 @@ namespace Interfold.Domain.Abstractions.ImportJobs;
 /// <param name="RecoveryCode">Optional SP recovery code, plaintext after the controller's <c>TryResolveRecoveryCode</c> decryption. Null for PK and for SP without recovery. Sensitive — never log.</param>
 public sealed record ImportJobItem(
     ImportOperationId OperationId,
-    SystemId SystemId,
+    ScopedSystemId SystemId,
     ImportOperationKind Kind,
     ImportToken Token,
     RecoveryCode? RecoveryCode);

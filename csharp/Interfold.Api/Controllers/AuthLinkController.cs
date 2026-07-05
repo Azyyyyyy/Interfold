@@ -88,7 +88,15 @@ public sealed class AuthLinkController : OAuthControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, "This link token is invalid or has expired.");
         }
 
-        var systemId = resolvedSystemId.Value;
+        // Slice 4: the link-token map stores scoped ids on write; ParseScoped enforces that
+        // invariant at the read boundary so a legacy row that lost its prefix (or a Postgres
+        // bootstrap that emitted a bare id) surfaces here rather than as a bad event target
+        // three hops downstream.
+        if (!Interfold.Contracts.Ids.ScopedSystemId.TryParseScoped(resolvedSystemId.Value.Value, out var systemId))
+        {
+            Response.Cookies.Delete(LinkTokenCookieName);
+            return StatusCode(StatusCodes.Status403Forbidden, "This link token is invalid or has expired.");
+        }
 
         await _accounts.ClearLinkTokenAsync(systemId, HttpContext.RequestAborted);
         Response.Cookies.Delete(LinkTokenCookieName);
@@ -135,7 +143,7 @@ public sealed class AuthLinkController : OAuthControllerBase
         };
     }
 
-    private async Task<IActionResult> RedirectWithSocketEventAsync(Interfold.Contracts.Ids.SystemId systemId, OAuthProvider provider, string identity, string? redirectUri)
+    private async Task<IActionResult> RedirectWithSocketEventAsync(Interfold.Contracts.Ids.ScopedSystemId systemId, OAuthProvider provider, string identity, string? redirectUri)
     {
         switch (provider)
         {

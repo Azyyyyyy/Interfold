@@ -2,31 +2,47 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain;
 
+/// <summary>
+/// Canonicalise a friendship-candidate id into the principal's region so downstream event
+/// publishers, WebSocket routers, and repository lookups all see byte-identical scoped
+/// ids regardless of whether the input carried its own prefix (from a cross-region
+/// candidate) or arrived bare. Slice 4 collapsed the previous "strip candidate prefix vs.
+/// re-apply principal prefix" branch into a single <see cref="ScopedSystemId.Compose"/>
+/// call and returns the composed <see cref="ScopedSystemId"/> so caller event constructors
+/// (which now declare <see cref="ScopedSystemId"/> parameters via
+/// <see cref="Interfold.Contracts.Events.ITargetedClusterEvent"/>) can flow the value
+/// through without a second parse.
+/// </summary>
 internal static class FriendshipIdNormalization
 {
-    public static SystemId CanonicalizeForPrincipal(SystemId principalSystemId, SystemId candidateSystemId)
-        => new(CanonicalizeForPrincipal(principalSystemId.Value, candidateSystemId.Value));
+    /// <summary>
+    /// Canonicalise <paramref name="candidateSystemId"/> into the region of a scoped
+    /// principal. Post-Slice-4 the principal is always scoped, so a Compose call is
+    /// unconditional.
+    /// </summary>
+    public static ScopedSystemId CanonicalizeForPrincipal(ScopedSystemId principal, ScopedSystemId candidateSystemId)
+        => ScopedSystemId.Compose(principal.Region, candidateSystemId);
 
-    public static string CanonicalizeForPrincipal(string principalSystemId, string candidateSystemId)
+    /// <summary>
+    /// Overload for the "resolved-but-unscoped candidate" call site (repository lookups
+    /// that hand back a raw <see cref="SystemId"/> before it's been composed).
+    /// </summary>
+    public static ScopedSystemId CanonicalizeForPrincipal(ScopedSystemId principal, SystemId candidateSystemId)
+        => ScopedSystemId.Compose(principal.Region, candidateSystemId);
+
+    /// <summary>
+    /// "Flip" overload used by the symmetric friendship canonicalisation
+    /// (<c>CanonicalizeForPrincipal(sourceId, command.PrincipalId)</c>) — the caller
+    /// wants the principal id expressed in the source's region. When the source id is
+    /// parseable as scoped we compose in its region; otherwise the candidate flows
+    /// through unchanged so an unresolvable source doesn't corrupt the principal shape.
+    /// </summary>
+    public static ScopedSystemId CanonicalizeForPrincipal(SystemId principalSystemId, ScopedSystemId candidateSystemId)
     {
-        if (string.IsNullOrWhiteSpace(candidateSystemId))
+        if (ScopedSystemId.TryParseScoped(principalSystemId.Value, out var scopedPrincipal))
         {
-            return candidateSystemId;
+            return ScopedSystemId.Compose(scopedPrincipal.Region, candidateSystemId);
         }
-
-        var separatorIndex = candidateSystemId.IndexOf(':', StringComparison.Ordinal);
-        if (separatorIndex > 0)
-        {
-            return candidateSystemId[(separatorIndex + 1)..];
-        }
-
-        separatorIndex = principalSystemId.IndexOf(':', StringComparison.Ordinal);
-        if (separatorIndex <= 0)
-        {
-            return candidateSystemId;
-        }
-
-        var keyspace = principalSystemId[..separatorIndex];
-        return $"{keyspace}:{candidateSystemId}";
+        return candidateSystemId;
     }
 }

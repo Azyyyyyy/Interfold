@@ -73,22 +73,64 @@ public static class ConfigurationServiceCollectionExtensions
             .Configure<IConfiguration>(ApplyFirebaseClient);
 
         // Registered for completeness; OTLP exporters are wired at startup so runtime changes
-        // to OtlpEndpoint only take effect after a restart.
+        // to OtlpEndpoint only take effect after a restart. ValidateOnStart runs
+        // [AbsoluteHttpUri] on the (optional) endpoint so a garbled env var trips at boot,
+        // not on the first exporter connection attempt.
         services.AddOptions<ObservabilityConfiguration>()
-            .Configure<IConfiguration>(ApplyObservability);
+            .Configure<IConfiguration>(ApplyObservability)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         // Trust-distribution paths read by TrustController. The values are filesystem paths
         // pointing into the read-only /certs bind mount; they change only on
         // bootstrap --rotate-certs (which restarts the API container), so an
-        // IOptions<T> snapshot taken at startup is correct.
+        // IOptions<T> snapshot taken at startup is correct. Validation is opted-in here so
+        // an operator error like a relative path lands as a boot failure with the offending
+        // env var named — matches the strictness the bootstrapper's config gate applies on
+        // config.trust.rootCaPath / rootCaFingerprintPath.
         services.AddOptions<TrustOptions>()
-            .Configure<IConfiguration>(ApplyTrust);
+            .Configure<IConfiguration>(ApplyTrust)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         // Live-reloadable: avatar storage paths can be updated via appsettings.json.
-        AddLiveReloadable<StorageConfiguration>(services, ApplyStorage);
+        // ValidateOnStart still fires at the initial bind — reloads are eventual-consistency,
+        // not fail-fast (see the live-reload gotcha in the Slice 3 plan).
+        AddLiveReloadable<StorageConfiguration>(services, ApplyStorage)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         // Live-reloadable: batch tuning can be adjusted without restart.
-        AddLiveReloadable<SocketConfiguration>(services, ApplySocket);
+        AddLiveReloadable<SocketConfiguration>(services, ApplySocket)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        // Startup-only: CORS origins baked into the CorsPolicy at builder-time. Live-reload
+        // would require rebuilding the CorsPolicy, which ASP.NET Core's default
+        // CorsPolicyProvider does not do. Per-entry [AbsoluteHttpUri] validation lives on
+        // the options class (IValidatableObject) so an operator that pushes a non-http
+        // origin trips at boot with the offending entry called out.
+        services.AddOptions<CorsOptions>()
+            .Configure<IConfiguration>(ApplyCors)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        // Startup-only: Scylla host-port + contact-point overrides for integration tests.
+        // Production stacks leave both null and the client falls through to the secrets
+        // store. No numeric-range validation on the port here — ScyllaConfigResolver's
+        // consumer surfaces a friendlier "no override, fall back" branch that we don't
+        // want fail-fast validation to short-circuit.
+        services.AddOptions<ScyllaOverrideOptions>()
+            .Configure<IConfiguration>(ApplyScyllaOverride)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        // Startup-only: in-memory secrets seed. Blank values are legal and skipped by the
+        // consumer (SecretsBootstrapService is the sole fail-fast for the mandatory rows).
+        services.AddOptions<InMemorySecretsSeedOptions>()
+            .Configure<IConfiguration>(ApplyInMemorySecretsSeed)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         return services;
     }
@@ -311,6 +353,53 @@ public static class ConfigurationServiceCollectionExtensions
     private static void ApplySocket(SocketConfiguration opts, IConfiguration config)
     {
         opts.BatchBytesThreshold = TryParseInt(config[OctoconEnvKeys.SocketBatchBytesThreshold]);
+    }
+
+    /// <summary>
+    /// Parses <c>OCTOCON_CORS_ALLOWED_ORIGINS</c> into <see cref="CorsOptions.AllowedOrigins"/>.
+    /// Trailing slashes are stripped and comparison is case-insensitive for parity with the
+    /// ASP.NET Core CORS matcher, which does exact-string matching against the resulting list.
+    /// Blank env-var → empty list (caller is responsible for the "empty means allow-any"
+    /// dev-only fallback).
+    /// </summary>
+    private static void ApplyCors(CorsOptions opts, IConfiguration config)
+    {
+        opts.AllowedOrigins = (config[OctoconEnvKeys.CorsAllowedOrigins] ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(static origin => origin.TrimEnd('/'))
+            .Where(static origin => !string.IsNullOrWhiteSpace(origin))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Parses the two test-only Scylla override env vars onto <see cref="ScyllaOverrideOptions"/>.
+    /// Blank/missing values leave the properties null so <c>ScyllaConfigResolver</c> can
+    /// distinguish "no override — use the secrets-store row" from "operator forced a value".
+    /// </summary>
+    private static void ApplyScyllaOverride(ScyllaOverrideOptions opts, IConfiguration config)
+    {
+        var contactPointsRaw = NullIfEmpty(config[OctoconEnvKeys.ScyllaContactPoints]);
+        opts.ContactPoints = contactPointsRaw is null
+            ? null
+            : contactPointsRaw
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        opts.Port = TryParseInt(config[OctoconEnvKeys.ScyllaPort]);
+    }
+
+    /// <summary>
+    /// Copies the four <c>OCTOCON_INMEMORY_SECRETS_SEED:*</c> configuration values onto
+    /// <see cref="InMemorySecretsSeedOptions"/>. Blank/missing values remain null so the
+    /// consumer's "skip silently" contract stays intact — SecretsBootstrapService is the
+    /// sole fail-fast for the mandatory rows.
+    /// </summary>
+    private static void ApplyInMemorySecretsSeed(InMemorySecretsSeedOptions opts, IConfiguration config)
+    {
+        opts.EncryptionPepper = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedEncryptionPepper]);
+        opts.AuthJwtEs256PrivatePem = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedAuthJwtEs256PrivatePem]);
+        opts.AuthDeepLinkSecret = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedAuthDeepLinkSecret]);
+        opts.AuthJwtRsa256PrivatePem = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedAuthJwtRsa256PrivatePem]);
     }
 
     // --- Helpers ---

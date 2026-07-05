@@ -14,6 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using TUnit.Aspire;
 
 namespace Interfold.IntegrationTests.TestServices;
@@ -157,22 +158,23 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
             IsSingleScyllaInstance = false,
             ScyllaKeyspace = Interfold.Contracts.Enums.ScyllaKeyspace.Nam,
         };
-        var connectionFactory = new PostgresConnectionFactory(persistenceConfig);
+        var connectionFactory = new PostgresConnectionFactory(Options.Create(persistenceConfig));
         var secretsStore = new PostgresSecretsStore(connectionFactory);
 
-        var migrationConfig = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["OCTOCON_SCYLLA_CONTACT_POINTS"] = scEndpoint.Host,
-                ["OCTOCON_SCYLLA_PORT"] = scEndpoint.Port.ToString(),
-                ["OCTOCON_SCYLLA_KEYSPACE"] = "nam",
-            })
-            .Build();
+        var overrides = new ScyllaOverrideOptions
+        {
+            ContactPoints = [scEndpoint.Host],
+            Port = scEndpoint.Port,
+        };
+        var resolver = new ScyllaConfigResolver(
+            secretsStore,
+            Options.Create(overrides),
+            Options.Create(persistenceConfig));
 
         await ScyllaMigrationService.MigrateAsync(
             persistenceConfig,
             secretsStore,
-            migrationConfig,
+            resolver,
             NullLoggerFactory.Instance.CreateLogger<ScyllaMigrationService>(),
             cancellationToken);
 

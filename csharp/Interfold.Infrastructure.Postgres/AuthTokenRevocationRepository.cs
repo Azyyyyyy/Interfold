@@ -1,8 +1,9 @@
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
+using Microsoft.Extensions.Options;
 using Npgsql;
-using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.Postgres;
 
@@ -17,10 +18,10 @@ public sealed class AuthTokenRevocationRepository : IAuthTokenRevocationReposito
 
     public AuthTokenRevocationRepository(
         IPostgresConnectionFactory connectionFactory,
-        PersistenceConfiguration options)
+        IOptions<PersistenceConfiguration> options)
     {
         _connectionFactory = connectionFactory;
-        _options = options;
+        _options = options.Value;
     }
 
     public async Task RecordTokenAsync(

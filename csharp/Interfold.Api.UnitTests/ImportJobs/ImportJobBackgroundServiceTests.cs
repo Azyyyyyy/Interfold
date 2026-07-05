@@ -28,7 +28,7 @@ namespace Interfold.Api.UnitTests.ImportJobs;
 /// </summary>
 public sealed class ImportJobBackgroundServiceTests
 {
-    private static readonly Interfold.Contracts.Ids.SystemId TestSystemId = new("nam:sys-worker-test");
+    private static readonly Interfold.Contracts.Ids.ScopedSystemId TestSystemId = Interfold.Contracts.Ids.ScopedSystemId.ParseScoped("nam:sys-worker-test");
 
     /// <summary>
     /// Happy path: the runner reports success, the repository row transitions to

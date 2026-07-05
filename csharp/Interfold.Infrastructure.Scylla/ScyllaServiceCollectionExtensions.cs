@@ -30,6 +30,7 @@ public static class ScyllaServiceCollectionExtensions
         PersistenceConfiguration options)
     {
         var pipeline = services
+                .AddSingleton<IScyllaConfigResolver, ScyllaConfigResolver>()
                 .AddSingleton<IScyllaSessionProvider, ScyllaSessionProvider>()
                 .AddSingleton<IScyllaKeyspaceResolver, ScyllaKeyspaceResolver>()
                 .AddSingleton<IRegionContext, ScyllaUserRegistryRegionContext>()

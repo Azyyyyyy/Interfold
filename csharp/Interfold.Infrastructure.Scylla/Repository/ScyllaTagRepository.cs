@@ -7,6 +7,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
@@ -20,13 +21,13 @@ public sealed class ScyllaTagRepository : ITagRepository
     public ScyllaTagRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaKeyspaceResolver keyspaceResolver,
-        PersistenceConfiguration options,
+        IOptions<PersistenceConfiguration> options,
         IAlterRepository alterRepository
     )
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
-        _options = options;
+        _options = options.Value;
         _alterRepository = alterRepository;
     }
 

@@ -9,6 +9,7 @@ using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
@@ -27,7 +28,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         IScyllaKeyspaceResolver keyspaceResolver,
         ISettingsFieldRepository settingsFields,
         IPollRepository pollRepository,
-        PersistenceConfiguration options,
+        IOptions<PersistenceConfiguration> options,
         ILogger<ScyllaAlterRepository> logger
     )
     {
@@ -35,7 +36,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         _keyspaceResolver = keyspaceResolver;
         _settingsFields = settingsFields;
         _pollRepository = pollRepository;
-        _options = options;
+        _options = options.Value;
         _logger = logger;
     }
 

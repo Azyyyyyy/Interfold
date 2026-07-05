@@ -119,7 +119,21 @@ public sealed class ImportJobBackgroundService : BackgroundService
                     errorMessage: "Operation was running when the previous host shut down.",
                     cancellationToken).ConfigureAwait(false);
 
-                await PublishFailureAsync(row.SystemId, row.Kind, cancellationToken).ConfigureAwait(false);
+                // Slice 4: repositories persist scoped ids on write, so any stale row we're
+                // sweeping should be parse-clean here. If it isn't (e.g. a pre-Slice-4 row
+                // that survived migration) we log and skip the client-visible event so a
+                // malformed id can't propagate into the topic name — the row is still marked
+                // failed above, so the slot frees regardless.
+                if (Interfold.Contracts.Ids.ScopedSystemId.TryParseScoped(row.SystemId.Value, out var scopedSweepId))
+                {
+                    await PublishFailureAsync(scopedSweepId, row.Kind, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "[import-worker] Skipping sweep failure event for operation {OperationId} — stored system id {SystemId} is not region-scoped.",
+                        row.OperationId, row.SystemId);
+                }
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -223,7 +237,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
         }
     }
 
-    private ValueTask PublishSuccessAsync(Interfold.Contracts.Ids.SystemId systemId, ImportOperationKind kind, int alterCount, CancellationToken cancellationToken)
+    private ValueTask PublishSuccessAsync(Interfold.Contracts.Ids.ScopedSystemId systemId, ImportOperationKind kind, int alterCount, CancellationToken cancellationToken)
     {
         return kind switch
         {
@@ -235,7 +249,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
         };
     }
 
-    private ValueTask PublishFailureAsync(Interfold.Contracts.Ids.SystemId systemId, ImportOperationKind kind, CancellationToken cancellationToken)
+    private ValueTask PublishFailureAsync(Interfold.Contracts.Ids.ScopedSystemId systemId, ImportOperationKind kind, CancellationToken cancellationToken)
     {
         return kind switch
         {

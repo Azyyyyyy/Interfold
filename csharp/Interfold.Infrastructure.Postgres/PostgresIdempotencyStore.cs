@@ -1,9 +1,10 @@
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Domain.Abstractions;
 using Interfold.Infrastructure.Persistence;
+using Microsoft.Extensions.Options;
 using Npgsql;
-using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.Postgres;
 
@@ -14,11 +15,11 @@ public sealed class PostgresIdempotencyStore : IIdempotencyStore
 
     public PostgresIdempotencyStore(
         IPostgresConnectionFactory connectionFactory,
-        PersistenceConfiguration options
+        IOptions<PersistenceConfiguration> options
     )
     {
         _connectionFactory = connectionFactory;
-        _options = options;
+        _options = options.Value;
     }
 
     public Task<IdempotencyMatch?> FindAsync(

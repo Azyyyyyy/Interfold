@@ -92,10 +92,8 @@ internal static class OAuthChallengeServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddInterfoldAuthChallengeSchemes(
         this IServiceCollection services,
-        IConfiguration config)
+        AuthenticationConfiguration authConfig)
     {
-        var authConfig = config.BindAuthenticationConfiguration();
-
         AddSchemeIfConfigured(services, DiscordSchemeName, DiscordEndpoint, authConfig.DiscordOAuthClientId, DiscordParams);
         AddSchemeIfConfigured(services, GoogleSchemeName,  GoogleEndpoint,  authConfig.GoogleOAuthClientId,  GoogleParams);
         AddSchemeIfConfigured(services, AppleSchemeName,   AppleEndpoint,   authConfig.AppleOAuthClientId,   AppleParams);

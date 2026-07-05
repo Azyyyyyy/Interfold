@@ -1,10 +1,11 @@
 using Cassandra;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.ImportOperations;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
-using Interfold.Contracts.Ids;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
@@ -44,12 +45,12 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
     public ScyllaImportOperationRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaKeyspaceResolver keyspaceResolver,
-        PersistenceConfiguration options,
+        IOptions<PersistenceConfiguration> options,
         ILogger<ScyllaImportOperationRepository> logger)
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
-        _options = options;
+        _options = options.Value;
         _logger = logger;
     }
 

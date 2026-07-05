@@ -7,6 +7,7 @@ using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using static Interfold.Infrastructure.Scylla.Repository.ScyllaAlterRepository;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
@@ -24,14 +25,14 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     public ScyllaFrontingRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaKeyspaceResolver keyspaceResolver,
-        PersistenceConfiguration options,
+        IOptions<PersistenceConfiguration> options,
         ILogger<ScyllaFrontingRepository> logger,
         ISettingsFieldRepository settingsFields
     )
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
-        _options = options;
+        _options = options.Value;
         _logger = logger;
         _settingsFields = settingsFields;
     }

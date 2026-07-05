@@ -76,9 +76,21 @@ public sealed class InProcessEventBus : IClusterEventBus, IDisposable
         {
             // Subscription with a non-null TargetSystemId only sees events whose target matches.
             // Subscription with a null TargetSystemId is broadcast (legacy semantics).
+            //
+            // Slice 4: the compile-time equality here changed once TargetSystemId on events
+            // became ScopedSystemId. Subscribers still pass a raw SystemId (the WebSocket
+            // join id is a raw "sys-..." — the region prefix is applied at persistence /
+            // wire boundaries, not at the socket topic), so a direct value-equality would
+            // silently drop every scoped-vs-raw pair. We normalise both sides through the
+            // canonical region-strip so a subscriber joined on "sys-abcdefg" continues to
+            // see events whose target is "nam:sys-abcdefg", matching the tolerant match
+            // that SystemTopic.IdMatches already uses at the socket layer.
             if (subscription.TargetSystemId is not null
                 && targetedEvent is not null
-                && subscription.TargetSystemId.Value != targetedEvent.TargetSystemId)
+                && !string.Equals(
+                    SystemIdNormalization.StripRegionPrefix(subscription.TargetSystemId.Value.Value),
+                    targetedEvent.TargetSystemId.RawId,
+                    StringComparison.Ordinal))
             {
                 continue;
             }

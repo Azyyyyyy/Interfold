@@ -1,3 +1,4 @@
+using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
 using Interfold.Domain.Abstractions;
 
@@ -48,33 +49,22 @@ public sealed class ScyllaKeyspaceResolver : IScyllaKeyspaceResolver
 
     public string ResolveRegionalKeyspace(string systemId)
     {
-        var explicitRegion = ExtractRegionPrefix(systemId);
-        if (explicitRegion is not null and not ("id" or "username" or "discord"))
+        // Slice 4: TryParseScoped subsumes the "extract prefix + guard against id/username/discord"
+        // dance the pre-Slice-4 code did by hand. A valid-region prefix routes straight to that
+        // keyspace; every other shape (no prefix, id/username/discord discriminator, unknown
+        // region tag) falls through to the region-context lookup — a strict improvement over the
+        // old code, which returned "unknown" verbatim for an unrecognised prefix and would then
+        // attempt CQL against a non-existent keyspace.
+        if (Contracts.Ids.ScopedSystemId.TryParseScoped(systemId, out var scoped))
         {
-            return explicitRegion;
+            return scoped.Region.ToWireValue();
         }
 
         return _regionContext.ResolveUserRegion(systemId).ToWireValue();
     }
 
-    public string ResolveGlobalKeyspace() => "global";
+    public string ResolveGlobalKeyspace() => ScyllaGlobalKeyspace.Name;
 
     public string NormalizeSystemId(string systemId)
         => Contracts.Ids.SystemIdNormalization.StripRegionPrefix(systemId);
-
-    private static string? ExtractRegionPrefix(string systemId)
-    {
-        if (string.IsNullOrWhiteSpace(systemId))
-        {
-            return null;
-        }
-
-        var separator = systemId.IndexOf(':');
-        if (separator <= 0)
-        {
-            return null;
-        }
-
-        return systemId[..separator].ToLowerInvariant();
-    }
 }

@@ -2,11 +2,11 @@ using System.Collections.Concurrent;
 using Cassandra;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions;
 using Interfold.Infrastructure.Persistence;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Interfold.Contracts.Ids;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla;
 
@@ -37,16 +37,16 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
 
     public ScyllaUserRegistryRegionContext(
         IScyllaSessionProvider sessionProvider,
-        PersistenceConfiguration options,
-        IConfiguration configuration,
+        IOptions<PersistenceConfiguration> options,
         ILogger<ScyllaUserRegistryRegionContext> logger)
     {
         _sessionProvider = sessionProvider;
-        _options = options;
+        _options = options.Value;
         _logger = logger;
-        _currentRegion = new Lazy<ScyllaKeyspace>(() =>
-            EnumWireExtensions.ParseScyllaKeyspace(
-                ScyllaConfigResolver.GetKeyspaceAsync(configuration).GetAwaiter().GetResult()));
+        // PersistenceConfiguration.ScyllaKeyspace is the enum-typed single source of truth
+        // for the per-node region identity; the resolver's GetKeyspace() call would parse
+        // the same wire value back to this enum, so read it directly and skip the round-trip.
+        _currentRegion = new Lazy<ScyllaKeyspace>(() => _options.ScyllaKeyspace);
     }
 
     public ScyllaKeyspace ResolveUserRegion(SystemId systemId) => ResolveUserRegion(systemId.Value);
@@ -56,8 +56,10 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         if (string.IsNullOrWhiteSpace(systemId))
             return CurrentRegion;
 
-        // Strip legacy region prefix "nam:abcdefg" → "abcdefg" before cache lookup.
-        var raw = StripRegionPrefix(systemId, out var prefix);
+        // Slice 4: split off the raw id + any discriminator prefix ("username" / "discord" / a
+        // region tag) up front. Region-scoped ids parse cleanly via ScopedSystemId; the
+        // discriminator prefixes (which are NOT regions) fall through to the generic-split path.
+        var (raw, prefix) = SplitDiscriminatorPrefix(systemId);
 
         if (_cache.TryGetValue(raw, out var cached))
             return cached;
@@ -96,7 +98,7 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         if (string.IsNullOrWhiteSpace(systemId))
             return CurrentRegion;
 
-        var raw = StripRegionPrefix(systemId, out var prefix);
+        var (raw, prefix) = SplitDiscriminatorPrefix(systemId);
 
         if (_cache.TryGetValue(raw, out var cached))
             return cached;
@@ -118,7 +120,8 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         if (string.IsNullOrWhiteSpace(systemId))
             return;
 
-        StoreInCache(StripRegionPrefix(systemId, out _), region);
+        var (raw, _) = SplitDiscriminatorPrefix(systemId);
+        StoreInCache(raw, region);
     }
 
     // ------------------------------------------------------------------
@@ -160,19 +163,19 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
             if (prefix == "username")
             {
                 query = new SimpleStatement(
-                    "SELECT region FROM global.user_registry WHERE username = ? LIMIT 1",
+                    $"SELECT region FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE username = ? LIMIT 1",
                     normalizedSystemId);
             }
             else if (prefix == "discord")
             {
                 query = new SimpleStatement(
-                    "SELECT region FROM global.user_registry WHERE discord_id = ? LIMIT 1",
+                    $"SELECT region FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE discord_id = ? LIMIT 1",
                     normalizedSystemId);
             }
             else 
             {
                 query = new SimpleStatement(
-                    "SELECT region FROM global.user_registry WHERE user_id = ? LIMIT 1",
+                    $"SELECT region FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE user_id = ? LIMIT 1",
                     normalizedSystemId);                
             }
 
@@ -193,16 +196,31 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         _cache[key] = region;
     }
 
-    private static string StripRegionPrefix(string systemId, out string prefix)
+    /// <summary>
+    /// Split an incoming lookup id into (raw, prefix). Recognises the two shapes
+    /// <c>ResolveUserRegion</c> sees: (a) region-scoped principal ids like <c>"nam:abcdefg"</c>
+    /// where the prefix is a valid <see cref="ScyllaKeyspace"/>, and (b) discriminator-prefixed
+    /// lookup keys like <c>"username:alice"</c> / <c>"discord:1234"</c> / <c>"id:abcdefg"</c>
+    /// where the prefix names which registry column to query. Unscoped inputs return
+    /// (systemId, null). This is the surviving prefix parser after Slice 4 collapsed the
+    /// other two implementations — the "username" / "discord" branching would otherwise
+    /// require reaching into ScopedSystemId internals for a case that isn't a scoped id.
+    /// </summary>
+    private static (string raw, string? prefix) SplitDiscriminatorPrefix(string systemId)
     {
+        if (ScopedSystemId.TryParseScoped(systemId, out var scoped))
+        {
+            // Emit the canonical lowercase region tag so LookupAsync's prefix-equality checks
+            // (== "username" / == "discord") see a stable byte shape.
+            return (scoped.RawId, scoped.Region.ToWireValue());
+        }
+
         var separator = systemId.IndexOf(':');
         if (separator > 0 && separator < systemId.Length - 1)
         {
-            prefix = systemId[..separator].ToLowerInvariant();
-            return systemId[(separator + 1)..];
+            return (systemId[(separator + 1)..], systemId[..separator].ToLowerInvariant());
         }
 
-        prefix = null!;
-        return systemId;
+        return (systemId, null);
     }
 }

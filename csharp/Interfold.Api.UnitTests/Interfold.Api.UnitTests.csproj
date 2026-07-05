@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <!-- Same TUnit pin as the other test projects so the three stay in sync. -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.7.0" />
     <PackageReference Include="TUnit" Version="1.50.0" />
   </ItemGroup>
 

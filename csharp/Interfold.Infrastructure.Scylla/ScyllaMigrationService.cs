@@ -6,9 +6,9 @@ using System.Text.RegularExpressions;
 using Cassandra;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Secrets;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla;
 
@@ -30,9 +30,9 @@ namespace Interfold.Infrastructure.Scylla;
 /// rendered template to the new keyspace.
 /// </remarks>
 public sealed partial class ScyllaMigrationService(
-    PersistenceConfiguration options,
+    IOptions<PersistenceConfiguration> options,
     ISecretsStore secretsStore,
-    IConfiguration configuration,
+    IScyllaConfigResolver configResolver,
     ILogger<ScyllaMigrationService> logger) : IHostedLifecycleService
 {
     // Derived from the ScyllaKeyspace enum so the regional list can't drift from the type
@@ -82,13 +82,13 @@ public sealed partial class ScyllaMigrationService(
         }
 
         // Read connection details via unified resolver
-        _contactPoints = await ScyllaConfigResolver.GetContactPointsAsync(configuration, secretsStore, cancellationToken);
-        _datacenter = await ScyllaConfigResolver.GetDatacenterAsync(secretsStore, cancellationToken);
-        _appUsername = await ScyllaConfigResolver.GetUsernameAsync(secretsStore, cancellationToken);
-        _port = await ScyllaConfigResolver.GetPortAsync(configuration, secretsStore, cancellationToken);
+        _contactPoints = await configResolver.GetContactPointsAsync(cancellationToken);
+        _datacenter = await configResolver.GetDatacenterAsync(cancellationToken);
+        _appUsername = await configResolver.GetUsernameAsync(cancellationToken);
+        _port = await configResolver.GetPortAsync(cancellationToken);
 
         // Keyspace is the per-node region identity — env-only, never store-shared.
-        _keyspace = await ScyllaConfigResolver.GetKeyspaceAsync(configuration, cancellationToken);
+        _keyspace = configResolver.GetKeyspace();
 
         logger.LogInformation("[scylla-migrate] Applying ScyllaDB schema migrations...");
 
@@ -180,11 +180,14 @@ public sealed partial class ScyllaMigrationService(
     public static Task MigrateAsync(
         PersistenceConfiguration options,
         ISecretsStore secretsStore,
-        IConfiguration configuration,
+        IScyllaConfigResolver configResolver,
         ILogger<ScyllaMigrationService> logger,
         CancellationToken cancellationToken)
     {
-        var service = new ScyllaMigrationService(options, secretsStore, configuration, logger);
+        // Wrap the caller-supplied snapshot so the primary constructor's
+        // IOptions<PersistenceConfiguration> contract is honoured without spreading
+        // Options.Create noise across every test call site.
+        var service = new ScyllaMigrationService(Options.Create(options), secretsStore, configResolver, logger);
         return service.StartingAsync(cancellationToken);
     }
 
@@ -583,7 +586,7 @@ public sealed partial class ScyllaMigrationService(
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
 
     private string[] TargetKeyspaces() =>
-        options.IsSingleScyllaInstance
+        options.Value.IsSingleScyllaInstance
             ? [_keyspace!]
             : RegionalKeyspaces;
 

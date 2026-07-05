@@ -7,7 +7,7 @@ using Interfold.Contracts.Configuration;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using TUnit.Core.Services;
 
 namespace Interfold.IntegrationTests;
@@ -599,11 +599,12 @@ public class BaseEndpointTest
     
     internal static async Task<string> CreateRandomToken(InterfoldWebApplicationFactory factory, string systemId)
     {
-        var config = factory.Services.GetRequiredService<IConfiguration>();
         var rev = factory.Services.GetRequiredService<IAuthTokenRevocationRepository>();
-        var authConfig = config.Get<AuthenticationConfiguration>();
+        // See InterfoldWebApplicationFactory.CreateToken for the IOptionsMonitor vs
+        // IConfiguration.Get<T>() rationale — we want the SecretsBootstrapService-patched
+        // instance, not a fresh binding from IConfiguration.
+        var authConfig = factory.Services.GetRequiredService<IOptionsMonitor<AuthenticationConfiguration>>().CurrentValue;
 
-        Assert.NotNull(authConfig);
         // Mirror the fixture-side seed of the ES256 keypair so the JWT we issue here verifies
         // against the API's SecretsBootstrapService-patched configuration on the server side.
         authConfig.JwtEs256PrivateKeyPem = TestDbCredentials.JwtEs256PrivateKeyPem;

@@ -19,12 +19,20 @@ namespace Interfold.Api.Controllers.Base;
 [Authorize]
 public abstract class InterfoldControllerBase : ControllerBase
 {
-    protected SystemId PrincipalId
+    /// <summary>
+    /// The authenticated principal for the current request, exposed as a
+    /// <see cref="ScopedSystemId"/> (Slice 4). The middleware guarantees the value is
+    /// present and scoped — any endpoint reaching this getter has already passed the
+    /// JWT-sub validation. <see cref="ScopedSystemId"/> widens implicitly to
+    /// <see cref="SystemId"/> at every persistence / repository call site, so this
+    /// getter's byte value flows unchanged to Postgres idempotency and Scylla PKs.
+    /// </summary>
+    protected ScopedSystemId PrincipalId
     {
         get
         {
             if (HttpContext.Items.TryGetValue(InterfoldPrincipalMiddleware.PrincipalIdItemKey, out var value)
-                && value is SystemId principal)
+                && value is ScopedSystemId principal)
             {
                 return principal;
             }

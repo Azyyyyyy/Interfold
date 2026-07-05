@@ -28,6 +28,26 @@ public static class OctoconEnvKeys
     public const string DbRetryMaxDelayMs = "OCTOCON_DB_RETRY_MAX_DELAY_MS";
     public const string HydrationMaxConcurrency = "OCTOCON_HYDRATION_MAX_CONCURRENCY";
 
+    // --- Scylla runtime overrides (test/dev host-port + contact-point overrides) ---
+    // The production values live in internal.secrets (scylla:contact_points, scylla:port);
+    // these env vars only exist so integration-test containers can point the client at a
+    // host-published port that differs from the store-supplied cluster address.
+    public const string ScyllaContactPoints = "OCTOCON_SCYLLA_CONTACT_POINTS";
+    public const string ScyllaPort = "OCTOCON_SCYLLA_PORT";
+
+    // --- In-memory secrets seeding (test/self-host bootstrap) ---
+    // Operator-facing env vars: OCTOCON_INMEMORY_SECRETS_SEED__<SUFFIX>. The `__` -> `:`
+    // remap is applied by EnvironmentVariablesConfigurationProvider on load, so lookups
+    // go through the `Octocon:InMemorySecretsSeed:*` config-key hierarchy at read time.
+    public const string InMemorySecretsSeedEncryptionPepper =
+        "OCTOCON_INMEMORY_SECRETS_SEED:ENCRYPTION_PEPPER";
+    public const string InMemorySecretsSeedAuthJwtEs256PrivatePem =
+        "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_JWT_ES256_PRIVATE_PEM";
+    public const string InMemorySecretsSeedAuthDeepLinkSecret =
+        "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_DEEP_LINK_SECRET";
+    public const string InMemorySecretsSeedAuthJwtRsa256PrivatePem =
+        "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_JWT_RSA256_PRIVATE_PEM";
+
     // --- Authentication ---
     public const string AuthCallbackBaseUrl = "OCTOCON_AUTH_CALLBACK_BASE_URL";
     public const string JwtAuthority = "OCTOCON_JWT_AUTHORITY";

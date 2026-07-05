@@ -62,6 +62,14 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
 
         var targetSystemId = resolvedTargetSystemId.Value;
 
+        // Slice 4: the resolver returns a scoped-shape id (the account repos all compose one
+        // before returning). Route the value through Compose one more time so we hand the
+        // event publisher a ScopedSystemId even if a legacy repo path emitted a bare id — the
+        // principal's region is the safe fallback that matches the pre-Slice-4 canonicaliser.
+        var targetScopedId = Interfold.Contracts.Ids.ScopedSystemId.Compose(
+            command.PrincipalId.Region,
+            targetSystemId);
+
         var outcome = await _repository.SendRequestAsync(
             command.PrincipalId,
             targetSystemId,
@@ -109,11 +117,11 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
                 targetSystemId), cancellationToken);
 
             await _eventBus.PublishAsync(new FriendshipAddedEvent(
-                targetSystemId,
+                targetScopedId,
                 command.PrincipalId), cancellationToken);
 
             await _eventBus.PublishAsync(new FriendRequestRemovedToEvent(
-                targetSystemId,
+                targetScopedId,
                 command.PrincipalId), cancellationToken);
         }
         else
@@ -123,7 +131,7 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
                 targetSystemId), cancellationToken);
 
             await _eventBus.PublishAsync(new FriendRequestReceivedEvent(
-                targetSystemId,
+                targetScopedId,
                 command.PrincipalId), cancellationToken);
         }
 

@@ -22,7 +22,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         public string? Pronouns { get; set; }
         public string? ProxyName { get; set; }
         public string Name { get; set; } = string.Empty;
-        public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Public;
+        public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Private;
         public Dictionary<string, string?> Fields { get; } = new(StringComparer.OrdinalIgnoreCase);
         public bool Untracked { get; set; }
         public bool Archived { get; set; }

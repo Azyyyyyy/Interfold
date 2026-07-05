@@ -158,7 +158,7 @@ public sealed class InProcessImportJobQueueTests
 
     private static ImportJobItem NewItem(string systemId) => new(
         new Interfold.Contracts.Ids.ImportOperationId(Guid.NewGuid()),
-        new Interfold.Contracts.Ids.SystemId(systemId),
+        Interfold.Contracts.Ids.ScopedSystemId.ParseScoped(systemId),
         ImportOperationKind.SimplyPlural,
         Token: new Interfold.Contracts.Ids.ImportToken("synthetic-token"),
         RecoveryCode: null);

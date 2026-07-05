@@ -13,6 +13,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using TUnit.Aspire;
 
@@ -203,7 +204,7 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             IsSingleScyllaInstance = true,
             ScyllaKeyspace = Interfold.Contracts.Enums.ScyllaKeyspace.Nam,
         };
-        var connectionFactory = new PostgresConnectionFactory(persistenceConfig);
+        var connectionFactory = new PostgresConnectionFactory(Options.Create(persistenceConfig));
         var secretsStore = new PostgresSecretsStore(connectionFactory);
 
         await PostgresMigrationService.MigrateAsync(
@@ -334,22 +335,24 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         ISecretsStore secretsStore,
         CancellationToken cancellationToken)
     {
-        // ScyllaConfigResolver reads contact points + port from IConfiguration when the keys
-        // are present; we feed it the host-mapped endpoint so the migration runs against the
-        // exact CQL listener the API will hit during the test.
-        var migrationConfig = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["OCTOCON_SCYLLA_CONTACT_POINTS"] = cqlEndpoint.Host,
-                ["OCTOCON_SCYLLA_PORT"] = cqlEndpoint.Port.ToString(),
-                ["OCTOCON_SCYLLA_KEYSPACE"] = "nam",
-            })
-            .Build();
+        // Build the resolver with the host-mapped endpoint pinned via ScyllaOverrideOptions
+        // so the migration runs against the exact CQL listener the API will hit during the
+        // test. The keyspace is read straight off persistenceConfig.ScyllaKeyspace (single
+        // source of truth) — no throwaway IConfiguration needed anymore.
+        var overrides = new ScyllaOverrideOptions
+        {
+            ContactPoints = [cqlEndpoint.Host],
+            Port = cqlEndpoint.Port,
+        };
+        var resolver = new ScyllaConfigResolver(
+            secretsStore,
+            Options.Create(overrides),
+            Options.Create(persistenceConfig));
 
         await ScyllaMigrationService.MigrateAsync(
             persistenceConfig,
             secretsStore,
-            migrationConfig,
+            resolver,
             NullLoggerFactory.Instance.CreateLogger<ScyllaMigrationService>(),
             cancellationToken);
     }

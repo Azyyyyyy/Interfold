@@ -26,10 +26,16 @@ internal static class InMemoryStorageKeys
     public static string NormalizeSystemId(string systemId)
         => SystemIdNormalization.StripRegionPrefix(systemId);
 
-    /// <summary>The per-system dictionary partition key: <c>"{region}:{systemId}"</c>.</summary>
+    /// <summary>
+    /// The per-system dictionary partition key: <c>"{region}:{systemId}"</c>. Routed through
+    /// <see cref="ScopedSystemId.Compose(ScyllaKeyspace, SystemId)"/> so the composition is
+    /// idempotent — an incoming <see cref="SystemId"/> that already carries a region prefix
+    /// no longer produces a double-prefixed key like <c>"nam:nam:abcdefg"</c>, which was the
+    /// silent failure mode of the pre-Slice-4 hand-concatenation.
+    /// </summary>
     public static string ForSystem(IRegionContext regionContext, SystemId systemId)
     {
-        var region = regionContext.ResolveUserRegion(systemId).ToWireValue();
-        return $"{region}:{systemId.Value}";
+        var region = regionContext.ResolveUserRegion(systemId);
+        return ScopedSystemId.Compose(region, systemId).Value;
     }
 }
