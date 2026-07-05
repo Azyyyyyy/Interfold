@@ -8,7 +8,7 @@ public sealed record UpdateGlobalJournalEntryCommand(
     EntryId EntryId,
     string? Title,
     string? Content,
-    string? Color
+    HexColor? Color
 );
 
 public sealed record DeleteGlobalJournalEntryCommand(EntryId EntryId);
@@ -31,7 +31,7 @@ public sealed record UpdateAlterJournalEntryCommand(
     EntryId EntryId,
     string? Title,
     string? Content,
-    string? Color,
+    HexColor? Color,
     DateTimeOffset UpdatedAt
 );
 

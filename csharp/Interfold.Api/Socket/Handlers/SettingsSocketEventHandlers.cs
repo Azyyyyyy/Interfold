@@ -44,7 +44,7 @@ public static class SettingsSocketEventHandlers
 
         if (evt.EmitUsernameUpdated && profile?.Username is not null)
         {
-            await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Settings.UsernameUpdated, new SettingsUsernameUpdatedPayload(profile.Username));
+            await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Settings.UsernameUpdated, new SettingsUsernameUpdatedPayload(profile.Username.Value));
         }
 
         var selfData = WebSocketInitialization.BuildSelfReadModel(
@@ -90,33 +90,21 @@ public static class SettingsSocketEventHandlers
         await context.SendAsync(topic, joinRef, asArray, eventName, new EmptyPayload());
     }
 
-    public static async Task HandleAsync(SettingsAccountLinkedEvent evt, SocketPushContext context)
+    public static Task HandleAsync(SettingsDiscordAccountLinkedEvent evt, SocketPushContext context)
+        => SendLinkedAsync(evt.TargetSystemId, SocketEventNames.Settings.DiscordAccountLinked, new DiscordAccountLinkedPayload(evt.DiscordId), context);
+
+    public static Task HandleAsync(SettingsGoogleAccountLinkedEvent evt, SocketPushContext context)
+        => SendLinkedAsync(evt.TargetSystemId, SocketEventNames.Settings.GoogleAccountLinked, new GoogleAccountLinkedPayload(evt.Email), context);
+
+    public static Task HandleAsync(SettingsAppleAccountLinkedEvent evt, SocketPushContext context)
+        => SendLinkedAsync(evt.TargetSystemId, SocketEventNames.Settings.AppleAccountLinked, new AppleAccountLinkedPayload(evt.AppleId), context);
+
+    private static async Task SendLinkedAsync(SystemId systemId, string eventName, ISocketPayload payload, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
+        if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
         {
             return;
         }
-
-        var eventName = evt.ProviderKey switch
-        {
-            OAuthProvider.Discord => SocketEventNames.Settings.DiscordAccountLinked,
-            OAuthProvider.Google => SocketEventNames.Settings.GoogleAccountLinked,
-            OAuthProvider.Apple => SocketEventNames.Settings.AppleAccountLinked,
-            _ => null
-        };
-
-        if (eventName is null)
-        {
-            return;
-        }
-
-        ISocketPayload payload = evt.ProviderKey switch
-        {
-            OAuthProvider.Discord => new DiscordAccountLinkedPayload(evt.Identity),
-            OAuthProvider.Google => new GoogleAccountLinkedPayload(evt.Identity),
-            OAuthProvider.Apple => new AppleAccountLinkedPayload(evt.Identity),
-            _ => throw new InvalidOperationException("Unrecognized provider key") //Should never hit due to the earlier check, but satisfies the compiler
-        };
 
         await context.SendAsync(topic, joinRef, asArray, eventName, payload);
     }

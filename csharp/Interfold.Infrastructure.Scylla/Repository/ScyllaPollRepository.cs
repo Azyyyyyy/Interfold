@@ -13,20 +13,6 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 
 public sealed class ScyllaPollRepository : IPollRepository
 {
-    private static readonly Dictionary<string, short> PollTypeToCode = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["vote"] = 0,
-        ["choice"] = 1,
-        ["approval"] = 2
-    };
-
-    private static readonly Dictionary<short, string> PollCodeToType = new()
-    {
-        [0] = "vote",
-        [1] = "choice",
-        [2] = "approval"
-    };
-
     private readonly IScyllaSessionProvider _sessionProvider;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
@@ -221,11 +207,7 @@ public sealed class ScyllaPollRepository : IPollRepository
         }, _options, cancellationToken);
     }
 
-    internal static bool TryParseUuid(string value, out Guid guid)
-    {
-        if (Guid.TryParseExact(value, "N", out guid)) return true;
-        return Guid.TryParse(value, out guid);
-    }
+    internal static bool TryParseUuid(string value, out Guid guid) => UuidString.TryParse(value, out guid);
 
     private static async Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, Guid pollGuid)
     {
@@ -242,12 +224,6 @@ public sealed class ScyllaPollRepository : IPollRepository
     internal static short ToPollCode(PollType type) => type.ToCode();
 
     internal static PollType ToPollType(short code) => PollTypeExtensions.FromCode(code);
-
-    private static DateTimeOffset? ParseTime(string? iso)
-    {
-        if (string.IsNullOrWhiteSpace(iso)) return null;
-        return DateTimeOffset.TryParse(iso, out var value) ? value : null;
-    }
 
     // The data blob's confirmed shape (see PollDataJson) keeps per-alter votes in the
     // top-level `responses` array as {"alter_id":<int>,...} entries; deleting an alter

@@ -22,7 +22,7 @@ namespace Interfold.Bootstrapper.Phases;
 /// </remarks>
 internal static partial class SecretsPhase
 {
-    private const string SecretsRelativePath = "secrets/secrets.json";
+    private const string SecretsRelativePath = BootstrapArtifactPaths.SecretsRelativePath;
 
     // Alphabet for generated passwords. Drops the easily-confused chars (0/O, 1/l/I) plus shell-tricky
     // punctuation. 32 characters from this alphabet still gives ~190 bits of entropy.
@@ -50,7 +50,7 @@ internal static partial class SecretsPhase
         var secretsPath = Path.Combine(options.OutputDir, SecretsRelativePath);
         if (File.Exists(secretsPath) && !options.RotateSecrets)
         {
-            logger.PhaseSkip(Phase, "already-present");
+            logger.PhaseSkip(Phase, PhaseFailureReasons.Skip.AlreadyPresent);
             var existing = await LoadAsync(secretsPath, ct).ConfigureAwait(false);
             // Backfill admin / init passwords for secrets.json files that predate DatabaseInitPhase.
             // Without this, a rerun against an older deployment would set an empty admin

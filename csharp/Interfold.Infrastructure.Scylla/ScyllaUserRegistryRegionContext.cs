@@ -82,9 +82,6 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         return CurrentRegion;
     }
 
-    public string ResolveConsistency(ScyllaKeyspace targetRegion) =>
-        targetRegion == CurrentRegion ? "local" : "global";
-
     /// <summary>
     /// Asynchronous variant to be used in hot paths that already have an async context.
     /// Falls back to <see cref="CurrentRegion"/> when the registry row is absent.

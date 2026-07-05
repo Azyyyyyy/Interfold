@@ -12,5 +12,4 @@ public interface IRegionContext
 {
     ScyllaKeyspace CurrentRegion { get; }
     ScyllaKeyspace ResolveUserRegion(string systemId);
-    string ResolveConsistency(ScyllaKeyspace targetRegion);
 }

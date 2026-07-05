@@ -55,11 +55,13 @@ public sealed class FriendRequestsController : InterfoldControllerBase
         return new SuccessResponse<FriendRequestIndexReadModel>(new FriendRequestIndexReadModel(incoming, outgoing));
     }
 
+    // The route value may be a username OR a system id — the handler resolves it via
+    // IFriendshipRepository.ResolveUserIdAsync, hence UsernameOrSystemId rather than SystemId.
     [HttpPut("{id}")]
-    public async Task<Response> Send(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Send(UsernameOrSystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        if (principal == id)
+        if (principal.Value == id.Value)
         {
             return new ErrorResponse(
                 "You cannot send a friend request to yourself.",

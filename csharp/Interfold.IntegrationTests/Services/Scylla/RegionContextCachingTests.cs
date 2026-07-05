@@ -21,7 +21,7 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["OCTOCON_SCYLLA_KEYSPACE"] = defaultRegion })
             .Build();
-        return new(new ThrowingSessionProvider(), new PersistenceConfiguration { ScyllaKeyspace = defaultRegion },
+        return new(new ThrowingSessionProvider(), new PersistenceConfiguration { ScyllaKeyspace = Interfold.Contracts.Enums.EnumWireExtensions.ParseScyllaKeyspace(defaultRegion) },
             config,
             NullLogger<ScyllaUserRegistryRegionContext>.Instance);
     }
@@ -60,20 +60,6 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
         // Plain key lookup after prefix strip should also be cache-warm.
         var result2 = ctx.ResolveUserRegion("eas:user-xyz");
         await Assert.That(result2).IsEqualTo(ScyllaKeyspace.Sam);
-    }
-
-    [Test]
-    public async Task ResolveConsistency_ReturnsLocal_ForSameRegion()
-    {
-        var ctx = BuildContext("nam");
-        await Assert.That(ctx.ResolveConsistency(ScyllaKeyspace.Nam)).IsEqualTo("local");
-    }
-
-    [Test]
-    public async Task ResolveConsistency_ReturnsGlobal_ForDifferentRegion()
-    {
-        var ctx = BuildContext("nam");
-        await Assert.That(ctx.ResolveConsistency(ScyllaKeyspace.Eur)).IsEqualTo("global");
     }
 
     [Test]

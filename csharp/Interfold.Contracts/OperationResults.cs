@@ -4,7 +4,7 @@ using Interfold.Contracts.Models.ImportOperations;
 
 namespace Interfold.Contracts;
 
-public sealed record AccountCommandResult(SystemId SystemId, string Username, bool Replay) : ICommandResult;
+public sealed record AccountCommandResult(SystemId SystemId, Username Username, bool Replay) : ICommandResult;
 
 public sealed record AlterCommandResult(SystemId SystemId, AlterId AlterId, bool Replay) : ICommandResult;
 
@@ -37,7 +37,7 @@ public sealed record SettingsCommandResult(SystemId SystemId, SettingsAction Act
 /// </summary>
 public sealed record ImportDispatchCommandResult(
     SystemId SystemId,
-    Guid OperationId,
+    ImportOperationId OperationId,
     ImportOperationKind Kind,
     ImportOperationDispatchStatus Status,
     DateTimeOffset StartedAt,

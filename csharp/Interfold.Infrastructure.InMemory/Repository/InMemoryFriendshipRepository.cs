@@ -24,16 +24,16 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, FriendshipState>> _friendships = new();
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, RequestState>> _outgoingRequests = new();
 
-    public Task<SystemId?> ResolveUserIdAsync(string userNameOrId, CancellationToken cancellationToken = default)
+    public Task<SystemId?> ResolveUserIdAsync(UsernameOrSystemId userNameOrId, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(userNameOrId))
+        if (string.IsNullOrWhiteSpace(userNameOrId.Value))
         {
             return Task.FromResult<SystemId?>(null);
         }
 
         // In-memory mode has no user registry; treat provided value as canonical id,
         // but normalize by stripping any region prefix to match Scylla NormalizeSystemId semantics.
-        return Task.FromResult<SystemId?>(new SystemId(NormalizeSystemId(userNameOrId.Trim())));
+        return Task.FromResult<SystemId?>(new SystemId(NormalizeSystemId(userNameOrId.Value.Trim())));
     }
 
     public Task<FriendshipLevel?> GetFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken = default)
@@ -315,19 +315,9 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
         };
     }
 
-    private static string NormalizeSystemId(SystemId systemId) => NormalizeSystemId(systemId.Value);
+    private static string NormalizeSystemId(SystemId systemId) => InMemoryStorageKeys.NormalizeSystemId(systemId);
 
-    private static string NormalizeSystemId(SystemId? systemId) => NormalizeSystemId(systemId?.Value ?? string.Empty);
+    private static string NormalizeSystemId(SystemId? systemId) => InMemoryStorageKeys.NormalizeSystemId(systemId?.Value ?? string.Empty);
 
-    private static string NormalizeSystemId(string systemId)
-    {
-        if (string.IsNullOrWhiteSpace(systemId))
-            return systemId;
-
-        var separator = systemId.IndexOf(':');
-        if (separator <= 0 || separator >= systemId.Length - 1)
-            return systemId;
-
-        return systemId[(separator + 1)..];
-    }
+    private static string NormalizeSystemId(string systemId) => InMemoryStorageKeys.NormalizeSystemId(systemId);
 }

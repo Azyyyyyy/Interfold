@@ -55,7 +55,7 @@ public interface IImportOperationRepository
     /// </summary>
     Task MarkRunningAsync(
         SystemId systemId,
-        Guid operationId,
+        ImportOperationId operationId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -66,7 +66,7 @@ public interface IImportOperationRepository
     /// </summary>
     Task MarkSucceededAsync(
         SystemId systemId,
-        Guid operationId,
+        ImportOperationId operationId,
         ImportOperationKind kind,
         int alterCount,
         CancellationToken cancellationToken = default);
@@ -79,7 +79,7 @@ public interface IImportOperationRepository
     /// </summary>
     Task MarkFailedAsync(
         SystemId systemId,
-        Guid operationId,
+        ImportOperationId operationId,
         ImportOperationKind kind,
         ImportErrorCode errorCode,
         string? errorMessage,
@@ -91,7 +91,7 @@ public interface IImportOperationRepository
     /// </summary>
     Task<ImportOperationSnapshot?> GetByIdAsync(
         SystemId systemId,
-        Guid operationId,
+        ImportOperationId operationId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -102,7 +102,7 @@ public interface IImportOperationRepository
     /// (Phase 1 callers should always treat <see cref="TryClaimAsync"/> as the source of
     /// truth — this method's result is racy.)
     /// </summary>
-    Task<Guid?> GetActiveOperationIdAsync(
+    Task<ImportOperationId?> GetActiveOperationIdAsync(
         SystemId systemId,
         ImportOperationKind kind,
         CancellationToken cancellationToken = default);
@@ -135,4 +135,4 @@ public interface IImportOperationRepository
 /// </summary>
 /// <param name="OperationId">Either the freshly-minted operation id or the id of the in-flight one.</param>
 /// <param name="IsNew">True when the LWT successfully claimed the slot — the caller owns dispatching this work. False when the slot was already taken — the caller MUST NOT enqueue a second worker run.</param>
-public readonly record struct ImportOperationClaim(Guid OperationId, bool IsNew);
+public readonly record struct ImportOperationClaim(ImportOperationId OperationId, bool IsNew);

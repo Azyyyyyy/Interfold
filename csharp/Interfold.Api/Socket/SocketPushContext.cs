@@ -52,23 +52,12 @@ public sealed class SocketPushContext
 
     public bool TryGetSystemTopic(SystemId systemId, out string topic, out string? joinRef, out bool asArray)
     {
-        topic = $"system:{systemId.Value}";
+        topic = new SystemTopic(systemId).ToWireString();
         if (!JoinedTopics.ContainsKey(topic))
         {
-            var targetComparableId = ComparableSystemId(systemId.Value);
             var matchedTopic = JoinedTopics.Keys.FirstOrDefault(t =>
-            {
-                if (!t.StartsWith("system:", StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-
-                var topicSystemId = t["system:".Length..];
-                return string.Equals(
-                    ComparableSystemId(topicSystemId),
-                    targetComparableId,
-                    StringComparison.Ordinal);
-            });
+                SystemTopic.TryParse(t, out var joined)
+                && SystemTopic.IdMatches(joined.Id.Value, systemId.Value));
 
             if (matchedTopic is null)
             {
@@ -83,22 +72,6 @@ public sealed class SocketPushContext
         TopicJoinReference.TryGetValue(topic, out joinRef);
         TopicReplyAsArrayFrame.TryGetValue(topic, out asArray);
         return true;
-    }
-
-    private static string ComparableSystemId(string systemId)
-    {
-        if (string.IsNullOrWhiteSpace(systemId))
-        {
-            return systemId;
-        }
-
-        var separator = systemId.IndexOf(':', StringComparison.Ordinal);
-        if (separator <= 0 || separator >= systemId.Length - 1)
-        {
-            return systemId;
-        }
-
-        return systemId[(separator + 1)..];
     }
 
     public Task SendAsync<TPayload>(string topic, string? joinRef, bool asArray, string eventName, TPayload payload)

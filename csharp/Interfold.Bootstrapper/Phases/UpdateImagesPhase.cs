@@ -32,17 +32,17 @@ namespace Interfold.Bootstrapper.Phases;
 /// </remarks>
 internal static class UpdateImagesPhase
 {
-    private const string Phase = "update-images";
+    private static readonly string Phase = BootstrapCommand.UpdateImages.ToPhaseLogName();
     private const string PostgresService = ComposeServices.Postgres;
 
     public static async Task<int> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
         logger.PhaseStart(Phase);
 
-        var configPath = options.ConfigPath ?? Path.Combine(options.OutputDir, "interfold.bootstrap.json");
+        var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
         if (!File.Exists(configPath))
         {
-            logger.PhaseFail(Phase, "missing-config");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingConfig);
             throw new InvalidOperationException(
                 $"update-images requires a populated bootstrap config at {configPath}. " +
                 "Run `bootstrap` first.");
@@ -59,7 +59,7 @@ internal static class UpdateImagesPhase
         var composeFile = FindComposeFile(options.OutputDir);
         if (composeFile is null)
         {
-            logger.PhaseFail(Phase, "no-compose-file");
+            logger.PhaseFail(Phase, PhaseFailureReasons.NoComposeFile);
             throw new InvalidOperationException(
                 $"docker-compose.yaml not found under {options.OutputDir}. Run `bootstrap publish` first.");
         }
@@ -104,7 +104,7 @@ internal static class UpdateImagesPhase
             var backupExit = await BackupPhase.RunAsync(backupOptions, logger, ct).ConfigureAwait(false);
             if (backupExit != 0)
             {
-                logger.PhaseFail(Phase, "pre-update-backup-failed");
+                logger.PhaseFail(Phase, PhaseFailureReasons.PreUpdateBackupFailed);
                 return backupExit;
             }
             backupArtifacts = ResolveLatestBackupArtifacts(backupOptions, config);
@@ -138,7 +138,7 @@ internal static class UpdateImagesPhase
         var pull = await ProcessRunner.RunAsync("docker", pullArgs, ct: ct).ConfigureAwait(false);
         if (pull.ExitCode != 0)
         {
-            logger.PhaseFail(Phase, "pull-failed");
+            logger.PhaseFail(Phase, PhaseFailureReasons.PullFailed);
             throw new InvalidOperationException(
                 $"docker compose pull exited {pull.ExitCode}: {pull.StdErr.Trim()}");
         }
@@ -175,7 +175,7 @@ internal static class UpdateImagesPhase
             var up = await ProcessRunner.RunAsync("docker", upArgs, ct: ct).ConfigureAwait(false);
             if (up.ExitCode != 0)
             {
-                logger.PhaseFail(Phase, "up-failed");
+                logger.PhaseFail(Phase, PhaseFailureReasons.UpFailed);
                 throw new InvalidOperationException(
                     $"docker compose up -d exited {up.ExitCode}: {up.StdErr.Trim()}");
             }
@@ -193,7 +193,7 @@ internal static class UpdateImagesPhase
         var healthErr = await CheckStackHealthAsync(composeFile, config, healthTimeout, logger, ct).ConfigureAwait(false);
         if (healthErr is not null)
         {
-            logger.PhaseFail(Phase, "health-check-failed");
+            logger.PhaseFail(Phase, PhaseFailureReasons.HealthCheckFailed);
             await OnHealthCheckFailedAsync(
                 options, config, composeFile, healthErr, backupArtifacts, autoRestore, logger, ct)
                 .ConfigureAwait(false);
@@ -217,11 +217,24 @@ internal static class UpdateImagesPhase
     /// <summary>
     /// Resolves the effective service whitelist. CLI <c>--service</c> wins over
     /// <see cref="UpdateSection.Services"/>; both empty means "every service".
+    /// Config-sourced values were already validated by <c>ConfigPhase</c>; CLI values bypass
+    /// it, so they are checked here against the same
+    /// <see cref="ComposeServices.AllValidUpdateServices"/> whitelist.
     /// </summary>
     internal static IReadOnlyList<string> ResolveServiceWhitelist(BootstrapOptions options, BootstrapConfig config)
     {
         if (options.UpdateServices is { Length: > 0 })
         {
+            var unknown = options.UpdateServices
+                .Where(svc => !ComposeServices.AllValidUpdateServices.Contains(svc, StringComparer.Ordinal))
+                .ToArray();
+            if (unknown.Length > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Unknown --service value(s): {string.Join(", ", unknown)}. " +
+                    $"Expected one of: {string.Join(", ", ComposeServices.AllValidUpdateServices)}.");
+            }
+
             return options.UpdateServices;
         }
         return config.Update.Services;
@@ -563,7 +576,7 @@ internal static class UpdateImagesPhase
         if (backupArtifacts is { } bs)
         {
             logger.Warn("update failed; the pre-update backup is on disk. To roll back manually:");
-            var cmd = $"interfold-bootstrap restore --config \"{Path.GetFullPath(options.ConfigPath ?? Path.Combine(options.OutputDir, "interfold.bootstrap.json"))}\" --output-dir \"{options.OutputDir}\" --restore-postgres \"{bs.PostgresArchive}\" --restore-scylla \"{bs.ScyllaArchive}\" --force";
+            var cmd = $"interfold-bootstrap restore --config \"{Path.GetFullPath(BootstrapArtifactPaths.ResolveConfigPath(options))}\" --output-dir \"{options.OutputDir}\" --restore-postgres \"{bs.PostgresArchive}\" --restore-scylla \"{bs.ScyllaArchive}\" --force";
             Console.Error.WriteLine();
             Console.Error.WriteLine(cmd);
             Console.Error.WriteLine();
@@ -635,10 +648,5 @@ internal static class UpdateImagesPhase
         }
     }
 
-    private static string? FindComposeFile(string outputDir)
-    {
-        var direct = Path.Combine(outputDir, "docker-compose.yaml");
-        if (File.Exists(direct)) return direct;
-        return Directory.EnumerateFiles(outputDir, "docker-compose.yaml", SearchOption.AllDirectories).FirstOrDefault();
-    }
+    private static string? FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
 }

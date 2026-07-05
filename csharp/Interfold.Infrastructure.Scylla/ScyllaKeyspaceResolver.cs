@@ -51,20 +51,7 @@ public sealed class ScyllaKeyspaceResolver : IScyllaKeyspaceResolver
     public string ResolveGlobalKeyspace() => "global";
 
     public string NormalizeSystemId(string systemId)
-    {
-        if (string.IsNullOrWhiteSpace(systemId))
-        {
-            return systemId;
-        }
-
-        var separator = systemId.IndexOf(':');
-        if (separator <= 0 || separator >= systemId.Length - 1)
-        {
-            return systemId;
-        }
-
-        return systemId[(separator + 1)..];
-    }
+        => Contracts.Ids.SystemIdNormalization.StripRegionPrefix(systemId);
 
     private static string? ExtractRegionPrefix(string systemId)
     {

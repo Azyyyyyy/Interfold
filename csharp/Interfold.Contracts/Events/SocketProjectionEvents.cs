@@ -63,7 +63,13 @@ public sealed record FriendRequestRemovedFromEvent(SystemId TargetSystemId, Syst
 
 public sealed record FriendRequestRemovedToEvent(SystemId TargetSystemId, SystemId ToSystemId) : ITargetedClusterEvent;
 
-public sealed record SettingsAccountLinkedEvent(SystemId TargetSystemId, OAuthProvider ProviderKey, string Identity) : ITargetedClusterEvent;
+// One event per provider (mirrors the per-provider unlink signal events below) so the
+// identity carries its real type and neither producer nor consumer switches on a provider enum.
+public sealed record SettingsDiscordAccountLinkedEvent(SystemId TargetSystemId, DiscordId DiscordId) : ITargetedClusterEvent;
+
+public sealed record SettingsGoogleAccountLinkedEvent(SystemId TargetSystemId, Email Email) : ITargetedClusterEvent;
+
+public sealed record SettingsAppleAccountLinkedEvent(SystemId TargetSystemId, AppleId AppleId) : ITargetedClusterEvent;
 
 public sealed record SettingsGoogleAccountUnlinkedSignalEvent(SystemId TargetSystemId) : ITargetedClusterEvent;
 

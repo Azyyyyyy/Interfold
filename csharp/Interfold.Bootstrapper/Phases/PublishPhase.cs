@@ -52,17 +52,17 @@ internal static class PublishPhase
             Directory.SetCurrentDirectory(previousCwd);
         }
 
-        var composePath = Path.Combine(options.OutputDir, "docker-compose.yaml");
+        var composePath = Path.Combine(options.OutputDir, BootstrapArtifactPaths.ComposeFileName);
         if (!File.Exists(composePath))
         {
             // Aspire >=13 sometimes emits to a subdirectory keyed by the environment name.
             // Look one level deeper before giving up.
-            var nested = Directory.EnumerateFiles(options.OutputDir, "docker-compose.yaml", SearchOption.AllDirectories).FirstOrDefault();
+            var nested = BootstrapArtifactPaths.FindComposeFile(options.OutputDir);
             if (nested is null)
             {
-                logger.PhaseFail(Phase, "compose-not-emitted");
+                logger.PhaseFail(Phase, PhaseFailureReasons.ComposeNotEmitted);
                 throw new InvalidOperationException(
-                    $"Aspire publish completed but no docker-compose.yaml was produced under {options.OutputDir}.");
+                    $"Aspire publish completed but no {BootstrapArtifactPaths.ComposeFileName} was produced under {options.OutputDir}.");
             }
             logger.Info($"    compose emitted at {nested}");
             composePath = nested;
@@ -124,12 +124,12 @@ internal static class PublishPhase
     /// rejected any value outside this switch in normal flows; the throw guards internal callers
     /// (notably the unit tests) from silently bypassing validation.
     /// </summary>
-    internal static (string IncludeScylla, string IncludeCassandra, string ScyllaTopology) TranslateDatabaseMode(
+    internal static (bool IncludeScylla, bool IncludeCassandra, ScyllaTopology ScyllaTopology) TranslateDatabaseMode(
         DatabaseMode databaseMode) => databaseMode switch
         {
-            DatabaseMode.Single => ("true", "false", "single"),
-            DatabaseMode.Multi => ("true", "false", "multi"),
-            DatabaseMode.Cassandra => ("false", "true", "single"),
+            DatabaseMode.Single => (true, false, ScyllaTopology.Single),
+            DatabaseMode.Multi => (true, false, ScyllaTopology.Multi),
+            DatabaseMode.Cassandra => (false, true, ScyllaTopology.Single),
             _ => throw new InvalidOperationException(
                 $"Unhandled databaseMode '{databaseMode}'. Expected: single | multi | cassandra."),
         };
@@ -524,16 +524,16 @@ internal static class PublishPhase
             [AppHostParameterKeys.DbRetryInitialDelayMs] = config.Persistence.DbRetryInitialDelayMs.ToString(),
             [AppHostParameterKeys.DbRetryMaxDelayMs] = config.Persistence.DbRetryMaxDelayMs.ToString(),
             [AppHostParameterKeys.HydrationMaxConcurrency] = config.Persistence.HydrationMaxConcurrency.ToString(),
-            [AppHostParameterKeys.IncludeScylla] = includeScylla,
-            [AppHostParameterKeys.IncludeCassandra] = includeCassandra,
-            [AppHostParameterKeys.ScyllaTopology] = scyllaTopology,
+            [AppHostParameterKeys.IncludeScylla] = BoolWire.ToWireValue(includeScylla),
+            [AppHostParameterKeys.IncludeCassandra] = BoolWire.ToWireValue(includeCassandra),
+            [AppHostParameterKeys.ScyllaTopology] = scyllaTopology.ToWireValue(),
             // The bootstrapper never builds the API from source — point Aspire at the pre-built image
             // so it emits a compose service referencing that tag directly. See InterfoldAppHost.Configure
             // for how this switches off the AddProject<> code path.
             [AppHostParameterKeys.ApiImage] = config.ApiImage,
             // Self-hosting stacks don't need the Aspire dev dashboard - it would pull an MCR-nightly
             // image at compose-up time which is inappropriate for production deployments.
-            [AppHostParameterKeys.IncludeDashboard] = "false",
+            [AppHostParameterKeys.IncludeDashboard] = BoolWire.FalseValue,
             // The web container is opt-in via either of two independent toggles:
             //   * `deployment.includeWeb=true` → ship the octocon-web container HTTP-only.
             //   * `deployment.webHttps=true` → ship the container AND terminate TLS at it.
@@ -541,8 +541,8 @@ internal static class PublishPhase
             // reads it), so we OR the two flags into Parameters:include-web. Parameters:web-tls
             // remains driven by webHttps alone — operators who only flip includeWeb get an
             // HTTP-only octocon-web for debugging / external-TLS-proxy stacks.
-            [AppHostParameterKeys.IncludeWeb] = (config.Deployment.IncludeWeb || config.Deployment.WebHttps) ? "true" : "false",
-            [AppHostParameterKeys.WebTls] = config.Deployment.WebHttps ? "true" : "false",
+            [AppHostParameterKeys.IncludeWeb] = BoolWire.ToWireValue(config.Deployment.IncludeWeb || config.Deployment.WebHttps),
+            [AppHostParameterKeys.WebTls] = BoolWire.ToWireValue(config.Deployment.WebHttps),
             // Server name baked into the rendered nginx config. nginx accepts DNS names and bare
             // IP literals as server_name but does NOT accept CIDR notation, so we use the first
             // non-CIDR host (the same "primary host" rule ConfigPhase.ResolveDerivedDefaults uses

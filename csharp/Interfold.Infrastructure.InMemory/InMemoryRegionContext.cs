@@ -5,11 +5,8 @@ namespace Interfold.Infrastructure.InMemory;
 
 public sealed class InMemoryRegionContext : IRegionContext
 {
-    private static readonly ScyllaKeyspace[] Regions =
-    [
-        ScyllaKeyspace.Nam, ScyllaKeyspace.Eur, ScyllaKeyspace.Ocn,
-        ScyllaKeyspace.Sam, ScyllaKeyspace.Sas, ScyllaKeyspace.Gdpr,
-    ];
+    // Derived from the enum so the in-memory hash routing covers every region.
+    private static readonly ScyllaKeyspace[] Regions = Enum.GetValues<ScyllaKeyspace>();
 
     public ScyllaKeyspace CurrentRegion { get; }
 
@@ -29,6 +26,4 @@ public sealed class InMemoryRegionContext : IRegionContext
         return Regions[index];
     }
 
-    public string ResolveConsistency(ScyllaKeyspace targetRegion) =>
-        targetRegion == CurrentRegion ? "local" : "global";
 }

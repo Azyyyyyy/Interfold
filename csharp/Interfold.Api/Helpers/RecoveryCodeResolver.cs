@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.WebUtilities;
+using Interfold.Contracts;
 
 namespace Interfold.Api.Helpers;
 
@@ -12,19 +13,19 @@ public static class RecoveryCodeResolver
         recoveryCode = "";
         if (string.IsNullOrWhiteSpace(candidate))
         {
-            errorCode = "recovery_code_not_provided";
+            errorCode = ErrorCodes.RecoveryCodeNotProvided;
             return false;
         }
         if (!LooksLikeCompactJwe(candidate))
         {
-            errorCode = "recovery_code_not_jwe";
+            errorCode = ErrorCodes.RecoveryCodeNotJwe;
             return false;
         }
 
         if (!TryLoadEncryptionPrivateKey(ref privateKeyPem)
             || !TryDecryptJwe(candidate, privateKeyPem, out recoveryCode))
         {
-            errorCode = "decryption_error";
+            errorCode = ErrorCodes.DecryptionError;
             return false;
         }
 

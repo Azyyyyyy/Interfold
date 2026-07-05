@@ -51,6 +51,14 @@ public static class ErrorCodes
     public const string MissingRedirectUri = "missing_redirect_uri";
     public const string TokenRevoked = "token_revoked";
 
+    // Firebase client-config endpoint
+    public const string FirebaseConfigUnavailable = "firebase_config_unavailable";
+
+    // Recovery-code decryption (RecoveryCodeResolver)
+    public const string RecoveryCodeNotProvided = "recovery_code_not_provided";
+    public const string RecoveryCodeNotJwe = "recovery_code_not_jwe";
+    public const string DecryptionError = "decryption_error";
+
     // WebSocket HTTP upgrade errors
     public const string WebSocketUpgradeRequired = "websocket_upgrade_required";
     public const string MissingSocketToken = "missing_socket_token";
@@ -75,7 +83,7 @@ public static class ErrorCodes
         public const string RateLimited = "rate_limited";
         public const string NotJoined = "not_joined";
         public const string EventNotImplemented = "event_not_implemented";
-        public const string MissingSocketToken = "missing_socket_token";
+        public const string MissingSocketToken = ErrorCodes.MissingSocketToken;
         public const string InvalidSocketToken = "invalid_socket_token";
         public const string InvalidSocketTokenSubject = "invalid_socket_token_subject";
         public const string UnauthorizedTopic = "unauthorized_topic";

@@ -38,8 +38,7 @@ public sealed class PersistenceConfiguration : IValidatableObject
     /// Default: 'nam'
     /// Env: OCTOCON_SCYLLA_KEYSPACE
     /// </summary>
-    [Required, MinLength(1)]
-    public string ScyllaKeyspace { get; set; } = "nam";
+    public Enums.ScyllaKeyspace ScyllaKeyspace { get; set; } = Enums.ScyllaKeyspace.Nam;
 
     /// <summary>
     /// PostgreSQL connection string.

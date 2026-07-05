@@ -1,10 +1,11 @@
 namespace Interfold.Contracts.Models.ImportOperations;
 
 /// <summary>
-/// Lifecycle of an asynchronous third-party import (SP or PK). Persisted as the string
-/// value of the enum name in the <c>import_operations.status</c> column so existing rows
-/// don't have to migrate when a new state is added — Cassandra string columns are
-/// schema-free and the repository round-trips via <c>Enum.TryParse</c>.
+/// Lifecycle of an asynchronous third-party import (SP or PK). Persisted via
+/// <see cref="ImportOperationStatusExtensions.ToWireValue"/> in the
+/// <c>import_operations.status</c> column (today identical to the enum member name —
+/// the explicit helper freezes the DB spelling against member renames) and read back
+/// with <c>Enum.TryParse</c>.
 /// </summary>
 public enum ImportOperationStatus
 {
@@ -39,4 +40,17 @@ public enum ImportOperationStatus
     /// cluster bus.
     /// </summary>
     Failed,
+}
+
+public static class ImportOperationStatusExtensions
+{
+    /// <summary>The DB-frozen <c>import_operations.status</c> spelling (the enum member name).</summary>
+    public static string ToWireValue(this ImportOperationStatus status) => status switch
+    {
+        ImportOperationStatus.Queued => nameof(ImportOperationStatus.Queued),
+        ImportOperationStatus.Running => nameof(ImportOperationStatus.Running),
+        ImportOperationStatus.Succeeded => nameof(ImportOperationStatus.Succeeded),
+        ImportOperationStatus.Failed => nameof(ImportOperationStatus.Failed),
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unhandled ImportOperationStatus."),
+    };
 }

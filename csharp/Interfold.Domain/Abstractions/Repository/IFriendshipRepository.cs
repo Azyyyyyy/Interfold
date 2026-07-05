@@ -6,7 +6,7 @@ namespace Interfold.Domain.Abstractions.Repository;
 
 public interface IFriendshipRepository
 {
-    Task<SystemId?> ResolveUserIdAsync(string userNameOrId, CancellationToken cancellationToken = default);
+    Task<SystemId?> ResolveUserIdAsync(UsernameOrSystemId userNameOrId, CancellationToken cancellationToken = default);
 
     Task<FriendshipLevel?> GetFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken = default);
 

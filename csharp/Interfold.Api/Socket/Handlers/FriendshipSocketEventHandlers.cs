@@ -20,7 +20,7 @@ public static class FriendshipSocketEventHandlers
         var friendship = await GetFriendshipWithRetryAsync(friendshipRepository, evt.TargetSystemId, evt.SystemId, context.CancellationToken);
         var qualified = friendship is null
             ? new FriendshipReadModel(
-                new FriendProfileReadModel(evt.SystemId, string.Empty, null, null, string.Empty, string.Empty),
+                new FriendProfileReadModel(evt.SystemId, new Username(string.Empty), null, null, string.Empty, new DiscordId(string.Empty)),
                 new FriendshipModel(FriendshipLevel.Friend, DateTimeOffset.UtcNow),
                 [])
             : QualifyFriendship(friendship, context);
@@ -88,7 +88,7 @@ public static class FriendshipSocketEventHandlers
         var payload = matched is null
             ? new FriendRequestSocketPayload(
                 new FriendshipRequestModel(DateTimeOffset.UtcNow),
-                new FriendProfileReadModel(otherSystemId, string.Empty, null, null, string.Empty, string.Empty))
+                new FriendProfileReadModel(otherSystemId, new Username(string.Empty), null, null, string.Empty, new DiscordId(string.Empty)))
             : new FriendRequestSocketPayload(
                 matched.Request,
                 matched.System with { AvatarUrl = AvatarUrlQualifier.QualifyAvatar(matched.System.AvatarUrl, matched.System.AvatarSource, context.RequestOrigin) });
@@ -147,26 +147,7 @@ public static class FriendshipSocketEventHandlers
     }
 
     private static bool IdMatches(string? left, string right)
-    {
-        if (string.Equals(left, right, StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        if (string.IsNullOrWhiteSpace(left))
-        {
-            return false;
-        }
-
-        var leftSuffix = left.Contains(':', StringComparison.Ordinal)
-            ? left[(left.IndexOf(':', StringComparison.Ordinal) + 1)..]
-            : left;
-        var rightSuffix = right.Contains(':', StringComparison.Ordinal)
-            ? right[(right.IndexOf(':', StringComparison.Ordinal) + 1)..]
-            : right;
-
-        return string.Equals(leftSuffix, rightSuffix, StringComparison.Ordinal);
-    }
+        => SystemTopic.IdMatches(left, right);
 
     private static async Task SendAsync(SystemId targetSystemId, string eventName, string payloadKey, SystemId payloadValue, SocketPushContext context)
     {

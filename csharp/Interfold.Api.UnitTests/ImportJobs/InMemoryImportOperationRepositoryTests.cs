@@ -30,7 +30,7 @@ public sealed class InMemoryImportOperationRepositoryTests
         {
             await Assert.That(claim.IsNew).IsTrue()
                 .Because("The first claim against an empty store must always succeed; otherwise the dispatcher has no way to start an import.");
-            await Assert.That(claim.OperationId).IsNotEqualTo(Guid.Empty)
+            await Assert.That(claim.OperationId.Value).IsNotEqualTo(Guid.Empty)
                 .Because("A successful claim must return a real operation_id — the controller uses this value as the public correlation handle.");
         }
     }

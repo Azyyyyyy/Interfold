@@ -465,23 +465,13 @@ static SecurityToken ValidateJwtTokenSignatureForBearer(
     }
 
     var headerJson = Encoding.UTF8.GetString(parts[0].Base64UrlDecode());
-    string alg;
-    using (var headerDoc = JsonDocument.Parse(headerJson))
-    {
-        if (!headerDoc.RootElement.TryGetProperty("alg", out var algProp)
-            || string.IsNullOrWhiteSpace(algProp.GetString()))
-        {
-            throw new SecurityTokenInvalidSignatureException("Missing JWT algorithm.");
-        }
-
-        alg = algProp.GetString()!;
-    }
+    var alg = Interfold.Api.Helpers.JwtHeaderAlg.Parse(headerJson);
 
     var signingInput = Encoding.UTF8.GetBytes(parts[0] + "." + parts[1]);
     var signatureBytes = parts[2].Base64UrlDecode();
 
     // ES256 (ECDSA P-256 with SHA-256) validation
-    if (!string.Equals(alg, "ES256", StringComparison.Ordinal))
+    if (!string.Equals(alg, Interfold.Api.Helpers.JwtHeaderAlg.Es256, StringComparison.Ordinal))
     {
         throw new SecurityTokenInvalidSignatureException("Only ES256 algorithm is supported.");
     }

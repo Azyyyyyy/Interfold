@@ -224,7 +224,7 @@ public sealed class MigrationLedgerTests(ScyllaWebFactoryFixture fixture) : Base
         Mode = PersistenceMode.ScyllaPostgres,
         PostgresConnectionString = SharedDb.PostgresConnectionString,
         IsSingleScyllaInstance = true,
-        ScyllaKeyspace = "nam",
+        ScyllaKeyspace = Interfold.Contracts.Enums.ScyllaKeyspace.Nam,
     };
 
     private ISecretsStore BuildPostgresSecretsStore()

@@ -310,11 +310,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         }
     }
 
-    private string GetSystemKey(SystemId systemId)
-    {
-        var region = _regionContext.ResolveUserRegion(systemId.Value).ToWireValue();
-        return $"{region}:{systemId.Value}";
-    }
+    private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
     private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
     {

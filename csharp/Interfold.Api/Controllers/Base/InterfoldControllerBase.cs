@@ -91,6 +91,10 @@ public abstract class InterfoldControllerBase : ControllerBase
     protected string? QualifyAvatar(string? url, AvatarSource? source)
         => AvatarUrlQualifier.QualifyAvatar(url, source, Request.Scheme, Request.Host);
 
+    /// <summary>Typed overload of <see cref="QualifyAvatar(string?, AvatarSource?)"/>.</summary>
+    protected AvatarUrl? QualifyAvatar(AvatarUrl? url, AvatarSource? source)
+        => AvatarUrlQualifier.QualifyAvatar(url, source, Request.Scheme, Request.Host);
+
     /// <summary>
     /// Executes a command handler with:
     /// <list type="bullet">

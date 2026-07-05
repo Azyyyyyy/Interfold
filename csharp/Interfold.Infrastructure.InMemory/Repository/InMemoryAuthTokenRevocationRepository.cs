@@ -81,64 +81,7 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
         return Task.CompletedTask;
     }
 
-    public Task<IReadOnlyList<string>> FindTokensBySystemIdAsync(
-        SystemId systemId,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(systemId.Value, nameof(systemId));
+    private static string NormalizeSystemId(SystemId systemId) => InMemoryStorageKeys.NormalizeSystemId(systemId);
 
-        lock (s_lock)
-        {
-            var normalizedSystemId = NormalizeSystemId(systemId);
-
-            IReadOnlyList<string> tokens = s_tokens.Values
-                .Where(t => t.SystemId == normalizedSystemId
-                    && t.RevokedAt is null
-                    && t.ExpiresAt > DateTimeOffset.UtcNow)
-                .OrderByDescending(t => t.IssuedAt)
-                .Select(t => t.Jti)
-                .ToList()
-                .AsReadOnly();
-
-            return Task.FromResult(tokens);
-        }
-    }
-
-    private static string NormalizeSystemId(SystemId systemId) => NormalizeSystemId(systemId.Value);
-
-    private static string NormalizeSystemId(string systemId)
-    {
-        if (string.IsNullOrWhiteSpace(systemId))
-            return systemId;
-
-        var separator = systemId.IndexOf(':');
-        if (separator <= 0 || separator >= systemId.Length - 1)
-            return systemId;
-
-        return systemId[(separator + 1)..];
-    }
-
-    public Task<int> CleanupExpiredTokensAsync(
-        DateTimeOffset? olderThan = null,
-        CancellationToken cancellationToken = default)
-    {
-        var cleanupBefore = (olderThan ?? DateTimeOffset.UtcNow).UtcDateTime;
-
-        lock (s_lock)
-        {
-            var keysToRemove = s_tokens
-                .Where(kvp => kvp.Value.RevokedAt is not null
-                    || kvp.Value.ExpiresAt.UtcDateTime < cleanupBefore)
-                .Select(kvp => kvp.Key)
-                .Take(5000)
-                .ToList();
-
-            foreach (var key in keysToRemove)
-            {
-                s_tokens.Remove(key);
-            }
-
-            return Task.FromResult(keysToRemove.Count);
-        }
-    }
+    private static string NormalizeSystemId(string systemId) => InMemoryStorageKeys.NormalizeSystemId(systemId);
 }

@@ -171,7 +171,7 @@ public sealed class AltersController : InterfoldControllerBase
             return new ErrorResponse("An error occurred while uploading the file.", ErrorCodes.UnknownError, System.Net.HttpStatusCode.InternalServerError);
         }
 
-        string? currentAvatarUrl = null;
+        AvatarUrl? currentAvatarUrl = null;
         AvatarSource? currentAvatarSource = null;
         try
         {
@@ -188,7 +188,7 @@ public sealed class AltersController : InterfoldControllerBase
             AlterId: alterId,
             Name: null,
             Description: null,
-            AvatarUrl: avatarUrl,
+            AvatarUrl: new AvatarUrl(avatarUrl),
             AvatarSource: AvatarSource.Local,
             Color: null,
             Pronouns: null,
@@ -223,7 +223,7 @@ public sealed class AltersController : InterfoldControllerBase
         {
             try
             {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
+                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl?.Value, ct);
             }
             catch
             {
@@ -247,12 +247,12 @@ public sealed class AltersController : InterfoldControllerBase
         if (req is null)
             return new ErrorResponse("Avatar URL payload required.", ErrorCodes.AvatarUrlInvalid, System.Net.HttpStatusCode.BadRequest);
 
-        if (!AvatarUrlValidator.TryNormalize(req.Url, out var url, out var err))
+        if (!AvatarUrlValidator.TryNormalize(req.Url.Value, out var url, out var err))
             return new ErrorResponse("Invalid avatar URL.", err, System.Net.HttpStatusCode.BadRequest);
 
         var principal = PrincipalId;
 
-        string? currentAvatarUrl = null;
+        AvatarUrl? currentAvatarUrl = null;
         AvatarSource? currentAvatarSource = null;
         try
         {
@@ -268,7 +268,7 @@ public sealed class AltersController : InterfoldControllerBase
             AlterId: alterId,
             Name: null,
             Description: null,
-            AvatarUrl: url,
+            AvatarUrl: new AvatarUrl(url),
             AvatarSource: AvatarSource.External,
             Color: null,
             Pronouns: null,
@@ -301,7 +301,7 @@ public sealed class AltersController : InterfoldControllerBase
         {
             try
             {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
+                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl?.Value, ct);
             }
             catch
             {
@@ -414,7 +414,7 @@ public sealed class AltersController : InterfoldControllerBase
         {
             try
             {
-                 await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
+                 await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl?.Value, ct);
             }
             catch
             {

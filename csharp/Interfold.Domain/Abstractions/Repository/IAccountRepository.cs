@@ -6,11 +6,11 @@ namespace Interfold.Domain.Abstractions.Repository;
 
 public interface IAccountRepository
 {
-    Task<bool> UpdateUsernameAsync(SystemId systemId, string username, CancellationToken cancellationToken = default);
+    Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default);
 
     Task<bool> UpdateDescriptionAsync(SystemId systemId, string description, CancellationToken cancellationToken = default);
 
-    Task<bool> UpdateAvatarAsync(SystemId systemId, string avatarUrl, AvatarSource source, CancellationToken cancellationToken = default);
+    Task<bool> UpdateAvatarAsync(SystemId systemId, AvatarUrl avatarUrl, AvatarSource source, CancellationToken cancellationToken = default);
 
     Task<bool> ClearAvatarAsync(SystemId systemId, CancellationToken cancellationToken = default);
 
@@ -27,17 +27,17 @@ public interface IAccountRepository
 
     Task<bool> ClearLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default);
 
-    Task<SystemId?> FindSystemIdByDiscordIdAsync(string discordId, CancellationToken cancellationToken = default);
+    Task<SystemId?> FindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default);
 
-    Task<SystemId?> FindSystemIdByEmailAsync(string email, CancellationToken cancellationToken = default);
+    Task<SystemId?> FindSystemIdByEmailAsync(Email email, CancellationToken cancellationToken = default);
 
-    Task<SystemId?> FindSystemIdByAppleIdAsync(string appleId, CancellationToken cancellationToken = default);
+    Task<SystemId?> FindSystemIdByAppleIdAsync(AppleId appleId, CancellationToken cancellationToken = default);
 
-    Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, string discordId, CancellationToken cancellationToken = default);
+    Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, DiscordId discordId, CancellationToken cancellationToken = default);
 
-    Task<AccountLinkResult> LinkEmailToUserAsync(SystemId systemId, string email, CancellationToken cancellationToken = default);
+    Task<AccountLinkResult> LinkEmailToUserAsync(SystemId systemId, Email email, CancellationToken cancellationToken = default);
 
-    Task<AccountLinkResult> LinkAppleToUserAsync(SystemId systemId, string appleId, CancellationToken cancellationToken = default);
+    Task<AccountLinkResult> LinkAppleToUserAsync(SystemId systemId, AppleId appleId, CancellationToken cancellationToken = default);
 
     Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default);
 

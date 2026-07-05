@@ -31,12 +31,12 @@ public sealed class UpdateUsernameCommandHandler : ICommandHandler<UpdateUsernam
         CancellationToken cancellationToken = default
     )
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Username))
+        if (string.IsNullOrWhiteSpace(command.Payload.Username.Value))
         {
             return RejectInvariant(command, EntityRefs.AccountUsernameInvalid);
         }
 
-        if (command.Payload.Username.Length > 64)
+        if (command.Payload.Username.Value.Length > 64)
         {
             return RejectInvariant(command, EntityRefs.AccountUsernameTooLong);
         }

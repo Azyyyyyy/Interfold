@@ -34,7 +34,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         _options = options;
     }
 
-    public async Task<bool> UpdateUsernameAsync(SystemId systemId, string username, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -51,10 +51,10 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             var batch = new BatchStatement();
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET username = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                username, normalizedSystemId));
+                username.Value, normalizedSystemId));
             batch.Add(new SimpleStatement(
                 $"UPDATE global.user_registry SET username = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
-                username, normalizedSystemId));
+                username.Value, normalizedSystemId));
 
             // Remove old lookup entry
             if (!string.IsNullOrWhiteSpace(oldUsername))
@@ -66,14 +66,14 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             }
 
             // Insert new lookup entry
-            if (!string.IsNullOrWhiteSpace(username))
+            if (!string.IsNullOrWhiteSpace(username.Value))
             {
                 batch.Add(new SimpleStatement(
                     $"INSERT INTO {keyspace}.users_by_username (username, user_id) VALUES (?, ?)",
-                    username, normalizedSystemId));
+                    username.Value, normalizedSystemId));
                 batch.Add(new SimpleStatement(
                     "INSERT INTO global.user_registry_by_username (username, user_id, region) VALUES (?, ?, ?)",
-                    username, normalizedSystemId, keyspace));
+                    username.Value, normalizedSystemId, keyspace));
             }
 
             await session.ExecuteAsync(batch);
@@ -100,7 +100,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> UpdateAvatarAsync(SystemId systemId, string avatarUrl, AvatarSource source, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateAvatarAsync(SystemId systemId, AvatarUrl avatarUrl, AvatarSource source, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -110,8 +110,8 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             var statement = new SimpleStatement(
                 $"UPDATE {keyspace}.users SET avatar_url = ?, avatar_source = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                avatarUrl,
-                (short)source,
+                avatarUrl.Value,
+                source.ToCode(),
                 normalizedSystemId
             );
 
@@ -244,25 +244,25 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }
     }
 
-    public async Task<SystemId?> FindSystemIdByDiscordIdAsync(string discordId, CancellationToken cancellationToken = default)
-        => ToSystemId(await FindOrCreateSystemIdByRegistryColumnAsync("discord_id", discordId, cancellationToken));
+    public async Task<SystemId?> FindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
+        => ToSystemId(await FindOrCreateSystemIdByRegistryColumnAsync("discord_id", discordId.Value, cancellationToken));
 
-    public async Task<SystemId?> FindSystemIdByEmailAsync(string email, CancellationToken cancellationToken = default)
-        => ToSystemId(await FindOrCreateSystemIdByRegistryColumnAsync("email", email, cancellationToken));
+    public async Task<SystemId?> FindSystemIdByEmailAsync(Email email, CancellationToken cancellationToken = default)
+        => ToSystemId(await FindOrCreateSystemIdByRegistryColumnAsync("email", email.Value, cancellationToken));
 
-    public async Task<SystemId?> FindSystemIdByAppleIdAsync(string appleId, CancellationToken cancellationToken = default)
-        => ToSystemId(await FindOrCreateSystemIdByRegistryColumnAsync("apple_id", appleId, cancellationToken));
+    public async Task<SystemId?> FindSystemIdByAppleIdAsync(AppleId appleId, CancellationToken cancellationToken = default)
+        => ToSystemId(await FindOrCreateSystemIdByRegistryColumnAsync("apple_id", appleId.Value, cancellationToken));
 
     private static SystemId? ToSystemId(string? raw) => raw is null ? null : new SystemId(raw);
 
-    public Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, string discordId, CancellationToken cancellationToken = default)
-        => LinkIdentityAsync(systemId, "discord_id", discordId, cancellationToken);
+    public Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, DiscordId discordId, CancellationToken cancellationToken = default)
+        => LinkIdentityAsync(systemId, "discord_id", discordId.Value, cancellationToken);
 
-    public Task<AccountLinkResult> LinkEmailToUserAsync(SystemId systemId, string email, CancellationToken cancellationToken = default)
-        => LinkIdentityAsync(systemId, "email", email, cancellationToken);
+    public Task<AccountLinkResult> LinkEmailToUserAsync(SystemId systemId, Email email, CancellationToken cancellationToken = default)
+        => LinkIdentityAsync(systemId, "email", email.Value, cancellationToken);
 
-    public Task<AccountLinkResult> LinkAppleToUserAsync(SystemId systemId, string appleId, CancellationToken cancellationToken = default)
-        => LinkIdentityAsync(systemId, "apple_id", appleId, cancellationToken);
+    public Task<AccountLinkResult> LinkAppleToUserAsync(SystemId systemId, AppleId appleId, CancellationToken cancellationToken = default)
+        => LinkIdentityAsync(systemId, "apple_id", appleId.Value, cancellationToken);
 
     public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
         => UnlinkIdentityAsync(systemId, "discord_id", cancellationToken);
@@ -334,13 +334,13 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             return new AccountPublicProfileReadModel(
                 new SystemId(normalizedSystemId),
-                profile.GetValue<string?>("username"),
+                profile.GetValue<string?>("username") is { } username ? new Username(username) : null,
                 profile.GetValue<string?>("description"),
-                profile.GetValue<string?>("avatar_url"),
+                AvatarUrl.FromNullable(profile.GetValue<string?>("avatar_url")),
                 AvatarSourceExtensions.TryFromCode(profile.GetValue<short?>("avatar_source")),
-                profile.GetValue<string?>("discord_id"),
-                profile.GetValue<string?>("email"),
-                profile.GetValue<string?>("apple_id"));
+                profile.GetValue<string?>("discord_id") is { } discordId ? new DiscordId(discordId) : null,
+                profile.GetValue<string?>("email") is { } email ? new Email(email) : null,
+                profile.GetValue<string?>("apple_id") is { } appleId ? new AppleId(appleId) : null);
         }, _options, cancellationToken);
     }
 

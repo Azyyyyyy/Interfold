@@ -8,6 +8,7 @@ using Interfold.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.Retry;
+using Interfold.Contracts;
 
 namespace Interfold.Infrastructure.Coordination;
 
@@ -72,7 +73,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             return;
 
         var profile = await _accounts.GetPublicProfileAsync(systemId, cancellationToken).ConfigureAwait(false);
-        var frontingDisplayName = !string.IsNullOrWhiteSpace(profile?.Username) ? profile!.Username! : "A friend";
+        var frontingDisplayName = !string.IsNullOrWhiteSpace(profile?.Username?.Value) ? profile!.Username!.Value.Value : "A friend";
 
         // Relative path so each client resolves against its own origin. The SW's
         // notificationclick handler and mobile handlers both hard-code this shape.
@@ -117,10 +118,10 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             var alterCsv = string.Join(",", visibleIds);
             var data = new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["type"] = "fronting_changed",
-                ["system_id"] = systemId.Value,
-                ["alter_ids"] = alterCsv,
-                ["deep_link"] = deepLink,
+                [FcmPayloadKeys.Type] = FcmNotificationTypes.FrontingChanged,
+                [FcmPayloadKeys.SystemId] = systemId.Value,
+                [FcmPayloadKeys.AlterIds] = alterCsv,
+                [FcmPayloadKeys.DeepLink] = deepLink,
             };
 
             foreach (var chunk in friendGroup.Tokens.Chunk(FcmMulticastMax))

@@ -12,6 +12,7 @@ using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Options;
 using Interfold.Contracts;
+using Interfold.Contracts.Models.ImportOperations;
 
 namespace Interfold.Api.Services;
 
@@ -32,25 +33,6 @@ namespace Interfold.Api.Services;
 
 public sealed class SimplyPluralImportService : ISimplyPluralImportService
 {
-    private const string SpApiBase = "https://api.apparyllis.com/v1";
-    private const string SpCdnBase = "https://spaces.apparyllis.com";
-
-    // Every public host that SP currently serves the same `avatars/{uid}/{uuid}` bucket over —
-    // checked in IsSpCdnUrl so a pre-existing avatarUrl on any of them is recognised as
-    // "needs rehost before sunset" rather than being misclassified as a third-party URL.
-    // Sources (SimplyPluralApi):
-    //   * spaces.apparyllis.com — src/api/base/user/generateReports.ts:24 (SP's own report generator)
-    //   * serve.apparyllis.com  — src/api/v1/storage.ts:63, src/api/v2/storage/storage.utils.ts:46
-    //                             (canonical URL the upload endpoints return to clients post-v1.12)
-    //   * simply-plural.sfo3.digitaloceanspaces.com — src/api/base/user.ts:11 (legacy v1 report base)
-    // All three CNAME the same DigitalOcean Spaces bucket; new entries here must be SP-owned too.
-    internal static readonly string[] SpCdnHosts =
-    {
-        SpCdnBase,
-        "https://serve.apparyllis.com",
-        "https://simply-plural.sfo3.digitaloceanspaces.com",
-    };
-
     private const int MaxJournalContentLength = 30_000;
 
     private readonly IHttpClientFactory _httpClientFactory;
@@ -119,9 +101,9 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Interfold/spimport");
 
         // 1. Fetch system data
-        var systemData = await FetchAsync<SpEntity<SpSystemContent>>(httpClient, $"{SpApiBase}/me", cancellationToken);
+        var systemData = await FetchAsync<SpEntity<SpSystemContent>>(httpClient, SpApiPaths.Me(), cancellationToken);
         if (systemData is null)
-            return new SpImportResult(false, 0, "Failed to fetch system data from Simply Plural.");
+            return new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "Failed to fetch system data from Simply Plural.");
 
         var spSystemId = systemData.Id;
         var description = systemData.Content.Desc;
@@ -185,7 +167,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         var fieldMapping = new Dictionary<string, FieldId>(); // SP field ID -> our field ID
         var createdFieldIds = new List<FieldId>();
 
-        var customFields = await FetchAsync<List<SpEntity<SpCustomFieldContent>>>(httpClient, $"{SpApiBase}/customFields/{spSystemId}", ct);
+        var customFields = await FetchAsync<List<SpEntity<SpCustomFieldContent>>>(httpClient, SpApiPaths.CustomFields(spSystemId), ct);
         if (customFields is null)
             return (fieldMapping, createdFieldIds);
 
@@ -230,9 +212,9 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         var alterCount = 0;
 
         // Fetch members
-        var members = await FetchAsync<List<SpEntity<SpMemberContent>>>(httpClient, $"{SpApiBase}/members/{spSystemId}", ct);
+        var members = await FetchAsync<List<SpEntity<SpMemberContent>>>(httpClient, SpApiPaths.Members(spSystemId), ct);
         // Fetch custom fronts
-        var customFronts = await FetchAsync<List<SpEntity<SpMemberContent>>>(httpClient, $"{SpApiBase}/customFronts/{spSystemId}", ct);
+        var customFronts = await FetchAsync<List<SpEntity<SpMemberContent>>>(httpClient, SpApiPaths.CustomFronts(spSystemId), ct);
 
         var allEntries = new List<(SpMemberContent Content, string Uuid, bool IsCustomFront)>();
 
@@ -329,7 +311,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
             if (!string.IsNullOrWhiteSpace(avatarUuid) && !string.IsNullOrWhiteSpace(uid))
             {
-                rehostUrl = $"{SpCdnBase}/avatars/{uid}/{avatarUuid}";
+                rehostUrl = SpCdnHosts.Avatar(uid, avatarUuid);
             }
             else if (!string.IsNullOrWhiteSpace(rawAvatarUrl) && Uri.IsWellFormedUriString(rawAvatarUrl, UriKind.Absolute))
             {
@@ -347,9 +329,9 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 AlterId: alterId.Value,
                 Name: null, // already set via CreateAsync
                 Description: desc,
-                AvatarUrl: passthroughUrl,
+                AvatarUrl: AvatarUrl.FromNullable(passthroughUrl),
                 AvatarSource: passthroughUrl is null ? null : AvatarSource.External,
-                Color: color,
+                Color: HexColor.FromNullable(color),
                 Pronouns: pronouns,
                 SecurityLevel: securityLevel,
                 Fields: fields,
@@ -378,7 +360,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     {
         var tagAssociations = new Dictionary<string, TagId>(); // SP group ID -> our tag ID
 
-        var groups = await FetchAsync<List<SpEntity<SpGroupContent>>>(httpClient, $"{SpApiBase}/groups/{spSystemId}", ct);
+        var groups = await FetchAsync<List<SpEntity<SpGroupContent>>>(httpClient, SpApiPaths.Groups(spSystemId), ct);
         if (groups is null)
             return tagAssociations;
 
@@ -421,7 +403,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                     await _tagRepository.UpdateAsync(systemId, new UpdateTagCommand(
                         TagId: createdTagId.Value,
                         Name: null,
-                        Color: tagColor,
+                        Color: HexColor.FromNullable(tagColor),
                         Description: tagDesc,
                         SecurityLevel: tagSecurityLevel
                     ), ct);
@@ -436,7 +418,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 continue;
 
             var parent = content.Parent;
-            if (string.IsNullOrWhiteSpace(parent) || parent == "root")
+            if (string.IsNullOrWhiteSpace(parent) || parent == SpApiPaths.RootGroupParent)
                 continue;
 
             if (tagAssociations.TryGetValue(parent, out var parentTagId))
@@ -485,7 +467,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             var chunkEnd = Math.Min(startEpoch + (i + 1) * chunkSizeMs, endTimeMs);
 
             var fronts = await FetchAsync<List<SpEntity<SpFrontContent>>>(httpClient,
-                $"{SpApiBase}/frontHistory/{spSystemId}?startTime={chunkStart}&endTime={chunkEnd}", ct);
+                SpApiPaths.FrontHistory(spSystemId, chunkStart, chunkEnd), ct);
 
             if (fronts is not null)
             {
@@ -518,7 +500,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         }
 
         // Import current fronters
-        var currentFronters = await FetchAsync<List<SpEntity<SpFrontContent>>>(httpClient, $"{SpApiBase}/fronters/", ct);
+        var currentFronters = await FetchAsync<List<SpEntity<SpFrontContent>>>(httpClient, SpApiPaths.CurrentFronters(), ct);
         if (currentFronters is not null)
         {
             foreach (var fronter in currentFronters)
@@ -563,7 +545,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         HttpClient httpClient, string spSystemId, SystemId systemId,
         Dictionary<string, AlterId> alterAssociations, CancellationToken ct)
     {
-        var polls = await FetchAsync<List<SpEntity<SpPollContent>>>(httpClient, $"{SpApiBase}/polls/{spSystemId}", ct);
+        var polls = await FetchAsync<List<SpEntity<SpPollContent>>>(httpClient, SpApiPaths.Polls(spSystemId), ct);
         if (polls is null)
             return;
 
@@ -652,7 +634,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     {
         foreach (var (spMemberId, alterId) in alterAssociations)
         {
-            var notes = await FetchAsync<List<SpEntity<SpNoteContent>>>(httpClient, $"{SpApiBase}/notes/{spSystemId}/{spMemberId}", ct);
+            var notes = await FetchAsync<List<SpEntity<SpNoteContent>>>(httpClient, SpApiPaths.Notes(spSystemId, spMemberId), ct);
             if (notes is null || notes.Count == 0)
                 continue;
 
@@ -708,7 +690,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                     EntryId: entryId.Value,
                     Title: null,
                     Content: content,
-                    Color: color,
+                    Color: HexColor.FromNullable(color),
                     UpdatedAt: updatedAt
                 ), ct);
             }
@@ -769,13 +751,13 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     {
         var state = await _encryptionStateRepository.GetAsync(systemId, ct);
         if (state is null || !state.Initialized || string.IsNullOrWhiteSpace(state.KeyChecksum))
-            return (new SpImportResult(false, 0, "Encryption is not initialized for this system."), string.Empty);
+            return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "Encryption is not initialized for this system."), string.Empty);
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
         var key = EncryptionKey.DeriveKey(pepper, systemId.Value, recoveryCode, state.Salt);
         var checksum = EncryptionKey.DeriveChecksum(key);
         if (!string.Equals(checksum, state.KeyChecksum, StringComparison.Ordinal))
-            return (new SpImportResult(false, 0, "The provided encryption key is invalid."), string.Empty);
+            return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "The provided encryption key is invalid."), string.Empty);
 
         return (new SpImportResult(true, 0), key);
     }
@@ -865,7 +847,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 if (download.Kind == AvatarKind.System)
                 {
                     var localUrl = await _avatarStorage.SaveSystemAvatarAsync(download.SystemId, stream, cancellationToken);
-                    await _accountRepository.UpdateAvatarAsync(download.SystemId, localUrl, AvatarSource.Local, cancellationToken);
+                    await _accountRepository.UpdateAvatarAsync(download.SystemId, new AvatarUrl(localUrl), AvatarSource.Local, cancellationToken);
                 }
                 else
                 {
@@ -875,7 +857,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                         AlterId: download.AlterId!.Value,
                         Name: null,
                         Description: null,
-                        AvatarUrl: localUrl,
+                        AvatarUrl: AvatarUrl.FromNullable(localUrl),
                         AvatarSource: AvatarSource.Local,
                         Color: null,
                         Pronouns: null,
@@ -917,7 +899,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         if (!string.IsNullOrWhiteSpace(avatarUuid) && !string.IsNullOrWhiteSpace(uid))
         {
             // Always rehost the canonical SP CDN URL because SP is shutting down.
-            return new AvatarDownload($"{SpCdnBase}/avatars/{uid}/{avatarUuid}", systemId, AvatarKind.System, null);
+            return new AvatarDownload(SpCdnHosts.Avatar(uid, avatarUuid), systemId, AvatarKind.System, null);
         }
 
         if (string.IsNullOrWhiteSpace(rawAvatarUrl) || !Uri.IsWellFormedUriString(rawAvatarUrl, UriKind.Absolute))
@@ -931,7 +913,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         }
 
         // Non-SP URL → store as passthrough; nothing to download.
-        await _accountRepository.UpdateAvatarAsync(systemId, rawAvatarUrl, AvatarSource.External, cancellationToken);
+        await _accountRepository.UpdateAvatarAsync(systemId, new AvatarUrl(rawAvatarUrl), AvatarSource.External, cancellationToken);
         return null;
     }
 
@@ -946,7 +928,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             return false;
         }
 
-        foreach (var host in SpCdnHosts)
+        foreach (var host in SpCdnHosts.All)
         {
             if (url.StartsWith(host, StringComparison.OrdinalIgnoreCase))
             {
@@ -990,16 +972,16 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     // `supportMarkdown` is nullable on SpCustomFieldContent because SP's update300 migration
     // emits `null` for legacy fields (see model comment). SP defaults missing to true, so we
     // do the same: null/true -> "text" (markdown), explicit false -> "plaintext".
-    private static FieldType MapFieldType(int spType, bool? supportMarkdown) => spType switch
+    private static FieldType MapFieldType(SpFieldType spType, bool? supportMarkdown) => spType switch
     {
-        0 => (supportMarkdown ?? true) ? FieldType.Text : FieldType.Plaintext,
-        1 => FieldType.Colour,
-        2 => FieldType.Date,
-        3 => FieldType.Month,
-        4 => FieldType.Year,
-        5 => FieldType.MonthYear,
-        6 => FieldType.Timestamp,
-        7 => FieldType.MonthDay,
+        SpFieldType.Text => (supportMarkdown ?? true) ? FieldType.Text : FieldType.Plaintext,
+        SpFieldType.Colour => FieldType.Colour,
+        SpFieldType.Date => FieldType.Date,
+        SpFieldType.Month => FieldType.Month,
+        SpFieldType.Year => FieldType.Year,
+        SpFieldType.MonthYear => FieldType.MonthYear,
+        SpFieldType.Timestamp => FieldType.Timestamp,
+        SpFieldType.MonthDay => FieldType.MonthDay,
         _ => throw new ArgumentOutOfRangeException(nameof(spType), spType, "Unknown SP field type")
     };
 

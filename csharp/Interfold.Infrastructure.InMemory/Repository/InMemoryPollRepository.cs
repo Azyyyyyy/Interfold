@@ -71,7 +71,7 @@ public sealed class InMemoryPollRepository : IPollRepository
             Type = command.Type,
             TimeEnd = command.TimeEnd,
             InsertedAt = command.InsertedAtUtc,
-            UpdatedAt = DateTime.Now
+            UpdatedAt = DateTime.UtcNow
         };
 
         return Task.FromResult<PollId?>(id);
@@ -94,7 +94,7 @@ public sealed class InMemoryPollRepository : IPollRepository
         if (command.Description is not null) poll.Description = command.Description;
         if (command.HasTimeEnd) poll.TimeEnd = command.TimeEnd;
         if (command.Data is not null) poll.Data = command.Data.Value;
-        poll.UpdatedAt = DateTime.Now;
+        poll.UpdatedAt = DateTime.UtcNow;
 
         return Task.FromResult(true);
     }
@@ -122,7 +122,7 @@ public sealed class InMemoryPollRepository : IPollRepository
             if (PollDataJson.TryRemoveAlterResponses(poll.Data, alterId, out var newData))
             {
                 poll.Data = newData;
-                poll.UpdatedAt = DateTime.Now;
+                poll.UpdatedAt = DateTime.UtcNow;
             }
         }
 
@@ -142,9 +142,5 @@ public sealed class InMemoryPollRepository : IPollRepository
             state.UpdatedAt
         );
 
-    private string GetSystemKey(SystemId systemId)
-    {
-        var region = _regionContext.ResolveUserRegion(systemId.Value).ToWireValue();
-        return $"{region}:{systemId.Value}";
-    }
+    private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 }

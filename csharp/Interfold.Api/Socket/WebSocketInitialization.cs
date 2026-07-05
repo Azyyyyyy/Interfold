@@ -178,7 +178,6 @@ public static SocketSelfReadModel BuildSelfReadModel(
     string? requestOrigin)
 {
     var primaryFront = fronts.FirstOrDefault(x => x.Primary)?.Front.AlterId;
-    var linkedFlag = (string? value) => string.IsNullOrWhiteSpace(value) ? null : "SET";
 
     return new SocketSelfReadModel(
         profile?.SystemId ?? systemId,
@@ -186,10 +185,10 @@ public static SocketSelfReadModel BuildSelfReadModel(
         profile?.Description,
         AvatarUrlQualifier.QualifyAvatar(profile?.AvatarUrl, profile?.AvatarSource, requestOrigin),
         profile?.AvatarSource,
-        linkedFlag(profile?.DiscordId),
-        null,
-        linkedFlag(profile?.AppleId),
-        linkedFlag(profile?.Email),
+        AccountLinkFlag.FromValuePresence(profile?.DiscordId?.Value),
+        AccountLinkFlag.NotLinked,
+        AccountLinkFlag.FromValuePresence(profile?.AppleId?.Value),
+        AccountLinkFlag.FromValuePresence(profile?.Email?.Value),
         AutoproxyMode.Off,
         false,
         alters.Count,

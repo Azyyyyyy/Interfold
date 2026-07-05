@@ -52,7 +52,7 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
         }
 
         var resolvedTargetSystemId = await _repository.ResolveUserIdAsync(
-            command.Payload.TargetSystemId.Value,
+            command.Payload.TargetSystemId,
             cancellationToken);
 
         if (resolvedTargetSystemId is null)

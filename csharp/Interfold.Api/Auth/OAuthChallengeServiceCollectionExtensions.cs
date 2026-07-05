@@ -51,8 +51,8 @@ internal static class OAuthChallengeServiceCollectionExtensions
     /// </summary>
     private static readonly IReadOnlyDictionary<string, string> DiscordParams = new Dictionary<string, string>
     {
-        ["response_type"] = "code",
-        ["scope"] = "identify",
+        [OAuthQueryKeys.ResponseType] = OAuthQueryKeys.Code,
+        [OAuthQueryKeys.Scope] = "identify",
     };
 
     /// <summary>
@@ -63,8 +63,8 @@ internal static class OAuthChallengeServiceCollectionExtensions
     /// </summary>
     private static readonly IReadOnlyDictionary<string, string> GoogleParams = new Dictionary<string, string>
     {
-        ["response_type"] = "code",
-        ["scope"] = "https://www.googleapis.com/auth/userinfo.email",
+        [OAuthQueryKeys.ResponseType] = OAuthQueryKeys.Code,
+        [OAuthQueryKeys.Scope] = "https://www.googleapis.com/auth/userinfo.email",
     };
 
     /// <summary>
@@ -76,9 +76,9 @@ internal static class OAuthChallengeServiceCollectionExtensions
     /// </summary>
     private static readonly IReadOnlyDictionary<string, string> AppleParams = new Dictionary<string, string>
     {
-        ["response_type"] = "code",
-        ["response_mode"] = "form_post",
-        ["scope"] = "name email",
+        [OAuthQueryKeys.ResponseType] = OAuthQueryKeys.Code,
+        [OAuthQueryKeys.ResponseMode] = "form_post",
+        [OAuthQueryKeys.Scope] = "name email",
     };
 
     /// <summary>
@@ -118,7 +118,7 @@ internal static class OAuthChallengeServiceCollectionExtensions
         // per scheme registration is enough.
         var parameters = new Dictionary<string, string>(baseParameters, StringComparer.Ordinal)
         {
-            ["client_id"] = clientId,
+            [OAuthQueryKeys.ClientId] = clientId,
         };
 
         services

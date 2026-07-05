@@ -56,27 +56,4 @@ public interface IAuthTokenRevocationRepository
     Task RevokeTokenAsync(
         Jti jti,
         CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Find all tokens issued to a specific system ID.
-    /// Used for audit, bulk revocation, or session management.
-    /// </summary>
-    /// <param name="systemId">The system ID to look up.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>List of JTI values for tokens issued to this system.</returns>
-    Task<IReadOnlyList<string>> FindTokensBySystemIdAsync(
-        SystemId systemId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Clean up expired and revoked tokens from the table.
-    /// Called periodically (e.g., hourly or daily) to prevent table bloat.
-    /// </summary>
-    /// <param name="olderThan">Optional: only delete entries where expires_at or revoked_at is older than this time.
-    ///                         If null, defaults to current time (delete only already-expired entries).</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of rows deleted.</returns>
-    Task<int> CleanupExpiredTokensAsync(
-        DateTimeOffset? olderThan = null,
-        CancellationToken cancellationToken = default);
 }

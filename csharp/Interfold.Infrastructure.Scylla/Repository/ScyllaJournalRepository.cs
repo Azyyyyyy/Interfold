@@ -118,7 +118,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             {
                 var q = new SimpleStatement(
                     $"UPDATE {keyspace}.global_journals SET color = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
-                    command.Color,
+                    command.Color.Value.Value,
                     normalizedSystemId,
                     entryGuid
                 );
@@ -247,7 +247,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 $"INSERT INTO {keyspace}.global_journal_alters (user_id, global_journal_id, alter_id, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
                 normalizedSystemId,
                 entryGuid,
-                (short)alterId.Value
+                alterId.ToStorageShort()
             );
             await session.ExecuteAsync(insert);
 
@@ -272,7 +272,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 $"SELECT alter_id FROM {keyspace}.global_journal_alters WHERE user_id = ? AND global_journal_id = ? AND alter_id = ? LIMIT 1",
                 normalizedSystemId,
                 entryGuid,
-                (short)alterId.Value
+                alterId.ToStorageShort()
             );
 
             var edgeRows = await session.ExecuteAsync(edgeExistsQuery);
@@ -283,7 +283,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 $"DELETE FROM {keyspace}.global_journal_alters WHERE user_id = ? AND global_journal_id = ? AND alter_id = ?",
                 normalizedSystemId,
                 entryGuid,
-                (short)alterId.Value
+                alterId.ToStorageShort()
             );
             await session.ExecuteAsync(delete);
 
@@ -306,7 +306,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 $"INSERT INTO {keyspace}.alter_journals (user_id, id, alter_id, title, content, color, pinned, locked, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 normalizedSystemId,
                 entryId,
-                (short)command.AlterId.Value,
+                command.AlterId.ToStorageShort(),
                 command.Title,
                 null,
                 null,
@@ -319,7 +319,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var insertLookup = new SimpleStatement(
                 $"INSERT INTO {keyspace}.alter_journals_by_alter (user_id, alter_id, id, title, content, color, pinned, locked, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 normalizedSystemId,
-                (short)command.AlterId.Value,
+                command.AlterId.ToStorageShort(),
                 entryId,
                 command.Title,
                 null,
@@ -386,30 +386,30 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             {
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alter_journals SET title = ?, updated_at = ? WHERE user_id = ? AND id = ? AND alter_id = ?",
-                    command.Title, timestamp, normalizedSystemId, entryGuid, (short)reference.AlterId.Value));
+                    command.Title, timestamp, normalizedSystemId, entryGuid, reference.AlterId.ToStorageShort()));
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alter_journals_by_alter SET title = ?, updated_at = ? WHERE user_id = ? AND alter_id = ? AND id = ?",
-                    command.Title, timestamp, normalizedSystemId, (short)reference.AlterId.Value, entryGuid));
+                    command.Title, timestamp, normalizedSystemId, reference.AlterId.ToStorageShort(), entryGuid));
             }
 
             if (command.Content is not null)
             {
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alter_journals SET content = ?, updated_at = ? WHERE user_id = ? AND id = ? AND alter_id = ?",
-                    command.Content, timestamp, normalizedSystemId, entryGuid, (short)reference.AlterId.Value));
+                    command.Content, timestamp, normalizedSystemId, entryGuid, reference.AlterId.ToStorageShort()));
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alter_journals_by_alter SET content = ?, updated_at = ? WHERE user_id = ? AND alter_id = ? AND id = ?",
-                    command.Content, timestamp, normalizedSystemId, (short)reference.AlterId.Value, entryGuid));
+                    command.Content, timestamp, normalizedSystemId, reference.AlterId.ToStorageShort(), entryGuid));
             }
 
             if (command.Color is not null)
             {
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alter_journals SET color = ?, updated_at = ? WHERE user_id = ? AND id = ? AND alter_id = ?",
-                    command.Color, timestamp, normalizedSystemId, entryGuid, (short)reference.AlterId.Value));
+                    command.Color?.Value, timestamp, normalizedSystemId, entryGuid, reference.AlterId.ToStorageShort()));
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alter_journals_by_alter SET color = ?, updated_at = ? WHERE user_id = ? AND alter_id = ? AND id = ?",
-                    command.Color, timestamp, normalizedSystemId, (short)reference.AlterId.Value, entryGuid));
+                    command.Color?.Value, timestamp, normalizedSystemId, reference.AlterId.ToStorageShort(), entryGuid));
             }
 
             if (!updateBatch.IsEmpty)
@@ -440,12 +440,12 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 $"DELETE FROM {keyspace}.alter_journals WHERE user_id = ? AND id = ? AND alter_id = ?",
                 normalizedSystemId,
                 entryGuid,
-                (short)reference.AlterId.Value
+                reference.AlterId.ToStorageShort()
             ));
             delete.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.alter_journals_by_alter WHERE user_id = ? AND alter_id = ? AND id = ?",
                 normalizedSystemId,
-                (short)reference.AlterId.Value,
+                reference.AlterId.ToStorageShort(),
                 entryGuid
             ));
             await session.ExecuteAsync(delete);
@@ -471,10 +471,10 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var batch = new BatchStatement();
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.alter_journals SET locked = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ? AND alter_id = ?",
-                locked, normalizedSystemId, entryGuid, (short)reference.AlterId.Value));
+                locked, normalizedSystemId, entryGuid, reference.AlterId.ToStorageShort()));
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.alter_journals_by_alter SET locked = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND alter_id = ? AND id = ?",
-                locked, normalizedSystemId, (short)reference.AlterId.Value, entryGuid));
+                locked, normalizedSystemId, reference.AlterId.ToStorageShort(), entryGuid));
             await session.ExecuteAsync(batch);
 
             return true;
@@ -498,10 +498,10 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var batch = new BatchStatement();
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.alter_journals SET pinned = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ? AND alter_id = ?",
-                pinned, normalizedSystemId, entryGuid, (short)reference.AlterId.Value));
+                pinned, normalizedSystemId, entryGuid, reference.AlterId.ToStorageShort()));
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.alter_journals_by_alter SET pinned = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND alter_id = ? AND id = ?",
-                pinned, normalizedSystemId, (short)reference.AlterId.Value, entryGuid));
+                pinned, normalizedSystemId, reference.AlterId.ToStorageShort(), entryGuid));
             await session.ExecuteAsync(batch);
 
             return true;
@@ -519,7 +519,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var query = new SimpleStatement(
                 $"SELECT id, user_id, alter_id, title, content, color, pinned, locked, inserted_at, updated_at FROM {keyspace}.alter_journals_by_alter WHERE user_id = ? AND alter_id = ?",
                 normalizedSystemId,
-                (short)alterId.Value
+                alterId.ToStorageShort()
             );
 
             var rows = await session.ExecuteAsync(query);
@@ -530,7 +530,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                     new AlterId(row.GetValue<short>("alter_id")),
                     row.GetValue<string>("title"),
                     row.GetValue<string?>("content"),
-                    row.GetValue<string?>("color"),
+                    HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<bool>("locked"),
                     row.GetValue<bool>("pinned"),
                     row.GetValue<DateTime>("inserted_at"),
@@ -568,7 +568,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                     new AlterId(row.GetValue<short>("alter_id")),
                     row.GetValue<string>("title"),
                     row.GetValue<string?>("content"),
-                    row.GetValue<string?>("color"),
+                    HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<bool>("locked"),
                     row.GetValue<bool>("pinned"),
                     row.GetValue<DateTime>("inserted_at"),
@@ -607,7 +607,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                     new SystemId(row.GetValue<string>("user_id")),
                     row.GetValue<string>("title"),
                     row.GetValue<string?>("content"),
-                    row.GetValue<string?>("color"),
+                    HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<bool>("locked"),
                     row.GetValue<bool>("pinned"),
                     row.GetValue<DateTime>("inserted_at"),
@@ -657,7 +657,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 new SystemId(entryRow.GetValue<string>("user_id")),
                 entryRow.GetValue<string>("title"),
                 entryRow.GetValue<string?>("content"),
-                entryRow.GetValue<string?>("color"),
+                HexColor.FromNullable(entryRow.GetValue<string?>("color")),
                 entryRow.GetValue<bool>("locked"),
                 entryRow.GetValue<bool>("pinned"),
                 entryRow.GetValue<DateTime>("inserted_at"),
@@ -673,7 +673,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var alterIdShort = (short)alterId.Value;
+            var alterIdShort = alterId.ToStorageShort();
 
             // Step 1: list every per-alter journal entry id for this alter via the by-alter
             // view (the partition key is (user_id, alter_id), so this is one single-partition
@@ -739,13 +739,5 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         }, _options, cancellationToken);
     }
 
-    internal static bool TryParseUuid(string value, out Guid guid)
-    {
-        if (Guid.TryParseExact(value, "N", out guid))
-        {
-            return true;
-        }
-
-        return Guid.TryParse(value, out guid);
-    }
+    internal static bool TryParseUuid(string value, out Guid guid) => UuidString.TryParse(value, out guid);
 }

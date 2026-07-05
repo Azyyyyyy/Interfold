@@ -189,7 +189,9 @@ public static class ConfigurationServiceCollectionExtensions
 
     internal static void ApplyPersistence(PersistenceConfiguration opts, IConfiguration config)
     {
-        var keyspace = config[OctoconEnvKeys.ScyllaKeyspace] ?? "nam";
+        // Fail-fast on operator typos: ParseScyllaKeyspace throws for unknown region spellings.
+        var keyspace = Interfold.Contracts.Enums.EnumWireExtensions.ParseScyllaKeyspace(
+            config[OctoconEnvKeys.ScyllaKeyspace] ?? "nam");
         opts.Mode = PersistenceModeExtensions.Parse(config[OctoconEnvKeys.Persistence]);
         opts.ScyllaKeyspace = keyspace;
         opts.PostgresConnectionString = config[OctoconEnvKeys.PostgresConnection]

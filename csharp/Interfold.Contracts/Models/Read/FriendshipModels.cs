@@ -4,13 +4,15 @@ using Interfold.Contracts.Models;
 
 namespace Interfold.Contracts.Models.Read;
 
+// DiscordId here is the friend's real linked Discord id from the users table (exposed to
+// friends over the wire); the raw-string converter keeps the body shape unchanged.
 public sealed record FriendProfileReadModel(
     SystemId Id,
-    string? Username,
-    string? AvatarUrl,
+    Username? Username,
+    AvatarUrl? AvatarUrl,
     AvatarSource? AvatarSource,
     string? Description,
-    string? DiscordId
+    DiscordId? DiscordId
 );
 
 // Fields carries the same per-alter custom-field entries as AlterReadModel.Fields; the Kotlin
@@ -22,10 +24,10 @@ public sealed record FriendFrontingAlterReadModel(
     string? Pronouns,
     string? Description,
     IReadOnlyList<AlterPublicFieldReadModel> Fields,
-    string? AvatarUrl,
+    AvatarUrl? AvatarUrl,
     AvatarSource? AvatarSource,
-    IReadOnlyList<string> ExtraImages,
-    string? Color
+    IReadOnlyList<AvatarUrl> ExtraImages,
+    HexColor? Color
 );
 
 public sealed record FriendFrontingFrontReadModel(

@@ -3,9 +3,9 @@ namespace Interfold.Contracts.Models.ImportOperations;
 /// <summary>
 /// Stable machine codes for terminal import failures, persisted to the
 /// <c>import_operations.error_code</c> column (operators grep/alert on the exact strings —
-/// the wire spellings from <c>ToWireValue()</c> are frozen). The write path is typed with
-/// this enum; <see cref="ImportOperationSnapshot.ErrorCode"/> stays a raw string on the
-/// read side so unknown legacy row values surface verbatim instead of failing to parse.
+/// the wire spellings from <c>ToWireValue()</c> are frozen). Both paths are typed: writes
+/// emit <c>ToWireValue()</c>, reads rehydrate via the tolerant <c>TryParse</c> (unknown
+/// legacy spellings resolve to null rather than throwing).
 /// </summary>
 public enum ImportErrorCode
 {
@@ -43,5 +43,18 @@ public static class ImportErrorCodeExtensions
         ImportErrorCode.HostShutdown => "host_shutdown",
         ImportErrorCode.Exception => "exception",
         _ => throw new ArgumentOutOfRangeException(nameof(code), code, "Unhandled ImportErrorCode."),
+    };
+
+    /// <summary>Tolerant reverse mapping for DB reads: unknown/legacy spellings return null.</summary>
+    public static ImportErrorCode? TryParse(string? raw) => raw switch
+    {
+        "sp_import_failed" => ImportErrorCode.SpImportFailed,
+        "sp_auth_failed" => ImportErrorCode.SpAuthFailed,
+        "import_failed" => ImportErrorCode.ImportFailed,
+        "no_runner" => ImportErrorCode.NoRunner,
+        "host_restart" => ImportErrorCode.HostRestart,
+        "host_shutdown" => ImportErrorCode.HostShutdown,
+        "exception" => ImportErrorCode.Exception,
+        _ => null,
     };
 }

@@ -9,7 +9,7 @@ public sealed record AlterJournalReadModel(
     AlterId AlterId,
     string Title,
     string? Content,
-    string? Color,
+    HexColor? Color,
     bool Locked,
     bool Pinned,
     DateTime InsertedAt,
@@ -23,7 +23,7 @@ public sealed record CreateAlterJournalRequest(
 public sealed record UpdateAlterJournalRequest(
     string? Title = null,
     string? Content = null,
-    string? Color = null
+    HexColor? Color = null
 );
 
 public sealed record CreateAlterRequest(
@@ -33,8 +33,8 @@ public sealed record CreateAlterRequest(
 public sealed record UpdateAlterRequest(
     string? Name = null,
     string? Description = null,
-    string? AvatarUrl = null,
-    string? Color = null,
+    AvatarUrl? AvatarUrl = null,
+    HexColor? Color = null,
     string? Pronouns = null,
     VisibilityLevel? SecurityLevel = null,
     string? ProxyName = null,

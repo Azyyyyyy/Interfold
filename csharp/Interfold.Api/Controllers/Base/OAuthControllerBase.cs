@@ -35,57 +35,64 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
 
     protected abstract string CallbackRoutePrefix { get; }
 
+    /// <summary>
+    /// Resolves the provider identity for the current callback request. Returns the raw
+    /// string because the identity kind depends on <paramref name="provider"/> (Discord
+    /// snowflake / email / Apple sub) and the query/form fallbacks are untyped; callers
+    /// that know the provider wrap it in the matching identity struct.
+    /// </summary>
     protected async Task<string?> ExtractProviderIdentityAsync(OAuthProvider provider)
     {
         switch (provider)
         {
             case OAuthProvider.Discord:
             {
-                var code = await GetValueAsync("code");
+                var code = await GetValueAsync(OAuthQueryKeys.Code);
                 if (!string.IsNullOrWhiteSpace(code))
                 {
                     var redirectUri = BuildCallbackBaseUri(provider);
-                    return await DiscordOAuth.ExchangeCodeForDiscordIdAsync(code, redirectUri, HttpContext.RequestAborted);
+                    var discordId = await DiscordOAuth.ExchangeCodeForDiscordIdAsync(code, redirectUri, HttpContext.RequestAborted);
+                    return discordId?.Value;
                 }
 
-                return await GetValueAsync("uid", "discord_id", "id");
+                return await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.DiscordIdFallback, OAuthQueryKeys.Id);
             }
 
             case OAuthProvider.Google:
             {
-                var code = await GetValueAsync("code");
+                var code = await GetValueAsync(OAuthQueryKeys.Code);
                 if (string.IsNullOrWhiteSpace(code))
                 {
-                    return await GetValueAsync("email");
+                    return await GetValueAsync(OAuthQueryKeys.Email);
                 }
 
                 var redirectUri = BuildCallbackBaseUri(provider);
                 var email = await GoogleOAuth.ExchangeCodeForEmailAsync(code, redirectUri, HttpContext.RequestAborted);
 
-                return email ?? await GetValueAsync("email");
+                return email?.Value ?? await GetValueAsync(OAuthQueryKeys.Email);
             }
 
             case OAuthProvider.Apple:
             {
-                var code = await GetValueAsync("code");
+                var code = await GetValueAsync(OAuthQueryKeys.Code);
                 if (!string.IsNullOrWhiteSpace(code))
                 {
                     var redirectUri = BuildCallbackBaseUri(provider);
                     var appleId = await AppleOAuth.ExchangeCodeForAppleIdAsync(code, redirectUri, HttpContext.RequestAborted);
-                    if (!string.IsNullOrWhiteSpace(appleId))
+                    if (!string.IsNullOrWhiteSpace(appleId?.Value))
                     {
-                        return appleId;
+                        return appleId.Value.Value;
                     }
                 }
 
-                var idToken = await GetValueAsync("id_token");
+                var idToken = await GetValueAsync(OAuthQueryKeys.IdToken);
                 var sub = AppleOAuth.ExtractSubFromJwt(idToken);
-                if (!string.IsNullOrWhiteSpace(sub))
+                if (!string.IsNullOrWhiteSpace(sub?.Value))
                 {
-                    return sub;
+                    return sub.Value.Value;
                 }
 
-                return await GetValueAsync("uid", "apple_id", "id", "sub");
+                return await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.AppleIdFallback, OAuthQueryKeys.Id, OAuthQueryKeys.Sub);
             }
 
             default:
@@ -141,7 +148,7 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
 
     protected void StoreRedirectUriCookie(string cookieName)
     {
-        var redirectUri = Request.Query["redirect_uri"].ToString();
+        var redirectUri = Request.Query[OAuthQueryKeys.RedirectUri].ToString();
         if (!string.IsNullOrWhiteSpace(redirectUri))
         {
             Response.Cookies.Append(cookieName, redirectUri, new CookieOptions

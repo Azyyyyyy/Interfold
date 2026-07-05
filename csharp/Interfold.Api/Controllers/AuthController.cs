@@ -12,6 +12,8 @@ using Interfold.Infrastructure;
 using Interfold.Api.Controllers.Base;
 using Interfold.Contracts;
 using Interfold.Api.Models;
+using Interfold.Contracts.Ids;
+using Interfold.Api.Auth;
 
 namespace Interfold.Api.Controllers;
 
@@ -106,9 +108,9 @@ public sealed class AuthController : OAuthControllerBase
 
         var resolvedSystemId = oauthProvider switch
         {
-            OAuthProvider.Discord => await _accounts.FindSystemIdByDiscordIdAsync(identity, HttpContext.RequestAborted),
-            OAuthProvider.Google => await _accounts.FindSystemIdByEmailAsync(identity, HttpContext.RequestAborted),
-            OAuthProvider.Apple => await _accounts.FindSystemIdByAppleIdAsync(identity, HttpContext.RequestAborted),
+            OAuthProvider.Discord => await _accounts.FindSystemIdByDiscordIdAsync(new DiscordId(identity), HttpContext.RequestAborted),
+            OAuthProvider.Google => await _accounts.FindSystemIdByEmailAsync(new Email(identity), HttpContext.RequestAborted),
+            OAuthProvider.Apple => await _accounts.FindSystemIdByAppleIdAsync(new AppleId(identity), HttpContext.RequestAborted),
             _ => null
         };
 
@@ -150,7 +152,7 @@ public sealed class AuthController : OAuthControllerBase
         }
 
         var separator = clientRedirectUri.Contains('?') ? '&' : '?';
-        var redirectUrl = $"{clientRedirectUri}{separator}token={Uri.EscapeDataString(token)}&id={Uri.EscapeDataString(systemId.Value)}";
+        var redirectUrl = $"{clientRedirectUri}{separator}{OAuthQueryKeys.CallbackToken}={Uri.EscapeDataString(token)}&{OAuthQueryKeys.CallbackId}={Uri.EscapeDataString(systemId.Value)}";
 
         Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthOAuthCallback.Value;
         return Redirect(redirectUrl);

@@ -32,7 +32,7 @@ namespace Interfold.Bootstrapper.Phases;
 /// </remarks>
 internal static class DatabaseInitPhase
 {
-    private const string Phase = "db-init";
+    private static readonly string Phase = BootstrapPhase.DbInit.ToWireName();
     private const string PostgresService = ComposeServices.Postgres;
     private const string PostgresInitUser = "db_init";
 
@@ -139,12 +139,7 @@ internal static class DatabaseInitPhase
             FcmServiceAccountJson: firebase.ServiceAccountJson);
     }
 
-    private static string? FindComposeFile(string outputDir)
-    {
-        var direct = Path.Combine(outputDir, "docker-compose.yaml");
-        if (File.Exists(direct)) return direct;
-        return Directory.EnumerateFiles(outputDir, "docker-compose.yaml", SearchOption.AllDirectories).FirstOrDefault();
-    }
+    private static string? FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
 
     private static string ResolveScyllaServiceName(BootstrapConfig config)
     {

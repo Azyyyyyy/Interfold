@@ -5,7 +5,7 @@ namespace Interfold.Contracts.Models.Read;
 public sealed record TagReadModel(
     TagId Id,
     string Name,
-    string? Color,
+    HexColor? Color,
     string? Description,
     TagId? ParentTagId,
     IReadOnlyList<AlterId> Alters,
@@ -18,7 +18,7 @@ public sealed record TagReadModel(
 public sealed record TagPublicReadModel(
     TagId Id,
     string Name,
-    string? Color,
+    HexColor? Color,
     string? Description,
     TagId? ParentTagId,
     IReadOnlyList<BareAlter> Alters,
@@ -35,7 +35,7 @@ public sealed record CreateTagRequest(
 
 public sealed record UpdateTagRequest(
     string? Name = null,
-    string? Color = null,
+    HexColor? Color = null,
     string? Description = null,
     VisibilityLevel? SecurityLevel = null
 );

@@ -13,6 +13,8 @@ using Interfold.Domain.Abstractions.Repository;
 using Interfold.Api.Controllers.Base;
 using Interfold.Api.Models;
 using Interfold.Contracts;
+using Interfold.Contracts.Ids;
+using Interfold.Api.Auth;
 
 namespace Interfold.Api.Controllers;
 
@@ -48,7 +50,7 @@ public sealed class AuthLinkController : OAuthControllerBase
         if (EnumWireExtensions.TryParseOAuthProvider(provider) is not { } oauthProvider)
             return UnsupportedProviderResponse(provider);
 
-        StoreQueryCookie(LinkTokenCookieName, "link_token");
+        StoreQueryCookie(LinkTokenCookieName, OAuthQueryKeys.LinkToken);
         StoreRedirectUriCookie(RedirectUriCookieName);
 
         var challenge = await IssueChallengeIfRegisteredAsync(oauthProvider, OperationIds.QueryAuthLinkRequest);
@@ -73,7 +75,7 @@ public sealed class AuthLinkController : OAuthControllerBase
         if (EnumWireExtensions.TryParseOAuthProvider(provider) is not { } oauthProvider)
             return UnsupportedProviderResponse(provider);
 
-        var linkToken = await GetValueAsync("link_token") ?? Request.Cookies[LinkTokenCookieName];
+        var linkToken = await GetValueAsync(OAuthQueryKeys.LinkToken) ?? Request.Cookies[LinkTokenCookieName];
         if (string.IsNullOrWhiteSpace(linkToken))
         {
             return StatusCode(StatusCodes.Status403Forbidden, "This link token is invalid or has expired.");
@@ -102,9 +104,9 @@ public sealed class AuthLinkController : OAuthControllerBase
 
         var result = oauthProvider switch
         {
-            OAuthProvider.Discord => await _accounts.LinkDiscordToUserAsync(systemId, identity, HttpContext.RequestAborted),
-            OAuthProvider.Google => await _accounts.LinkEmailToUserAsync(systemId, identity, HttpContext.RequestAborted),
-            OAuthProvider.Apple => await _accounts.LinkAppleToUserAsync(systemId, identity, HttpContext.RequestAborted),
+            OAuthProvider.Discord => await _accounts.LinkDiscordToUserAsync(systemId, new DiscordId(identity), HttpContext.RequestAborted),
+            OAuthProvider.Google => await _accounts.LinkEmailToUserAsync(systemId, new Email(identity), HttpContext.RequestAborted),
+            OAuthProvider.Apple => await _accounts.LinkAppleToUserAsync(systemId, new AppleId(identity), HttpContext.RequestAborted),
             _ => AccountLinkResult.UserNotFound
         };
 
@@ -135,9 +137,24 @@ public sealed class AuthLinkController : OAuthControllerBase
 
     private async Task<IActionResult> RedirectWithSocketEventAsync(Interfold.Contracts.Ids.SystemId systemId, OAuthProvider provider, string identity, string? redirectUri)
     {
-        await _eventBus.PublishAsync(
-            new SettingsAccountLinkedEvent(systemId, provider, identity),
-            HttpContext.RequestAborted);
+        switch (provider)
+        {
+            case OAuthProvider.Discord:
+                await _eventBus.PublishAsync(
+                    new SettingsDiscordAccountLinkedEvent(systemId, new DiscordId(identity)),
+                    HttpContext.RequestAborted);
+                break;
+            case OAuthProvider.Google:
+                await _eventBus.PublishAsync(
+                    new SettingsGoogleAccountLinkedEvent(systemId, new Email(identity)),
+                    HttpContext.RequestAborted);
+                break;
+            case OAuthProvider.Apple:
+                await _eventBus.PublishAsync(
+                    new SettingsAppleAccountLinkedEvent(systemId, new AppleId(identity)),
+                    HttpContext.RequestAborted);
+                break;
+        }
 
         // The client is responsible for supplying its own redirect_uri on the initial
         // GET /auth/link/{provider}?redirect_uri=... call; the cookie threads it through

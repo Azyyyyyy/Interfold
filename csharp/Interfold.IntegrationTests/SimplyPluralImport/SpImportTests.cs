@@ -1147,7 +1147,7 @@ public sealed class SpImportTests : BaseEndpointTest
         InMemoryServiceCollectionExtensions.Register();
         services.AddInterfoldPersistence(PersistenceMode.InMemory, cfg =>
         {
-            cfg.ScyllaKeyspace = "nam";
+            cfg.ScyllaKeyspace = Interfold.Contracts.Enums.ScyllaKeyspace.Nam;
         });
         services.AddInterfoldDomainHandlers();
 

@@ -16,7 +16,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         public required SystemId UserId { get; init; }
         public required string Title { get; set; }
         public string? Content { get; set; }
-        public string? Color { get; set; }
+        public HexColor? Color { get; set; }
         public required DateTime InsertedAt { get; init; }
         public DateTime UpdatedAt { get; set; }
     }
@@ -28,7 +28,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         public required AlterId AlterId { get; init; }
         public required string Title { get; set; }
         public string? Content { get; set; }
-        public string? Color { get; set; }
+        public HexColor? Color { get; set; }
         public bool Pinned { get; set; }
         public bool Locked { get; set; }
         public required DateTime InsertedAt { get; init; }
@@ -51,7 +51,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<EntryId, EntryState>());
         var id = new EntryId(Guid.NewGuid().ToString("N"));
-        var now = DateTime.Now;
+        var now = DateTime.UtcNow;
 
         store[id] = new EntryState
         {
@@ -83,7 +83,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         if (command.Title is not null) entry.Title = command.Title;
         if (command.Content is not null) entry.Content = command.Content;
         if (command.Color is not null) entry.Color = command.Color;
-        entry.UpdatedAt = DateTime.Now;
+        entry.UpdatedAt = DateTime.UtcNow;
 
         return Task.FromResult(true);
     }
@@ -358,9 +358,5 @@ public sealed class InMemoryJournalRepository : IJournalRepository
 
     private string GetEntryKey(SystemId systemId, EntryId entryId) => $"{GetSystemKey(systemId)}:{entryId.Value}";
 
-    private string GetSystemKey(SystemId systemId)
-    {
-        var region = _regionContext.ResolveUserRegion(systemId.Value).ToWireValue();
-        return $"{region}:{systemId.Value}";
-    }
+    private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 }

@@ -17,7 +17,7 @@ public sealed class InMemoryTagRepository : ITagRepository
        string Name,
        DateTime InsertedAt,
        DateTime UpdatedAt,
-       string? Color = null,
+       HexColor? Color = null,
        string? Description = null,
        VisibilityLevel SecurityLevel = VisibilityLevel.Private
    );
@@ -267,11 +267,7 @@ public sealed class InMemoryTagRepository : ITagRepository
         return members.Keys.OrderBy(x => x.Id.Value).ToArray();
     }
 
-    private string GetSystemKey(SystemId systemId)
-    {
-        var region = _regionContext.ResolveUserRegion(systemId.Value).ToWireValue();
-        return $"{region}:{systemId.Value}";
-    }
+    private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
     private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
     {

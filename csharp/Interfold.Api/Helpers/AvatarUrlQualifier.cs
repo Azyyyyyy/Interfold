@@ -1,4 +1,5 @@
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.Helpers;
 
@@ -74,4 +75,12 @@ internal static class AvatarUrlQualifier
             ? Qualify(url, origin)
             : url;
     }
+
+    /// <summary>Typed overload — wraps/unwraps <see cref="AvatarUrl"/> around the raw logic.</summary>
+    internal static AvatarUrl? QualifyAvatar(AvatarUrl? url, AvatarSource? source, string scheme, HostString host)
+        => AvatarUrl.FromNullable(QualifyAvatar(url?.Value, source, scheme, host));
+
+    /// <summary>Typed origin-string overload.</summary>
+    internal static AvatarUrl? QualifyAvatar(AvatarUrl? url, AvatarSource? source, string? origin)
+        => AvatarUrl.FromNullable(QualifyAvatar(url?.Value, source, origin));
 }

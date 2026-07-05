@@ -26,12 +26,12 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 /// </para>
 ///
 /// <para>
-/// <b>TimeUuid vs Guid.</b> The contract surface uses <see cref="Guid"/> for portability
-/// (controllers and HTTP responses already speak Guid). The driver column type is
-/// <c>timeuuid</c> — convert with <c>(TimeUuid)guid</c> at the bind site and
-/// <c>row.GetValue&lt;TimeUuid&gt;("operation_id").ToGuid()</c> on read. New ids are
-/// minted with <see cref="TimeUuid.NewId()"/> so the clustering order (DESC) sorts by
-/// wall-clock creation time without an extra timestamp column.
+/// <b>TimeUuid vs ImportOperationId.</b> The contract surface uses the Guid-backed
+/// <see cref="ImportOperationId"/> struct. The driver column type is <c>timeuuid</c> —
+/// convert with <c>(TimeUuid)id.Value</c> at the bind site and
+/// <c>new ImportOperationId(row.GetValue&lt;TimeUuid&gt;("operation_id").ToGuid())</c> on
+/// read. New ids are minted with <see cref="TimeUuid.NewId()"/> so the clustering order
+/// (DESC) sorts by wall-clock creation time without an extra timestamp column.
 /// </para>
 /// </summary>
 public sealed class ScyllaImportOperationRepository : IImportOperationRepository
@@ -86,7 +86,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             {
                 // Slot was already taken. Read the existing operation id and return it so
                 // the caller short-circuits without dispatching a second worker run.
-                var existingId = claimRow!.GetValue<TimeUuid>("operation_id").ToGuid();
+                var existingId = new ImportOperationId(claimRow!.GetValue<TimeUuid>("operation_id").ToGuid());
                 _logger.LogInformation(
                     "[import-ops] Collapsed duplicate dispatch for system={SystemId} kind={Kind} onto operation_id={OperationId}.",
                     normalizedSystemId, kindWire, existingId);
@@ -101,17 +101,17 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
                 "(system_id, operation_id, kind, status, started_at, idempotency_key) " +
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 normalizedSystemId, newOperationId, kindWire,
-                ImportOperationStatus.Queued.ToString(),
+                ImportOperationStatus.Queued.ToWireValue(),
                 now.UtcDateTime, idempotencyKey.Value);
             await session.ExecuteAsync(historyInsert);
 
-            return new ImportOperationClaim(newOperationId.ToGuid(), IsNew: true);
+            return new ImportOperationClaim(new ImportOperationId(newOperationId.ToGuid()), IsNew: true);
         }, _options, cancellationToken, _logger);
     }
 
     public async Task MarkRunningAsync(
         SystemId systemId,
-        Guid operationId,
+        ImportOperationId operationId,
         CancellationToken cancellationToken = default)
     {
         await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
@@ -126,9 +126,9 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             var update = new SimpleStatement(
                 $"UPDATE {keyspace}.import_operations SET status = ? " +
                 "WHERE system_id = ? AND operation_id = ? IF status = ?",
-                ImportOperationStatus.Running.ToString(),
-                normalizedSystemId, (TimeUuid)operationId,
-                ImportOperationStatus.Queued.ToString());
+                ImportOperationStatus.Running.ToWireValue(),
+                normalizedSystemId, (TimeUuid)operationId.Value,
+                ImportOperationStatus.Queued.ToWireValue());
             await session.ExecuteAsync(update);
             return true;
         }, _options, cancellationToken, _logger);
@@ -136,7 +136,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
 
     public async Task MarkSucceededAsync(
         SystemId systemId,
-        Guid operationId,
+        ImportOperationId operationId,
         ImportOperationKind kind,
         int alterCount,
         CancellationToken cancellationToken = default)
@@ -152,18 +152,18 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.import_operations SET status = ?, finished_at = ?, alter_count = ? " +
                 "WHERE system_id = ? AND operation_id = ?",
-                ImportOperationStatus.Succeeded.ToString(), now.UtcDateTime, alterCount,
-                normalizedSystemId, (TimeUuid)operationId));
+                ImportOperationStatus.Succeeded.ToWireValue(), now.UtcDateTime, alterCount,
+                normalizedSystemId, (TimeUuid)operationId.Value));
             await session.ExecuteAsync(batch);
 
-            await ReleaseSlot(session, keyspace, normalizedSystemId, kind.ToWireValue(), (TimeUuid)operationId);
+            await ReleaseSlot(session, keyspace, normalizedSystemId, kind.ToWireValue(), (TimeUuid)operationId.Value);
             return true;
         }, _options, cancellationToken, _logger);
     }
 
     public async Task MarkFailedAsync(
         SystemId systemId,
-        Guid operationId,
+        ImportOperationId operationId,
         ImportOperationKind kind,
         ImportErrorCode errorCode,
         string? errorMessage,
@@ -179,18 +179,18 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             var update = new SimpleStatement(
                 $"UPDATE {keyspace}.import_operations SET status = ?, finished_at = ?, error_code = ?, error_message = ? " +
                 "WHERE system_id = ? AND operation_id = ?",
-                ImportOperationStatus.Failed.ToString(), now.UtcDateTime, errorCode.ToWireValue(), errorMessage,
-                normalizedSystemId, (TimeUuid)operationId);
+                ImportOperationStatus.Failed.ToWireValue(), now.UtcDateTime, errorCode.ToWireValue(), errorMessage,
+                normalizedSystemId, (TimeUuid)operationId.Value);
             await session.ExecuteAsync(update);
 
-            await ReleaseSlot(session, keyspace, normalizedSystemId, kind.ToWireValue(), (TimeUuid)operationId);
+            await ReleaseSlot(session, keyspace, normalizedSystemId, kind.ToWireValue(), (TimeUuid)operationId.Value);
             return true;
         }, _options, cancellationToken, _logger);
     }
 
     public async Task<ImportOperationSnapshot?> GetByIdAsync(
         SystemId systemId,
-        Guid operationId,
+        ImportOperationId operationId,
         CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
@@ -203,7 +203,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
                 $"SELECT system_id, operation_id, kind, status, started_at, finished_at, " +
                 $"alter_count, error_code, error_message, idempotency_key " +
                 $"FROM {keyspace}.import_operations WHERE system_id = ? AND operation_id = ? LIMIT 1",
-                normalizedSystemId, (TimeUuid)operationId);
+                normalizedSystemId, (TimeUuid)operationId.Value);
 
             var rows = await session.ExecuteAsync(query);
             var row = rows.FirstOrDefault();
@@ -211,7 +211,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
         }, _options, cancellationToken, _logger);
     }
 
-    public async Task<Guid?> GetActiveOperationIdAsync(
+    public async Task<ImportOperationId?> GetActiveOperationIdAsync(
         SystemId systemId,
         ImportOperationKind kind,
         CancellationToken cancellationToken = default)
@@ -228,7 +228,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
 
             var rows = await session.ExecuteAsync(query);
             var row = rows.FirstOrDefault();
-            return row is null ? (Guid?)null : row.GetValue<TimeUuid>("operation_id").ToGuid();
+            return row is null ? (ImportOperationId?)null : new ImportOperationId(row.GetValue<TimeUuid>("operation_id").ToGuid());
         }, _options, cancellationToken, _logger);
     }
 
@@ -251,7 +251,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
                 $"alter_count, error_code, error_message, idempotency_key " +
                 $"FROM {keyspace}.import_operations " +
                 "WHERE status = ? AND started_at < ? ALLOW FILTERING",
-                ImportOperationStatus.Running.ToString(), cutoff.UtcDateTime);
+                ImportOperationStatus.Running.ToWireValue(), cutoff.UtcDateTime);
 
             var rows = await session.ExecuteAsync(query);
             var list = new List<ImportOperationSnapshot>();
@@ -302,13 +302,13 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
 
         return new ImportOperationSnapshot(
             new SystemId(row.GetValue<string>("system_id")),
-            row.GetValue<TimeUuid>("operation_id").ToGuid(),
+            new ImportOperationId(row.GetValue<TimeUuid>("operation_id").ToGuid()),
             kind,
             status,
             startedAt,
             finishedAt,
             row.GetValue<int?>("alter_count"),
-            row.GetValue<string>("error_code"),
+            ImportErrorCodeExtensions.TryParse(row.GetValue<string?>("error_code")),
             row.GetValue<string>("error_message"),
             new IdempotencyKey(row.GetValue<string>("idempotency_key")));
     }

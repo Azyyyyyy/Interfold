@@ -37,5 +37,5 @@ public sealed class InMemoryIdempotencyStore : IIdempotencyStore
     }
 
     private static string BuildKey(SystemId principalId, OperationId operationId, IdempotencyKey idempotencyKey) =>
-        $"{principalId}:{operationId}:{idempotencyKey}";
+        $"{principalId.Value}:{operationId.Value}:{idempotencyKey.Value}";
 }

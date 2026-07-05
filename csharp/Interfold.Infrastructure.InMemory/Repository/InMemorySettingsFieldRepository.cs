@@ -164,11 +164,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
         }
     }
 
-    private string GetSystemKey(SystemId systemId)
-    {
-        var region = _regionContext.ResolveUserRegion(systemId.Value).ToWireValue();
-        return $"{region}:{systemId.Value}";
-    }
+    private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
     internal static bool TryParseUuid(string value, out Guid guid)
     {

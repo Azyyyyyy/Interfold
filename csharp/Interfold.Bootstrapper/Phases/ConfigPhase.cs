@@ -22,7 +22,7 @@ internal static class ConfigPhase
         const string Phase = "config";
         logger.PhaseStart(Phase);
 
-        var configPath = options.ConfigPath ?? Path.Combine(options.OutputDir, "interfold.bootstrap.json");
+        var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
         BootstrapConfig config;
         if (File.Exists(configPath))
         {
@@ -33,7 +33,7 @@ internal static class ConfigPhase
         }
         else if (options.NonInteractive)
         {
-            logger.PhaseFail(Phase, "missing-config-non-interactive");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingConfigNonInteractive);
             throw new InvalidOperationException(
                 $"Config file not found at {configPath} and --non-interactive was set. " +
                 "Provide --config <path> or rerun interactively.");
@@ -55,7 +55,7 @@ internal static class ConfigPhase
         }
         else
         {
-            logger.PhaseFail(Phase, "missing-config-no-tty");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingConfigNoTty);
             throw new InvalidOperationException(
                 $"Config file not found at {configPath} and no TTY is available. " +
                 "Run with --config <path> pointing at a populated interfold.bootstrap.json.");

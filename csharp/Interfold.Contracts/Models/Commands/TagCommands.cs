@@ -15,7 +15,7 @@ public sealed record CreateTagCommand(string Name, TagId? ParentTagId, DateTime 
 public sealed record UpdateTagCommand(
 	TagId TagId,
 	string? Name,
-	string? Color,
+	HexColor? Color,
 	string? Description,
 	VisibilityLevel? SecurityLevel
 );

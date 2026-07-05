@@ -14,7 +14,7 @@ public sealed record SettingsFieldReadModel(
     DateTime? InsertedAt);
     
 public sealed record SettingsUsernameRequest(
-    string Username
+    Username Username
 );
 
 public sealed record SettingsDescriptionRequest(
@@ -35,7 +35,7 @@ public sealed record SettingsImportRequest(
 );
 
 public sealed record AvatarUrlUploadRequest(
-    string Url
+    AvatarUrl Url
 );
 
 public sealed record SettingsCreateFieldRequest(

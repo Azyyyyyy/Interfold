@@ -295,7 +295,7 @@ public sealed class SettingsController : InterfoldControllerBase
             return new ErrorResponse("An error occurred while uploading the file.", ErrorCodes.UnknownError, System.Net.HttpStatusCode.InternalServerError);
         }
 
-        string? currentAvatarUrl = null;
+        AvatarUrl? currentAvatarUrl = null;
         AvatarSource? currentAvatarSource = null;
         try
         {
@@ -313,7 +313,7 @@ public sealed class SettingsController : InterfoldControllerBase
             PrincipalId: principal,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UploadAvatarCommand(avatarUrl, AvatarSource.Local)
+            Payload: new UploadAvatarCommand(new AvatarUrl(avatarUrl), AvatarSource.Local)
         );
 
         var result = CommandNoContent(await _uploadAvatarHandler.HandleAsync(envelope, ct));
@@ -329,7 +329,7 @@ public sealed class SettingsController : InterfoldControllerBase
         {
             try
             {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
+                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl?.Value, ct);
             }
             catch
             {
@@ -352,12 +352,12 @@ public sealed class SettingsController : InterfoldControllerBase
         if (req is null)
             return new ErrorResponse("Avatar URL payload required.", ErrorCodes.AvatarUrlInvalid, System.Net.HttpStatusCode.BadRequest);
 
-        if (!AvatarUrlValidator.TryNormalize(req.Url, out var url, out var err))
+        if (!AvatarUrlValidator.TryNormalize(req.Url.Value, out var url, out var err))
             return new ErrorResponse("Invalid avatar URL.", err, System.Net.HttpStatusCode.BadRequest);
 
         var principal = PrincipalId;
 
-        string? currentAvatarUrl = null;
+        AvatarUrl? currentAvatarUrl = null;
         AvatarSource? currentAvatarSource = null;
         try
         {
@@ -375,7 +375,7 @@ public sealed class SettingsController : InterfoldControllerBase
             PrincipalId: principal,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UploadAvatarCommand(url, AvatarSource.External)
+            Payload: new UploadAvatarCommand(new AvatarUrl(url), AvatarSource.External)
         );
 
         var result = CommandNoContent(await _uploadAvatarHandler.HandleAsync(envelope, ct));
@@ -389,7 +389,7 @@ public sealed class SettingsController : InterfoldControllerBase
         {
             try
             {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
+                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl?.Value, ct);
             }
             catch
             {
@@ -404,7 +404,7 @@ public sealed class SettingsController : InterfoldControllerBase
     {
         var principal = PrincipalId;
         var currentProfile = await _accountRepository.GetPublicProfileAsync(principal, ct);
-        var currentAvatarUrl = currentProfile?.AvatarUrl;
+        AvatarUrl? currentAvatarUrl = currentProfile?.AvatarUrl;
         var currentAvatarSource = currentProfile?.AvatarSource;
 
         var envelope = new CommandEnvelope<DeleteAvatarCommand>(
@@ -421,7 +421,7 @@ public sealed class SettingsController : InterfoldControllerBase
         {
             try
             {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
+                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl?.Value, ct);
             }
             catch
             {

@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
@@ -48,16 +49,19 @@ public sealed record SocketBatchedTagsPayload(int BatchIndex, int TotalBatches, 
 
 public sealed record SocketBatchedFrontsPayload(int BatchIndex, int TotalBatches, IReadOnlyList<FrontActiveReadModel> Fronts) : ISocketPayload;
 
+// The four *Linked members keep the legacy identity-shaped wire names (discord_id etc.)
+// but carry only the "SET"/null link-presence flag — see AccountLinkFlag. GoogleLinked is
+// historically always null (Google links surface via email) and stays for wire shape.
 public sealed record SocketSelfReadModel(
     SystemId Id,
-    string? Username,
+    Username? Username,
     string? Description,
-    string? AvatarUrl,
+    AvatarUrl? AvatarUrl,
     AvatarSource? AvatarSource,
-    string? DiscordId,
-    string? GoogleId,
-    string? AppleId,
-    string? Email,
+    [property: JsonPropertyName("discord_id")] AccountLinkFlag DiscordLinked,
+    [property: JsonPropertyName("google_id")] AccountLinkFlag GoogleLinked,
+    [property: JsonPropertyName("apple_id")] AccountLinkFlag AppleLinked,
+    [property: JsonPropertyName("email")] AccountLinkFlag EmailLinked,
     AutoproxyMode AutoproxyMode,
     bool ShowSystemTag,
     int LifetimeAlterCount,
@@ -93,15 +97,15 @@ public sealed record EntryDeletedSocketPayload(EntryId EntryId) : ISocketPayload
 
 public sealed record SettingsFieldsUpdatedPayload(IReadOnlyList<SettingsFieldReadModel> Fields) : ISocketPayload;
 
-public sealed record SettingsUsernameUpdatedPayload(string Username) : ISocketPayload;
+public sealed record SettingsUsernameUpdatedPayload(Username Username) : ISocketPayload;
 
 public sealed record SettingsSelfUpdatedPayload(SocketSelfReadModel Data) : ISocketPayload;
 
-public sealed record DiscordAccountLinkedPayload(string DiscordId) : ISocketPayload;
+public sealed record DiscordAccountLinkedPayload(DiscordId DiscordId) : ISocketPayload;
 
-public sealed record GoogleAccountLinkedPayload(string Email) : ISocketPayload;
+public sealed record GoogleAccountLinkedPayload(Email Email) : ISocketPayload;
 
-public sealed record AppleAccountLinkedPayload(string AppleId) : ISocketPayload;
+public sealed record AppleAccountLinkedPayload(AppleId AppleId) : ISocketPayload;
 
 public sealed record FriendRequestSocketPayload(FriendshipRequestModel Request, FriendProfileReadModel System) : ISocketPayload;
 

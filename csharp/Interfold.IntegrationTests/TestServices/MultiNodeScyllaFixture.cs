@@ -155,7 +155,7 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
             Mode = Interfold.Contracts.PersistenceMode.ScyllaPostgres,
             PostgresConnectionString = SharedDb.PostgresConnectionString,
             IsSingleScyllaInstance = false,
-            ScyllaKeyspace = "nam",
+            ScyllaKeyspace = Interfold.Contracts.Enums.ScyllaKeyspace.Nam,
         };
         var connectionFactory = new PostgresConnectionFactory(persistenceConfig);
         var secretsStore = new PostgresSecretsStore(connectionFactory);

@@ -1,5 +1,6 @@
 ﻿using System.Security.Cryptography;
 using Interfold.Api.Services;
+using Interfold.Contracts.Models.ImportOperations;
 using Interfold.Api.Services.Http;
 using Interfold.Domain.Abstractions;
 using Interfold.Infrastructure.InMemory;
@@ -34,7 +35,7 @@ services.AddSingleton<IConfiguration>(new ConfigurationManager());
 InMemoryServiceCollectionExtensions.Register();
 services.AddInterfoldPersistence(Interfold.Contracts.PersistenceMode.InMemory, cfg =>
 {
-	cfg.ScyllaKeyspace = "nam";
+	cfg.ScyllaKeyspace = Interfold.Contracts.Enums.ScyllaKeyspace.Nam;
 });
 
 // Domain handlers (some repositories expect handlers registered)
@@ -83,7 +84,7 @@ try
 		return 0;
 	}
 
-	logger.LogError("Import failed: {Reason}", result.Error);
+	logger.LogError("Import failed: {Code} {Reason}", result.ErrorCode?.ToWireValue(), result.ErrorMessage);
 	return 2;
 }
 catch (Exception ex)

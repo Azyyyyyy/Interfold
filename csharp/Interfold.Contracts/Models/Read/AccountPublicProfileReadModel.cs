@@ -5,13 +5,13 @@ namespace Interfold.Contracts.Models.Read;
 
 public sealed record AccountPublicProfileReadModel(
     SystemId SystemId,
-    string? Username,
+    Username? Username,
     string? Description,
-    string? AvatarUrl,
+    AvatarUrl? AvatarUrl,
     AvatarSource? AvatarSource,
-    string? DiscordId,
-    string? Email,
-    string? AppleId
+    DiscordId? DiscordId,
+    Email? Email,
+    AppleId? AppleId
 );
 
 public enum AccountLinkResult

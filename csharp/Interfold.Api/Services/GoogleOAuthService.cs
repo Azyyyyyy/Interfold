@@ -2,6 +2,8 @@ using System.Net.Http.Json;
 using Interfold.Api.Services.OAuth;
 using Interfold.Contracts.Configuration;
 using Microsoft.Extensions.Options;
+using Interfold.Contracts.Ids;
+using Interfold.Api.Auth;
 
 namespace Interfold.Api.Services;
 
@@ -26,7 +28,7 @@ public sealed class GoogleOAuthService
     /// Exchange authorization code for email via Google's OAuth2 flow.
     /// Returns null if configuration is incomplete or exchange fails.
     /// </summary>
-    public async Task<string?> ExchangeCodeForEmailAsync(
+    public async Task<Email?> ExchangeCodeForEmailAsync(
         string code,
         string redirectUri,
         CancellationToken cancellationToken = default)
@@ -44,11 +46,11 @@ public sealed class GoogleOAuthService
             // Step 1: Exchange code for access token
             var tokenRequest = new Dictionary<string, string>
             {
-                { "code", code },
-                { "client_id", authConfig.GoogleOAuthClientId },
-                { "client_secret", authConfig.GoogleOAuthClientSecret },
-                { "grant_type", "authorization_code" },
-                { "redirect_uri", redirectUri }
+                { OAuthQueryKeys.Code, code },
+                { OAuthQueryKeys.ClientId, authConfig.GoogleOAuthClientId },
+                { OAuthQueryKeys.ClientSecret, authConfig.GoogleOAuthClientSecret },
+                { OAuthQueryKeys.GrantType, OAuthQueryKeys.AuthorizationCodeGrant },
+                { OAuthQueryKeys.RedirectUri, redirectUri }
             };
 
             using var content = new FormUrlEncodedContent(tokenRequest);
@@ -77,7 +79,7 @@ public sealed class GoogleOAuthService
             }
 
             var userInfo = await userInfoResponse.Content.ReadFromJsonAsync<GoogleUserInfoResponse>(cancellationToken);
-            return userInfo?.Email;
+            return string.IsNullOrWhiteSpace(userInfo?.Email) ? null : new Email(userInfo.Email);
         }
         catch
         {

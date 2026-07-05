@@ -7,7 +7,7 @@ public sealed record JournalReadModel(
     SystemId UserId,
     string Title,
     string? Content,
-    string? Color,
+    HexColor? Color,
     bool Locked,
     bool Pinned,
     DateTime InsertedAt,
@@ -18,25 +18,25 @@ public sealed record JournalReadModel(
 
 public sealed record CreateGlobalJournalRequest(
     string Title,
-    long? ExpectedVersion = null
+    EntityVersion? ExpectedVersion = null
 );
 
 public sealed record UpdateGlobalJournalRequest(
     string? Title = null,
     string? Content = null,
-    string? Color = null,
-    long? ExpectedVersion = null
+    HexColor? Color = null,
+    EntityVersion? ExpectedVersion = null
 );
 
 public sealed record DeleteGlobalJournalRequest(
-    long? ExpectedVersion = null
+    EntityVersion? ExpectedVersion = null
 );
 
 public sealed record JournalActionRequest(
-    long? ExpectedVersion = null
+    EntityVersion? ExpectedVersion = null
 );
 
 public sealed record JournalAlterRequest(
     AlterId? AlterId,
-    long? ExpectedVersion = null
+    EntityVersion? ExpectedVersion = null
 );

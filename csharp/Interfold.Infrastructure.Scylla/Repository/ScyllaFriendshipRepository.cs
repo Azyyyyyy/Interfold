@@ -30,12 +30,12 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         _options = options;
     }
 
-    public async Task<SystemId?> ResolveUserIdAsync(string userNameOrId, CancellationToken cancellationToken = default)
+    public async Task<SystemId?> ResolveUserIdAsync(UsernameOrSystemId userNameOrId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync<SystemId?>(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var resolved = await ResolveUserIdInScyllaAsync(session, _keyspaceResolver.NormalizeSystemId(userNameOrId));
+            var resolved = await ResolveUserIdInScyllaAsync(session, _keyspaceResolver.NormalizeSystemId(userNameOrId.Value));
             return resolved is null ? null : new SystemId(resolved);
         }, _options, cancellationToken);
     }
@@ -608,11 +608,11 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
         return new FriendProfileReadModel(
             new SystemId(friendSystemId),
-            profileRow?.GetValue<string?>("username"),
-            profileRow?.GetValue<string?>("avatar_url"),
+            profileRow?.GetValue<string?>("username") is { } username ? new Username(username) : null,
+            AvatarUrl.FromNullable(profileRow?.GetValue<string?>("avatar_url")),
             AvatarSourceExtensions.TryFromCode(profileRow?.GetValue<short?>("avatar_source")),
             profileRow?.GetValue<string?>("description"),
-            profileRow?.GetValue<string?>("discord_id"));
+            profileRow?.GetValue<string?>("discord_id") is { } discordId ? new DiscordId(discordId) : null);
     }
 
     private async Task<IReadOnlyList<FriendFrontingReadModel>> GetFrontingAsync(ISession session, string friendSystemId, string viewerSystemId)
@@ -646,7 +646,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         FriendshipLevel? friendshipLevel = levelRow is null ? null : FriendshipLevelExtensions.FromCode(levelRow.GetValue<short>("level"));
         var activeRows = await activeTask;
         var primaryRow = (await primaryTask).FirstOrDefault();
-        var primaryAlterId = primaryRow?.GetValue<int?>("primary_front");
+        var primaryAlterId = AlterId.FromStorageInt(primaryRow?.GetValue<int?>("primary_front"));
         var alterRows = await altersTask;
 
         var alterMap = alterRows
@@ -655,12 +655,12 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
                 row => row.GetValue<short>("id"),
                 row => (
                     Name: row.GetValue<string?>("name"),
-                    AvatarUrl: row.GetValue<string?>("avatar_url"),
+                    AvatarUrl: AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
                     AvatarSource: AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
                     Pronouns: row.GetValue<string?>("pronouns"),
-                    Color: row.GetValue<string?>("color"),
+                    Color: HexColor.FromNullable(row.GetValue<string?>("color")),
                     Description: row.GetValue<string?>("description"),
-                    ExtraImages: (IReadOnlyList<string>)(row.GetValue<IEnumerable<string>?>("extra_images")?.ToList() ?? [])));
+                    ExtraImages: (IReadOnlyList<AvatarUrl>)(row.GetValue<IEnumerable<string>?>("extra_images")?.Select(url => new AvatarUrl(url)).ToList() ?? [])));
 
         return activeRows
             .Select(row =>
@@ -682,7 +682,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
                         alter.ExtraImages,
                         alter.Color),
                     new FriendFrontingFrontReadModel(new AlterId(alterId), row.GetValue<string?>("comment")),
-                    primaryAlterId == alterId);
+                    primaryAlterId == AlterId.FromStorageShort(alterId));
             })
             .Where(x => x is not null)
             .OrderBy(x => x!.Alter.Id.Value)

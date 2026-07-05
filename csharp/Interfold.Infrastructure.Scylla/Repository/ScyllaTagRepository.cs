@@ -148,7 +148,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             if (command.Color is not null)
             {
                 setClauses.Add("color = ?");
-                values.Add(command.Color);
+                values.Add(command.Color.Value.Value);
             }
 
             if (command.Description is not null)
@@ -260,12 +260,12 @@ public sealed class ScyllaTagRepository : ITagRepository
                 $"INSERT INTO {keyspace}.alter_tags (user_id, tag_id, alter_id, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
                 normalizedSystemId,
                 tagGuid,
-                (short)alterId.Value
+                alterId.ToStorageShort()
             ));
             insert.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.alter_tags_by_alter (user_id, alter_id, tag_id, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
                 normalizedSystemId,
-                (short)alterId.Value,
+                alterId.ToStorageShort(),
                 tagGuid
             ));
             await session.ExecuteAsync(insert);
@@ -296,7 +296,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 $"SELECT alter_id FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ? AND alter_id = ? LIMIT 1",
                 normalizedSystemId,
                 tagGuid,
-                (short)alterId.Value
+                alterId.ToStorageShort()
             );
 
             var edgeRows = await session.ExecuteAsync(edgeExistsQuery);
@@ -310,12 +310,12 @@ public sealed class ScyllaTagRepository : ITagRepository
                 $"DELETE FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ? AND alter_id = ?",
                 normalizedSystemId,
                 tagGuid,
-                (short)alterId.Value
+                alterId.ToStorageShort()
             ));
             delete.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.alter_tags_by_alter WHERE user_id = ? AND alter_id = ? AND tag_id = ?",
                 normalizedSystemId,
-                (short)alterId.Value,
+                alterId.ToStorageShort(),
                 tagGuid
             ));
             await session.ExecuteAsync(delete);
@@ -447,7 +447,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 tags.Add(new TagReadModel(
                     tagId,
                     row.GetValue<string>("name"),
-                    row.GetValue<string?>("color"),
+                    HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("description"),
                     ToTagId(row.GetValue<Guid?>("parent_tag_id")),
                     alterIds,
@@ -505,7 +505,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 tags.Add(new TagPublicReadModel(
                     tagId,
                     row.GetValue<string>("name"),
-                    row.GetValue<string?>("color"),
+                    HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("description"),
                     ToTagId(row.GetValue<Guid?>("parent_tag_id")),
                     alters!,
@@ -548,7 +548,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             return new TagReadModel(
                 new TagId(row.GetValue<Guid>("id").ToString("N")),
                 row.GetValue<string>("name"),
-                row.GetValue<string?>("color"),
+                HexColor.FromNullable(row.GetValue<string?>("color")),
                 row.GetValue<string?>("description"),
                 ToTagId(row.GetValue<Guid?>("parent_tag_id")),
                 alterIds,
@@ -609,7 +609,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             return new TagPublicReadModel(
                 new TagId(row.GetValue<Guid>("id").ToString("N")),
                 row.GetValue<string>("name"),
-                row.GetValue<string?>("color"),
+                HexColor.FromNullable(row.GetValue<string?>("color")),
                 row.GetValue<string?>("description"),
                 ToTagId(row.GetValue<Guid?>("parent_tag_id")),
                 alters!,
@@ -664,37 +664,10 @@ public sealed class ScyllaTagRepository : ITagRepository
         return visible;
     }
 
-    private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(ISession session, string ownerSystemId, SystemId? viewerSystemId)
-    {
-        if (string.IsNullOrWhiteSpace(viewerSystemId?.Value))
-        {
-            return null;
-        }
+    private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(ISession session, string ownerSystemId, SystemId? viewerSystemId)
+        => ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, ownerSystemId, viewerSystemId);
 
-        var normalizedViewerSystemId = _keyspaceResolver.NormalizeSystemId(viewerSystemId.Value);
-        if (string.Equals(ownerSystemId, normalizedViewerSystemId, StringComparison.Ordinal))
-        {
-            return FriendshipLevel.TrustedFriend;
-        }
-
-        var query = new SimpleStatement(
-            "SELECT level FROM global.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
-            ownerSystemId,
-            normalizedViewerSystemId);
-
-        var row = (await session.ExecuteAsync(query)).FirstOrDefault();
-        return row is null ? null : FriendshipLevelExtensions.FromCode(row.GetValue<short>("level"));
-    }
-
-    internal static bool TryParseUuid(string value, out Guid guid)
-    {
-        if (Guid.TryParseExact(value, "N", out guid))
-        {
-            return true;
-        }
-
-        return Guid.TryParse(value, out guid);
-    }
+    internal static bool TryParseUuid(string value, out Guid guid) => UuidString.TryParse(value, out guid);
 
     private static TagId? ToTagId(Guid? guid)
         => guid is null ? null : new TagId(guid.Value.ToString("N"));

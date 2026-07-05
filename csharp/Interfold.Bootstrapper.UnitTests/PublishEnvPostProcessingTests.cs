@@ -2,6 +2,7 @@ using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
 using Interfold.Contracts.Enums;
 using TUnit.Core;
+using Interfold.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
@@ -442,9 +443,10 @@ public sealed class PublishEnvPostProcessingTests
         // straight into the AppHost config, so this assertion pins the mapping byte-for-byte.
         var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Single);
 
-        await Assert.That(includeScylla).IsEqualTo("true");
-        await Assert.That(includeCassandra).IsEqualTo("false");
-        await Assert.That(topology).IsEqualTo("single");
+        await Assert.That(includeScylla).IsTrue();
+        await Assert.That(includeCassandra).IsFalse();
+        await Assert.That(topology).IsEqualTo(ScyllaTopology.Single);
+        await Assert.That(topology.ToWireValue()).IsEqualTo("single");
     }
 
     [Test]
@@ -454,9 +456,10 @@ public sealed class PublishEnvPostProcessingTests
         // route to the 7-region Scylla layout from the bootstrapper.
         var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Multi);
 
-        await Assert.That(includeScylla).IsEqualTo("true");
-        await Assert.That(includeCassandra).IsEqualTo("false");
-        await Assert.That(topology).IsEqualTo("multi");
+        await Assert.That(includeScylla).IsTrue();
+        await Assert.That(includeCassandra).IsFalse();
+        await Assert.That(topology).IsEqualTo(ScyllaTopology.Multi);
+        await Assert.That(topology.ToWireValue()).IsEqualTo("multi");
     }
 
     [Test]
@@ -467,9 +470,10 @@ public sealed class PublishEnvPostProcessingTests
         // ignores topology, but emitting "single" keeps the parameter set well-formed.
         var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Cassandra);
 
-        await Assert.That(includeScylla).IsEqualTo("false");
-        await Assert.That(includeCassandra).IsEqualTo("true");
-        await Assert.That(topology).IsEqualTo("single");
+        await Assert.That(includeScylla).IsFalse();
+        await Assert.That(includeCassandra).IsTrue();
+        await Assert.That(topology).IsEqualTo(ScyllaTopology.Single);
+        await Assert.That(topology.ToWireValue()).IsEqualTo("single");
     }
 
     [Test]

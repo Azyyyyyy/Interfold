@@ -201,7 +201,7 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             Mode = Interfold.Contracts.PersistenceMode.ScyllaPostgres,
             PostgresConnectionString = PostgresConnectionString,
             IsSingleScyllaInstance = true,
-            ScyllaKeyspace = "nam",
+            ScyllaKeyspace = Interfold.Contracts.Enums.ScyllaKeyspace.Nam,
         };
         var connectionFactory = new PostgresConnectionFactory(persistenceConfig);
         var secretsStore = new PostgresSecretsStore(connectionFactory);

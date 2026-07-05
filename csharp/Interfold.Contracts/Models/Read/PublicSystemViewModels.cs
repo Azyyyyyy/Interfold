@@ -20,9 +20,9 @@ namespace Interfold.Contracts.Models.Read;
 /// </remarks>
 public sealed record PublicSystemReadModel(
     SystemId Id,
-    string? AvatarUrl,
+    AvatarUrl? AvatarUrl,
     AvatarSource? AvatarSource,
-    string? Username,
+    Username? Username,
     string? Description
 );
 

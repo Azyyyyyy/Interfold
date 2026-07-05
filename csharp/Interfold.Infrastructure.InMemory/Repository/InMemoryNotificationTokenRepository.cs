@@ -28,19 +28,9 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
         return Task.FromResult(true);
     }
 
-    private static string NormalizeSystemId(SystemId systemId) => NormalizeSystemId(systemId.Value);
+    private static string NormalizeSystemId(SystemId systemId) => InMemoryStorageKeys.NormalizeSystemId(systemId);
 
-    private static string NormalizeSystemId(string systemId)
-    {
-        if (string.IsNullOrWhiteSpace(systemId))
-            return systemId;
-
-        var separator = systemId.IndexOf(':');
-        if (separator <= 0 || separator >= systemId.Length - 1)
-            return systemId;
-
-        return systemId[(separator + 1)..];
-    }
+    private static string NormalizeSystemId(string systemId) => InMemoryStorageKeys.NormalizeSystemId(systemId);
 
     public Task<bool> RemoveAsync(PushToken token, CancellationToken cancellationToken = default)
     {

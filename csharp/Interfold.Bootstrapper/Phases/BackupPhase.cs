@@ -46,7 +46,7 @@ namespace Interfold.Bootstrapper.Phases;
 /// </remarks>
 internal static class BackupPhase
 {
-    private const string Phase = "backup";
+    private static readonly string Phase = BootstrapCommand.Backup.ToPhaseLogName();
     private const string PostgresService = ComposeServices.Postgres;
 
     /// <summary>
@@ -62,15 +62,15 @@ internal static class BackupPhase
 
         if (BackupDatabaseComponentExtensions.TryParse(options.BackupComponent) is not { } component)
         {
-            logger.PhaseFail(Phase, "unknown-component");
+            logger.PhaseFail(Phase, PhaseFailureReasons.UnknownComponent);
             throw new InvalidOperationException(
                 $"--component='{options.BackupComponent}' is invalid. Expected one of: {string.Join(", ", ValidComponents)}.");
         }
 
-        var configPath = options.ConfigPath ?? Path.Combine(options.OutputDir, "interfold.bootstrap.json");
+        var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
         if (!File.Exists(configPath))
         {
-            logger.PhaseFail(Phase, "missing-config");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingConfig);
             throw new InvalidOperationException(
                 $"Backup requires a populated bootstrap config at {configPath}. " +
                 "Run `bootstrap` first.");
@@ -93,7 +93,7 @@ internal static class BackupPhase
         {
             // Re-throw with a phase-specific message; the original carries the secrets-phase
             // wording which is misleading in a backup context.
-            logger.PhaseFail(Phase, "missing-secrets");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingSecrets);
             throw new InvalidOperationException(
                 $"Backup requires the admin credentials in secrets/secrets.json under {options.OutputDir}. " +
                 "Run `bootstrap` first to generate them.", ex);
@@ -102,7 +102,7 @@ internal static class BackupPhase
         var composeFile = FindComposeFile(options.OutputDir);
         if (composeFile is null)
         {
-            logger.PhaseFail(Phase, "no-compose-file");
+            logger.PhaseFail(Phase, PhaseFailureReasons.NoComposeFile);
             throw new InvalidOperationException(
                 $"docker-compose.yaml not found under {options.OutputDir}. Run `bootstrap publish` first.");
         }
@@ -112,7 +112,7 @@ internal static class BackupPhase
         var retainCount = options.BackupRetainOverride ?? config.Backup.RetainCount;
         if (retainCount < 1)
         {
-            logger.PhaseFail(Phase, "invalid-retain");
+            logger.PhaseFail(Phase, PhaseFailureReasons.InvalidRetain);
             throw new InvalidOperationException(
                 $"--retain={retainCount} is below the minimum of 1.");
         }
@@ -290,7 +290,7 @@ internal static class BackupPhase
         var adminPassword = secrets.PostgresAdminPassword;
         if (string.IsNullOrEmpty(adminPassword))
         {
-            logger.PhaseFail(Phase, "missing-admin-password");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingAdminPassword);
             throw new InvalidOperationException(
                 "secrets/secrets.json does not contain a PostgresAdminPassword. " +
                 "Either it predates DatabaseInitPhase or it was hand-edited; re-run `bootstrap`.");
@@ -306,7 +306,7 @@ internal static class BackupPhase
         var size = new FileInfo(dumpPath).Length;
         if (size == 0)
         {
-            logger.PhaseFail(Phase, "empty-postgres-dump");
+            logger.PhaseFail(Phase, PhaseFailureReasons.EmptyPostgresDump);
             File.Delete(dumpPath);
             throw new InvalidOperationException(
                 $"pg_dump produced an empty file at {dumpPath}. Inspect docker logs for {PostgresService}.");
@@ -338,7 +338,7 @@ internal static class BackupPhase
         var snapshot = await ProcessRunner.RunAsync("docker", snapshotArgs, ct: ct).ConfigureAwait(false);
         if (snapshot.ExitCode != 0)
         {
-            logger.PhaseFail(Phase, "nodetool-snapshot");
+            logger.PhaseFail(Phase, PhaseFailureReasons.NodetoolSnapshot);
             throw new InvalidOperationException(
                 $"nodetool snapshot exited {snapshot.ExitCode} on {service}: {snapshot.StdErr.Trim()}");
         }
@@ -352,7 +352,7 @@ internal static class BackupPhase
             var resolve = await ProcessRunner.RunAsync("docker", resolveContainerArgs, ct: ct).ConfigureAwait(false);
             if (resolve.ExitCode != 0 || string.IsNullOrWhiteSpace(resolve.StdOut))
             {
-                logger.PhaseFail(Phase, "resolve-scylla-container");
+                logger.PhaseFail(Phase, PhaseFailureReasons.ResolveScyllaContainer);
                 throw new InvalidOperationException(
                     $"Failed to resolve container id for compose service '{service}'. " +
                     $"Exit={resolve.ExitCode}, stderr='{resolve.StdErr.Trim()}'. " +
@@ -391,7 +391,7 @@ internal static class BackupPhase
         var size = new FileInfo(archivePath).Length;
         if (size == 0)
         {
-            logger.PhaseFail(Phase, "empty-scylla-archive");
+            logger.PhaseFail(Phase, PhaseFailureReasons.EmptyScyllaArchive);
             File.Delete(archivePath);
             throw new InvalidOperationException(
                 $"Scylla tar produced an empty file at {archivePath}. Inspect docker logs for {service}.");
@@ -427,12 +427,7 @@ internal static class BackupPhase
         }
     }
 
-    private static string? FindComposeFile(string outputDir)
-    {
-        var direct = Path.Combine(outputDir, "docker-compose.yaml");
-        if (File.Exists(direct)) return direct;
-        return Directory.EnumerateFiles(outputDir, "docker-compose.yaml", SearchOption.AllDirectories).FirstOrDefault();
-    }
+    private static string? FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
 
     /// <summary>
     /// Runs <paramref name="fileName"/> with <paramref name="arguments"/> and streams its

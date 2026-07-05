@@ -12,9 +12,9 @@ public class BareAlter {
     public BareAlter(
         AlterId id,
         string name,
-        string? avatarUrl,
+        AvatarUrl? avatarUrl,
         AvatarSource? avatarSource,
-        string? color,
+        HexColor? color,
         string? pronouns,
         string? description,
         IReadOnlyList<AlterPublicFieldReadModel> fields)
@@ -30,9 +30,9 @@ public class BareAlter {
     }
 
     public AlterId Id { get; set; }
-    public string? AvatarUrl { get; set; }
+    public AvatarUrl? AvatarUrl { get; set; }
     public AvatarSource? AvatarSource { get; set; }
-    public string? Color { get; set; }
+    public HexColor? Color { get; set; }
     public string Name { get; set; }
     public string? Pronouns { get; set; }
     public IReadOnlyList<AlterPublicFieldReadModel> Fields { get; set; }
@@ -45,9 +45,9 @@ public sealed class AlterReadModel : BareAlter {
         AlterId id,
         string name,
         string? description,
-        string? avatarUrl,
+        AvatarUrl? avatarUrl,
         AvatarSource? avatarSource,
-        string? color,
+        HexColor? color,
         string? pronouns,
         VisibilityLevel securityLevel,
         IReadOnlyList<AlterPublicFieldReadModel> fields,

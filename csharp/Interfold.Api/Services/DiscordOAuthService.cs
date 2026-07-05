@@ -2,6 +2,8 @@ using System.Net.Http.Json;
 using Interfold.Api.Services.OAuth;
 using Interfold.Contracts.Configuration;
 using Microsoft.Extensions.Options;
+using Interfold.Contracts.Ids;
+using Interfold.Api.Auth;
 
 namespace Interfold.Api.Services;
 
@@ -26,7 +28,7 @@ public sealed class DiscordOAuthService
     /// Exchange authorization code for the Discord user ID via Discord's OAuth2 flow.
     /// Returns null if configuration is incomplete or exchange fails.
     /// </summary>
-    public async Task<string?> ExchangeCodeForDiscordIdAsync(
+    public async Task<DiscordId?> ExchangeCodeForDiscordIdAsync(
         string code,
         string redirectUri,
         CancellationToken cancellationToken = default)
@@ -45,9 +47,9 @@ public sealed class DiscordOAuthService
             // Discord requires application/x-www-form-urlencoded with HTTP Basic auth.
             var tokenRequest = new Dictionary<string, string>
             {
-                { "grant_type", "authorization_code" },
-                { "code", code },
-                { "redirect_uri", redirectUri }
+                { OAuthQueryKeys.GrantType, OAuthQueryKeys.AuthorizationCodeGrant },
+                { OAuthQueryKeys.Code, code },
+                { OAuthQueryKeys.RedirectUri, redirectUri }
             };
 
             using var content = new FormUrlEncodedContent(tokenRequest);
@@ -84,7 +86,7 @@ public sealed class DiscordOAuthService
             }
 
             var user = await userInfoResponse.Content.ReadFromJsonAsync<DiscordUserResponse>(cancellationToken);
-            return user?.Id;
+            return string.IsNullOrWhiteSpace(user?.Id) ? null : new DiscordId(user.Id);
         }
         catch
         {

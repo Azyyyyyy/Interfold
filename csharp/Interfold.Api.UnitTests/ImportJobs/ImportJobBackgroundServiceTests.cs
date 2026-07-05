@@ -70,7 +70,7 @@ public sealed class ImportJobBackgroundServiceTests
         {
             await Assert.That(snapshot!.Status).IsEqualTo(ImportOperationStatus.Failed)
                 .Because("A graceful (Success=false) outcome must still terminate the row in Failed so the LWT slot frees.");
-            await Assert.That(snapshot.ErrorCode).IsEqualTo("sp_auth_failed")
+            await Assert.That(snapshot.ErrorCode).IsEqualTo(ImportErrorCode.SpAuthFailed)
                 .Because("Runner-supplied error codes must round-trip to the row so operators can grep the failure category.");
             await Assert.That(harness.EventBus.Published).Contains(e => e is SimplyPluralImportFailedEvent)
                 .Because("A failed import must publish SimplyPluralImportFailedEvent so the client flips out of Importing.");
@@ -92,7 +92,7 @@ public sealed class ImportJobBackgroundServiceTests
         {
             await Assert.That(snapshot!.Status).IsEqualTo(ImportOperationStatus.Failed)
                 .Because("A thrown exception must NOT leave the row pinned at Running — that would deadlock the per-system slot until the next host restart sweep.");
-            await Assert.That(snapshot.ErrorCode).IsEqualTo("exception")
+            await Assert.That(snapshot.ErrorCode).IsEqualTo(ImportErrorCode.Exception)
                 .Because("Thrown exceptions are categorised as 'exception' so the audit trail distinguishes them from runner-reported graceful failures.");
             await Assert.That(harness.EventBus.Published).Contains(e => e is SimplyPluralImportFailedEvent)
                 .Because("Even on a thrown exception, the client must receive a failure frame — otherwise the dialog stays on Importing forever.");
@@ -133,7 +133,7 @@ public sealed class ImportJobBackgroundServiceTests
         var snapshot = await harness.GetOperationAsync();
         await Assert.That(snapshot!.Status).IsEqualTo(ImportOperationStatus.Failed)
             .Because("If no runner is registered for the requested kind the worker must fail the row rather than leave it queued indefinitely.");
-        await Assert.That(snapshot.ErrorCode).IsEqualTo("no_runner")
+        await Assert.That(snapshot.ErrorCode).IsEqualTo(ImportErrorCode.NoRunner)
             .Because("The 'no_runner' code is the agreed signal for a DI misregistration; operators grep on it to alert on missing platform integrations.");
     }
 
@@ -143,7 +143,7 @@ public sealed class ImportJobBackgroundServiceTests
         public required IImportOperationRepository Operations { get; init; }
         public required CapturingEventBus EventBus { get; init; }
         public required ImportJobBackgroundService Worker { get; init; }
-        public required Guid OperationId { get; init; }
+        public required ImportOperationId OperationId { get; init; }
         public required CancellationTokenSource Cts { get; init; }
 
         public Task<ImportOperationSnapshot?> GetOperationAsync() =>
@@ -201,7 +201,7 @@ public sealed class ImportJobBackgroundServiceTests
             };
         }
 
-        private static async Task WaitForTerminalAsync(IImportOperationRepository operations, Guid operationId)
+        private static async Task WaitForTerminalAsync(IImportOperationRepository operations, ImportOperationId operationId)
         {
             // Poll instead of relying on a fixed delay so a slow-CI iteration still gets
             // the terminal snapshot rather than a Running one. Hard cap at 5s to fail

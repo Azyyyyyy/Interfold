@@ -35,7 +35,7 @@ public static class InMemoryServiceCollectionExtensions
     {
         return services
             .AddSingleton<IRegionContext>(_ => new InMemoryRegionContext(
-                Contracts.Enums.EnumWireExtensions.ParseScyllaKeyspace(options.ScyllaKeyspace)))
+                options.ScyllaKeyspace))
             // Seed the in-memory secrets store from `OCTOCON_INMEMORY_SECRETS_SEED__*`
             // configuration values so an external runner (Kotlin Testcontainers harness, ad-hoc
             // local container, etc.) can bootstrap the published image without an in-process

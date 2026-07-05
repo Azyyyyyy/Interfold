@@ -7,5 +7,5 @@ public static class DomainErrors
     public const string ConflictStaleVersion = "conflict_stale_version";
     public const string ConflictDuplicate = "conflict_duplicate";
     public const string ConflictInvariant = "conflict_invariant";
-    public const string UnknownError = "unknown_error";
+    public const string UnknownError = ErrorCodes.UnknownError;
 }

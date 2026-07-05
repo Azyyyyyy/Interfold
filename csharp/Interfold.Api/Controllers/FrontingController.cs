@@ -146,25 +146,14 @@ public sealed class FrontingController : InterfoldControllerBase
         [FromQuery(Name = "end_anchor")] string endAnchor,
         CancellationToken ct)
     {
-        if (!long.TryParse(endAnchor, out var unixEnd))
+        // Binding stays string so an unparseable anchor keeps this exact error body.
+        if (!UnixSeconds.TryParse(endAnchor, out var unixEnd))
             return new ErrorResponse(
                 "Invalid end anchor. Please pass a valid Unix timestamp.",
                 ErrorCodes.InvalidEndAnchor,
                 System.Net.HttpStatusCode.BadRequest);
 
-        DateTimeOffset end;
-        try
-        {
-            end = DateTimeOffset.FromUnixTimeSeconds(unixEnd);
-        }
-        catch
-        {
-            return new ErrorResponse(
-                "Invalid end anchor. Please pass a valid Unix timestamp.",
-                ErrorCodes.InvalidEndAnchor,
-                System.Net.HttpStatusCode.BadRequest);
-        }
-
+        var end = unixEnd.ToDateTimeOffset();
         var start = end.AddDays(-30);
         var fronts = await _repository.ListHistoryBetweenAsync(PrincipalId, start, end, ct);
         return new SuccessResponse<IReadOnlyList<FrontHistoryReadModel>>(fronts);
@@ -176,28 +165,13 @@ public sealed class FrontingController : InterfoldControllerBase
         [FromQuery(Name = "end")] string endAnchor,
         CancellationToken ct)
     {
-        if (!long.TryParse(startAnchor, out var unixStart) || !long.TryParse(endAnchor, out var unixEnd))
+        if (!UnixSeconds.TryParse(startAnchor, out var unixStart) || !UnixSeconds.TryParse(endAnchor, out var unixEnd))
             return new ErrorResponse(
                 "Invalid start or end anchor. Please pass valid Unix timestamps.",
                 ErrorCodes.InvalidAnchor,
                 System.Net.HttpStatusCode.BadRequest);
 
-        DateTimeOffset start;
-        DateTimeOffset end;
-        try
-        {
-            start = DateTimeOffset.FromUnixTimeSeconds(unixStart);
-            end = DateTimeOffset.FromUnixTimeSeconds(unixEnd);
-        }
-        catch
-        {
-            return new ErrorResponse(
-                "Invalid start or end anchor. Please pass valid Unix timestamps.",
-                ErrorCodes.InvalidAnchor,
-                System.Net.HttpStatusCode.BadRequest);
-        }
-
-        var fronts = await _repository.ListHistoryBetweenAsync(PrincipalId, start, end, ct);
+        var fronts = await _repository.ListHistoryBetweenAsync(PrincipalId, unixStart.ToDateTimeOffset(), unixEnd.ToDateTimeOffset(), ct);
         return new SuccessResponse<IReadOnlyList<FrontHistoryReadModel>>(fronts);
     }
 

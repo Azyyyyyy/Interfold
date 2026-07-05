@@ -60,7 +60,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
         .CurrentValue.BatchBytesThreshold ?? 1_048_576;
     var buffer = new byte[1024 * 16];
     var joinedTopics = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
-    string? joinedSystemId = null;
+    SystemId? joinedSystemId = null;
     var topicReplyAsArrayFrame = new System.Collections.Concurrent.ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
     var topicJoinReference = new System.Collections.Concurrent.ConcurrentDictionary<string, string?>(StringComparer.Ordinal);
     using var sendGate = new SemaphoreSlim(1, 1);
@@ -96,7 +96,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             break;
         }
 
-        if (!TryParsePhoenixFrame(incomingText, out var eventName, out var topic, out var payload, out var reference, out var joinReference, out var replyAsArrayFrame))
+        if (!PhoenixInboundFrame.TryParse(incomingText, out var frame))
         {
             // Unrecognised frame; close with a protocol-error code rather than
             // echoing raw JSON (which is itself not a valid Phoenix frame).
@@ -106,6 +106,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 context.RequestAborted);
             break;
         }
+
+        var (eventName, topic, payload, reference, joinReference, replyAsArrayFrame) = frame;
 
         if (string.Equals(eventName, PhoenixEventNames.Heartbeat, StringComparison.OrdinalIgnoreCase))
         {
@@ -124,56 +126,31 @@ public static async Task HandleUserSocketAsync(HttpContext context)
 
         if (string.Equals(eventName, PhoenixEventNames.Join, StringComparison.OrdinalIgnoreCase))
         {
-            var payloadToken = string.Empty;
-            var isReconnect = false;
-            var forceBatch = false;
-            var platform = "unknown";
-            var protocolVersion = new Version(1, 0, 0);
-            var protocolSupported = true;
-            if (payload?.ValueKind == JsonValueKind.Object
-                && payload.Value.TryGetProperty("token", out var tokenProp)
-                && tokenProp.ValueKind == JsonValueKind.String)
+            // Deserialize the typed join payload; a malformed member falls back to the
+            // defaults wholesale, matching the tolerance of the previous per-field probing.
+            var joinPayload = new PhxJoinPayload();
+            if (payload?.ValueKind == JsonValueKind.Object)
             {
-                payloadToken = tokenProp.GetString() ?? string.Empty;
-            }
-
-            if (payload?.ValueKind == JsonValueKind.Object
-                && payload.Value.TryGetProperty("isReconnect", out var isReconnectProp)
-                && isReconnectProp.ValueKind is JsonValueKind.True or JsonValueKind.False)
-            {
-                isReconnect = isReconnectProp.GetBoolean();
-            }
-
-            if (payload?.ValueKind == JsonValueKind.Object
-                && payload.Value.TryGetProperty("forceBatch", out var forceBatchProp)
-                && forceBatchProp.ValueKind is JsonValueKind.True or JsonValueKind.False)
-            {
-                forceBatch = forceBatchProp.GetBoolean();
-            }
-
-            if (payload?.ValueKind == JsonValueKind.Object
-                && payload.Value.TryGetProperty("platform", out var platformProp)
-                && platformProp.ValueKind == JsonValueKind.String)
-            {
-                platform = platformProp.GetString() ?? "unknown";
-            }
-
-            if (payload?.ValueKind == JsonValueKind.Object
-                && payload.Value.TryGetProperty("protocolVersion", out var protocolVersionProp)
-                && protocolVersionProp.ValueKind == JsonValueKind.String)
-            {
-                var rawVersion = protocolVersionProp.GetString();
-                if (!TryParseLooseVersion(rawVersion, out protocolVersion))
+                try
                 {
-                    protocolSupported = false;
+                    joinPayload = payload.Value.Deserialize<PhxJoinPayload>(SocketJson.Options) ?? new PhxJoinPayload();
+                }
+                catch (JsonException)
+                {
+                    // keep defaults
                 }
             }
 
-            var isSystemTopic = !string.IsNullOrWhiteSpace(topic)
-                && topic.StartsWith("system:", StringComparison.OrdinalIgnoreCase)
-                && topic.Length > "system:".Length;
+            var payloadToken = joinPayload.Token;
+            var isReconnect = joinPayload.IsReconnect ?? false;
+            var forceBatch = joinPayload.ForceBatch ?? false;
+            var platform = joinPayload.Platform ?? "unknown";
+            var protocolVersion = new Version(1, 0, 0);
+            var protocolSupported = joinPayload.ProtocolVersion is null
+                || TryParseLooseVersion(joinPayload.ProtocolVersion, out protocolVersion);
 
-            var requestedSystemId = isSystemTopic ? topic["system:".Length..] : string.Empty;
+            var isSystemTopic = SystemTopic.TryParse(topic, out var requestedTopic);
+            var requestedSystemId = isSystemTopic ? requestedTopic.Id.Value : string.Empty;
             var (tokenAuthorized, tokenAuthFailureReason) = await IsSocketJoinTokenAuthorizedAsync(
                 context,
                 token,
@@ -213,7 +190,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 }
 
                 joinedTopics[topic] = 0;
-                joinedSystemId = requestedSystemId;
+                joinedSystemId = requestedTopic.Id;
                 topicReplyAsArrayFrame[topic] = replyAsArrayFrame;
                 topicJoinReference[topic] = joinReference;
 
@@ -229,7 +206,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 {
                     var socketPushContext = new SocketPushContext(
                         socket,
-                        new SystemId(joinedSystemId),
+                        joinedSystemId.Value,
                         joinedTopics,
                         topicJoinReference,
                         topicReplyAsArrayFrame,
@@ -252,7 +229,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                         encryptionStateRepository);
                 }
 
-                var initPayload = await WebSocketInitialization.BuildJoinInitPayloadAsync(context, new SystemId(joinedSystemId), context.RequestAborted);
+                var initPayload = await WebSocketInitialization.BuildJoinInitPayloadAsync(context, joinedSystemId.Value, context.RequestAborted);
                 var useBatchedInit = false;
 
                 if (!isReconnect)
@@ -264,6 +241,10 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                             && protocolVersion >= new Version(2, 0, 0));
                 }
 
+                // Deliberately `object`, not ISocketPayload: System.Text.Json serializes
+                // interface-declared values by the interface's (empty) member set, while
+                // `object` triggers runtime-type serialization — which is what puts the
+                // payload's real properties on the wire.
                 object joinResponse;
                 if (isReconnect)
                 {
@@ -396,7 +377,7 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     HttpContext websocketContext,
     JsonElement? payload,
     string socketToken,
-    string? joinedSystemId)
+    SystemId? joinedSystemId)
 {
     if (payload is null || payload.Value.ValueKind != JsonValueKind.Object)
     {
@@ -483,9 +464,9 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {socketToken}");
     request.Headers.TryAddWithoutValidation("Accept", "application/json");
 
-    if (!string.IsNullOrWhiteSpace(joinedSystemId))
+    if (!string.IsNullOrWhiteSpace(joinedSystemId?.Value))
     {
-        request.Headers.TryAddWithoutValidation(InterfoldHeaders.Principal, joinedSystemId);
+        request.Headers.TryAddWithoutValidation(InterfoldHeaders.Principal, joinedSystemId.Value.Value);
     }
 
     // Body is deserialized straight from the payload's JSON string (Phoenix carries
@@ -598,14 +579,14 @@ static async Task<(bool IsAuthorized, string? FailureReason)> IsSocketJoinTokenA
         RequireSignedTokens = true,
         SignatureValidator = (socketToken, validationParameters) =>
             ValidateJwtTokenSignatureForSocket(socketToken, validationParameters, authConfig),
-        NameClaimType = "sub"
+        NameClaimType = JwtClaimNames.Sub
     };
 
     try
     {
         logger.LogInformation("Starting token validation");
         var principal = handler.ValidateToken(token, parameters, out _);
-        var tokenSystemId = principal.FindFirstValue("sub");
+        var tokenSystemId = principal.FindFirstValue(JwtClaimNames.Sub);
         
         logger.LogInformation("Token validated. TokenSystemId: {TokenSub}, RequestedSystemId: {RequestedSub}",
             tokenSystemId, requestedSystemId);
@@ -735,17 +716,7 @@ static SecurityToken ValidateJwtTokenSignatureForSocket(
         throw new SecurityTokenInvalidSignatureException($"Failed to decode header: {ex.Message}");
     }
 
-    var alg = string.Empty;
-    using (var headerDoc = JsonDocument.Parse(headerJson))
-    {
-        if (!headerDoc.RootElement.TryGetProperty("alg", out var algProp)
-            || string.IsNullOrWhiteSpace(algProp.GetString()))
-        {
-            throw new SecurityTokenInvalidSignatureException("Missing JWT algorithm in header.");
-        }
-
-        alg = algProp.GetString()!;
-    }
+    var alg = JwtHeaderAlg.Parse(headerJson);
 
     var signingInput = Encoding.UTF8.GetBytes(parts[0] + "." + parts[1]);
     byte[] signatureBytes;
@@ -759,7 +730,7 @@ static SecurityToken ValidateJwtTokenSignatureForSocket(
     }
 
     // ES256 (ECDSA P-256 with SHA-256) validation
-    if (!string.Equals(alg, "ES256", StringComparison.Ordinal))
+    if (!string.Equals(alg, JwtHeaderAlg.Es256, StringComparison.Ordinal))
     {
         throw new SecurityTokenInvalidSignatureException($"Algorithm '{alg}' is not supported. Only ES256 is accepted.");
     }
@@ -822,116 +793,6 @@ static string NormalizePem(string pem)
         .Replace("\r", "\n", StringComparison.Ordinal);     // Old Mac line endings
 
     return normalized;
-}
-
-static bool TryParsePhoenixFrame(
-    string frame,
-    out string eventName,
-    out string topic,
-    out JsonElement? payload,
-    out string? reference,
-    out string? joinReference,
-    out bool replyAsArrayFrame)
-{
-    eventName = string.Empty;
-    topic = PhoenixEventNames.PhoenixTopic;
-    payload = null;
-    reference = null;
-    joinReference = null;
-    replyAsArrayFrame = false;
-
-    var trimmed = frame.TrimStart();
-
-    if (trimmed.StartsWith('['))
-    {
-        try
-        {
-            using var arrayDoc = JsonDocument.Parse(frame);
-            var root = arrayDoc.RootElement;
-            if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() < 5)
-            {
-                return false;
-            }
-
-            var joinRefElement = root[0];
-            var refElement = root[1];
-            var topicElement = root[2];
-            var eventElement = root[3];
-
-            if (topicElement.ValueKind != JsonValueKind.String
-                || eventElement.ValueKind != JsonValueKind.String)
-            {
-                return false;
-            }
-
-            // Preserve JSON null so replies can mirror it back as null (not "").
-            joinReference = joinRefElement.ValueKind == JsonValueKind.String
-                ? joinRefElement.GetString()
-                : null;
-
-            reference = refElement.ValueKind == JsonValueKind.String
-                ? refElement.GetString()
-                : null;
-
-            topic = topicElement.GetString() ?? topic;
-            eventName = eventElement.GetString() ?? string.Empty;
-            payload = root[4].Clone();
-            replyAsArrayFrame = true;
-            return true;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    try
-    {
-        using var doc = JsonDocument.Parse(frame);
-        var root = doc.RootElement;
-
-        if (root.ValueKind != JsonValueKind.Object)
-        {
-            return false;
-        }
-
-        if (!root.TryGetProperty("event", out var eventProp)
-            || eventProp.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        eventName = eventProp.GetString() ?? string.Empty;
-
-        if (root.TryGetProperty("topic", out var topicProp)
-            && topicProp.ValueKind == JsonValueKind.String)
-        {
-            topic = topicProp.GetString() ?? topic;
-        }
-
-        if (root.TryGetProperty("payload", out var payloadProp))
-        {
-            payload = payloadProp.Clone();
-        }
-
-        if (root.TryGetProperty("ref", out var refProp)
-            && refProp.ValueKind == JsonValueKind.String)
-        {
-            reference = refProp.GetString() ?? string.Empty;
-        }
-
-        if (root.TryGetProperty("join_ref", out var joinRefProp)
-            && joinRefProp.ValueKind == JsonValueKind.String)
-        {
-            joinReference = joinRefProp.GetString() ?? string.Empty;
-        }
-
-        return true;
-    }
-    catch (JsonException)
-    {
-        return false;
-    }
 }
 
  static async Task SendPhoenixReplyAsync<TResponse>(

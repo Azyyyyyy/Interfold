@@ -4,6 +4,8 @@ using System.Text.Json.Serialization;
 using Interfold.Api.Services.OAuth;
 using Interfold.Contracts.Configuration;
 using Microsoft.Extensions.Options;
+using Interfold.Contracts.Ids;
+using Interfold.Api.Auth;
 
 namespace Interfold.Api.Services;
 
@@ -27,7 +29,7 @@ public sealed class AppleOAuthService
     /// Exchanges an Apple authorization code and returns the stable Apple user identifier (sub).
     /// Returns null if configuration is incomplete or exchange fails.
     /// </summary>
-    public async Task<string?> ExchangeCodeForAppleIdAsync(
+    public async Task<AppleId?> ExchangeCodeForAppleIdAsync(
         string code,
         string redirectUri,
         CancellationToken cancellationToken = default)
@@ -43,11 +45,11 @@ public sealed class AppleOAuthService
         {
             var tokenRequest = new Dictionary<string, string>
             {
-                { "grant_type", "authorization_code" },
-                { "code", code },
-                { "redirect_uri", redirectUri },
-                { "client_id", authConfig.AppleOAuthClientId },
-                { "client_secret", authConfig.AppleOAuthClientSecret }
+                { OAuthQueryKeys.GrantType, OAuthQueryKeys.AuthorizationCodeGrant },
+                { OAuthQueryKeys.Code, code },
+                { OAuthQueryKeys.RedirectUri, redirectUri },
+                { OAuthQueryKeys.ClientId, authConfig.AppleOAuthClientId },
+                { OAuthQueryKeys.ClientSecret, authConfig.AppleOAuthClientSecret }
             };
 
             using var content = new FormUrlEncodedContent(tokenRequest);
@@ -67,7 +69,7 @@ public sealed class AppleOAuthService
         }
     }
 
-    public string? ExtractSubFromJwt(string? jwt)
+    public AppleId? ExtractSubFromJwt(string? jwt)
     {
         if (string.IsNullOrWhiteSpace(jwt))
         {
@@ -84,7 +86,7 @@ public sealed class AppleOAuthService
         {
             var payloadBytes = Base64UrlDecode(parts[1]);
             var payload = JsonSerializer.Deserialize<AppleIdTokenPayload>(payloadBytes);
-            return payload?.Sub;
+            return string.IsNullOrWhiteSpace(payload?.Sub) ? null : new AppleId(payload.Sub);
         }
         catch
         {

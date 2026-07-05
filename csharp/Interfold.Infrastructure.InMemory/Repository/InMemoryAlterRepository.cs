@@ -15,10 +15,10 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     {
         public required AlterId AlterId { get; init; }
         public string? Alias { get; set; }
-        public string? AvatarUrl { get; set; }
+        public AvatarUrl? AvatarUrl { get; set; }
         public AvatarSource? AvatarSource { get; set; }
         public string? Description { get; set; }
-        public string? Color { get; set; }
+        public HexColor? Color { get; set; }
         public string? Pronouns { get; set; }
         public string? ProxyName { get; set; }
         public string Name { get; set; } = string.Empty;
@@ -348,11 +348,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         RemoveFieldValuesForSystem(fieldId, systemKey);
     }
 
-    private string GetSystemKey(SystemId systemId)
-    {
-        var region = _regionContext.ResolveUserRegion(systemId.Value).ToWireValue();
-        return $"{region}:{systemId.Value}";
-    }
+    private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
     private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
     {

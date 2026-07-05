@@ -21,7 +21,7 @@ namespace Interfold.Domain.Abstractions.ImportJobs;
 /// <param name="Token">Caller-supplied third-party API token (SP token or PK token). Sensitive — never log.</param>
 /// <param name="RecoveryCode">Optional SP recovery code, plaintext after the controller's <c>TryResolveRecoveryCode</c> decryption. Null for PK and for SP without recovery. Sensitive — never log.</param>
 public sealed record ImportJobItem(
-    Guid OperationId,
+    ImportOperationId OperationId,
     SystemId SystemId,
     ImportOperationKind Kind,
     ImportToken Token,
