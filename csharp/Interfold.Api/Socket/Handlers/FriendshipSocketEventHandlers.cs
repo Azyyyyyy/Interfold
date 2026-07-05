@@ -2,6 +2,7 @@ using Interfold.Api.Helpers;
 using Interfold.Contracts;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 
@@ -20,7 +21,7 @@ public static class FriendshipSocketEventHandlers
         var qualified = friendship is null
             ? new FriendshipReadModel(
                 new FriendProfileReadModel(evt.SystemId, string.Empty, null, null, string.Empty, string.Empty),
-                new FriendshipModel("friend", DateTimeOffset.UtcNow),
+                new FriendshipModel(FriendshipLevel.Friend, DateTimeOffset.UtcNow),
                 [])
             : QualifyFriendship(friendship, context);
         
@@ -65,8 +66,8 @@ public static class FriendshipSocketEventHandlers
         => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.RequestRemoved, "system_id", evt.ToSystemId, context);
 
     private static async Task SendRequestPayloadAsync(
-        string targetSystemId,
-        string otherSystemId,
+        SystemId targetSystemId,
+        SystemId otherSystemId,
         string eventName,
         SocketPushContext context,
         IFriendshipRepository friendshipRepository,
@@ -97,8 +98,8 @@ public static class FriendshipSocketEventHandlers
 
     private static async Task<FriendshipReadModel?> GetFriendshipWithRetryAsync(
         IFriendshipRepository friendshipRepository,
-        string targetSystemId,
-        string friendSystemId,
+        SystemId targetSystemId,
+        SystemId friendSystemId,
         CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < 3; attempt++)
@@ -120,8 +121,8 @@ public static class FriendshipSocketEventHandlers
 
     private static async Task<FriendRequestReadModel?> GetFriendRequestWithRetryAsync(
         IFriendshipRepository friendshipRepository,
-        string targetSystemId,
-        string otherSystemId,
+        SystemId targetSystemId,
+        SystemId otherSystemId,
         bool outgoing,
         CancellationToken cancellationToken)
     {
@@ -129,7 +130,7 @@ public static class FriendshipSocketEventHandlers
         {
             var index = await friendshipRepository.GetFriendRequestsAsync(targetSystemId, cancellationToken);
             var matched = (outgoing ? index.Outgoing : index.Incoming)
-                .FirstOrDefault(r => IdMatches(r.System?.Id, otherSystemId));
+                .FirstOrDefault(r => IdMatches(r.System?.Id.Value, otherSystemId.Value));
 
             if (matched is not null)
             {
@@ -167,7 +168,7 @@ public static class FriendshipSocketEventHandlers
         return string.Equals(leftSuffix, rightSuffix, StringComparison.Ordinal);
     }
 
-    private static async Task SendAsync(string targetSystemId, string eventName, string payloadKey, string payloadValue, SocketPushContext context)
+    private static async Task SendAsync(SystemId targetSystemId, string eventName, string payloadKey, SystemId payloadValue, SocketPushContext context)
     {
         if (!context.TryGetSystemTopic(targetSystemId, out var topic, out var joinRef, out var asArray))
         {

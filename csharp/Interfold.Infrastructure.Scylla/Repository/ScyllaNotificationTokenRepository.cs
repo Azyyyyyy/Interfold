@@ -2,6 +2,7 @@ using Cassandra;
 using Interfold.Contracts.Configuration;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
@@ -21,7 +22,7 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
         _options = options;
     }
 
-    public async Task<bool> AddAsync(string systemId, string token, CancellationToken cancellationToken = default)
+    public async Task<bool> AddAsync(SystemId systemId, PushToken token, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -32,17 +33,17 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
             var batch = new BatchStatement();
             batch.Add(new SimpleStatement(
                 "INSERT INTO global.notification_tokens (user_id, push_token, inserted_at, updated_at) VALUES (?, ?, ?, ?)",
-                normalizedSystemId, token, now.UtcDateTime, now.UtcDateTime));
+                normalizedSystemId, token.Value, now.UtcDateTime, now.UtcDateTime));
             batch.Add(new SimpleStatement(
                 "INSERT INTO global.notification_tokens_by_push_token (push_token, user_id) VALUES (?, ?)",
-                token, normalizedSystemId));
+                token.Value, normalizedSystemId));
 
             await session.ExecuteAsync(batch);
             return true;
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> RemoveAsync(string token, CancellationToken cancellationToken = default)
+    public async Task<bool> RemoveAsync(PushToken token, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -52,7 +53,7 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
                 SELECT user_id FROM global.notification_tokens_by_push_token
                 WHERE push_token = ?");
 
-            var rows = await session.ExecuteAsync(findByToken.Bind(token));
+            var rows = await session.ExecuteAsync(findByToken.Bind(token.Value));
             
             var deleteBatch = new BatchStatement();
             foreach (var row in rows)
@@ -60,10 +61,10 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
                 var userId = row.GetValue<string>("user_id");
                 deleteBatch.Add(new SimpleStatement(
                     "DELETE FROM global.notification_tokens WHERE user_id = ? AND push_token = ?",
-                    userId, token));
+                    userId, token.Value));
                 deleteBatch.Add(new SimpleStatement(
                     "DELETE FROM global.notification_tokens_by_push_token WHERE push_token = ? AND user_id = ?",
-                    token, userId));
+                    token.Value, userId));
             }
 
             if (!deleteBatch.IsEmpty)
@@ -81,7 +82,7 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
     // user_id, so each per-friend fetch is single-partition. Friends with zero tokens
     // are omitted from the result so callers can iterate without a guard.
     public async Task<IReadOnlyList<FriendNotificationTokens>> ListTokensForFriendsOfAsync(
-        string systemId,
+        SystemId systemId,
         CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
@@ -113,7 +114,7 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
                         .Where(t => !string.IsNullOrWhiteSpace(t))
                         .Distinct(StringComparer.Ordinal)
                         .ToArray();
-                    return new FriendNotificationTokens(friendId, tokens);
+                    return new FriendNotificationTokens(new SystemId(friendId), tokens);
                 },
                 cancellationToken);
 

@@ -23,7 +23,7 @@ public static class ScyllaConfigResolver
         if (!string.IsNullOrWhiteSpace(configValue))
             return configValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        var raw = await secretsStore.GetAsync("scylla:contact_points", ct);
+        var raw = await secretsStore.GetAsync(SecretsStoreKeys.ScyllaContactPoints, ct);
         return string.IsNullOrWhiteSpace(raw)
             ? ["127.0.0.1"]
             : raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -32,20 +32,20 @@ public static class ScyllaConfigResolver
     public static async Task<string> GetDatacenterAsync(
         ISecretsStore secretsStore, CancellationToken ct = default)
     {
-        return await secretsStore.GetAsync("scylla:local_datacenter", ct)
+        return await secretsStore.GetAsync(SecretsStoreKeys.ScyllaLocalDatacenter, ct)
             ?? "datacenter1";
     }
 
     public static async Task<string?> GetUsernameAsync(
         ISecretsStore secretsStore, CancellationToken ct = default)
     {
-        return await secretsStore.GetAsync("scylla:username", ct);
+        return await secretsStore.GetAsync(SecretsStoreKeys.ScyllaUsername, ct);
     }
 
     public static async Task<string> GetPasswordAsync(
         ISecretsStore secretsStore, CancellationToken ct = default)
     {
-        return await secretsStore.GetAsync("scylla:password", ct)
+        return await secretsStore.GetAsync(SecretsStoreKeys.ScyllaPassword, ct)
             ?? string.Empty;
     }
 
@@ -63,7 +63,7 @@ public static class ScyllaConfigResolver
         if (int.TryParse(configValue, out var configPort))
             return configPort;
 
-        var raw = await secretsStore.GetAsync("scylla:port", ct);
+        var raw = await secretsStore.GetAsync(SecretsStoreKeys.ScyllaPort, ct);
         return int.TryParse(raw, out var port) ? port : 9042;
     }
 }

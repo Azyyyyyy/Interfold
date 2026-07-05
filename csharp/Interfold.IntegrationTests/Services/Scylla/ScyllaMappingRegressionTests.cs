@@ -1,3 +1,4 @@
+using Interfold.Contracts.Enums;
 using Interfold.Infrastructure.Scylla.Repository;
 
 namespace Interfold.IntegrationTests.Services.Scylla;
@@ -29,16 +30,15 @@ public sealed class ScyllaMappingRegressionTests : BaseEndpointTest
     {
         using (Assert.Multiple())
         {
-            await Assert.That(ScyllaPollRepository.ToPollCode("vote")).IsEqualTo((short)0);
-            await Assert.That(ScyllaPollRepository.ToPollCode("choice")).IsEqualTo((short)1);
-            await Assert.That(ScyllaPollRepository.ToPollCode("approval")).IsEqualTo((short)2);
-            await Assert.That(ScyllaPollRepository.ToPollCode("unknown-type")).IsEqualTo((short)0);
+            await Assert.That(ScyllaPollRepository.ToPollCode(PollType.Vote)).IsEqualTo((short)0);
+            await Assert.That(ScyllaPollRepository.ToPollCode(PollType.Choice)).IsEqualTo((short)1);
+            await Assert.That(ScyllaPollRepository.ToPollCode(PollType.Approval)).IsEqualTo((short)2);
 
-            await Assert.That(ScyllaPollRepository.ToPollType(0)).IsEqualTo("vote");
-            await Assert.That(ScyllaPollRepository.ToPollType(1)).IsEqualTo("choice");
-            await Assert.That(ScyllaPollRepository.ToPollType(2)).IsEqualTo("approval");
-            await Assert.That(ScyllaPollRepository.ToPollType(short.MinValue)).IsEqualTo("vote");
-            await Assert.That(ScyllaPollRepository.ToPollType(short.MaxValue)).IsEqualTo("vote");
+            await Assert.That(ScyllaPollRepository.ToPollType(0)).IsEqualTo(PollType.Vote);
+            await Assert.That(ScyllaPollRepository.ToPollType(1)).IsEqualTo(PollType.Choice);
+            await Assert.That(ScyllaPollRepository.ToPollType(2)).IsEqualTo(PollType.Approval);
+            await Assert.That(ScyllaPollRepository.ToPollType(short.MinValue)).IsEqualTo(PollType.Vote);
+            await Assert.That(ScyllaPollRepository.ToPollType(short.MaxValue)).IsEqualTo(PollType.Vote);
         }
     }
 
@@ -47,10 +47,10 @@ public sealed class ScyllaMappingRegressionTests : BaseEndpointTest
     {
         using (Assert.Multiple())
         {
-            await Assert.That(ScyllaFriendshipRepository.ToDomainLevel(0)).IsEqualTo("friend");
-            await Assert.That(ScyllaFriendshipRepository.ToDomainLevel(1)).IsEqualTo("trusted_friend");
-            await Assert.That(ScyllaFriendshipRepository.ToDomainLevel(short.MinValue)).IsEqualTo("friend");
-            await Assert.That(ScyllaFriendshipRepository.ToDomainLevel(short.MaxValue)).IsEqualTo("friend");
+            await Assert.That(FriendshipLevelExtensions.FromCode(0)).IsEqualTo(FriendshipLevel.Friend);
+            await Assert.That(FriendshipLevelExtensions.FromCode(1)).IsEqualTo(FriendshipLevel.TrustedFriend);
+            await Assert.That(FriendshipLevelExtensions.FromCode(short.MinValue)).IsEqualTo(FriendshipLevel.Friend);
+            await Assert.That(FriendshipLevelExtensions.FromCode(short.MaxValue)).IsEqualTo(FriendshipLevel.Friend);
         }
     }
 

@@ -1,13 +1,15 @@
+using Interfold.Contracts.Ids;
+
 namespace Interfold.Contracts.Models.Commands;
 
-public sealed record RemoveFriendshipCommand(string FriendSystemId);
+public sealed record RemoveFriendshipCommand(SystemId FriendSystemId);
 
-public sealed record SetFriendTrustCommand(string FriendSystemId, bool Trusted);
+public sealed record SetFriendTrustCommand(SystemId FriendSystemId, bool Trusted);
 
-public sealed record SendFriendRequestCommand(string TargetSystemId);
+public sealed record SendFriendRequestCommand(SystemId TargetSystemId);
 
-public sealed record AcceptFriendRequestCommand(string SourceSystemId);
+public sealed record AcceptFriendRequestCommand(SystemId SourceSystemId);
 
-public sealed record RejectFriendRequestCommand(string SourceSystemId);
+public sealed record RejectFriendRequestCommand(SystemId SourceSystemId);
 
-public sealed record CancelFriendRequestCommand(string TargetSystemId);
+public sealed record CancelFriendRequestCommand(SystemId TargetSystemId);

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
+using Interfold.Contracts.Ids;
 using Microsoft.Extensions.Logging;
 
 namespace Interfold.Api.Socket;
@@ -8,7 +9,7 @@ public sealed class SocketPushContext
 {
     public SocketPushContext(
         WebSocket socket,
-        string joinedSystemId,
+        SystemId joinedSystemId,
         ConcurrentDictionary<string, byte> joinedTopics,
         ConcurrentDictionary<string, string?> topicJoinReference,
         ConcurrentDictionary<string, bool> topicReplyAsArrayFrame,
@@ -35,7 +36,7 @@ public sealed class SocketPushContext
     /// subscription so the pump only sees events whose
     /// <c>ITargetedClusterEvent.TargetSystemId</c> matches this socket.
     /// </summary>
-    public string JoinedSystemId { get; }
+    public SystemId JoinedSystemId { get; }
     public ConcurrentDictionary<string, byte> JoinedTopics { get; }
     public ConcurrentDictionary<string, string?> TopicJoinReference { get; }
     public ConcurrentDictionary<string, bool> TopicReplyAsArrayFrame { get; }
@@ -49,12 +50,12 @@ public sealed class SocketPushContext
 
     public ILogger? Logger { get; }
 
-    public bool TryGetSystemTopic(string systemId, out string topic, out string? joinRef, out bool asArray)
+    public bool TryGetSystemTopic(SystemId systemId, out string topic, out string? joinRef, out bool asArray)
     {
-        topic = $"system:{systemId}";
+        topic = $"system:{systemId.Value}";
         if (!JoinedTopics.ContainsKey(topic))
         {
-            var targetComparableId = ComparableSystemId(systemId);
+            var targetComparableId = ComparableSystemId(systemId.Value);
             var matchedTopic = JoinedTopics.Keys.FirstOrDefault(t =>
             {
                 if (!t.StartsWith("system:", StringComparison.OrdinalIgnoreCase))

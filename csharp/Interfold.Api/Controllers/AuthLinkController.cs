@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Mvc;
 using Interfold.Domain.Abstractions;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Operations;
 using Interfold.Api.Services;
 using Interfold.Contracts.Configuration;
@@ -10,6 +11,8 @@ using Interfold.Contracts.Events;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Api.Controllers.Base;
+using Interfold.Api.Models;
+using Interfold.Contracts;
 
 namespace Interfold.Api.Controllers;
 
@@ -17,8 +20,8 @@ namespace Interfold.Api.Controllers;
 [Route("auth/link")]
 public sealed class AuthLinkController : OAuthControllerBase
 {
-    private const string LinkTokenCookieName = "octocon_link_token";
-    private const string RedirectUriCookieName = "octocon_link_redirect_uri";
+    private const string LinkTokenCookieName = InterfoldCookieNames.LinkToken;
+    private const string RedirectUriCookieName = InterfoldCookieNames.LinkRedirectUri;
 
     private readonly IAccountRepository _accounts;
     private readonly IClusterEventBus _eventBus;
@@ -42,19 +45,18 @@ public sealed class AuthLinkController : OAuthControllerBase
     [HttpGet("{provider}")]
     public async Task<IActionResult> Begin([FromRoute] string provider)
     {
-        if (!IsSupportedProvider(provider))
+        if (EnumWireExtensions.TryParseOAuthProvider(provider) is not { } oauthProvider)
             return UnsupportedProviderResponse(provider);
 
         StoreQueryCookie(LinkTokenCookieName, "link_token");
         StoreRedirectUriCookie(RedirectUriCookieName);
 
-        var providerKey = provider.ToLowerInvariant();
-        var challenge = await IssueChallengeIfRegisteredAsync(providerKey, OperationIds.QueryAuthLinkRequest);
+        var challenge = await IssueChallengeIfRegisteredAsync(oauthProvider, OperationIds.QueryAuthLinkRequest);
 
         if (challenge is not null)
             return challenge;
 
-        Response.Headers["X-Interfold-OperationId"] = OperationIds.QueryAuthLinkRequest;
+        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.QueryAuthLinkRequest.Value;
         return StatusCode(StatusCodes.Status403Forbidden, string.Empty);
     }
 
@@ -68,10 +70,8 @@ public sealed class AuthLinkController : OAuthControllerBase
 
     private async Task<IActionResult> Callback(string provider)
     {
-        if (!IsSupportedProvider(provider))
+        if (EnumWireExtensions.TryParseOAuthProvider(provider) is not { } oauthProvider)
             return UnsupportedProviderResponse(provider);
-
-        var providerKey = provider.ToLowerInvariant();
 
         var linkToken = await GetValueAsync("link_token") ?? Request.Cookies[LinkTokenCookieName];
         if (string.IsNullOrWhiteSpace(linkToken))
@@ -79,12 +79,14 @@ public sealed class AuthLinkController : OAuthControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, "This link token is invalid or has expired.");
         }
 
-        var systemId = await _accounts.ResolveSystemIdByLinkTokenAsync(linkToken, HttpContext.RequestAborted);
-        if (string.IsNullOrWhiteSpace(systemId))
+        var resolvedSystemId = await _accounts.ResolveSystemIdByLinkTokenAsync(new Interfold.Contracts.Ids.LinkToken(linkToken), HttpContext.RequestAborted);
+        if (string.IsNullOrWhiteSpace(resolvedSystemId?.Value))
         {
             Response.Cookies.Delete(LinkTokenCookieName);
             return StatusCode(StatusCodes.Status403Forbidden, "This link token is invalid or has expired.");
         }
+
+        var systemId = resolvedSystemId.Value;
 
         await _accounts.ClearLinkTokenAsync(systemId, HttpContext.RequestAborted);
         Response.Cookies.Delete(LinkTokenCookieName);
@@ -92,53 +94,49 @@ public sealed class AuthLinkController : OAuthControllerBase
         var redirectUri = Request.Cookies[RedirectUriCookieName];
         Response.Cookies.Delete(RedirectUriCookieName);
 
-        var identity = await ExtractProviderIdentityAsync(provider);
+        var identity = await ExtractProviderIdentityAsync(oauthProvider);
         if (string.IsNullOrWhiteSpace(identity))
         {
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
         }
 
-        var result = providerKey switch
+        var result = oauthProvider switch
         {
-            "discord" => await _accounts.LinkDiscordToUserAsync(systemId, identity, HttpContext.RequestAborted),
-            "google" => await _accounts.LinkEmailToUserAsync(systemId, identity, HttpContext.RequestAborted),
-            "apple" => await _accounts.LinkAppleToUserAsync(systemId, identity, HttpContext.RequestAborted),
+            OAuthProvider.Discord => await _accounts.LinkDiscordToUserAsync(systemId, identity, HttpContext.RequestAborted),
+            OAuthProvider.Google => await _accounts.LinkEmailToUserAsync(systemId, identity, HttpContext.RequestAborted),
+            OAuthProvider.Apple => await _accounts.LinkAppleToUserAsync(systemId, identity, HttpContext.RequestAborted),
             _ => AccountLinkResult.UserNotFound
         };
 
-        Response.Headers["X-Interfold-OperationId"] = OperationIds.AuthLinkCallback;
+        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthLinkCallback.Value;
 
         return result switch
         {
-            AccountLinkResult.Success => await RedirectWithSocketEventAsync(systemId, providerKey, identity, redirectUri),
-            AccountLinkResult.AlreadyLinked => StatusCode(StatusCodes.Status403Forbidden, new
-            {
-                error = providerKey switch
+            AccountLinkResult.Success => await RedirectWithSocketEventAsync(systemId, oauthProvider, identity, redirectUri),
+            AccountLinkResult.AlreadyLinked => StatusCode(StatusCodes.Status403Forbidden, new ErrorMessageResponse(
+                oauthProvider switch
                 {
-                    "discord" => "A Discord account is already linked to this account; please unlink it first.",
-                    "google" => "A Google account is already linked to this account; please unlink it first.",
-                    "apple" => "An Apple account is already linked to this account; please unlink it first.",
+                    OAuthProvider.Discord => "A Discord account is already linked to this account; please unlink it first.",
+                    OAuthProvider.Google => "A Google account is already linked to this account; please unlink it first.",
+                    OAuthProvider.Apple => "An Apple account is already linked to this account; please unlink it first.",
                     _ => "An account is already linked to this account; please unlink it first."
-                }
-            }),
-            AccountLinkResult.UserExists => StatusCode(StatusCodes.Status500InternalServerError, new
-            {
-                error = providerKey switch
+                })),
+            AccountLinkResult.UserExists => StatusCode(StatusCodes.Status500InternalServerError, new ErrorMessageResponse(
+                oauthProvider switch
                 {
-                    "discord" => "This Discord account is already linked to another account.",
-                    "google" => "This email address is already linked to another account.",
-                    "apple" => "This Apple account is already linked to another account.",
+                    OAuthProvider.Discord => "This Discord account is already linked to another account.",
+                    OAuthProvider.Google => "This email address is already linked to another account.",
+                    OAuthProvider.Apple => "This Apple account is already linked to another account.",
                     _ => "This account is already linked to another account."
-                }
-            }),
-            _ => StatusCode(StatusCodes.Status403Forbidden, new { error = "System not found" })
+                })),
+            _ => StatusCode(StatusCodes.Status403Forbidden, new ErrorMessageResponse("System not found"))
         };
     }
 
-    private async Task<IActionResult> RedirectWithSocketEventAsync(string systemId, string providerKey, string identity, string? redirectUri)
+    private async Task<IActionResult> RedirectWithSocketEventAsync(Interfold.Contracts.Ids.SystemId systemId, OAuthProvider provider, string identity, string? redirectUri)
     {
         await _eventBus.PublishAsync(
-            new SettingsAccountLinkedEvent(systemId, providerKey, identity),
+            new SettingsAccountLinkedEvent(systemId, provider, identity),
             HttpContext.RequestAborted);
 
         // The client is responsible for supplying its own redirect_uri on the initial
@@ -147,12 +145,10 @@ public sealed class AuthLinkController : OAuthControllerBase
         // than papering over with a server-configured fallback.
         if (string.IsNullOrWhiteSpace(redirectUri))
         {
-            return BadRequest(new
-            {
-                error = "Missing client-supplied redirect_uri.",
-                code = "missing_redirect_uri",
-                detail = "Pass redirect_uri on GET /auth/link/{provider} so the link callback knows where to send the result."
-            });
+            return BadRequest(new OAuthRedirectErrorResponse(
+                "Missing client-supplied redirect_uri.",
+                ErrorCodes.MissingRedirectUri,
+                "Pass redirect_uri on GET /auth/link/{provider} so the link callback knows where to send the result."));
         }
 
         return Redirect(redirectUri);

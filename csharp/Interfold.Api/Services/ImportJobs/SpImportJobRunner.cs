@@ -8,7 +8,7 @@ namespace Interfold.Api.Services.ImportJobs;
 /// Bridges the generic <see cref="IImportJobRunner"/> contract to the concrete Simply
 /// Plural importer (<see cref="ISimplyPluralImportService"/>). One per-process registration
 /// (singleton). The background worker resolves this instance when it dequeues an item
-/// with <see cref="ImportOperationKinds.SimplyPlural"/>.
+/// with <see cref="ImportOperationKind.SimplyPlural"/>.
 /// </summary>
 public sealed class SpImportJobRunner : IImportJobRunner
 {
@@ -19,7 +19,7 @@ public sealed class SpImportJobRunner : IImportJobRunner
         _importService = importService;
     }
 
-    public string Kind => ImportOperationKinds.SimplyPlural;
+    public ImportOperationKind Kind => ImportOperationKind.SimplyPlural;
 
     public async Task<ImportJobOutcome> RunAsync(ImportJobItem item, CancellationToken cancellationToken = default)
     {
@@ -45,7 +45,7 @@ public sealed class SpImportJobRunner : IImportJobRunner
         return new ImportJobOutcome(
             Success: false,
             AlterCount: 0,
-            ErrorCode: "sp_import_failed",
+            ErrorCode: ImportErrorCode.SpImportFailed,
             ErrorMessage: result.Error);
     }
 }

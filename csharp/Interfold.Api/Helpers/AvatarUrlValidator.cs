@@ -1,3 +1,5 @@
+using Interfold.Contracts;
+
 namespace Interfold.Api.Helpers;
 
 /// <summary>
@@ -13,7 +15,7 @@ internal static class AvatarUrlValidator
     /// </summary>
     internal const int MaxLength = 2048;
 
-    internal const string ErrorInvalid = "avatar_url_invalid";
+    internal const string ErrorInvalid = ErrorCodes.AvatarUrlInvalid;
     internal const string ErrorTooLong = "avatar_url_too_long";
 
     /// <summary>

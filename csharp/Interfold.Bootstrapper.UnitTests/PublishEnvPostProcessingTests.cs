@@ -1,5 +1,6 @@
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Contracts.Enums;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -26,7 +27,7 @@ public sealed class PublishEnvPostProcessingTests
 {
     private static (BootstrapConfig Config, GeneratedSecrets Secrets) MakeInputs(
         string? apiImage = null,
-        string databaseMode = "single")
+        DatabaseMode databaseMode = DatabaseMode.Single)
     {
         var config = new BootstrapConfig
         {
@@ -202,7 +203,7 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task BuildEnvReplacementsProducesAllTwentySixKeysInSingleMode()
     {
-        var (config, secrets) = MakeInputs(databaseMode: "single");
+        var (config, secrets) = MakeInputs(databaseMode: DatabaseMode.Single);
         const string baseDir = "/var/lib/interfold";
         const string outputDir = "/srv/interfold/deploy";
 
@@ -225,7 +226,7 @@ public sealed class PublishEnvPostProcessingTests
         // / jwt-authority / jwt-audience / cors-allowed-origins (see PublishInProcessAsync) and
         // the WithEnvironment calls in InterfoldAppHost.ConfigureApiSelfHostEnv.
         var (config, secrets) = MakeInputs();
-        config.ScyllaKeyspace = "eur";
+        config.ScyllaKeyspace = ScyllaKeyspace.Eur;
         config.ApiRuntime.CallbackBaseUrl = "https://callback.example.com";
         config.ApiRuntime.JwtAuthority = "https://issuer.example.com";
         config.ApiRuntime.JwtAudience = "custom-aud";
@@ -293,7 +294,7 @@ public sealed class PublishEnvPostProcessingTests
         // in InterfoldAppHost.ConfigureApiSelfHostEnv — a typo in either layer would
         // show up here as a missing key or a value mismatch.
         var (config, secrets) = MakeInputs();
-        config.Cluster.NodeGroup = "primary";
+        config.Cluster.NodeGroup = NodeGroup.Primary;
         config.Storage.AvatarStorageRoot = "/srv/avatars";
         config.Storage.AvatarPublicBase = "https://cdn.example.com/a/";
         config.Observability.OtlpEndpoint = "http://otel-collector:4317";
@@ -419,7 +420,7 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task MultiModeAddsOneBindMountPerScyllaRegion()
     {
-        var (config, secrets) = MakeInputs(databaseMode: "multi");
+        var (config, secrets) = MakeInputs(databaseMode: DatabaseMode.Multi);
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets,
             baseDir: "/base", outputDir: "/out");
 
@@ -439,7 +440,7 @@ public sealed class PublishEnvPostProcessingTests
     {
         // single mode is the default and what most installs run. PublishPhase wires the trio
         // straight into the AppHost config, so this assertion pins the mapping byte-for-byte.
-        var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode("single");
+        var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Single);
 
         await Assert.That(includeScylla).IsEqualTo("true");
         await Assert.That(includeCassandra).IsEqualTo("false");
@@ -451,7 +452,7 @@ public sealed class PublishEnvPostProcessingTests
     {
         // multi mode keeps Cassandra off and flips topology to multi - this is the only
         // route to the 7-region Scylla layout from the bootstrapper.
-        var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode("multi");
+        var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Multi);
 
         await Assert.That(includeScylla).IsEqualTo("true");
         await Assert.That(includeCassandra).IsEqualTo("false");
@@ -464,7 +465,7 @@ public sealed class PublishEnvPostProcessingTests
         // cassandra mode is the only configuration that disables Scylla entirely.
         // Topology stays "single" because the cassandra branch in InterfoldAppHost
         // ignores topology, but emitting "single" keeps the parameter set well-formed.
-        var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode("cassandra");
+        var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Cassandra);
 
         await Assert.That(includeScylla).IsEqualTo("false");
         await Assert.That(includeCassandra).IsEqualTo("true");
@@ -474,7 +475,7 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task CassandraModeFillsCassandraImageEnvKey()
     {
-        var (config, secrets) = MakeInputs(databaseMode: "cassandra");
+        var (config, secrets) = MakeInputs(databaseMode: DatabaseMode.Cassandra);
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
         await Assert.That(replacements.Parameters.ContainsKey("CASSANDRA_IMAGE")).IsTrue()
@@ -486,7 +487,7 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task NonCassandraModesOmitCassandraImageEnvKey()
     {
-        var (config, secrets) = MakeInputs(databaseMode: "single");
+        var (config, secrets) = MakeInputs(databaseMode: DatabaseMode.Single);
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
         await Assert.That(replacements.Parameters.ContainsKey("CASSANDRA_IMAGE")).IsFalse()
@@ -498,11 +499,11 @@ public sealed class PublishEnvPostProcessingTests
     {
         // ConfigPhase.Validate is the operator-facing rejection point, but the helper
         // also throws so internal callers that bypass validation surface a clear error
-        // instead of silently emitting an empty parameter set.
-        var ex = Assert.Throws<InvalidOperationException>(() => PublishPhase.TranslateDatabaseMode("triple"));
+        // instead of silently emitting an empty parameter set. Casting outside the enum
+        // range simulates the "someone bypassed the type system" scenario.
+        var ex = Assert.Throws<InvalidOperationException>(() => PublishPhase.TranslateDatabaseMode((DatabaseMode)999));
 
         await Assert.That(ex.Message).Contains("databaseMode");
-        await Assert.That(ex.Message).Contains("triple");
     }
 
     [Test]

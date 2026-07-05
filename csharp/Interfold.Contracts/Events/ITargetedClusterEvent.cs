@@ -12,5 +12,5 @@ namespace Interfold.Contracts.Events;
 /// </summary>
 public interface ITargetedClusterEvent
 {
-    string TargetSystemId { get; }
+    Interfold.Contracts.Ids.SystemId TargetSystemId { get; }
 }

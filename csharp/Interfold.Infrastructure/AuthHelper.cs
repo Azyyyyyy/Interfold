@@ -2,12 +2,13 @@
 using System.Text;
 using System.Text.Json;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure;
 
 public class AuthHelper
 {
-    public static string CreateToken(AuthenticationConfiguration authConfig, DateTimeOffset expiresAt, DateTimeOffset now, string jti, string systemId)
+    public static string CreateToken(AuthenticationConfiguration authConfig, DateTimeOffset expiresAt, DateTimeOffset now, Jti jti, SystemId systemId)
     {
         var headerJson = JsonSerializer.Serialize(new Dictionary<string, string>
         {
@@ -18,11 +19,11 @@ public class AuthHelper
         var payloadJson = JsonSerializer.Serialize(new Dictionary<string, object>
         {
             ["iss"] = authConfig.JwtAuthority,
-            ["sub"] = systemId,
+            ["sub"] = systemId.Value,
             ["iat"] = now.ToUnixTimeSeconds(),
             ["nbf"] = now.ToUnixTimeSeconds(),
             ["exp"] = expiresAt.ToUnixTimeSeconds(),
-            ["jti"] = jti,
+            ["jti"] = jti.Value,
             ["scope"] = "octocon:deeplink"
         });
 

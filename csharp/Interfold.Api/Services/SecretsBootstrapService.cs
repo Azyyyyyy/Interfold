@@ -42,13 +42,13 @@ public sealed class SecretsBootstrapService(
 {
     private static readonly (string Key, Action<AuthenticationConfiguration, string> Patch)[] AuthSecretMappings =
     [
-        ("oauth:google:client_secret",  (auth, v) => auth.GoogleOAuthClientSecret = v),
-        ("oauth:discord:client_secret", (auth, v) => auth.DiscordOAuthClientSecret = v),
-        ("oauth:apple:client_secret",   (auth, v) => auth.AppleOAuthClientSecret = v),
-        ("encryption:pepper",           (auth, v) => auth.EncryptionPepper = v),
-        ("auth:deep_link_secret",       (auth, v) => auth.DeepLinkSecret = v),
-        ("auth:jwt_rsa256_private_pem", PatchRsa256),
-        ("auth:jwt_es256_private_pem",  PatchEs256),
+        (SecretsStoreKeys.OAuthGoogleClientSecret,  (auth, v) => auth.GoogleOAuthClientSecret = v),
+        (SecretsStoreKeys.OAuthDiscordClientSecret, (auth, v) => auth.DiscordOAuthClientSecret = v),
+        (SecretsStoreKeys.OAuthAppleClientSecret,   (auth, v) => auth.AppleOAuthClientSecret = v),
+        (SecretsStoreKeys.EncryptionPepper,         (auth, v) => auth.EncryptionPepper = v),
+        (SecretsStoreKeys.AuthDeepLinkSecret,       (auth, v) => auth.DeepLinkSecret = v),
+        (SecretsStoreKeys.AuthJwtRsa256PrivatePem,  PatchRsa256),
+        (SecretsStoreKeys.AuthJwtEs256PrivatePem,   PatchEs256),
     ];
 
     /// <summary>
@@ -65,12 +65,12 @@ public sealed class SecretsBootstrapService(
 
     private static readonly (string Key, Action<FirebaseClientConfiguration, string> Patch)[] FirebaseClientMappings =
     [
-        ("firebase:client:android", (opts, v) =>
-            opts.Android = ParseOrThrow<FirebaseAndroidClientConfig>("firebase:client:android", v)),
-        ("firebase:client:ios",     (opts, v) =>
-            opts.Ios = ParseOrThrow<FirebaseIosClientConfig>("firebase:client:ios", v)),
-        ("firebase:client:web",     (opts, v) =>
-            opts.Web = ParseOrThrow<FirebaseWebClientConfig>("firebase:client:web", v)),
+        (SecretsStoreKeys.FirebaseClientAndroid, (opts, v) =>
+            opts.Android = ParseOrThrow<FirebaseAndroidClientConfig>(SecretsStoreKeys.FirebaseClientAndroid, v)),
+        (SecretsStoreKeys.FirebaseClientIos,     (opts, v) =>
+            opts.Ios = ParseOrThrow<FirebaseIosClientConfig>(SecretsStoreKeys.FirebaseClientIos, v)),
+        (SecretsStoreKeys.FirebaseClientWeb,     (opts, v) =>
+            opts.Web = ParseOrThrow<FirebaseWebClientConfig>(SecretsStoreKeys.FirebaseClientWeb, v)),
     ];
 
     public async Task StartingAsync(CancellationToken cancellationToken)
@@ -99,7 +99,7 @@ public sealed class SecretsBootstrapService(
         if (string.IsNullOrWhiteSpace(auth.EncryptionPepper))
         {
             throw new InvalidOperationException(
-                "[secrets-bootstrap] internal.secrets:encryption:pepper is missing or empty. " +
+                $"[secrets-bootstrap] internal.secrets:{SecretsStoreKeys.EncryptionPepper} is missing or empty. " +
                 "Run the bootstrapper to seed it, or insert the row manually before starting the API.");
         }
 

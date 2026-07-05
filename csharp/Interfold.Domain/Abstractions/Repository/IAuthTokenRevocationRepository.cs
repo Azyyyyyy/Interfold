@@ -1,3 +1,5 @@
+using Interfold.Contracts.Ids;
+
 namespace Interfold.Domain.Abstractions.Repository;
 
 /// <summary>
@@ -23,8 +25,8 @@ public interface IAuthTokenRevocationRepository
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Task completing when the token is recorded.</returns>
     Task RecordTokenAsync(
-        string jti,
-        string systemId,
+        Jti jti,
+        SystemId systemId,
         DateTimeOffset expiresAt,
         CancellationToken cancellationToken = default);
 
@@ -39,7 +41,7 @@ public interface IAuthTokenRevocationRepository
     /// It should be fast (ideally < 1ms for a PK lookup on indexed JTI).
     /// </remarks>
     Task<bool> ValidateTokenNotRevokedAsync(
-        string jti,
+        Jti jti,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -52,7 +54,7 @@ public interface IAuthTokenRevocationRepository
     /// This is idempotent: revoking an already-revoked token is safe and returns success.
     /// </remarks>
     Task RevokeTokenAsync(
-        string jti,
+        Jti jti,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -63,7 +65,7 @@ public interface IAuthTokenRevocationRepository
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>List of JTI values for tokens issued to this system.</returns>
     Task<IReadOnlyList<string>> FindTokensBySystemIdAsync(
-        string systemId,
+        SystemId systemId,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -1,13 +1,14 @@
 using System.Text.RegularExpressions;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Ids;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Api.Services;
 
 public interface IAvatarStorage
 {
-    Task<string> SaveSystemAvatarAsync(string systemId, Stream stream, CancellationToken cancellationToken = default);
-    Task<string> SaveAlterAvatarAsync(string systemId, int alterId, Stream stream, CancellationToken cancellationToken = default);
+    Task<string> SaveSystemAvatarAsync(SystemId systemId, Stream stream, CancellationToken cancellationToken = default);
+    Task<string> SaveAlterAvatarAsync(SystemId systemId, AlterId alterId, Stream stream, CancellationToken cancellationToken = default);
     Task<bool> DeleteByUrlAsync(string? avatarUrl, CancellationToken cancellationToken = default);
 }
 
@@ -36,11 +37,11 @@ public sealed class LocalAvatarStorage : IAvatarStorage
         _publicBaseFallback = "/avatars";
     }
 
-    public Task<string> SaveSystemAvatarAsync(string systemId, Stream stream, CancellationToken cancellationToken = default)
-        => SaveAsync(systemId, "self", stream, cancellationToken);
+    public Task<string> SaveSystemAvatarAsync(SystemId systemId, Stream stream, CancellationToken cancellationToken = default)
+        => SaveAsync(systemId.Value, "self", stream, cancellationToken);
 
-    public Task<string> SaveAlterAvatarAsync(string systemId, int alterId, Stream stream, CancellationToken cancellationToken = default)
-        => SaveAsync(systemId, alterId.ToString(), stream, cancellationToken);
+    public Task<string> SaveAlterAvatarAsync(SystemId systemId, AlterId alterId, Stream stream, CancellationToken cancellationToken = default)
+        => SaveAsync(systemId.Value, alterId.ToString(), stream, cancellationToken);
 
     public Task<bool> DeleteByUrlAsync(string? avatarUrl, CancellationToken cancellationToken = default)
     {

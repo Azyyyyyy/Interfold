@@ -1,9 +1,11 @@
 using System.Net.WebSockets;
 using Interfold.Api.Helpers;
 using Interfold.Contracts;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.Socket;
 
@@ -112,7 +114,7 @@ static async Task<(
     IReadOnlyList<SettingsFieldReadModel> settingsFields,
     EncryptionState? encryptionState)>
 FetchSocketInitDataAsync(
-    string systemId,
+    SystemId systemId,
     IAccountRepository accounts,
     IAlterRepository alters,
     IFrontingRepository fronting,
@@ -133,7 +135,7 @@ FetchSocketInitDataAsync(
 
 public static async Task<SocketJoinInitPayload> BuildJoinInitPayloadAsync(
     HttpContext context,
-    string systemId,
+    SystemId systemId,
     CancellationToken ct)
 {
     await using var scope = context.RequestServices.CreateAsyncScope();
@@ -167,7 +169,7 @@ public static async Task<SocketJoinInitPayload> BuildJoinInitPayloadAsync(
 }
 
 public static SocketSelfReadModel BuildSelfReadModel(
-    string systemId,
+    SystemId systemId,
     AccountPublicProfileReadModel? profile,
     IReadOnlyList<AlterReadModel> alters,
     IReadOnlyList<FrontActiveReadModel> fronts,
@@ -188,7 +190,7 @@ public static SocketSelfReadModel BuildSelfReadModel(
         null,
         linkedFlag(profile?.AppleId),
         linkedFlag(profile?.Email),
-        "off",
+        AutoproxyMode.Off,
         false,
         alters.Count,
         primaryFront,

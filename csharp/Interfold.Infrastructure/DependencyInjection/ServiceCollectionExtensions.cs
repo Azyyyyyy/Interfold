@@ -38,8 +38,9 @@ public static partial class ServiceCollectionExtensions
         cfg.PostgresConnectionString = configuration.PostgresConnectionString;
         cfg.IsSingleScyllaInstance     = configuration.IsSingleScyllaInstance;
         cfg.DbRetryAttempts          = configuration.DbRetryAttempts;
-        cfg.DbRetryInitialDelayMs    = configuration.DbRetryInitialDelayMs;
-        cfg.DbRetryMaxDelayMs        = configuration.DbRetryMaxDelayMs;
+        cfg.DbRetryInitialDelay      = configuration.DbRetryInitialDelay;
+        cfg.DbRetryMaxDelay          = configuration.DbRetryMaxDelay;
+        cfg.HydrationMaxConcurrency  = configuration.HydrationMaxConcurrency;
     });
 
     /// <summary>
@@ -52,13 +53,7 @@ public static partial class ServiceCollectionExtensions
     {
         var opts = new PersistenceConfiguration();
         ConfigurationServiceCollectionExtensions.ApplyPersistence(opts, config);
-        var mode = opts.Mode switch
-        {
-            "inmemory"        => PersistenceMode.InMemory,
-            "scylla-postgres" => PersistenceMode.ScyllaPostgres,
-            var x             => throw new InvalidOperationException($"Unsupported persistence mode: {x}")
-        };
-        return services.AddInterfoldPersistence(mode, opts);
+        return services.AddInterfoldPersistence(opts.Mode, opts);
     }
 
     public static IServiceCollection AddInterfoldPersistence(

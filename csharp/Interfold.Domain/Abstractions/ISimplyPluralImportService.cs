@@ -1,3 +1,5 @@
+using Interfold.Contracts.Ids;
+
 namespace Interfold.Domain.Abstractions;
 
 /// <summary>
@@ -6,9 +8,9 @@ namespace Interfold.Domain.Abstractions;
 public interface ISimplyPluralImportService
 {
     Task<SpImportResult> ImportAsync(
-        string systemId,
-        string spToken,
-        string? encryptionKey,
+        SystemId systemId,
+        ImportToken spToken,
+        RecoveryCode? encryptionKey,
         CancellationToken cancellationToken = default);
 
     bool? WaitForAvatars { get; set; }

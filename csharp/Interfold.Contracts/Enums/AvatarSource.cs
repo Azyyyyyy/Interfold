@@ -25,3 +25,20 @@ public enum AvatarSource
     [JsonStringEnumMemberName("external")]
     External = 1,
 }
+
+public static class AvatarSourceExtensions
+{
+    public static short ToCode(this AvatarSource source) => (short)source;
+
+    /// <summary>
+    /// Maps the persisted <c>avatar_source</c> smallint into the enum. Returns
+    /// <see langword="null"/> for null or unknown codes (no avatar set), so boundaries can
+    /// omit <c>avatar_source</c> from the response payload.
+    /// </summary>
+    public static AvatarSource? TryFromCode(short? code) => code switch
+    {
+        (short)AvatarSource.Local => AvatarSource.Local,
+        (short)AvatarSource.External => AvatarSource.External,
+        _ => null,
+    };
+}

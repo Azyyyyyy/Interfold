@@ -1,4 +1,5 @@
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
@@ -22,18 +23,18 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
     );
 
     public Task RecordTokenAsync(
-        string jti,
-        string systemId,
+        Jti jti,
+        SystemId systemId,
         DateTimeOffset expiresAt,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(jti, nameof(jti));
-        ArgumentException.ThrowIfNullOrWhiteSpace(systemId, nameof(systemId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(jti.Value, nameof(jti));
+        ArgumentException.ThrowIfNullOrWhiteSpace(systemId.Value, nameof(systemId));
 
         lock (s_lock)
         {
-            s_tokens[jti] = new TokenRecord(
-                Jti: jti,
+            s_tokens[jti.Value] = new TokenRecord(
+                Jti: jti.Value,
                 SystemId: NormalizeSystemId(systemId),
                 IssuedAt: DateTimeOffset.UtcNow,
                 ExpiresAt: expiresAt,
@@ -45,14 +46,14 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
     }
 
     public Task<bool> ValidateTokenNotRevokedAsync(
-        string jti,
+        Jti jti,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(jti, nameof(jti));
+        ArgumentException.ThrowIfNullOrWhiteSpace(jti.Value, nameof(jti));
 
         lock (s_lock)
         {
-            if (!s_tokens.TryGetValue(jti, out var record))
+            if (!s_tokens.TryGetValue(jti.Value, out var record))
             {
                 return Task.FromResult(false);
             }
@@ -64,16 +65,16 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
     }
 
     public Task RevokeTokenAsync(
-        string jti,
+        Jti jti,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(jti, nameof(jti));
+        ArgumentException.ThrowIfNullOrWhiteSpace(jti.Value, nameof(jti));
 
         lock (s_lock)
         {
-            if (s_tokens.TryGetValue(jti, out var record) && record.RevokedAt is null)
+            if (s_tokens.TryGetValue(jti.Value, out var record) && record.RevokedAt is null)
             {
-                s_tokens[jti] = record with { RevokedAt = DateTimeOffset.UtcNow };
+                s_tokens[jti.Value] = record with { RevokedAt = DateTimeOffset.UtcNow };
             }
         }
 
@@ -81,10 +82,10 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
     }
 
     public Task<IReadOnlyList<string>> FindTokensBySystemIdAsync(
-        string systemId,
+        SystemId systemId,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(systemId, nameof(systemId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(systemId.Value, nameof(systemId));
 
         lock (s_lock)
         {
@@ -102,6 +103,8 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
             return Task.FromResult(tokens);
         }
     }
+
+    private static string NormalizeSystemId(SystemId systemId) => NormalizeSystemId(systemId.Value);
 
     private static string NormalizeSystemId(string systemId)
     {

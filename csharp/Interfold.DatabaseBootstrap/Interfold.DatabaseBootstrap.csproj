@@ -24,4 +24,15 @@
     <RootNamespace>Interfold.DatabaseBootstrap</RootNamespace>
   </PropertyGroup>
 
+  <!--
+    Linked source file: keeps DatabaseBootstrap dependency-free (preserves the trimmed
+    bootstrapper binary-size guardrail) while sharing one source of truth for the
+    persisted internal.secrets row keys with Interfold.Contracts. The file is edited
+    in Interfold.Contracts/Secrets/SecretsStoreKeys.cs and compiled into both projects.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Interfold.Contracts\Secrets\SecretsStoreKeys.cs"
+             Link="SecretsStoreKeys.cs" />
+  </ItemGroup>
+
 </Project>

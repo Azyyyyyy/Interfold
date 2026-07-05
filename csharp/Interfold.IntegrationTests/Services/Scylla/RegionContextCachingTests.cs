@@ -1,5 +1,6 @@
 ﻿using Cassandra;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.Infrastructure.Scylla;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -31,63 +32,59 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
         // ThrowingSessionProvider will throw; the catch block should return CurrentRegion.
         var ctx = BuildContext("eur");
         var result = ctx.ResolveUserRegion("user-123");
-        await Assert.That(result).IsEqualTo("eur");
+        await Assert.That(result).IsEqualTo(ScyllaKeyspace.Eur);
     }
 
     [Test]
     public async Task ResolveUserRegion_UsesCachedRegion_AfterRegisterRegion()
     {
         var ctx = BuildContext("nam");
-        ctx.RegisterRegion("user-abc", "eur");
+        ctx.RegisterRegion("user-abc", ScyllaKeyspace.Eur);
 
         // ThrowingSessionProvider must NOT be called; cache is warm.
         var result = ctx.ResolveUserRegion("user-abc");
-        await Assert.That(result).IsEqualTo("eur");
+        await Assert.That(result).IsEqualTo(ScyllaKeyspace.Eur);
     }
 
     [Test]
     public async Task ResolveUserRegion_StripsLegacyPrefix_BeforeCacheLookup()
     {
         var ctx = BuildContext("nam");
-        ctx.RegisterRegion("eas", "user-xyz");  // plain key stored as "user-xyz"
+        ctx.RegisterRegion("eas", ScyllaKeyspace.Nam);  // unrelated key must not interfere
 
         // The prefixed form should resolve via the same stripped key.
-        ctx.RegisterRegion("eas:user-xyz", "sam");
+        ctx.RegisterRegion("eas:user-xyz", ScyllaKeyspace.Sam);
         var result = ctx.ResolveUserRegion("eas:user-xyz");
-        await Assert.That(result).IsEqualTo("sam");
+        await Assert.That(result).IsEqualTo(ScyllaKeyspace.Sam);
 
         // Plain key lookup after prefix strip should also be cache-warm.
         var result2 = ctx.ResolveUserRegion("eas:user-xyz");
-        await Assert.That(result2).IsEqualTo("sam");
+        await Assert.That(result2).IsEqualTo(ScyllaKeyspace.Sam);
     }
 
     [Test]
     public async Task ResolveConsistency_ReturnsLocal_ForSameRegion()
     {
         var ctx = BuildContext("nam");
-        using (Assert.Multiple())
-        {
-            await Assert.That(ctx.ResolveConsistency("nam")).IsEqualTo("local");
-            await Assert.That(ctx.ResolveConsistency("NAM")).IsEqualTo("local");
-        }
+        await Assert.That(ctx.ResolveConsistency(ScyllaKeyspace.Nam)).IsEqualTo("local");
     }
 
     [Test]
     public async Task ResolveConsistency_ReturnsGlobal_ForDifferentRegion()
     {
         var ctx = BuildContext("nam");
-        await Assert.That(ctx.ResolveConsistency("eur")).IsEqualTo("global");
+        await Assert.That(ctx.ResolveConsistency(ScyllaKeyspace.Eur)).IsEqualTo("global");
     }
 
     [Test]
-    public async Task RegisterRegion_EmptyValues_DoesNotCorruptCache()
+    public async Task RegisterRegion_EmptyKey_DoesNotCorruptCache()
     {
         var ctx = BuildContext("nam");
-        ctx.RegisterRegion("", "eur");        // empty key — should be no-op
-        ctx.RegisterRegion("user-1", "");     // empty region — should be no-op
+        ctx.RegisterRegion("", ScyllaKeyspace.Eur);   // empty key — should be no-op
 
-        // Fallback should still apply because nothing was cached.
+        // Fallback should still apply because nothing was cached ("user-1" resolution hits
+        // the throwing session and falls back to the default region).
         var result = ctx.ResolveUserRegion("user-1");
-        await Assert.That(result).IsEqualTo("nam");
+        await Assert.That(result).IsEqualTo(ScyllaKeyspace.Nam);
     }
 }

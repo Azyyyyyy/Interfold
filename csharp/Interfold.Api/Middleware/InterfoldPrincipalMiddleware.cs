@@ -2,6 +2,7 @@
 using Interfold.Api.Controllers.Base;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Controllers;
+using Interfold.Contracts;
 
 namespace Interfold.Api.Middleware;
 
@@ -47,7 +48,7 @@ public sealed class InterfoldPrincipalMiddleware(RequestDelegate next)
 
     private static string? ResolvePrincipalId(ClaimsPrincipal user)
     {
-        var sub = user.FindFirst("sub")?.Value
+        var sub = user.FindFirst(JwtClaimNames.Sub)?.Value
                   ?? user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
         return string.IsNullOrWhiteSpace(sub) ? null : sub;

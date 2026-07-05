@@ -3,6 +3,7 @@ using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Models;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
@@ -22,7 +23,7 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
         _options = options;
     }
 
-    public async Task<EncryptionState?> GetAsync(string systemId, CancellationToken cancellationToken = default)
+    public async Task<EncryptionState?> GetAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -45,7 +46,7 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> UpsertAsync(string systemId, bool initialized, string? keyChecksum, string? salt, CancellationToken cancellationToken = default)
+    public async Task<bool> UpsertAsync(SystemId systemId, bool initialized, string? keyChecksum, string? salt, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {

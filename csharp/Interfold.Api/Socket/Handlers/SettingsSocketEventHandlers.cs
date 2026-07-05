@@ -1,6 +1,8 @@
 using Interfold.Contracts;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Events;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.Socket.Handlers;
 
@@ -78,7 +80,7 @@ public static class SettingsSocketEventHandlers
     public static Task HandleAsync(SettingsTagsWipedSignalEvent evt, SocketPushContext context)
         => HandleSignalAsync(evt.TargetSystemId, SocketEventNames.Settings.TagsWiped, context);
 
-    private static async Task HandleSignalAsync(string systemId, string eventName, SocketPushContext context)
+    private static async Task HandleSignalAsync(SystemId systemId, string eventName, SocketPushContext context)
     {
         if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
         {
@@ -97,9 +99,9 @@ public static class SettingsSocketEventHandlers
 
         var eventName = evt.ProviderKey switch
         {
-            "discord" => SocketEventNames.Settings.DiscordAccountLinked,
-            "google" => SocketEventNames.Settings.GoogleAccountLinked,
-            "apple" => SocketEventNames.Settings.AppleAccountLinked,
+            OAuthProvider.Discord => SocketEventNames.Settings.DiscordAccountLinked,
+            OAuthProvider.Google => SocketEventNames.Settings.GoogleAccountLinked,
+            OAuthProvider.Apple => SocketEventNames.Settings.AppleAccountLinked,
             _ => null
         };
 
@@ -110,9 +112,9 @@ public static class SettingsSocketEventHandlers
 
         ISocketPayload payload = evt.ProviderKey switch
         {
-            "discord" => new DiscordAccountLinkedPayload(evt.Identity),
-            "google" => new GoogleAccountLinkedPayload(evt.Identity),
-            "apple" => new AppleAccountLinkedPayload(evt.Identity),
+            OAuthProvider.Discord => new DiscordAccountLinkedPayload(evt.Identity),
+            OAuthProvider.Google => new GoogleAccountLinkedPayload(evt.Identity),
+            OAuthProvider.Apple => new AppleAccountLinkedPayload(evt.Identity),
             _ => throw new InvalidOperationException("Unrecognized provider key") //Should never hit due to the earlier check, but satisfies the compiler
         };
 

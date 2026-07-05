@@ -5,6 +5,7 @@ using Interfold.Contracts.Enums;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
@@ -32,21 +33,21 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         _encryptionStates = encryptionStates;
     }
 
-    public Task<bool> UpdateUsernameAsync(string systemId, string username, CancellationToken cancellationToken = default)
+    public Task<bool> UpdateUsernameAsync(SystemId systemId, string username, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         _usernameBySystem[systemKey] = username;
         return Task.FromResult(true);
     }
 
-    public Task<bool> UpdateDescriptionAsync(string systemId, string description, CancellationToken cancellationToken = default)
+    public Task<bool> UpdateDescriptionAsync(SystemId systemId, string description, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         _descriptionBySystem[systemKey] = description;
         return Task.FromResult(true);
     }
 
-    public Task<bool> UpdateAvatarAsync(string systemId, string avatarUrl, AvatarSource source, CancellationToken cancellationToken = default)
+    public Task<bool> UpdateAvatarAsync(SystemId systemId, string avatarUrl, AvatarSource source, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         _avatarBySystem[systemKey] = avatarUrl;
@@ -54,7 +55,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult(true);
     }
 
-    public Task<bool> ClearAvatarAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<bool> ClearAvatarAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         _avatarBySystem.TryRemove(systemKey, out _);
@@ -62,7 +63,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult(true);
     }
 
-    public Task<string> GetOrCreateLinkTokenAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<LinkToken> GetOrCreateLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         var token = _linkTokenBySystem.GetOrAdd(systemKey, static key =>
@@ -71,30 +72,30 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Convert.ToHexString(hash)[..32].ToLowerInvariant();
         });
 
-        _systemByLinkToken[token] = _regionContext.ResolveUserRegion(systemId) + ":" + systemId;
+        _systemByLinkToken[token] = _regionContext.ResolveUserRegion(systemId.Value).ToWireValue() + ":" + systemId.Value;
 
-        return Task.FromResult(token);
+        return Task.FromResult(new LinkToken(token));
     }
 
-    public Task<string?> GetLinkTokenAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<LinkToken?> GetLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         _linkTokenBySystem.TryGetValue(systemKey, out var token);
-        return Task.FromResult(token);
+        return Task.FromResult<LinkToken?>(token is null ? null : new LinkToken(token));
     }
 
-    public Task<string?> ResolveSystemIdByLinkTokenAsync(string linkToken, CancellationToken cancellationToken = default)
+    public Task<SystemId?> ResolveSystemIdByLinkTokenAsync(LinkToken linkToken, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(linkToken))
+        if (string.IsNullOrWhiteSpace(linkToken.Value))
         {
-            return Task.FromResult<string?>(null);
+            return Task.FromResult<SystemId?>(null);
         }
 
-        _systemByLinkToken.TryGetValue(linkToken, out var scopedSystemId);
-        return Task.FromResult(scopedSystemId);
+        _systemByLinkToken.TryGetValue(linkToken.Value, out var scopedSystemId);
+        return Task.FromResult<SystemId?>(scopedSystemId is null ? null : new SystemId(scopedSystemId));
     }
 
-    public Task<bool> ClearLinkTokenAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<bool> ClearLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         if (_linkTokenBySystem.TryRemove(systemKey, out var token))
@@ -105,82 +106,82 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult(true);
     }
 
-    public Task<string?> FindSystemIdByDiscordIdAsync(string discordId, CancellationToken cancellationToken = default)
+    public Task<SystemId?> FindSystemIdByDiscordIdAsync(string discordId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(discordId))
         {
-            return Task.FromResult<string?>(null);
+            return Task.FromResult<SystemId?>(null);
         }
 
         if (_systemByDiscord.TryGetValue(discordId, out var scopedSystemId))
         {
-            return Task.FromResult<string?>(scopedSystemId);
+            return Task.FromResult<SystemId?>(new SystemId(scopedSystemId));
         }
 
         // Auto-create new system
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNewSystemId = _regionContext.ResolveUserRegion(newSystemId) + ":" + newSystemId;
+        var scopedNewSystemId = _regionContext.ResolveUserRegion(newSystemId).ToWireValue() + ":" + newSystemId;
         _discordBySystem[newSystemId] = discordId;
         _systemByDiscord[discordId] = scopedNewSystemId;
 
         EnsureEncryptionSaltForSystem(scopedNewSystemId);
-        return Task.FromResult<string?>(scopedNewSystemId);
+        return Task.FromResult<SystemId?>(new SystemId(scopedNewSystemId));
     }
 
-    public Task<string?> FindSystemIdByEmailAsync(string email, CancellationToken cancellationToken = default)
+    public Task<SystemId?> FindSystemIdByEmailAsync(string email, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(email))
         {
-            return Task.FromResult<string?>(null);
+            return Task.FromResult<SystemId?>(null);
         }
 
         if (_systemByEmail.TryGetValue(email, out var scopedSystemId))
         {
-            return Task.FromResult<string?>(scopedSystemId);
+            return Task.FromResult<SystemId?>(new SystemId(scopedSystemId));
         }
 
         // Auto-create new system
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNewSystemId = _regionContext.ResolveUserRegion(newSystemId) + ":" + newSystemId;
+        var scopedNewSystemId = _regionContext.ResolveUserRegion(newSystemId).ToWireValue() + ":" + newSystemId;
         _emailBySystem[newSystemId] = email;
         _systemByEmail[email] = scopedNewSystemId;
 
         EnsureEncryptionSaltForSystem(scopedNewSystemId);
-        return Task.FromResult<string?>(scopedNewSystemId);
+        return Task.FromResult<SystemId?>(new SystemId(scopedNewSystemId));
     }
 
-    public Task<string?> FindSystemIdByAppleIdAsync(string appleId, CancellationToken cancellationToken = default)
+    public Task<SystemId?> FindSystemIdByAppleIdAsync(string appleId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(appleId))
         {
-            return Task.FromResult<string?>(null);
+            return Task.FromResult<SystemId?>(null);
         }
 
         if (_systemByApple.TryGetValue(appleId, out var scopedSystemId))
         {
-            return Task.FromResult<string?>(scopedSystemId);
+            return Task.FromResult<SystemId?>(new SystemId(scopedSystemId));
         }
 
         // Auto-create new system
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNewSystemId = _regionContext.ResolveUserRegion(newSystemId) + ":" + newSystemId;
+        var scopedNewSystemId = _regionContext.ResolveUserRegion(newSystemId).ToWireValue() + ":" + newSystemId;
         _appleBySystem[newSystemId] = appleId;
         _systemByApple[appleId] = scopedNewSystemId;
 
         EnsureEncryptionSaltForSystem(scopedNewSystemId);
-        return Task.FromResult<string?>(scopedNewSystemId);
+        return Task.FromResult<SystemId?>(new SystemId(scopedNewSystemId));
     }
 
-    public Task<AccountLinkResult> LinkDiscordToUserAsync(string systemId, string discordId, CancellationToken cancellationToken = default)
+    public Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, string discordId, CancellationToken cancellationToken = default)
         => Task.FromResult(LinkIdentifier(systemId, discordId, _discordBySystem, _systemByDiscord));
 
-    public Task<AccountLinkResult> LinkEmailToUserAsync(string systemId, string email, CancellationToken cancellationToken = default)
+    public Task<AccountLinkResult> LinkEmailToUserAsync(SystemId systemId, string email, CancellationToken cancellationToken = default)
         => Task.FromResult(LinkIdentifier(systemId, email, _emailBySystem, _systemByEmail));
 
-    public Task<AccountLinkResult> LinkAppleToUserAsync(string systemId, string appleId, CancellationToken cancellationToken = default)
+    public Task<AccountLinkResult> LinkAppleToUserAsync(SystemId systemId, string appleId, CancellationToken cancellationToken = default)
         => Task.FromResult(LinkIdentifier(systemId, appleId, _appleBySystem, _systemByApple));
 
-    public Task<bool> UnlinkDiscordAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         if (_discordBySystem.TryRemove(systemKey, out var discordId) && !string.IsNullOrWhiteSpace(discordId))
@@ -191,7 +192,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult(true);
     }
 
-    public Task<bool> UnlinkEmailAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<bool> UnlinkEmailAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         if (_emailBySystem.TryRemove(systemKey, out var email) && !string.IsNullOrWhiteSpace(email))
@@ -202,7 +203,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult(true);
     }
 
-    public Task<bool> UnlinkAppleAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<bool> UnlinkAppleAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         if (_appleBySystem.TryRemove(systemKey, out var appleId) && !string.IsNullOrWhiteSpace(appleId))
@@ -213,7 +214,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult(true);
     }
 
-    public Task<bool> DeleteAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<bool> DeleteAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
 
@@ -241,7 +242,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult(true);
     }
 
-    public Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         var username = _usernameBySystem.TryGetValue(systemKey, out var u) ? u : null;
@@ -261,14 +262,14 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             new AccountPublicProfileReadModel(systemId, username, description, avatarUrl, avatarSource, discordId, email, appleId));
     }
 
-    private string GetSystemKey(string systemId)
+    private string GetSystemKey(SystemId systemId)
     {
-        var region = _regionContext.ResolveUserRegion(systemId);
-        return $"{region}:{systemId}";
+        var region = _regionContext.ResolveUserRegion(systemId.Value).ToWireValue();
+        return $"{region}:{systemId.Value}";
     }
 
     private AccountLinkResult LinkIdentifier(
-        string systemId,
+        SystemId systemId,
         string identifier,
         ConcurrentDictionary<string, string> identifierBySystem,
         ConcurrentDictionary<string, string> systemByIdentifier)
@@ -279,7 +280,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         }
 
         var systemKey = GetSystemKey(systemId);
-        var scopedSystemId = _regionContext.ResolveUserRegion(systemId) + ":" + systemId;
+        var scopedSystemId = _regionContext.ResolveUserRegion(systemId.Value).ToWireValue() + ":" + systemId.Value;
 
         if (_usernameBySystem.ContainsKey(systemKey) is false &&
             _descriptionBySystem.ContainsKey(systemKey) is false &&
@@ -311,6 +312,6 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
         var saltBytes = RandomNumberGenerator.GetBytes(32);
         var salt = Convert.ToBase64String(saltBytes);
-        _ = _encryptionStates.UpsertAsync(scopedSystemId, false, null, salt, CancellationToken.None);
+        _ = _encryptionStates.UpsertAsync(new SystemId(scopedSystemId), false, null, salt, CancellationToken.None);
     }
 }

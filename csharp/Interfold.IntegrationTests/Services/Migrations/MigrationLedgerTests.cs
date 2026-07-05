@@ -1,4 +1,5 @@
 using Cassandra;
+using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Secrets;
 using Interfold.Infrastructure.Postgres;
@@ -220,7 +221,7 @@ public sealed class MigrationLedgerTests(ScyllaWebFactoryFixture fixture) : Base
 
     private PersistenceConfiguration BuildPersistenceConfig() => new()
     {
-        Mode = "scylla-postgres",
+        Mode = PersistenceMode.ScyllaPostgres,
         PostgresConnectionString = SharedDb.PostgresConnectionString,
         IsSingleScyllaInstance = true,
         ScyllaKeyspace = "nam",

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions;
 
 namespace Interfold.Infrastructure.Coordination;
@@ -34,7 +35,7 @@ public sealed class InProcessEventBus : IClusterEventBus, IDisposable
         void CompleteAll();
     }
 
-    private sealed record Subscription<TEvent>(ChannelWriter<TEvent> Writer, string? TargetSystemId)
+    private sealed record Subscription<TEvent>(ChannelWriter<TEvent> Writer, SystemId? TargetSystemId)
         where TEvent : class;
 
     private sealed class TopicBag<TEvent> : ITopicBag where TEvent : class
@@ -77,7 +78,7 @@ public sealed class InProcessEventBus : IClusterEventBus, IDisposable
             // Subscription with a null TargetSystemId is broadcast (legacy semantics).
             if (subscription.TargetSystemId is not null
                 && targetedEvent is not null
-                && !string.Equals(subscription.TargetSystemId, targetedEvent.TargetSystemId, StringComparison.Ordinal))
+                && subscription.TargetSystemId.Value != targetedEvent.TargetSystemId)
             {
                 continue;
             }
@@ -104,7 +105,7 @@ public sealed class InProcessEventBus : IClusterEventBus, IDisposable
         => SubscribeAsync<TEvent>(targetSystemId: null, ct);
 
     public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(
-        string? targetSystemId,
+        SystemId? targetSystemId,
         CancellationToken ct = default)
         where TEvent : class
     {

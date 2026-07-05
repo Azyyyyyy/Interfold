@@ -1,4 +1,5 @@
 using Interfold.Api.Models;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
 using Microsoft.AspNetCore.Mvc;
@@ -6,6 +7,7 @@ using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Friendships;
 using Interfold.Api.Controllers.Base;
+using Interfold.Contracts;
 
 namespace Interfold.Api.Controllers;
 
@@ -33,7 +35,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> Index(CancellationToken ct)
+    public async Task<Response<FriendRequestIndexReadModel>> Index(CancellationToken ct)
     {
         var requests = await _repository.GetFriendRequestsAsync(PrincipalId, ct);
         var incoming = requests.Incoming
@@ -49,25 +51,19 @@ public sealed class FriendRequestsController : InterfoldControllerBase
             })
             .ToArray();
 
-        return Ok(new
-        {
-            data = new
-            {
-                incoming,
-                outgoing
-            }
-        });
+        // Same wire shape as the previous anonymous object: {"data":{"incoming":[…],"outgoing":[…]}}.
+        return new SuccessResponse<FriendRequestIndexReadModel>(new FriendRequestIndexReadModel(incoming, outgoing));
     }
 
     [HttpPut("{id}")]
-    public async Task<Response> Send(string id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Send(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        if (string.Equals(principal, id, StringComparison.Ordinal))
+        if (principal == id)
         {
             return new ErrorResponse(
                 "You cannot send a friend request to yourself.",
-                "cannot_send_self",
+                ErrorCodes.CannotSendSelf,
                 System.Net.HttpStatusCode.BadRequest);
         }
 
@@ -75,7 +71,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
             OperationIds.FriendRequestSend,
             Guid.NewGuid(),
             PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(req?.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new SendFriendRequestCommand(id));
 
@@ -83,14 +79,14 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     }
 
     [HttpDelete("{id}")]
-    public async Task<Response> Cancel(string id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Cancel(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        if (string.Equals(principal, id, StringComparison.Ordinal))
+        if (principal == id)
         {
             return new ErrorResponse(
                 "You cannot cancel a friend request to yourself.",
-                "cannot_cancel_self",
+                ErrorCodes.CannotCancelSelf,
                 System.Net.HttpStatusCode.BadRequest);
         }
 
@@ -98,7 +94,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
             OperationIds.FriendRequestCancel,
             Guid.NewGuid(),
             PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(req?.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new CancelFriendRequestCommand(id));
 
@@ -106,14 +102,14 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     }
 
     [HttpPost("{id}/accept")]
-    public async Task<Response> Accept(string id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Accept(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        if (string.Equals(principal, id, StringComparison.Ordinal))
+        if (principal == id)
         {
             return new ErrorResponse(
                 "You cannot accept a friend request from yourself.",
-                "cannot_accept_self",
+                ErrorCodes.CannotAcceptSelf,
                 System.Net.HttpStatusCode.BadRequest);
         }
 
@@ -121,7 +117,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
             OperationIds.FriendRequestAccept,
             Guid.NewGuid(),
             PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(req?.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new AcceptFriendRequestCommand(id));
 
@@ -129,14 +125,14 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     }
 
     [HttpPost("{id}/reject")]
-    public async Task<Response> Reject(string id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Reject(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        if (string.Equals(principal, id, StringComparison.Ordinal))
+        if (principal == id)
         {
             return new ErrorResponse(
                 "You cannot reject a friend request from yourself.",
-                "cannot_reject_self",
+                ErrorCodes.CannotRejectSelf,
                 System.Net.HttpStatusCode.BadRequest);
         }
 
@@ -144,7 +140,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
             OperationIds.FriendRequestReject,
             Guid.NewGuid(),
             PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(req?.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new RejectFriendRequestCommand(id));
 

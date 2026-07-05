@@ -5,6 +5,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -47,8 +49,8 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
 
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<DeleteAccountCommand> command, CancellationToken cancellationToken = default)
     {
-        var unfriendedIds = new List<string>();
-        var result = await SettingsCommandHelper.ExecuteAsync(command, "account_deleted", "settings:account:delete", _idempotencyStore, async ct =>
+        var unfriendedIds = new List<Interfold.Contracts.Ids.SystemId>();
+        var result = await SettingsCommandHelper.ExecuteAsync(command, SettingsAction.AccountDeleted, EntityRefs.SettingsAccountDelete, _idempotencyStore, async ct =>
         {
             var systemId = command.PrincipalId;
 
@@ -93,6 +95,7 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
             // Delete Friendships and Friend Requests
             var deletedIds = await _friendshipRepository.DeleteAllForSystemAsync(systemId, ct);
             unfriendedIds.AddRange(deletedIds);
+
 
             // Delete Account
             return await _accountRepository.DeleteAsync(systemId, ct);

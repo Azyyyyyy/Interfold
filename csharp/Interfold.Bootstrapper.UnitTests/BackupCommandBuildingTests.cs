@@ -1,6 +1,7 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Contracts.Enums;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -128,7 +129,7 @@ public sealed class BackupCommandBuildingTests
     {
         // single-mode AppHost wires up the bare "scylla" service name; matches the AppHost
         // resource graph in InterfoldAppHost.Configure.
-        var config = new BootstrapConfig { DatabaseMode = "single" };
+        var config = new BootstrapConfig { DatabaseMode = DatabaseMode.Single };
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
         await Assert.That(service).IsEqualTo("scylla");
@@ -141,7 +142,7 @@ public sealed class BackupCommandBuildingTests
         // multi-mode publishes 7 regional services; the seed (NAM) is the only one we
         // snapshot. Multi-DC operators that want all seven captured are documented as
         // out-of-scope for the bootstrapper itself.
-        var config = new BootstrapConfig { DatabaseMode = "multi" };
+        var config = new BootstrapConfig { DatabaseMode = DatabaseMode.Multi };
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
         await Assert.That(service).IsEqualTo("scylla-nam");
@@ -153,7 +154,7 @@ public sealed class BackupCommandBuildingTests
     {
         // cassandra-mode replaces Scylla entirely with a single Cassandra 5 node; the data
         // directory inside the official cassandra image is /var/lib/cassandra (not /var/lib/scylla).
-        var config = new BootstrapConfig { DatabaseMode = "cassandra" };
+        var config = new BootstrapConfig { DatabaseMode = DatabaseMode.Cassandra };
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
         await Assert.That(service).IsEqualTo("cassandra");
@@ -240,22 +241,22 @@ public sealed class BackupCommandBuildingTests
         // Scylla uses gzipped tar of the nodetool snapshot tree. The extensions are part of
         // the documented backup layout that operators rely on for ad-hoc tooling — pinning
         // them here so a refactor can't quietly switch to .pgdump or .tgz.
-        await Assert.That(BackupPhase.BuildArchiveFileName("postgres", "20260301-120000"))
+        await Assert.That(BackupPhase.BuildArchiveFileName(BackupDatabaseComponent.Postgres, "20260301-120000"))
             .IsEqualTo("20260301-120000.dump");
-        await Assert.That(BackupPhase.BuildArchiveFileName("scylla", "20260301-120000"))
+        await Assert.That(BackupPhase.BuildArchiveFileName(BackupDatabaseComponent.Scylla, "20260301-120000"))
             .IsEqualTo("20260301-120000.tar.gz");
     }
 
     [Test]
-    public async Task BuildArchiveFileNameRejectsUnknownComponent()
+    public async Task ComponentParsing_RejectsUnknownAndDefaultsToAll()
     {
-        // Defensive; the orchestrator path validates the component upfront, but the helper
-        // should still refuse to silently produce a meaningless filename if it's ever
-        // called from a future code path that forgot to validate.
-        var ex = Assert.Throws<InvalidOperationException>(
-            () => BackupPhase.BuildArchiveFileName("redis", "20260301-120000"));
-        await Assert.That(ex.Message).Contains("redis");
-        await Assert.That(ex.Message).Contains("postgres");
-        await Assert.That(ex.Message).Contains("scylla");
+        // The CLI-boundary parse is what shields BuildArchiveFileName from meaningless
+        // component values now that the helper takes the enum: unknown strings return
+        // null (the phase surfaces its legacy --component error) and absent values keep
+        // the historical "all" default.
+        await Assert.That(BackupDatabaseComponentExtensions.TryParse("redis")).IsNull();
+        await Assert.That(BackupDatabaseComponentExtensions.TryParse(null)).IsEqualTo(BackupDatabaseComponent.All);
+        await Assert.That(BackupDatabaseComponentExtensions.TryParse("POSTGRES")).IsEqualTo(BackupDatabaseComponent.Postgres);
+        await Assert.That(BackupDatabaseComponentExtensions.TryParse("scylla")).IsEqualTo(BackupDatabaseComponent.Scylla);
     }
 }

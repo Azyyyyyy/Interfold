@@ -6,6 +6,7 @@ using Interfold.Contracts.Enums;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
@@ -33,7 +34,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         _options = options;
     }
 
-    public async Task<bool> UpdateUsernameAsync(string systemId, string username, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateUsernameAsync(SystemId systemId, string username, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -80,7 +81,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> UpdateDescriptionAsync(string systemId, string description, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateDescriptionAsync(SystemId systemId, string description, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -99,7 +100,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> UpdateAvatarAsync(string systemId, string avatarUrl, AvatarSource source, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateAvatarAsync(SystemId systemId, string avatarUrl, AvatarSource source, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -119,7 +120,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> ClearAvatarAsync(string systemId, CancellationToken cancellationToken = default)
+    public async Task<bool> ClearAvatarAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -140,7 +141,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    public Task<string> GetOrCreateLinkTokenAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<LinkToken> GetOrCreateLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -154,7 +155,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 && _systemByLinkToken.TryGetValue(existingToken, out var existingEntry)
                 && existingEntry.ExpiresAt > now)
             {
-                return Task.FromResult(existingToken);
+                return Task.FromResult(new LinkToken(existingToken));
             }
 
             if (!string.IsNullOrWhiteSpace(existingToken))
@@ -167,11 +168,11 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             _linkTokenBySystem[systemKey] = token;
             _systemByLinkToken[token] = new LinkTokenEntry(scopedSystemId, now.Add(LinkTokenTtl));
 
-            return Task.FromResult(token);
+            return Task.FromResult(new LinkToken(token));
         }
     }
 
-    public Task<string?> GetLinkTokenAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<LinkToken?> GetLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -184,7 +185,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 && _systemByLinkToken.TryGetValue(token, out var entry)
                 && entry.ExpiresAt > now)
             {
-                return Task.FromResult<string?>(token);
+                return Task.FromResult<LinkToken?>(new LinkToken(token));
             }
 
             if (!string.IsNullOrWhiteSpace(token))
@@ -193,40 +194,40 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 _systemByLinkToken.TryRemove(token, out _);
             }
 
-            return Task.FromResult<string?>(null);
+            return Task.FromResult<LinkToken?>(null);
         }
     }
 
-    public Task<string?> ResolveSystemIdByLinkTokenAsync(string linkToken, CancellationToken cancellationToken = default)
+    public Task<SystemId?> ResolveSystemIdByLinkTokenAsync(LinkToken linkToken, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(linkToken))
+        if (string.IsNullOrWhiteSpace(linkToken.Value))
         {
-            return Task.FromResult<string?>(null);
+            return Task.FromResult<SystemId?>(null);
         }
 
         var now = DateTimeOffset.UtcNow;
         lock (_linkTokenLock)
         {
-            if (_systemByLinkToken.TryGetValue(linkToken, out var entry) && entry.ExpiresAt > now)
+            if (_systemByLinkToken.TryGetValue(linkToken.Value, out var entry) && entry.ExpiresAt > now)
             {
-                return Task.FromResult<string?>(entry.ScopedSystemId);
+                return Task.FromResult<SystemId?>(new SystemId(entry.ScopedSystemId));
             }
 
-            _systemByLinkToken.TryRemove(linkToken, out _);
+            _systemByLinkToken.TryRemove(linkToken.Value, out _);
             foreach (var item in _linkTokenBySystem)
             {
-                if (string.Equals(item.Value, linkToken, StringComparison.Ordinal))
+                if (string.Equals(item.Value, linkToken.Value, StringComparison.Ordinal))
                 {
                     _linkTokenBySystem.TryRemove(item.Key, out _);
                     break;
                 }
             }
 
-            return Task.FromResult<string?>(null);
+            return Task.FromResult<SystemId?>(null);
         }
     }
 
-    public Task<bool> ClearLinkTokenAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<bool> ClearLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -243,34 +244,36 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }
     }
 
-    public async Task<string?> FindSystemIdByDiscordIdAsync(string discordId, CancellationToken cancellationToken = default)
-        => await FindOrCreateSystemIdByRegistryColumnAsync("discord_id", discordId, cancellationToken);
+    public async Task<SystemId?> FindSystemIdByDiscordIdAsync(string discordId, CancellationToken cancellationToken = default)
+        => ToSystemId(await FindOrCreateSystemIdByRegistryColumnAsync("discord_id", discordId, cancellationToken));
 
-    public async Task<string?> FindSystemIdByEmailAsync(string email, CancellationToken cancellationToken = default)
-        => await FindOrCreateSystemIdByRegistryColumnAsync("email", email, cancellationToken);
+    public async Task<SystemId?> FindSystemIdByEmailAsync(string email, CancellationToken cancellationToken = default)
+        => ToSystemId(await FindOrCreateSystemIdByRegistryColumnAsync("email", email, cancellationToken));
 
-    public async Task<string?> FindSystemIdByAppleIdAsync(string appleId, CancellationToken cancellationToken = default)
-        => await FindOrCreateSystemIdByRegistryColumnAsync("apple_id", appleId, cancellationToken);
+    public async Task<SystemId?> FindSystemIdByAppleIdAsync(string appleId, CancellationToken cancellationToken = default)
+        => ToSystemId(await FindOrCreateSystemIdByRegistryColumnAsync("apple_id", appleId, cancellationToken));
 
-    public Task<AccountLinkResult> LinkDiscordToUserAsync(string systemId, string discordId, CancellationToken cancellationToken = default)
+    private static SystemId? ToSystemId(string? raw) => raw is null ? null : new SystemId(raw);
+
+    public Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, string discordId, CancellationToken cancellationToken = default)
         => LinkIdentityAsync(systemId, "discord_id", discordId, cancellationToken);
 
-    public Task<AccountLinkResult> LinkEmailToUserAsync(string systemId, string email, CancellationToken cancellationToken = default)
+    public Task<AccountLinkResult> LinkEmailToUserAsync(SystemId systemId, string email, CancellationToken cancellationToken = default)
         => LinkIdentityAsync(systemId, "email", email, cancellationToken);
 
-    public Task<AccountLinkResult> LinkAppleToUserAsync(string systemId, string appleId, CancellationToken cancellationToken = default)
+    public Task<AccountLinkResult> LinkAppleToUserAsync(SystemId systemId, string appleId, CancellationToken cancellationToken = default)
         => LinkIdentityAsync(systemId, "apple_id", appleId, cancellationToken);
 
-    public Task<bool> UnlinkDiscordAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
         => UnlinkIdentityAsync(systemId, "discord_id", cancellationToken);
 
-    public Task<bool> UnlinkEmailAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<bool> UnlinkEmailAsync(SystemId systemId, CancellationToken cancellationToken = default)
         => UnlinkIdentityAsync(systemId, "email", cancellationToken);
 
-    public Task<bool> UnlinkAppleAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<bool> UnlinkAppleAsync(SystemId systemId, CancellationToken cancellationToken = default)
         => UnlinkIdentityAsync(systemId, "apple_id", cancellationToken);
 
-    public async Task<bool> DeleteAsync(string systemId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -310,7 +313,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(string systemId, CancellationToken cancellationToken = default)
+    public async Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -330,24 +333,16 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             }
 
             return new AccountPublicProfileReadModel(
-                normalizedSystemId,
+                new SystemId(normalizedSystemId),
                 profile.GetValue<string?>("username"),
                 profile.GetValue<string?>("description"),
                 profile.GetValue<string?>("avatar_url"),
-                ResolveAvatarSource(profile.GetValue<short?>("avatar_source")),
+                AvatarSourceExtensions.TryFromCode(profile.GetValue<short?>("avatar_source")),
                 profile.GetValue<string?>("discord_id"),
                 profile.GetValue<string?>("email"),
                 profile.GetValue<string?>("apple_id"));
         }, _options, cancellationToken);
     }
-
-    private static AvatarSource? ResolveAvatarSource(short? value)
-        => value switch
-        {
-            (short)AvatarSource.External => AvatarSource.External,
-            (short)AvatarSource.Local    => AvatarSource.Local,
-            _ => null
-        };
 
     private async Task<string?> TryFindSystemIdByRegistryColumnAsync(string columnName, string value, CancellationToken cancellationToken)
     {
@@ -453,7 +448,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         return normalized;
     }
 
-    private async Task<AccountLinkResult> LinkIdentityAsync(string systemId, string columnName, string value, CancellationToken cancellationToken)
+    private async Task<AccountLinkResult> LinkIdentityAsync(SystemId systemId, string columnName, string value, CancellationToken cancellationToken)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -516,7 +511,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    private async Task<bool> UnlinkIdentityAsync(string systemId, string columnName, CancellationToken cancellationToken)
+    private async Task<bool> UnlinkIdentityAsync(SystemId systemId, string columnName, CancellationToken cancellationToken)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {

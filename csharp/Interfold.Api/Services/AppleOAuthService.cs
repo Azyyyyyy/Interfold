@@ -1,4 +1,7 @@
+using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using Interfold.Api.Services.OAuth;
 using Interfold.Contracts.Configuration;
 using Microsoft.Extensions.Options;
 
@@ -55,14 +58,8 @@ public sealed class AppleOAuthService
                 return null;
             }
 
-            var tokenJson = await tokenResponse.Content.ReadAsStringAsync(cancellationToken);
-            using var tokenDoc = JsonDocument.Parse(tokenJson);
-            if (!tokenDoc.RootElement.TryGetProperty("id_token", out var idTokenProp))
-            {
-                return null;
-            }
-
-            return ExtractSubFromJwt(idTokenProp.GetString());
+            var tokenPayload = await tokenResponse.Content.ReadFromJsonAsync<OAuthTokenResponse>(cancellationToken);
+            return ExtractSubFromJwt(tokenPayload?.IdToken);
         }
         catch
         {
@@ -86,18 +83,19 @@ public sealed class AppleOAuthService
         try
         {
             var payloadBytes = Base64UrlDecode(parts[1]);
-            using var payloadDoc = JsonDocument.Parse(payloadBytes);
-            if (payloadDoc.RootElement.TryGetProperty("sub", out var subProp))
-            {
-                return subProp.GetString();
-            }
-
-            return null;
+            var payload = JsonSerializer.Deserialize<AppleIdTokenPayload>(payloadBytes);
+            return payload?.Sub;
         }
         catch
         {
             return null;
         }
+    }
+
+    private sealed record AppleIdTokenPayload
+    {
+        [JsonPropertyName("sub")]
+        public string? Sub { get; init; }
     }
 
     private static byte[] Base64UrlDecode(string input)

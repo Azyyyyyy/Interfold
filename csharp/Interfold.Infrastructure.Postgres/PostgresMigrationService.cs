@@ -49,8 +49,8 @@ public sealed class PostgresMigrationService(
         CancellationToken cancellationToken)
     {
         // Build admin connection from app connection + admin credentials from secrets store
-        var adminUsername = await secretsStore.GetAsync("postgres:admin_username", cancellationToken);
-        var adminPassword = await secretsStore.GetAsync("postgres:admin_password", cancellationToken);
+        var adminUsername = await secretsStore.GetAsync(SecretsStoreKeys.PostgresAdminUsername, cancellationToken);
+        var adminPassword = await secretsStore.GetAsync(SecretsStoreKeys.PostgresAdminPassword, cancellationToken);
         if (string.IsNullOrWhiteSpace(adminUsername) ||
             string.IsNullOrWhiteSpace(adminPassword) ||
             string.IsNullOrWhiteSpace(options.PostgresConnectionString))

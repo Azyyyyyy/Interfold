@@ -60,7 +60,7 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
             insertedAt));
 
         var endedAt = DateTimeOffset.UtcNow;
-        var endResult = await frontingRepo.EndAsync(systemId, alterIdInt, endedAt);
+        var endResult = await frontingRepo.EndAsync(new Interfold.Contracts.Ids.SystemId(systemId), new Interfold.Contracts.Ids.AlterId(alterIdInt), endedAt);
 
         // Pull every fronts_by_time row for this synthetic user. With the fix in place
         // GetCurrentFrontRowAsync returns null on the null time_start and EndAsync bails

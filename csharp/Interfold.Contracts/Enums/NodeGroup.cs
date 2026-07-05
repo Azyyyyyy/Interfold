@@ -1,9 +1,15 @@
+using System.Text.Json.Serialization;
+
 namespace Interfold.Contracts.Enums;
 
 /// <summary>
 /// The role a running node plays in the cluster.
 /// Maps directly to the legacy Elixir <c>NODE_GROUP</c> / <c>FLY_PROCESS_GROUP</c> values.
 /// </summary>
+/// <remarks>
+/// JSON wire values (lowercase enum name): <c>"primary"</c>, <c>"auxiliary"</c>, <c>"sidecar"</c>.
+/// </remarks>
+[JsonConverter(typeof(LowerCaseEnumJsonConverter<NodeGroup>))]
 public enum NodeGroup
 {
     /// <summary>

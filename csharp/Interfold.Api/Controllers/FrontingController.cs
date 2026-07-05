@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using Interfold.Api.Models;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Fronting;
 using Interfold.Api.Controllers.Base;
+using Interfold.Contracts;
 
 namespace Interfold.Api.Controllers;
 
@@ -53,7 +55,7 @@ public sealed class FrontingController : InterfoldControllerBase
             OperationIds.FrontBulkUpdate,
             Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(req.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: payload
         );
@@ -64,21 +66,21 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("start")]
     public async Task<Response<FrontStartedResponse>> Start([FromBody] FrontStartRequest req, CancellationToken ct)
     {
-        var alterId = req.ResolveAlterId();
+        var alterId = req.Id ?? new AlterId(0);
         await CheckAlterId(alterId);
 
         var envelope = new CommandEnvelope<StartFrontCommand>(
             OperationIds.FrontStart, Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(req.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new StartFrontCommand(alterId, req.Comment)
         );
 
         var execution = await _startHandler.HandleAsync(envelope, ct);
-        var response = CommandCreated(execution, r => new FrontStartedResponse(r.FrontId!), r => r?.Replay);
+        var response = CommandCreated(execution, r => new FrontStartedResponse(r.FrontId!.Value), r => r?.Replay);
 
-        if (response.IsT0 && !string.IsNullOrWhiteSpace(response.AsT0.Data.FrontId))
+        if (response.IsT0 && !string.IsNullOrWhiteSpace(response.AsT0.Data.FrontId.Value))
         {
             Response.Headers.Location = $"/api/systems/me/front/{response.AsT0.Data.FrontId}";
         }
@@ -89,13 +91,13 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("end")]
     public async Task<Response> End([FromBody] FrontEndRequest req, CancellationToken ct)
     {
-        var alterId = req.ResolveAlterId();
+        var alterId = req.Id ?? new AlterId(0);
         await CheckAlterId(alterId);
 
         var envelope = new CommandEnvelope<EndFrontCommand>(
             OperationIds.FrontEnd, Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(req.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new EndFrontCommand(alterId)
         );
@@ -106,14 +108,14 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("set")]
     public async Task<Response> Set([FromBody] FrontSetRequest req, CancellationToken ct)
     {
-        var alterId = req.ResolveAlterId();
+        var alterId = req.Id ?? new AlterId(0);
         await CheckAlterId(alterId);
 
         var envelope = new CommandEnvelope<SetFrontCommand>(
             OperationIds.FrontSet,
             Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(req.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new SetFrontCommand(alterId, req.Comment)
         );
@@ -124,12 +126,13 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("primary")]
     public async Task<Response> Primary([FromBody] FrontPrimaryRequest req, CancellationToken ct)
     {
-        var alterId = req.ResolveAlterId();
+        // null legitimately clears the primary front, so no CheckAlterId here.
+        var alterId = req.Id;
 
         var envelope = new CommandEnvelope<SetPrimaryFrontCommand>(
             OperationIds.FrontPrimary, Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(req.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new SetPrimaryFrontCommand(alterId)
         );
@@ -146,7 +149,7 @@ public sealed class FrontingController : InterfoldControllerBase
         if (!long.TryParse(endAnchor, out var unixEnd))
             return new ErrorResponse(
                 "Invalid end anchor. Please pass a valid Unix timestamp.",
-                "invalid_end_anchor",
+                ErrorCodes.InvalidEndAnchor,
                 System.Net.HttpStatusCode.BadRequest);
 
         DateTimeOffset end;
@@ -158,7 +161,7 @@ public sealed class FrontingController : InterfoldControllerBase
         {
             return new ErrorResponse(
                 "Invalid end anchor. Please pass a valid Unix timestamp.",
-                "invalid_end_anchor",
+                ErrorCodes.InvalidEndAnchor,
                 System.Net.HttpStatusCode.BadRequest);
         }
 
@@ -176,7 +179,7 @@ public sealed class FrontingController : InterfoldControllerBase
         if (!long.TryParse(startAnchor, out var unixStart) || !long.TryParse(endAnchor, out var unixEnd))
             return new ErrorResponse(
                 "Invalid start or end anchor. Please pass valid Unix timestamps.",
-                "invalid_anchor",
+                ErrorCodes.InvalidAnchor,
                 System.Net.HttpStatusCode.BadRequest);
 
         DateTimeOffset start;
@@ -190,7 +193,7 @@ public sealed class FrontingController : InterfoldControllerBase
         {
             return new ErrorResponse(
                 "Invalid start or end anchor. Please pass valid Unix timestamps.",
-                "invalid_anchor",
+                ErrorCodes.InvalidAnchor,
                 System.Net.HttpStatusCode.BadRequest);
         }
 
@@ -200,22 +203,22 @@ public sealed class FrontingController : InterfoldControllerBase
 
     //TODO: To ensure route works as expected
     [HttpGet("{id}")]
-    public async Task<Response<FrontActiveReadModel>> Show(string id, CancellationToken ct)
+    public async Task<Response<FrontActiveReadModel>> Show(FrontId id, CancellationToken ct)
     {
         var front = await _repository.GetActiveByFrontIdAsync(PrincipalId, id, ct);
         return front is null
-            ? new ErrorResponse("Front not found.", "front_not_found", System.Net.HttpStatusCode.NotFound)
+            ? new ErrorResponse("Front not found.", ErrorCodes.FrontNotFound, System.Net.HttpStatusCode.NotFound)
             : new SuccessResponse<FrontActiveReadModel>(front);
     }
 
     [HttpDelete("{id}")]
-    public async Task<Response> Delete(string id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Delete(FrontId id, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         var envelope = new CommandEnvelope<DeleteFrontByIdCommand>(
             OperationIds.FrontDelete,
             Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(req?.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new DeleteFrontByIdCommand(id)
         );
@@ -224,13 +227,13 @@ public sealed class FrontingController : InterfoldControllerBase
     }
 
     [HttpPost("{id}/comment")]
-    public async Task<Response> UpdateComment(string id, [FromBody] FrontCommentRequest req, CancellationToken ct)
+    public async Task<Response> UpdateComment(FrontId id, [FromBody] FrontCommentRequest req, CancellationToken ct)
     {
         var envelope = new CommandEnvelope<UpdateFrontCommentCommand>(
             OperationIds.FrontCommentUpdate,
             Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(req.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new UpdateFrontCommentCommand(id, req.Comment)
         );

@@ -1,12 +1,13 @@
 using System.Net;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Contracts.Operations;
 
 public sealed record CommandEnvelope<TPayload>(
-    string OperationId,
+    OperationId OperationId,
     Guid CommandId,
-    string PrincipalId,
-    string IdempotencyKey,
+    SystemId PrincipalId,
+    IdempotencyKey IdempotencyKey,
     DateTimeOffset? OccurredAt,
     TPayload Payload,
     HttpStatusCode? SuccessStatusCode = null

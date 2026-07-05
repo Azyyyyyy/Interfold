@@ -158,7 +158,7 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
         var now = DateTimeOffset.UtcNow;
         var expiresAt = now.AddDays(1);
 
-        return AuthHelper.CreateToken(authConfig, expiresAt, now, jti, systemId);
+        return AuthHelper.CreateToken(authConfig, expiresAt, now, new Interfold.Contracts.Ids.Jti(jti), new Interfold.Contracts.Ids.SystemId(systemId));
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

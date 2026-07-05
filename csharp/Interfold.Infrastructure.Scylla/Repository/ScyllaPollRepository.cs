@@ -1,10 +1,13 @@
 using System.Text.Json;
 using Cassandra;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
+using Interfold.Contracts.Models;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
@@ -38,7 +41,7 @@ public sealed class ScyllaPollRepository : IPollRepository
         _options = options;
     }
 
-    public async Task<IReadOnlyList<PollReadModel>> ListAsync(string systemId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<PollReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -53,18 +56,18 @@ public sealed class ScyllaPollRepository : IPollRepository
 
             var rows = await session.ExecuteAsync(query);
             // VERIFIED: 2026-03-17 Elixir polls.ex get_polls() has no explicit sort → database order (ascending). Matches C# OrderBy.
-            return rows.Select(ToReadModel).OrderBy(p => p.Id, StringComparer.Ordinal).ToList();
+            return rows.Select(ToReadModel).OrderBy(p => p.Id.Value, StringComparer.Ordinal).ToList();
         }, _options, cancellationToken);
     }
 
-    public async Task<PollReadModel?> GetAsync(string systemId, string pollId, CancellationToken cancellationToken = default)
+    public async Task<PollReadModel?> GetAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            if (!TryParseUuid(pollId, out var pollGuid)) return null;
+            if (!TryParseUuid(pollId.Value, out var pollGuid)) return null;
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, title, description, type, data, time_end, inserted_at, updated_at FROM {keyspace}.polls WHERE user_id = ? AND id = ? LIMIT 1",
@@ -77,9 +80,9 @@ public sealed class ScyllaPollRepository : IPollRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<string?> CreateAsync(string systemId, CreatePollCommand command, CancellationToken cancellationToken = default)
+    public async Task<PollId?> CreateAsync(SystemId systemId, CreatePollCommand command, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await DatabaseTransientRetry.ExecuteScyllaAsync<PollId?>(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
@@ -99,15 +102,15 @@ public sealed class ScyllaPollRepository : IPollRepository
             );
 
             await session.ExecuteAsync(insert);
-            return pollGuid.ToString("N");
+            return new PollId(pollGuid.ToString("N"));
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> ExistsAsync(string systemId, string pollId, CancellationToken cancellationToken = default)
+    public async Task<bool> ExistsAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(pollId, out var pollGuid))
+            if (!TryParseUuid(pollId.Value, out var pollGuid))
             {
                 return false;
             }
@@ -127,11 +130,11 @@ public sealed class ScyllaPollRepository : IPollRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> UpdateAsync(string systemId, UpdatePollCommand command, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateAsync(SystemId systemId, UpdatePollCommand command, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(command.Id, out var pollGuid))
+            if (!TryParseUuid(command.Id.Value, out var pollGuid))
             {
                 return false;
             }
@@ -191,11 +194,11 @@ public sealed class ScyllaPollRepository : IPollRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> DeleteAsync(string systemId, string pollId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(pollId, out var pollGuid))
+            if (!TryParseUuid(pollId.Value, out var pollGuid))
             {
                 return false;
             }
@@ -224,12 +227,6 @@ public sealed class ScyllaPollRepository : IPollRepository
         return Guid.TryParse(value, out guid);
     }
 
-    internal static short ToPollCode(string type)
-        => PollTypeToCode.TryGetValue(type, out var code) ? code : (short)0;
-
-    internal static string ToPollType(short code)
-        => PollCodeToType.TryGetValue(code, out var type) ? type : "vote";
-
     private static async Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, Guid pollGuid)
     {
         var query = new SimpleStatement(
@@ -242,54 +239,45 @@ public sealed class ScyllaPollRepository : IPollRepository
         return rows.Any();
     }
 
+    internal static short ToPollCode(PollType type) => type.ToCode();
+
+    internal static PollType ToPollType(short code) => PollTypeExtensions.FromCode(code);
+
     private static DateTimeOffset? ParseTime(string? iso)
     {
         if (string.IsNullOrWhiteSpace(iso)) return null;
         return DateTimeOffset.TryParse(iso, out var value) ? value : null;
     }
 
-    public async Task RemoveAlterFromPollsAsync(string systemId, int alterId, CancellationToken cancellationToken = default)
+    // The data blob's confirmed shape (see PollDataJson) keeps per-alter votes in the
+    // top-level `responses` array as {"alter_id":<int>,...} entries; deleting an alter
+    // filters those entries while leaving every other member untouched.
+    public async Task RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
         var polls = await ListAsync(systemId, cancellationToken);
-        var alterIdString = alterId.ToString();
 
         foreach (var poll in polls)
         {
-            var data = poll.Data;
-            if (data.ValueKind != JsonValueKind.Object) continue;
-
-            var changed = false;
-            var newEntries = new Dictionary<string, JsonElement>();
-
-            foreach (var property in data.EnumerateObject())
+            if (!PollDataJson.TryRemoveAlterResponses(poll.Data, alterId, out var newData))
             {
-                if (property.Name == alterIdString)
-                {
-                    changed = true;
-                    continue;
-                }
-                newEntries[property.Name] = property.Value;
+                continue;
             }
 
-            if (changed)
-            {
-                var newData = JsonSerializer.SerializeToElement(newEntries);
-                await UpdateAsync(systemId, new UpdatePollCommand(
-                    poll.Id,
-                    null,
-                    null,
-                    null,
-                    false,
-                    newData
-                ), cancellationToken);
-            }
+            await UpdateAsync(systemId, new UpdatePollCommand(
+                poll.Id,
+                null,
+                null,
+                null,
+                false,
+                newData
+            ), cancellationToken);
         }
     }
 
     private static PollReadModel ToReadModel(Row row)
         => new(
-            row.GetValue<Guid>("id").ToString("N"),
-            row.GetValue<string>("user_id"),
+            new PollId(row.GetValue<Guid>("id").ToString("N")),
+            new SystemId(row.GetValue<string>("user_id")),
             row.GetValue<string>("title"),
             row.GetValue<string?>("description"),
             ToPollType(row.GetValue<short>("type")),

@@ -94,7 +94,7 @@ builder.Services.AddInterfoldDomainHandlers();
 // Startup checks use a longer timeout (30s) — databases may still be initializing at boot.
 var healthChecks = builder.Services.AddHealthChecks();
 
-if (persistenceConfig.Mode == "scylla-postgres")
+if (persistenceConfig.Mode == PersistenceMode.ScyllaPostgres)
 {
     healthChecks.AddCheck<Interfold.Infrastructure.Scylla.ScyllaHealthChecker>(
         "scylla-ready", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));
@@ -115,7 +115,7 @@ builder.Services.AddTransient<HttpLoggingHandler>();
 builder.Services.AddHttpClient<GoogleOAuthService>();
 builder.Services.AddHttpClient<DiscordOAuthService>();
 builder.Services.AddHttpClient<AppleOAuthService>();
-builder.Services.AddHttpClient("SimplyPlural").AddHttpMessageHandler<HttpLoggingHandler>();
+builder.Services.AddHttpClient(HttpClientNames.SimplyPlural).AddHttpMessageHandler<HttpLoggingHandler>();
 builder.Services.AddSingleton<ISimplyPluralImportService, SimplyPluralImportService>();
 
 // Async-import worker stack. The queue itself is registered in
@@ -313,17 +313,18 @@ app.Use(async (context, next) =>
 {
     if (context.User?.Identity?.IsAuthenticated == true)
     {
-        if (context.User.FindFirst("jti")?.Value is { } jti && !string.IsNullOrWhiteSpace(jti))
+        if (context.User.FindFirst(JwtClaimNames.Jti)?.Value is { } jti && !string.IsNullOrWhiteSpace(jti))
         {
             var revocationRepository = context.RequestServices.GetRequiredService<IAuthTokenRevocationRepository>();
-            var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(jti, context.RequestAborted);
+            var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(new Interfold.Contracts.Ids.Jti(jti), context.RequestAborted);
             
             if (!isTokenValid)
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 context.Response.ContentType = "application/json";
-                var error = new { error = "Token has been revoked.", code = "token_revoked" };
-                var json = JsonSerializer.Serialize(error);
+                var error = new Interfold.Api.Models.ErrorResponse("Token has been revoked.", Interfold.Contracts.ErrorCodes.TokenRevoked);
+                // Web options keep the historical lowercase member names ("error"/"code").
+                var json = JsonSerializer.Serialize(error, JsonSerializerOptions.Web);
                 await context.Response.WriteAsync(json, context.RequestAborted);
                 return;
             }
@@ -349,7 +350,7 @@ app.Use(async (ctx, next) =>
 {
     ctx.Response.OnStarting(() =>
     {
-        ctx.Response.Headers["X-Interfold-Contract"] = "2026-03-v1";
+        ctx.Response.Headers[InterfoldHeaders.Contract] = "2026-03-v1";
         return Task.CompletedTask;
     });
     await next();

@@ -52,7 +52,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
     private readonly IImportJobQueue _queue;
     private readonly IImportOperationRepository _operations;
     private readonly IClusterEventBus _eventBus;
-    private readonly IReadOnlyDictionary<string, IImportJobRunner> _runners;
+    private readonly IReadOnlyDictionary<ImportOperationKind, IImportJobRunner> _runners;
     private readonly ILogger<ImportJobBackgroundService> _logger;
 
     public ImportJobBackgroundService(
@@ -68,7 +68,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
         // Materialise runners into a kind-keyed dictionary at startup so the per-job
         // resolve is an O(1) lookup. Duplicate kinds throw at startup rather than racing
         // at dispatch time — better to fail-fast on a misregistered DI graph.
-        _runners = runners.ToDictionary(r => r.Kind, StringComparer.Ordinal);
+        _runners = runners.ToDictionary(r => r.Kind);
         _logger = logger;
     }
 
@@ -115,7 +115,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
                     row.SystemId,
                     row.OperationId,
                     row.Kind,
-                    errorCode: "host_restart",
+                    errorCode: ImportErrorCode.HostRestart,
                     errorMessage: "Operation was running when the previous host shut down.",
                     cancellationToken).ConfigureAwait(false);
 
@@ -142,7 +142,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
                 item.Kind, item.OperationId);
             await _operations.MarkFailedAsync(
                 item.SystemId, item.OperationId, item.Kind,
-                errorCode: "no_runner",
+                errorCode: ImportErrorCode.NoRunner,
                 errorMessage: $"No IImportJobRunner is registered for kind '{item.Kind}'.",
                 cancellationToken).ConfigureAwait(false);
             await PublishFailureAsync(item.SystemId, item.Kind, cancellationToken).ConfigureAwait(false);
@@ -163,7 +163,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
                 // Pin the legacy "settings profile updated" signal for the SP path so any
                 // dependent client view (e.g. encryption status pill) refreshes — same
                 // semantics as the pre-async handler's emit-on-accept.
-                if (string.Equals(item.Kind, ImportOperationKinds.SimplyPlural, StringComparison.Ordinal))
+                if (item.Kind == ImportOperationKind.SimplyPlural)
                 {
                     await _eventBus.PublishAsync(
                         new SettingsProfileUpdatedEvent(item.SystemId, EmitUsernameUpdated: false),
@@ -178,7 +178,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
             {
                 await _operations.MarkFailedAsync(
                     item.SystemId, item.OperationId, item.Kind,
-                    outcome.ErrorCode ?? "import_failed",
+                    outcome.ErrorCode ?? ImportErrorCode.ImportFailed,
                     outcome.ErrorMessage,
                     cancellationToken).ConfigureAwait(false);
 
@@ -193,17 +193,17 @@ public sealed class ImportJobBackgroundService : BackgroundService
             // so the client receives a definitive frame instead of a never-resolving
             // spinner. The next startup's sweep will not double-process because the row
             // has already terminated here.
-            await TryMarkFailedSafelyAsync(item, "host_shutdown", "Worker was cancelled mid-job.").ConfigureAwait(false);
+            await TryMarkFailedSafelyAsync(item, ImportErrorCode.HostShutdown, "Worker was cancelled mid-job.").ConfigureAwait(false);
             throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[import-worker] Operation {OperationId} threw (kind={Kind}).", item.OperationId, item.Kind);
-            await TryMarkFailedSafelyAsync(item, "exception", ex.Message).ConfigureAwait(false);
+            await TryMarkFailedSafelyAsync(item, ImportErrorCode.Exception, ex.Message).ConfigureAwait(false);
         }
     }
 
-    private async Task TryMarkFailedSafelyAsync(ImportJobItem item, string errorCode, string errorMessage)
+    private async Task TryMarkFailedSafelyAsync(ImportJobItem item, ImportErrorCode errorCode, string errorMessage)
     {
         // Use CancellationToken.None for the terminal write — if the host token has just
         // fired we still want the operation row to land in a definite state and the slot
@@ -223,25 +223,25 @@ public sealed class ImportJobBackgroundService : BackgroundService
         }
     }
 
-    private ValueTask PublishSuccessAsync(string systemId, string kind, int alterCount, CancellationToken cancellationToken)
+    private ValueTask PublishSuccessAsync(Interfold.Contracts.Ids.SystemId systemId, ImportOperationKind kind, int alterCount, CancellationToken cancellationToken)
     {
         return kind switch
         {
-            ImportOperationKinds.SimplyPlural =>
+            ImportOperationKind.SimplyPlural =>
                 _eventBus.PublishAsync(new SimplyPluralImportCompletedEvent(systemId, alterCount), cancellationToken),
-            ImportOperationKinds.PluralKit =>
+            ImportOperationKind.PluralKit =>
                 _eventBus.PublishAsync(new PluralKitImportCompletedEvent(systemId, alterCount), cancellationToken),
             _ => ValueTask.CompletedTask,
         };
     }
 
-    private ValueTask PublishFailureAsync(string systemId, string kind, CancellationToken cancellationToken)
+    private ValueTask PublishFailureAsync(Interfold.Contracts.Ids.SystemId systemId, ImportOperationKind kind, CancellationToken cancellationToken)
     {
         return kind switch
         {
-            ImportOperationKinds.SimplyPlural =>
+            ImportOperationKind.SimplyPlural =>
                 _eventBus.PublishAsync(new SimplyPluralImportFailedEvent(systemId), cancellationToken),
-            ImportOperationKinds.PluralKit =>
+            ImportOperationKind.PluralKit =>
                 _eventBus.PublishAsync(new PluralKitImportFailedEvent(systemId), cancellationToken),
             _ => ValueTask.CompletedTask,
         };

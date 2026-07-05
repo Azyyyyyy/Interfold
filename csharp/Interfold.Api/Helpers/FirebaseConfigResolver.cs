@@ -4,7 +4,9 @@ using System.Text;
 using System.Text.Json;
 using Interfold.Api.Models;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Microsoft.AspNetCore.Http;
+using Interfold.Contracts;
 
 namespace Interfold.Api.Helpers;
 
@@ -46,23 +48,25 @@ public static class FirebaseConfigResolver
         FirebaseClientConfiguration configuration,
         string? platform)
     {
-        switch ((platform ?? string.Empty).Trim().ToLowerInvariant())
+        // The query value stays a raw string so an unknown platform produces the legacy
+        // invalid_platform 400 body rather than a model-binding failure.
+        switch (EnumWireExtensions.TryParseClientPlatform(platform))
         {
-            case "android":
+            case ClientPlatform.Android:
                 var android = configuration.Android;
                 if (android is null) return (null, Unavailable());
                 return (new FirebaseAndroidConfigResponse(
                     android.ApiKey, android.ApplicationId, android.ProjectId,
                     android.GcmSenderId, android.StorageBucket), null);
 
-            case "ios":
+            case ClientPlatform.Ios:
                 var ios = configuration.Ios;
                 if (ios is null) return (null, Unavailable());
                 return (new FirebaseIosConfigResponse(
                     ios.ApiKey, ios.GoogleAppId, ios.GcmSenderId, ios.ProjectId,
                     ios.StorageBucket, ios.BundleId, ios.ClientId), null);
 
-            case "web":
+            case ClientPlatform.Web:
                 var web = configuration.Web;
                 if (web is null) return (null, Unavailable());
                 return (new FirebaseWebConfigResponse(
@@ -72,7 +76,7 @@ public static class FirebaseConfigResolver
             default:
                 return (null, new ErrorResponse(
                     "Invalid platform. Expected one of: android, ios, web.",
-                    "invalid_platform",
+                    ErrorCodes.InvalidPlatform,
                     HttpStatusCode.BadRequest));
         }
     }

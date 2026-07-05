@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Util;
+using Interfold.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -27,11 +28,23 @@ internal static partial class PrerequisitesPhase
     /// Maps an operator's <see cref="Configuration.BootstrapConfig.DatabaseMode"/> value to the
     /// number of Scylla nodes the deployment will run on the host, for AIO sizing. Cassandra
     /// uses its own (non-Seastar) IO path so it doesn't count against the Seastar AIO budget.
+    /// Kept as a raw-string overload so <see cref="PeekScyllaNodeCountAsync"/> can size AIO from
+    /// the on-disk JSON before <c>ConfigPhase</c> has validated it.
     /// </summary>
-    internal static int ResolveScyllaNodeCount(string? databaseMode) => databaseMode switch
+    internal static int ResolveScyllaNodeCount(string? databaseMode)
+        // TryParseDatabaseMode returns null for unknown/malformed values; falling back to
+        // Single preserves the historical "anything else sizes for one node" behaviour.
+        => ResolveScyllaNodeCount(EnumWireExtensions.TryParseDatabaseMode(databaseMode) ?? DatabaseMode.Single);
+
+    /// <summary>
+    /// Typed overload used once <see cref="Configuration.BootstrapConfig.DatabaseMode"/> has been
+    /// validated. Same table as the raw-string version — kept separate so callers with a bound
+    /// enum don't have to round-trip through <c>ToWireValue()</c>.
+    /// </summary>
+    internal static int ResolveScyllaNodeCount(DatabaseMode databaseMode) => databaseMode switch
     {
-        "multi" => 7,
-        "cassandra" => 0,
+        DatabaseMode.Multi => 7,
+        DatabaseMode.Cassandra => 0,
         _ => 1,
     };
 

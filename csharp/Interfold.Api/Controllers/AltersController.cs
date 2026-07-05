@@ -6,6 +6,7 @@ using Interfold.Api.Helpers;
 using Interfold.Api.Models;
 using Interfold.Api.Services;
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
@@ -13,6 +14,7 @@ using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Alters;
 using Interfold.Api.Controllers.Base;
+using Interfold.Contracts;
 
 namespace Interfold.Api.Controllers;
 
@@ -40,24 +42,24 @@ public sealed class AltersController : InterfoldControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> List(CancellationToken ct)
+    public async Task<Response<IReadOnlyList<AlterReadModel>>> List(CancellationToken ct)
     {
         var alters = await _alterRepository.ListAsync(PrincipalId, ct);
-        return Ok(new { data = alters });
+        return new SuccessResponse<IReadOnlyList<AlterReadModel>>(alters);
     }
 
     [HttpGet("{alterId:int}")]
-    public async Task<IActionResult> Show(int alterId, CancellationToken ct)
+    public async Task<Response<AlterReadModel>> Show(AlterId alterId, CancellationToken ct)
     {
         await CheckAlterId(alterId);
         var alter = await _alterRepository.GetAsync(PrincipalId, alterId, ct);
         if (alter is null)
         {
-            return NotFound(new { error = "Alter not found.", code = "alter_not_found" });
+            return new ErrorResponse("Alter not found.", ErrorCodes.AlterNotFound, System.Net.HttpStatusCode.NotFound);
         }
 
         alter.AvatarUrl = QualifyAvatar(alter.AvatarUrl, alter.AvatarSource);
-        return Ok(new { data = alter });
+        return alter;
     }
 
     [HttpPost]
@@ -67,7 +69,7 @@ public sealed class AltersController : InterfoldControllerBase
         var envelope = new CommandEnvelope<CreateAlterCommand>(
             OperationIds.AlterCreate, Guid.NewGuid(),
             PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(req.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new CreateAlterCommand(req.Name, DateTimeOffset.UtcNow)
         );
@@ -80,14 +82,14 @@ public sealed class AltersController : InterfoldControllerBase
 
         var alter = await _alterRepository.GetAsync(principal, execution.Result!.AlterId, ct);
         if (alter is null)
-            return new ErrorResponse("An unknown error occurred.", "unknown_error", System.Net.HttpStatusCode.InternalServerError);
+            return new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, System.Net.HttpStatusCode.InternalServerError);
 
         Response.Headers.Location = $"/api/systems/me/alters/{execution.Result.AlterId}";
         return new SuccessResponse<AlterReadModel>(alter, System.Net.HttpStatusCode.Created, execution.Result.Replay);
     }
 
     [HttpPatch("{alterId:int}")]
-    public async Task<Response> Update(int alterId, [FromBody] UpdateAlterRequest req, CancellationToken ct)
+    public async Task<Response> Update(AlterId alterId, [FromBody] UpdateAlterRequest req, CancellationToken ct)
     {
         await CheckAlterId(alterId);
         var fields = req.Fields?.Select(f => new AlterFieldCommand(f.Id, f.Value)).ToList();
@@ -116,7 +118,7 @@ public sealed class AltersController : InterfoldControllerBase
         var envelope = new CommandEnvelope<UpdateAlterCommand>(
             OperationIds.AlterUpdate, Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(req.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: payload
         );
@@ -126,13 +128,13 @@ public sealed class AltersController : InterfoldControllerBase
 
     //TODO: To ensure route works as expected - check if we delete alter journal entries, unattach from gobal journals when an alter is deleted and delete them from polls
     [HttpDelete("{alterId:int}")]
-    public async Task<Response> Delete(int alterId, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Delete(AlterId alterId, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         await CheckAlterId(alterId);
         var envelope = new CommandEnvelope<DeleteAlterCommand>(
             OperationIds.AlterDelete, Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(req?.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new DeleteAlterCommand(alterId)
         );
@@ -141,7 +143,7 @@ public sealed class AltersController : InterfoldControllerBase
 
     [HttpPut("{alterId:int}/avatar")]
     [Consumes("multipart/form-data")]
-    public async Task<Response> UploadAvatarMultipart(int alterId, CancellationToken ct)
+    public async Task<Response> UploadAvatarMultipart(AlterId alterId, CancellationToken ct)
     {
         await CheckAlterId(alterId);
         var principal = PrincipalId;
@@ -151,9 +153,9 @@ public sealed class AltersController : InterfoldControllerBase
         if (avatarStream is null)
         {
             if (upload.EmptyFilePart)
-                return new ErrorResponse("Avatar file is empty.", "avatar_file_empty", System.Net.HttpStatusCode.BadRequest);
+                return new ErrorResponse("Avatar file is empty.", ErrorCodes.AvatarFileEmpty, System.Net.HttpStatusCode.BadRequest);
 
-            return new ErrorResponse("No avatar file provided.", "avatar_file_required", System.Net.HttpStatusCode.BadRequest);
+            return new ErrorResponse("No avatar file provided.", ErrorCodes.AvatarFileRequired, System.Net.HttpStatusCode.BadRequest);
         }
 
         string avatarUrl;
@@ -166,7 +168,7 @@ public sealed class AltersController : InterfoldControllerBase
         }
         catch
         {
-            return new ErrorResponse("An error occurred while uploading the file.", "unknown_error", System.Net.HttpStatusCode.InternalServerError);
+            return new ErrorResponse("An error occurred while uploading the file.", ErrorCodes.UnknownError, System.Net.HttpStatusCode.InternalServerError);
         }
 
         string? currentAvatarUrl = null;
@@ -204,7 +206,7 @@ public sealed class AltersController : InterfoldControllerBase
             OperationIds.AlterAvatarUpload,
             Guid.NewGuid(),
             PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(upload.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: payload
         );
@@ -238,12 +240,12 @@ public sealed class AltersController : InterfoldControllerBase
     /// </summary>
     [HttpPut("{alterId:int}/avatar")]
     [Consumes("application/json")]
-    public async Task<Response> UploadAvatarByUrl(int alterId, [FromBody] AvatarUrlUploadRequest req, CancellationToken ct)
+    public async Task<Response> UploadAvatarByUrl(AlterId alterId, [FromBody] AvatarUrlUploadRequest req, CancellationToken ct)
     {
         await CheckAlterId(alterId);
 
         if (req is null)
-            return new ErrorResponse("Avatar URL payload required.", "avatar_url_invalid", System.Net.HttpStatusCode.BadRequest);
+            return new ErrorResponse("Avatar URL payload required.", ErrorCodes.AvatarUrlInvalid, System.Net.HttpStatusCode.BadRequest);
 
         if (!AvatarUrlValidator.TryNormalize(req.Url, out var url, out var err))
             return new ErrorResponse("Invalid avatar URL.", err, System.Net.HttpStatusCode.BadRequest);
@@ -284,7 +286,7 @@ public sealed class AltersController : InterfoldControllerBase
             OperationIds.AlterAvatarUpload,
             Guid.NewGuid(),
             PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(req.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: payload
         );
@@ -311,11 +313,10 @@ public sealed class AltersController : InterfoldControllerBase
 
     private async Task<AvatarUploadPayload> ResolveMultipartUploadAsync(CancellationToken ct)
     {
-        string? idempotencyKey = null;
         var emptyFilePart = false;
 
         if (Request.Body is null)
-            return new AvatarUploadPayload(null, idempotencyKey, emptyFilePart);
+            return new AvatarUploadPayload(null, emptyFilePart);
 
         Request.EnableBuffering();
 
@@ -326,12 +327,12 @@ public sealed class AltersController : InterfoldControllerBase
             || !mediaType.MediaType.HasValue
             || !mediaType.MediaType.Value.StartsWith("multipart/", StringComparison.OrdinalIgnoreCase))
         {
-            return new AvatarUploadPayload(null, idempotencyKey, emptyFilePart);
+            return new AvatarUploadPayload(null, emptyFilePart);
         }
 
         var boundary = HeaderUtilities.RemoveQuotes(mediaType.Boundary).Value;
         if (string.IsNullOrWhiteSpace(boundary))
-            return new AvatarUploadPayload(null, idempotencyKey, emptyFilePart);
+            return new AvatarUploadPayload(null, emptyFilePart);
 
         try
         {
@@ -343,7 +344,6 @@ public sealed class AltersController : InterfoldControllerBase
                 if (!ContentDispositionHeaderValue.TryParse(section.ContentDisposition, out var disposition))
                     continue;
 
-                var fieldName = HeaderUtilities.RemoveQuotes(disposition.Name).Value;
                 var fileName = HeaderUtilities.RemoveQuotes(disposition.FileNameStar).Value
                                ?? HeaderUtilities.RemoveQuotes(disposition.FileName).Value;
 
@@ -359,28 +359,20 @@ public sealed class AltersController : InterfoldControllerBase
                     }
 
                     payload.Position = 0;
-                    return new AvatarUploadPayload(payload, idempotencyKey, emptyFilePart);
+                    return new AvatarUploadPayload(payload, emptyFilePart);
                 }
-
-                if (string.IsNullOrWhiteSpace(fieldName))
-                    continue;
-
-                using var readerText = new StreamReader(section.Body, Encoding.UTF8, true, 1024, leaveOpen: true);
-                var value = (await readerText.ReadToEndAsync()).Trim();
-                if (fieldName.Equals("idempotencyKey", StringComparison.OrdinalIgnoreCase))
-                    idempotencyKey = string.IsNullOrWhiteSpace(value) ? null : value;
             }
         }
         catch (IOException)
         {
-            return new AvatarUploadPayload(null, idempotencyKey, emptyFilePart);
+            return new AvatarUploadPayload(null, emptyFilePart);
         }
 
-        return new AvatarUploadPayload(null, idempotencyKey, emptyFilePart);
+        return new AvatarUploadPayload(null, emptyFilePart);
     }
 
     [HttpDelete("{alterId:int}/avatar")]
-    public async Task<Response> DeleteAvatar(int alterId, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> DeleteAvatar(AlterId alterId, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         await CheckAlterId(alterId);
         var principal = PrincipalId;
@@ -412,7 +404,7 @@ public sealed class AltersController : InterfoldControllerBase
             OperationIds.AlterAvatarDelete,
             Guid.NewGuid(),
             PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(req?.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: payload
         );

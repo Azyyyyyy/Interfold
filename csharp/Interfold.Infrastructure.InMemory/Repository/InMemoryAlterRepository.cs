@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
@@ -12,7 +13,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 {
     private sealed class AlterState
     {
-        public required int AlterId { get; init; }
+        public required AlterId AlterId { get; init; }
         public string? Alias { get; set; }
         public string? AvatarUrl { get; set; }
         public AvatarSource? AvatarSource { get; set; }
@@ -29,7 +30,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     }
 
     private readonly IRegionContext _regionContext;
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<int, AlterState>> _bySystem = new();
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<AlterId, AlterState>> _bySystem = new();
     private readonly ConcurrentDictionary<string, int> _nextIdBySystem = new();
     private readonly IFriendshipRepository? _friendships;
     private readonly ISettingsFieldRepository? _settingsFields;
@@ -47,15 +48,15 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         _polls = polls;
     }
 
-    public Task<int?> CreateAsync(
-        string systemId,
+    public Task<AlterId?> CreateAsync(
+        SystemId systemId,
         CreateAlterCommand command,
         CancellationToken cancellationToken = default
     )
     {
         var systemKey = GetSystemKey(systemId);
-        var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<int, AlterState>());
-        var next = _nextIdBySystem.AddOrUpdate(systemKey, 1, (_, current) => current + 1);
+        var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<AlterId, AlterState>());
+        var next = new AlterId(_nextIdBySystem.AddOrUpdate(systemKey, 1, (_, current) => current + 1));
 
         var created = store.TryAdd(next, new AlterState
         {
@@ -63,10 +64,10 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             Name = command.Name
         });
 
-        return Task.FromResult<int?>(created ? next : null);
+        return Task.FromResult<AlterId?>(created ? next : null);
     }
 
-    public Task<bool> ExistsAsync(string systemId, int alterId, CancellationToken cancellationToken = default)
+    public Task<bool> ExistsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         var exists = _bySystem.TryGetValue(systemKey, out var store) && store.ContainsKey(alterId);
@@ -74,7 +75,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     }
 
     public Task<bool> UpdateAsync(
-        string systemId,
+        SystemId systemId,
         UpdateAlterCommand command,
         CancellationToken cancellationToken = default
     )
@@ -116,9 +117,9 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             existing.ProxyName = command.ProxyName;
         }
 
-        if (!string.IsNullOrWhiteSpace(command.SecurityLevel))
+        if (command.SecurityLevel is not null)
         {
-            existing.VisibilityLevel = ParseVisibilityLevel(command.SecurityLevel);
+            existing.VisibilityLevel = command.SecurityLevel.Value;
         }
 
         if (command.ClearAvatar)
@@ -138,7 +139,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         {
             foreach (var field in command.Fields)
             {
-                existing.Fields[field.Id] = field.Value;
+                existing.Fields[field.Id.Value] = field.Value;
             }
         }
 
@@ -160,7 +161,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         return Task.FromResult(true);
     }
 
-    public async Task<bool> DeleteAsync(string systemId, int alterId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
 
@@ -178,7 +179,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         return removed;
     }
 
-    public async Task<IReadOnlyList<AlterReadModel>> ListAsync(string systemId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<AlterReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store))
@@ -187,10 +188,10 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         }
 
         // Owner can be treated as trusted_friend for visibility resolution
-        var definitions = await ResolveVisibleDefinitionsAsync(systemId, "trusted_friend", cancellationToken);
+        var definitions = await ResolveVisibleDefinitionsAsync(systemId, FriendshipLevel.TrustedFriend, cancellationToken);
 
         var rows = store.Values
-            .OrderBy(x => x.AlterId)
+            .OrderBy(x => x.AlterId.Value)
             .Select(x => new AlterReadModel(
                 x.AlterId,
                 x.Name,
@@ -212,8 +213,8 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     }
 
     public async Task<IReadOnlyList<BareAlter>> ListGuardedAsync(
-        string systemId,
-        string? viewerSystemId,
+        SystemId systemId,
+        SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
         var friendshipLevel = await ResolveFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
@@ -226,8 +227,8 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         }
 
         var rows = store.Values
-            .Where(x => CanView(friendshipLevel, x.VisibilityLevel))
-            .OrderBy(x => x.AlterId)
+            .Where(x => x.VisibilityLevel.CanBeViewedBy(friendshipLevel))
+            .OrderBy(x => x.AlterId.Value)
             .Select(x => new BareAlter(
                 x.AlterId,
                 x.Name,
@@ -242,7 +243,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         return rows;
     }
 
-    public async Task<AlterReadModel?> GetAsync(string systemId, int alterId, CancellationToken cancellationToken = default)
+    public async Task<AlterReadModel?> GetAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(alterId, out var alter))
@@ -250,7 +251,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             return null;
         }
 
-        var definitions = await ResolveVisibleDefinitionsAsync(systemId, "trusted_friend", cancellationToken);
+        var definitions = await ResolveVisibleDefinitionsAsync(systemId, FriendshipLevel.TrustedFriend, cancellationToken);
 
         return new AlterReadModel(
             alter.AlterId,
@@ -270,9 +271,9 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     }
 
     public async Task<BareAlter?> GetGuardedAsync(
-        string systemId,
-        int alterId,
-        string? viewerSystemId,
+        SystemId systemId,
+        AlterId alterId,
+        SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
         var friendshipLevel = await ResolveFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
@@ -283,7 +284,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             return null;
         }
 
-        if (!CanView(friendshipLevel, alter.VisibilityLevel))
+        if (!alter.VisibilityLevel.CanBeViewedBy(friendshipLevel))
         {
             return null;
         }
@@ -300,8 +301,8 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     }
 
     public Task<bool> AliasTakenByOtherAsync(
-        string systemId,
-        int alterId,
+        SystemId systemId,
+        AlterId alterId,
         string alias,
         CancellationToken cancellationToken = default
     )
@@ -341,28 +342,28 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         }
     }
 
-    internal void RemoveFieldValuesForSystem(string systemId, Guid fieldId)
+    internal void RemoveFieldValuesForSystem(SystemId systemId, Guid fieldId)
     {
         var systemKey = GetSystemKey(systemId);
         RemoveFieldValuesForSystem(fieldId, systemKey);
     }
 
-    private string GetSystemKey(string systemId)
+    private string GetSystemKey(SystemId systemId)
     {
-        var region = _regionContext.ResolveUserRegion(systemId);
-        return $"{region}:{systemId}";
+        var region = _regionContext.ResolveUserRegion(systemId.Value).ToWireValue();
+        return $"{region}:{systemId.Value}";
     }
 
-    private async Task<string?> ResolveFriendshipLevelAsync(string systemId, string? viewerSystemId, CancellationToken cancellationToken)
+    private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(viewerSystemId))
+        if (string.IsNullOrWhiteSpace(viewerSystemId?.Value))
         {
             return null;
         }
 
-        if (string.Equals(systemId, viewerSystemId, StringComparison.Ordinal))
+        if (systemId == viewerSystemId)
         {
-            return "trusted_friend";
+            return FriendshipLevel.TrustedFriend;
         }
 
         if (_friendships is null)
@@ -371,28 +372,6 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         }
 
         return await _friendships.GetFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
-    }
-
-    private static bool CanView(string? friendshipLevel, VisibilityLevel visibilityLevel)
-    {
-        return visibilityLevel switch
-        {
-            VisibilityLevel.Public => true,
-            VisibilityLevel.FriendsOnly => friendshipLevel is "friend" or "trusted_friend",
-            VisibilityLevel.TrustedOnly => friendshipLevel is "trusted_friend",
-            _ => false
-        };
-    }
-
-    private static VisibilityLevel ParseVisibilityLevel(string value)
-    {
-        return value.Trim().ToLowerInvariant() switch
-        {
-            "friends_only" => VisibilityLevel.FriendsOnly,
-            "trusted_only" => VisibilityLevel.TrustedOnly,
-            "private" => VisibilityLevel.Private,
-            _ => VisibilityLevel.Public
-        };
     }
 
     private IReadOnlyList<AlterPublicFieldReadModel> ResolveGuardedFields(
@@ -405,18 +384,18 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         }
 
         return definitions
-            .Where(def => alter.Fields.ContainsKey(def.Id))
+            .Where(def => alter.Fields.ContainsKey(def.Id.Value))
             .Select(def => new AlterPublicFieldReadModel(
                 def.Id,
                 def.Name,
                 def.Type,
-                alter.Fields.TryGetValue(def.Id, out var value) ? value : null))
+                alter.Fields.TryGetValue(def.Id.Value, out var value) ? value : null))
             .ToArray();
     }
 
     private async Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(
-        string systemId,
-        string? friendshipLevel,
+        SystemId systemId,
+        FriendshipLevel? friendshipLevel,
         CancellationToken cancellationToken)
     {
         if (_settingsFields is null)
@@ -426,7 +405,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
         var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
         return definitions
-            .Where(def => CanView(friendshipLevel, ParseVisibilityLevel(def.SecurityLevel)))
+            .Where(def => def.SecurityLevel.CanBeViewedBy(friendshipLevel))
             .ToArray();
     }
 }

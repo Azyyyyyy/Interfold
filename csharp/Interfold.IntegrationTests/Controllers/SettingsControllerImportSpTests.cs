@@ -148,7 +148,7 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
         SimplyPluralImportFailedEvent? observed = null;
         while (await enumerator.MoveNextAsync())
         {
-            if (string.Equals(enumerator.Current.TargetSystemId, principal, StringComparison.Ordinal))
+            if (string.Equals(enumerator.Current.TargetSystemId.Value, principal, StringComparison.Ordinal))
             {
                 observed = enumerator.Current;
                 break;

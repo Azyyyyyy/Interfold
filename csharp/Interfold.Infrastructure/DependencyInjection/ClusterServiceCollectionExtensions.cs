@@ -59,13 +59,14 @@ public static partial class ServiceCollectionExtensions
 
             var secrets = sp.GetRequiredService<ISecretsStore>();
             var serviceAccountJson = secrets
-                .GetAsync("fcm:service_account_json", CancellationToken.None)
+                .GetAsync(SecretsStoreKeys.FcmServiceAccountJson, CancellationToken.None)
                 .GetAwaiter().GetResult();
 
             if (string.IsNullOrWhiteSpace(serviceAccountJson))
             {
                 sp.GetRequiredService<ILogger<FirebaseFCMService>>().LogInformation(
-                    "[fcm] internal.secrets:fcm:service_account_json not seeded — using NullFCMService (push disabled).");
+                    "[fcm] internal.secrets:{Key} not seeded — using NullFCMService (push disabled).",
+                    SecretsStoreKeys.FcmServiceAccountJson);
                 return sp.GetRequiredService<NullFCMService>();
             }
 
@@ -96,6 +97,6 @@ public static partial class ServiceCollectionExtensions
     {
         var opts = new ClusterConfiguration();
         ConfigurationServiceCollectionExtensions.ApplyCluster(opts, config);
-        return services.AddInterfoldCluster(NodeGroupResolver.Resolve(opts.NodeGroup));
+        return services.AddInterfoldCluster(opts.NodeGroup);
     }
 }

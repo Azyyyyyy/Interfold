@@ -3,6 +3,7 @@ extern alias AppHost;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
+using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Secrets;
 using Interfold.DatabaseBootstrap;
@@ -197,7 +198,7 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         // is the single migration pass against msg-db for the entire run.
         var persistenceConfig = new PersistenceConfiguration
         {
-            Mode = "scylla-postgres",
+            Mode = Interfold.Contracts.PersistenceMode.ScyllaPostgres,
             PostgresConnectionString = PostgresConnectionString,
             IsSingleScyllaInstance = true,
             ScyllaKeyspace = "nam",

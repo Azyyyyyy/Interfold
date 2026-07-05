@@ -35,7 +35,12 @@ public sealed partial class ScyllaMigrationService(
     IConfiguration configuration,
     ILogger<ScyllaMigrationService> logger) : IHostedLifecycleService
 {
-    private static readonly string[] RegionalKeyspaces = ["nam", "eur", "sam", "sas", "eas", "ocn", "gdpr"];
+    // Derived from the ScyllaKeyspace enum so the regional list can't drift from the type
+    // that the resolution APIs (IRegionContext) hand around.
+    private static readonly string[] RegionalKeyspaces =
+        Enum.GetValues<Contracts.Enums.ScyllaKeyspace>()
+            .Select(Contracts.Enums.EnumWireExtensions.ToWireValue)
+            .ToArray();
 
     // Singleton keyspaces created once during bootstrap from 000_create_singleton_keyspaces.cql.
     private static readonly string[] SingletonKeyspaces = ["global", "nam_nt", "dummy"];
@@ -66,8 +71,8 @@ public sealed partial class ScyllaMigrationService(
     public async Task StartingAsync(CancellationToken cancellationToken)
     {
         // Read admin credentials from secrets store
-        _adminUsername = await secretsStore.GetAsync("scylla:admin_username", cancellationToken);
-        _adminPassword = await secretsStore.GetAsync("scylla:admin_password", cancellationToken);
+        _adminUsername = await secretsStore.GetAsync(SecretsStoreKeys.ScyllaAdminUsername, cancellationToken);
+        _adminPassword = await secretsStore.GetAsync(SecretsStoreKeys.ScyllaAdminPassword, cancellationToken);
 
         if (string.IsNullOrWhiteSpace(_adminUsername) ||
             string.IsNullOrWhiteSpace(_adminPassword))

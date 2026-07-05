@@ -1,19 +1,24 @@
+using Interfold.Contracts.Enums;
 using Interfold.Domain.Abstractions;
 
 namespace Interfold.Infrastructure.InMemory;
 
 public sealed class InMemoryRegionContext : IRegionContext
 {
-    private static readonly string[] Regions = ["nam", "eur", "ocn", "sam", "sas", "gdpr"];
+    private static readonly ScyllaKeyspace[] Regions =
+    [
+        ScyllaKeyspace.Nam, ScyllaKeyspace.Eur, ScyllaKeyspace.Ocn,
+        ScyllaKeyspace.Sam, ScyllaKeyspace.Sas, ScyllaKeyspace.Gdpr,
+    ];
 
-    public string CurrentRegion { get; }
+    public ScyllaKeyspace CurrentRegion { get; }
 
-    public InMemoryRegionContext(string currentRegion = "nam")
+    public InMemoryRegionContext(ScyllaKeyspace currentRegion = ScyllaKeyspace.Nam)
     {
         CurrentRegion = currentRegion;
     }
 
-    public string ResolveUserRegion(string systemId)
+    public ScyllaKeyspace ResolveUserRegion(string systemId)
     {
         if (string.IsNullOrWhiteSpace(systemId))
         {
@@ -24,8 +29,6 @@ public sealed class InMemoryRegionContext : IRegionContext
         return Regions[index];
     }
 
-    public string ResolveConsistency(string targetRegion) =>
-        string.Equals(targetRegion, CurrentRegion, StringComparison.OrdinalIgnoreCase)
-            ? "local"
-            : "global";
+    public string ResolveConsistency(ScyllaKeyspace targetRegion) =>
+        targetRegion == CurrentRegion ? "local" : "global";
 }

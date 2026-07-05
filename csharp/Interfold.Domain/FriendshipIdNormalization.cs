@@ -1,7 +1,12 @@
+using Interfold.Contracts.Ids;
+
 namespace Interfold.Domain;
 
 internal static class FriendshipIdNormalization
 {
+    public static SystemId CanonicalizeForPrincipal(SystemId principalSystemId, SystemId candidateSystemId)
+        => new(CanonicalizeForPrincipal(principalSystemId.Value, candidateSystemId.Value));
+
     public static string CanonicalizeForPrincipal(string principalSystemId, string candidateSystemId)
     {
         if (string.IsNullOrWhiteSpace(candidateSystemId))

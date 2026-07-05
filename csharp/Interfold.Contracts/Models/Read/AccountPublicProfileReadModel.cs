@@ -1,9 +1,10 @@
 ﻿using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Contracts.Models.Read;
 
 public sealed record AccountPublicProfileReadModel(
-    string SystemId,
+    SystemId SystemId,
     string? Username,
     string? Description,
     string? AvatarUrl,

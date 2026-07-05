@@ -1,8 +1,10 @@
+using Interfold.Contracts.Ids;
+
 namespace Interfold.Contracts.Models.Read;
 
 public sealed record JournalReadModel(
-    string Id,
-    string UserId,
+    EntryId Id,
+    SystemId UserId,
     string Title,
     string? Content,
     string? Color,
@@ -10,36 +12,31 @@ public sealed record JournalReadModel(
     bool Pinned,
     DateTime InsertedAt,
     DateTime UpdatedAt,
-    IReadOnlyList<int> Alters
+    IReadOnlyList<AlterId> Alters
 );
 
 
 public sealed record CreateGlobalJournalRequest(
     string Title,
-    string? IdempotencyKey = null,
     long? ExpectedVersion = null
-) : BaseRequest(IdempotencyKey);
+);
 
 public sealed record UpdateGlobalJournalRequest(
     string? Title = null,
     string? Content = null,
     string? Color = null,
-    string? IdempotencyKey = null,
     long? ExpectedVersion = null
-) : BaseRequest(IdempotencyKey);
+);
 
 public sealed record DeleteGlobalJournalRequest(
-    string? IdempotencyKey = null,
     long? ExpectedVersion = null
-) : BaseRequest(IdempotencyKey);
+);
 
 public sealed record JournalActionRequest(
-    string? IdempotencyKey = null,
     long? ExpectedVersion = null
-) : BaseRequest(IdempotencyKey);
+);
 
 public sealed record JournalAlterRequest(
-    int? AlterId,
-    string? IdempotencyKey = null,
+    AlterId? AlterId,
     long? ExpectedVersion = null
-) : BaseRequest(IdempotencyKey);
+);

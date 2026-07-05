@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Interfold.Contracts.Models.ImportOperations;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
@@ -20,13 +21,13 @@ namespace Interfold.Infrastructure.InMemory.Repository;
 /// </summary>
 public sealed class InMemoryImportOperationRepository : IImportOperationRepository
 {
-    private readonly ConcurrentDictionary<(string SystemId, Guid OperationId), Row> _operations = new();
-    private readonly ConcurrentDictionary<(string SystemId, string Kind), Guid> _active = new();
+    private readonly ConcurrentDictionary<(SystemId SystemId, Guid OperationId), Row> _operations = new();
+    private readonly ConcurrentDictionary<(SystemId SystemId, ImportOperationKind Kind), Guid> _active = new();
 
     public Task<ImportOperationClaim> TryClaimAsync(
-        string systemId,
-        string kind,
-        string idempotencyKey,
+        SystemId systemId,
+        ImportOperationKind kind,
+        IdempotencyKey idempotencyKey,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -60,7 +61,7 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     }
 
     public Task MarkRunningAsync(
-        string systemId,
+        SystemId systemId,
         Guid operationId,
         CancellationToken cancellationToken = default)
     {
@@ -84,9 +85,9 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     }
 
     public Task MarkSucceededAsync(
-        string systemId,
+        SystemId systemId,
         Guid operationId,
-        string kind,
+        ImportOperationKind kind,
         int alterCount,
         CancellationToken cancellationToken = default)
     {
@@ -107,10 +108,10 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     }
 
     public Task MarkFailedAsync(
-        string systemId,
+        SystemId systemId,
         Guid operationId,
-        string kind,
-        string errorCode,
+        ImportOperationKind kind,
+        ImportErrorCode errorCode,
         string? errorMessage,
         CancellationToken cancellationToken = default)
     {
@@ -122,7 +123,7 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
             {
                 row.Status = ImportOperationStatus.Failed;
                 row.FinishedAt = DateTimeOffset.UtcNow;
-                row.ErrorCode = errorCode;
+                row.ErrorCode = errorCode.ToWireValue();
                 row.ErrorMessage = errorMessage;
             }
         }
@@ -132,7 +133,7 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     }
 
     public Task<ImportOperationSnapshot?> GetByIdAsync(
-        string systemId,
+        SystemId systemId,
         Guid operationId,
         CancellationToken cancellationToken = default)
     {
@@ -147,8 +148,8 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     }
 
     public Task<Guid?> GetActiveOperationIdAsync(
-        string systemId,
-        string kind,
+        SystemId systemId,
+        ImportOperationKind kind,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -194,14 +195,14 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     /// so a stale terminal call (e.g. from a sweep) can't accidentally evict a different
     /// in-flight operation that took the slot afterwards.
     /// </summary>
-    private void ReleaseSlot(string systemId, string kind, Guid operationId)
+    private void ReleaseSlot(SystemId systemId, ImportOperationKind kind, Guid operationId)
     {
         var key = (systemId, kind);
         // ConcurrentDictionary doesn't expose conditional-remove on key+value pairs as
         // a single primitive, but TryRemove(KeyValuePair) does. .NET's collection treats
         // this as atomic-on-match.
-        var pair = new KeyValuePair<(string, string), Guid>(key, operationId);
-        ((ICollection<KeyValuePair<(string, string), Guid>>)_active).Remove(pair);
+        var pair = new KeyValuePair<(SystemId, ImportOperationKind), Guid>(key, operationId);
+        ((ICollection<KeyValuePair<(SystemId, ImportOperationKind), Guid>>)_active).Remove(pair);
     }
 
     private static ImportOperationSnapshot Snapshot(Row row) =>
@@ -223,15 +224,15 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     /// </summary>
     private sealed class Row
     {
-        public required string SystemId { get; init; }
+        public required SystemId SystemId { get; init; }
         public required Guid OperationId { get; init; }
-        public required string Kind { get; init; }
+        public required ImportOperationKind Kind { get; init; }
         public ImportOperationStatus Status { get; set; }
         public DateTimeOffset StartedAt { get; init; }
         public DateTimeOffset? FinishedAt { get; set; }
         public int? AlterCount { get; set; }
         public string? ErrorCode { get; set; }
         public string? ErrorMessage { get; set; }
-        public required string IdempotencyKey { get; init; }
+        public required IdempotencyKey IdempotencyKey { get; init; }
     }
 }

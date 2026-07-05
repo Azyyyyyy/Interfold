@@ -76,7 +76,7 @@ try
 	var importService = scope.ServiceProvider.GetRequiredService<ISimplyPluralImportService>();
 	importService.WaitForAvatars = true;
 
-	var result = await importService.ImportAsync("", spToken, encryptionKeyBase64);
+	var result = await importService.ImportAsync(new Interfold.Contracts.Ids.SystemId(""), new Interfold.Contracts.Ids.ImportToken(spToken), encryptionKeyBase64 is null ? null : new Interfold.Contracts.Ids.RecoveryCode(encryptionKeyBase64));
 	if (result.Success)
 	{
 		logger.LogInformation("Import succeeded. Alters imported: {Count}", result.AlterCount);
@@ -95,12 +95,12 @@ catch (Exception ex)
 // Minimal temp avatar storage used by the dump utility
 internal sealed class TempAvatarStorage : IAvatarStorage
 {
-	public Task<string> SaveSystemAvatarAsync(string systemId, Stream stream, CancellationToken cancellationToken = default)
+	public Task<string> SaveSystemAvatarAsync(Interfold.Contracts.Ids.SystemId systemId, Stream stream, CancellationToken cancellationToken = default)
 	{
 		return Task.FromResult("");
 	}
 
-	public Task<string> SaveAlterAvatarAsync(string systemId, int alterId, Stream stream, CancellationToken cancellationToken = default)
+	public Task<string> SaveAlterAvatarAsync(Interfold.Contracts.Ids.SystemId systemId, Interfold.Contracts.Ids.AlterId alterId, Stream stream, CancellationToken cancellationToken = default)
 	{
 		return Task.FromResult("");
 	}

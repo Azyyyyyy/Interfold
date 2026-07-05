@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Cassandra;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.Domain.Abstractions;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
@@ -12,6 +13,12 @@ namespace Interfold.Infrastructure.Scylla;
 /// IRegionContext backed by global.user_registry, with a bounded in-process cache and
 /// fallback to the locally configured default region when the registry row is absent or
 /// the Scylla session is not yet available.
+///
+/// <para>
+/// Public resolution APIs are typed as <see cref="ScyllaKeyspace"/>; the registry stores
+/// lowercase region strings and the cache stays string-keyed with the legacy-prefix
+/// stripping internal to this type.
+/// </para>
 /// </summary>
 public sealed class ScyllaUserRegistryRegionContext : IRegionContext
 {
@@ -22,10 +29,10 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
     private readonly IScyllaSessionProvider _sessionProvider;
     private readonly PersistenceConfiguration _options;
     private readonly ILogger<ScyllaUserRegistryRegionContext> _logger;
-    private readonly ConcurrentDictionary<string, string> _cache = new(StringComparer.Ordinal);
-    private readonly Lazy<string> _currentRegion;
+    private readonly ConcurrentDictionary<string, ScyllaKeyspace> _cache = new(StringComparer.Ordinal);
+    private readonly Lazy<ScyllaKeyspace> _currentRegion;
 
-    public string CurrentRegion => _currentRegion.Value;
+    public ScyllaKeyspace CurrentRegion => _currentRegion.Value;
 
     public ScyllaUserRegistryRegionContext(
         IScyllaSessionProvider sessionProvider,
@@ -36,11 +43,12 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         _sessionProvider = sessionProvider;
         _options = options;
         _logger = logger;
-        _currentRegion = new Lazy<string>(() =>
-            ScyllaConfigResolver.GetKeyspaceAsync(configuration).GetAwaiter().GetResult());
+        _currentRegion = new Lazy<ScyllaKeyspace>(() =>
+            EnumWireExtensions.ParseScyllaKeyspace(
+                ScyllaConfigResolver.GetKeyspaceAsync(configuration).GetAwaiter().GetResult()));
     }
 
-    public string ResolveUserRegion(string systemId)
+    public ScyllaKeyspace ResolveUserRegion(string systemId)
     {
         if (string.IsNullOrWhiteSpace(systemId))
             return CurrentRegion;
@@ -59,10 +67,10 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         try
         {
             var region = LookupAsync(raw, prefix).GetAwaiter().GetResult();
-            if (!string.IsNullOrWhiteSpace(region))
+            if (TryParseRegion(raw, region, out var parsed))
             {
-                StoreInCache(raw, region);
-                return region;
+                StoreInCache(raw, parsed);
+                return parsed;
             }
         }
         catch (Exception ex)
@@ -74,16 +82,14 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         return CurrentRegion;
     }
 
-    public string ResolveConsistency(string targetRegion) =>
-        string.Equals(targetRegion, CurrentRegion, StringComparison.OrdinalIgnoreCase)
-            ? "local"
-            : "global";
+    public string ResolveConsistency(ScyllaKeyspace targetRegion) =>
+        targetRegion == CurrentRegion ? "local" : "global";
 
     /// <summary>
     /// Asynchronous variant to be used in hot paths that already have an async context.
-    /// Returns null when the registry row is absent.
+    /// Falls back to <see cref="CurrentRegion"/> when the registry row is absent.
     /// </summary>
-    public async Task<string?> ResolveUserRegionAsync(
+    public async Task<ScyllaKeyspace> ResolveUserRegionAsync(
         string systemId,
         CancellationToken cancellationToken = default)
     {
@@ -96,10 +102,10 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
             return cached;
 
         var region = await LookupAsync(raw, prefix, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(region))
+        if (TryParseRegion(raw, region, out var parsed))
         {
-            StoreInCache(raw, region);
-            return region;
+            StoreInCache(raw, parsed);
+            return parsed;
         }
 
         return CurrentRegion;
@@ -107,17 +113,39 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
 
     /// <summary>Populates the cache for a user whose home region is already known
     /// (e.g. after account registration).</summary>
-    public void RegisterRegion(string systemId, string region)
+    public void RegisterRegion(string systemId, ScyllaKeyspace region)
     {
-        if (string.IsNullOrWhiteSpace(systemId) || string.IsNullOrWhiteSpace(region))
+        if (string.IsNullOrWhiteSpace(systemId))
             return;
 
-        StoreInCache(StripRegionPrefix(systemId, out var prefix), region.ToLowerInvariant());
+        StoreInCache(StripRegionPrefix(systemId, out _), region);
     }
 
     // ------------------------------------------------------------------
     // Internals
     // ------------------------------------------------------------------
+
+    private bool TryParseRegion(string systemId, string? raw, out ScyllaKeyspace region)
+    {
+        region = default;
+        if (string.IsNullOrWhiteSpace(raw))
+            return false;
+
+        try
+        {
+            region = EnumWireExtensions.ParseScyllaKeyspace(raw);
+            return true;
+        }
+        catch (InvalidOperationException ex)
+        {
+            // A corrupt registry row must not poison the cache or crash the caller —
+            // log loudly and let the caller fall back to the default region.
+            _logger.LogWarning(ex,
+                "Registry region '{Region}' for system {SystemId} is not a known keyspace; falling back to default region.",
+                raw, systemId);
+            return false;
+        }
+    }
 
     private async Task<string?> LookupAsync(
         string normalizedSystemId,
@@ -153,7 +181,7 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         }, _options, cancellationToken, _logger);
     }
 
-    private void StoreInCache(string key, string region)
+    private void StoreInCache(string key, ScyllaKeyspace region)
     {
         if (_cache.Count >= MaxCacheSize)
         {

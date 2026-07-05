@@ -3,6 +3,7 @@ using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -32,7 +33,7 @@ namespace Interfold.Bootstrapper.Phases;
 internal static class UpdateImagesPhase
 {
     private const string Phase = "update-images";
-    private const string PostgresService = "msg-db";
+    private const string PostgresService = ComposeServices.Postgres;
 
     public static async Task<int> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
@@ -98,7 +99,7 @@ internal static class UpdateImagesPhase
             var backupOptions = options with
             {
                 Command = BootstrapCommand.Backup,
-                BackupComponent = "all",
+                BackupComponent = BackupDatabaseComponent.All.ToWireValue(),
             };
             var backupExit = await BackupPhase.RunAsync(backupOptions, logger, ct).ConfigureAwait(false);
             if (backupExit != 0)
@@ -243,7 +244,7 @@ internal static class UpdateImagesPhase
     {
         if (!CassandraImagePhase.IsCassandraDeployment(config)) return false;
         if (effectiveServices.Count == 0) return true;
-        return effectiveServices.Contains("cassandra", StringComparer.Ordinal);
+        return effectiveServices.Contains(ComposeServices.Cassandra, StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -513,7 +514,7 @@ internal static class UpdateImagesPhase
 
         // Best-effort: dump the failing tier's logs so operators have a diagnosis without
         // having to shell into the box.
-        var suspects = new[] { PostgresService, "scylla", "scylla-nam", "cassandra", "interfold-api", "octocon-web" };
+        var suspects = new[] { PostgresService, ComposeServices.ScyllaSingle, ComposeServices.ScyllaNam, ComposeServices.Cassandra, ComposeServices.InterfoldApi, ComposeServices.OctoconWeb };
         foreach (var svc in suspects)
         {
             var logsArgs = BuildComposeLogsArgs(composeFile, svc, 200);
@@ -585,8 +586,8 @@ internal static class UpdateImagesPhase
         BootstrapOptions options, BootstrapConfig config)
     {
         var backupRoot = ResolveBackupRoot(options, config);
-        var pg = LatestFile(Path.Combine(backupRoot, "postgres"), "*.dump");
-        var sc = LatestFile(Path.Combine(backupRoot, "scylla"), "*.tar.gz");
+        var pg = LatestFile(Path.Combine(backupRoot, BackupStoragePaths.PostgresDir), BackupStoragePaths.PostgresArchivePattern);
+        var sc = LatestFile(Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir), BackupStoragePaths.ScyllaArchivePattern);
         if (pg is null || sc is null) return null;
         return (pg.FullName, sc.FullName);
     }
@@ -614,7 +615,7 @@ internal static class UpdateImagesPhase
         // Reuses BackupRetention.Prune (pure logic, unit-tested separately in
         // BackupRetentionTests). We prune both component directories because the caller
         // just wrote to both.
-        foreach (var (component, pattern) in new[] { ("postgres", "*.dump"), ("scylla", "*.tar.gz") })
+        foreach (var (component, pattern) in new[] { (BackupStoragePaths.PostgresDir, BackupStoragePaths.PostgresArchivePattern), (BackupStoragePaths.ScyllaDir, BackupStoragePaths.ScyllaArchivePattern) })
         {
             var componentDir = Path.Combine(backupRoot, component);
             if (!Directory.Exists(componentDir)) continue;

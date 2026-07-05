@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
@@ -14,11 +15,11 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
         _friendshipRepository = friendshipRepository;
     }
 
-    public Task<bool> AddAsync(string systemId, string token, CancellationToken cancellationToken = default)
+    public Task<bool> AddAsync(SystemId systemId, PushToken token, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalizedSystemId = NormalizeSystemId(systemId?.Trim() ?? string.Empty);
-        var normalizedToken = token.Trim();
+        var normalizedSystemId = NormalizeSystemId(systemId.Value?.Trim() ?? string.Empty);
+        var normalizedToken = token.Value.Trim();
         _tokenOwners[normalizedToken] = normalizedSystemId;
 
         var systemTokens = _tokensBySystem.GetOrAdd(normalizedSystemId, _ => new(StringComparer.Ordinal));
@@ -26,6 +27,8 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
 
         return Task.FromResult(true);
     }
+
+    private static string NormalizeSystemId(SystemId systemId) => NormalizeSystemId(systemId.Value);
 
     private static string NormalizeSystemId(string systemId)
     {
@@ -39,11 +42,11 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
         return systemId[(separator + 1)..];
     }
 
-    public Task<bool> RemoveAsync(string token, CancellationToken cancellationToken = default)
+    public Task<bool> RemoveAsync(PushToken token, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var normalizedToken = token.Trim();
+        var normalizedToken = token.Value.Trim();
         if (_tokenOwners.TryRemove(normalizedToken, out var ownerSystemId) &&
             _tokensBySystem.TryGetValue(ownerSystemId, out var systemTokens))
         {
@@ -58,16 +61,16 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
     // groups without a Count > 0 guard. Mirrors the Scylla impl's shape so backends
     // stay swappable via OCTOCON_PERSISTENCE.
     public async Task<IReadOnlyList<FriendNotificationTokens>> ListTokensForFriendsOfAsync(
-        string systemId,
+        SystemId systemId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var normalizedSystemId = NormalizeSystemId(systemId?.Trim() ?? string.Empty);
+        var normalizedSystemId = NormalizeSystemId(systemId.Value?.Trim() ?? string.Empty);
         if (string.IsNullOrWhiteSpace(normalizedSystemId))
             return Array.Empty<FriendNotificationTokens>();
 
-        var friendships = await _friendshipRepository.ListFriendshipsAsync(normalizedSystemId, cancellationToken);
+        var friendships = await _friendshipRepository.ListFriendshipsAsync(new SystemId(normalizedSystemId), cancellationToken);
         if (friendships.Count == 0)
             return Array.Empty<FriendNotificationTokens>();
 
@@ -75,7 +78,7 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
         var seenFriends = new HashSet<string>(StringComparer.Ordinal);
         foreach (var friendship in friendships)
         {
-            var friendId = NormalizeSystemId(friendship.Friend?.Id ?? string.Empty);
+            var friendId = NormalizeSystemId(friendship.Friend?.Id.Value ?? string.Empty);
             if (string.IsNullOrWhiteSpace(friendId) || !seenFriends.Add(friendId))
                 continue;
 
@@ -89,7 +92,7 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
             if (distinctTokens.Length == 0)
                 continue;
 
-            groups.Add(new FriendNotificationTokens(friendId, distinctTokens));
+            groups.Add(new FriendNotificationTokens(new SystemId(friendId), distinctTokens));
         }
 
         return groups;

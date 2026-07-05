@@ -1,9 +1,11 @@
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
 
 namespace Interfold.Contracts.Models.Read;
 
 public sealed record FriendProfileReadModel(
-    string Id,
+    SystemId Id,
     string? Username,
     string? AvatarUrl,
     AvatarSource? AvatarSource,
@@ -11,12 +13,15 @@ public sealed record FriendProfileReadModel(
     string? DiscordId
 );
 
+// Fields carries the same per-alter custom-field entries as AlterReadModel.Fields; the Kotlin
+// client reads it as List<ExternalAlterCustomField> (id/name/type/value). Today's only producer
+// (ScyllaFriendshipRepository.GetFrontingAsync) sends an empty list.
 public sealed record FriendFrontingAlterReadModel(
-    int Id,
+    AlterId Id,
     string? Name,
     string? Pronouns,
     string? Description,
-    IReadOnlyList<object> Fields,
+    IReadOnlyList<AlterPublicFieldReadModel> Fields,
     string? AvatarUrl,
     AvatarSource? AvatarSource,
     IReadOnlyList<string> ExtraImages,
@@ -24,7 +29,7 @@ public sealed record FriendFrontingAlterReadModel(
 );
 
 public sealed record FriendFrontingFrontReadModel(
-    int AlterId,
+    AlterId AlterId,
     string? Comment
 );
 
@@ -35,7 +40,7 @@ public sealed record FriendFrontingReadModel(
 );
 
 public record FriendshipModel(
-    string Level,
+    FriendshipLevel Level,
     DateTimeOffset Since
 );
 

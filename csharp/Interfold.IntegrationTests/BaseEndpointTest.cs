@@ -435,7 +435,7 @@ public class BaseEndpointTest
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/front/start");
         request.Content = JsonContent.Create(new
         {
-            alterId,
+            id = alterId,
             comment,
             idempotencyKey = Guid.NewGuid().ToString("N")
         }, options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
@@ -455,7 +455,7 @@ public class BaseEndpointTest
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/front/end");
         request.Content = JsonContent.Create(new
         {
-            alterId,
+            id = alterId,
             idempotencyKey = Guid.NewGuid().ToString("N")
         }, options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
         AttachPrincipalAuth(request, client, principal);
@@ -475,7 +475,7 @@ public class BaseEndpointTest
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/front/set");
         request.Content = JsonContent.Create(new
         {
-            alterId,
+            id = alterId,
             comment,
             idempotencyKey = Guid.NewGuid().ToString("N")
         }, options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
@@ -613,8 +613,8 @@ public class BaseEndpointTest
         var now = DateTimeOffset.UtcNow;
         var expiresAt = now.AddDays(1);
 
-        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, jti, systemId);
-        await rev.RecordTokenAsync(jti, systemId, expiresAt, CancellationToken.None);
+        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, new Interfold.Contracts.Ids.Jti(jti), new Interfold.Contracts.Ids.SystemId(systemId));
+        await rev.RecordTokenAsync(new Interfold.Contracts.Ids.Jti(jti), new Interfold.Contracts.Ids.SystemId(systemId), expiresAt, CancellationToken.None);
 
         // Ensure user row exists in backing store (required for Scylla/Cassandra)
         using var client = factory.CreateClient();

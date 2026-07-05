@@ -1,4 +1,5 @@
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Abstractions;
 
@@ -46,7 +47,7 @@ public interface IClusterEventBus
     /// The stream completes when <paramref name="ct"/> is cancelled.
     /// </summary>
     IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(
-        string? targetSystemId,
+        SystemId? targetSystemId,
         CancellationToken ct = default)
         where TEvent : class;
 }

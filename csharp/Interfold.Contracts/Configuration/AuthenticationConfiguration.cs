@@ -51,23 +51,30 @@ public sealed class AuthenticationConfiguration
     /// Static server-side pepper used by E2E key derivation. Sourced exclusively from
     /// <c>internal.secrets</c> via <c>encryption:pepper</c> — patched on startup by
     /// <c>SecretsBootstrapService</c>, which refuses to start the API if the row is
-    /// missing. Never read from env.
+    /// missing. Never read from env. The initial value is an empty string (not
+    /// <c>null!</c>) so consumers don't have to null-forgive; a stray call ahead of the
+    /// secrets bootstrap surfaces as an obviously-empty pepper (and downstream KDF calls
+    /// throw a clear <see cref="ArgumentException"/>) rather than an opaque
+    /// <see cref="NullReferenceException"/>.
     /// </summary>
-    public string EncryptionPepper { get; set; } = null!;
+    public string EncryptionPepper { get; set; } = string.Empty;
 
     /// <summary>
     /// RSA-2048 JWT public key (PEM, SPKI). Derived in <c>SecretsBootstrapService</c> from
     /// <see cref="Rsa256PrivateKey"/> after the private PEM is patched from the store.
-    /// Exposed via the API's JWKS endpoint.
+    /// Exposed via the API's JWKS endpoint. Initialised to empty so the placeholder is
+    /// obviously-empty rather than <c>null!</c> — a missing row lands on a JWKS parse
+    /// error rather than an opaque <see cref="NullReferenceException"/>.
     /// </summary>
-    public string Rsa256PublicKey { get; set; } = null!;
+    public string Rsa256PublicKey { get; set; } = string.Empty;
 
     /// <summary>
     /// RSA-2048 JWT private key (PEM, PKCS#8). Sourced from <c>internal.secrets</c> via
     /// <c>auth:jwt_rsa256_private_pem</c> — patched on startup by
-    /// <c>SecretsBootstrapService</c>. Never read from env.
+    /// <c>SecretsBootstrapService</c>. Never read from env. See <see cref="Rsa256PublicKey"/>
+    /// for the empty-default rationale.
     /// </summary>
-    public string Rsa256PrivateKey { get; set; } = null!;
+    public string Rsa256PrivateKey { get; set; } = string.Empty;
 
     /// <summary>
     /// Google OAuth 2.0 client ID for backend token exchange.

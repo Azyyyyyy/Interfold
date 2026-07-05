@@ -1,5 +1,7 @@
 using Cassandra;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
@@ -28,22 +30,22 @@ public sealed class ScyllaTagRepository : ITagRepository
         _alterRepository = alterRepository;
     }
 
-    public async Task<string?> CreateAsync(
-        string systemId,
+    public async Task<TagId?> CreateAsync(
+        SystemId systemId,
         CreateTagCommand command,
         CancellationToken cancellationToken = default
     )
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await DatabaseTransientRetry.ExecuteScyllaAsync<TagId?>(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             Guid? parentTagId = null;
 
-            if (!string.IsNullOrWhiteSpace(command.ParentTagId))
+            if (!string.IsNullOrWhiteSpace(command.ParentTagId?.Value))
             {
-                if (!TryParseUuid(command.ParentTagId, out var parentTagGuid))
+                if (!TryParseUuid(command.ParentTagId.Value.Value, out var parentTagGuid))
                 {
                     return null;
                 }
@@ -51,7 +53,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 parentTagId = parentTagGuid;
             }
 
-            if (!string.IsNullOrWhiteSpace(command.ParentTagId))
+            if (parentTagId is not null)
             {
                 var parentCheck = new SimpleStatement(
                     $"SELECT id FROM {keyspace}.tags WHERE user_id = ? AND id = ? LIMIT 1",
@@ -79,19 +81,19 @@ public sealed class ScyllaTagRepository : ITagRepository
             );
 
             await session.ExecuteAsync(insert);
-            return tagGuid.ToString("N");
+            return new TagId(tagGuid.ToString("N"));
         }, _options, cancellationToken);
     }
 
     public async Task<bool> ExistsAsync(
-        string systemId,
-        string tagId,
+        SystemId systemId,
+        TagId tagId,
         CancellationToken cancellationToken = default
     )
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(tagId, out var tagGuid))
+            if (!TryParseUuid(tagId.Value, out var tagGuid))
             {
                 return false;
             }
@@ -112,7 +114,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     }
 
     public async Task<bool> UpdateAsync(
-        string systemId,
+        SystemId systemId,
         UpdateTagCommand command,
         CancellationToken cancellationToken = default
     )
@@ -123,7 +125,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
-            if (!TryParseUuid(command.TagId, out var tagGuid))
+            if (!TryParseUuid(command.TagId.Value, out var tagGuid))
             {
                 return false;
             }
@@ -158,7 +160,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             if (command.SecurityLevel is not null)
             {
                 setClauses.Add("security_level = ?");
-                values.Add(ToSecurityLevel(command.SecurityLevel));
+                values.Add(command.SecurityLevel.Value.ToCode());
             }
 
             if (setClauses.Count == 0)
@@ -180,11 +182,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> DeleteAsync(string systemId, string tagId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(tagId, out var tagGuid))
+            if (!TryParseUuid(tagId.Value, out var tagGuid))
             {
                 return false;
             }
@@ -230,15 +232,15 @@ public sealed class ScyllaTagRepository : ITagRepository
     }
 
     public async Task<bool> AttachAlterAsync(
-        string systemId,
-        string tagId,
-        int alterId,
+        SystemId systemId,
+        TagId tagId,
+        AlterId alterId,
         CancellationToken cancellationToken = default
     )
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(tagId, out var tagGuid))
+            if (!TryParseUuid(tagId.Value, out var tagGuid))
             {
                 return false;
             }
@@ -258,12 +260,12 @@ public sealed class ScyllaTagRepository : ITagRepository
                 $"INSERT INTO {keyspace}.alter_tags (user_id, tag_id, alter_id, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
                 normalizedSystemId,
                 tagGuid,
-                (short)alterId
+                (short)alterId.Value
             ));
             insert.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.alter_tags_by_alter (user_id, alter_id, tag_id, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
                 normalizedSystemId,
-                (short)alterId,
+                (short)alterId.Value,
                 tagGuid
             ));
             await session.ExecuteAsync(insert);
@@ -273,15 +275,15 @@ public sealed class ScyllaTagRepository : ITagRepository
     }
 
     public async Task<bool> DetachAlterAsync(
-        string systemId,
-        string tagId,
-        int alterId,
+        SystemId systemId,
+        TagId tagId,
+        AlterId alterId,
         CancellationToken cancellationToken = default
     )
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(tagId, out var tagGuid))
+            if (!TryParseUuid(tagId.Value, out var tagGuid))
             {
                 return false;
             }
@@ -294,7 +296,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 $"SELECT alter_id FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ? AND alter_id = ? LIMIT 1",
                 normalizedSystemId,
                 tagGuid,
-                (short)alterId
+                (short)alterId.Value
             );
 
             var edgeRows = await session.ExecuteAsync(edgeExistsQuery);
@@ -308,12 +310,12 @@ public sealed class ScyllaTagRepository : ITagRepository
                 $"DELETE FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ? AND alter_id = ?",
                 normalizedSystemId,
                 tagGuid,
-                (short)alterId
+                (short)alterId.Value
             ));
             delete.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.alter_tags_by_alter WHERE user_id = ? AND alter_id = ? AND tag_id = ?",
                 normalizedSystemId,
-                (short)alterId,
+                (short)alterId.Value,
                 tagGuid
             ));
             await session.ExecuteAsync(delete);
@@ -322,15 +324,15 @@ public sealed class ScyllaTagRepository : ITagRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<string?> GetParentIdAsync(
-        string systemId,
-        string tagId,
+    public async Task<TagId?> GetParentIdAsync(
+        SystemId systemId,
+        TagId tagId,
         CancellationToken cancellationToken = default
     )
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await DatabaseTransientRetry.ExecuteScyllaAsync<TagId?>(async () =>
         {
-            if (!TryParseUuid(tagId, out var tagGuid))
+            if (!TryParseUuid(tagId.Value, out var tagGuid))
             {
                 return null;
             }
@@ -346,20 +348,20 @@ public sealed class ScyllaTagRepository : ITagRepository
             );
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
-            return row is null ? null : row.GetValue<Guid?>("parent_tag_id")?.ToString("N");
+            return ToTagId(row?.GetValue<Guid?>("parent_tag_id"));
         }, _options, cancellationToken);
     }
 
     public async Task<bool> SetParentAsync(
-        string systemId,
-        string tagId,
-        string parentTagId,
+        SystemId systemId,
+        TagId tagId,
+        TagId parentTagId,
         CancellationToken cancellationToken = default
     )
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(tagId, out var tagGuid) || !TryParseUuid(parentTagId, out var parentTagGuid))
+            if (!TryParseUuid(tagId.Value, out var tagGuid) || !TryParseUuid(parentTagId.Value, out var parentTagGuid))
             {
                 return false;
             }
@@ -388,14 +390,14 @@ public sealed class ScyllaTagRepository : ITagRepository
     }
 
     public async Task<bool> RemoveParentAsync(
-        string systemId,
-        string tagId,
+        SystemId systemId,
+        TagId tagId,
         CancellationToken cancellationToken = default
     )
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(tagId, out var tagGuid))
+            if (!TryParseUuid(tagId.Value, out var tagGuid))
             {
                 return false;
             }
@@ -422,7 +424,7 @@ public sealed class ScyllaTagRepository : ITagRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<TagReadModel>> ListAsync(string systemId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<TagReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -440,29 +442,29 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             foreach (var row in rows)
             {
-                var tagId = row.GetValue<Guid>("id").ToString("N");
+                var tagId = new TagId(row.GetValue<Guid>("id").ToString("N"));
                 var alterIds = await GetAlterIdsAsync(session, keyspace, normalizedSystemId, row.GetValue<Guid>("id"));
                 tags.Add(new TagReadModel(
                     tagId,
                     row.GetValue<string>("name"),
                     row.GetValue<string?>("color"),
                     row.GetValue<string?>("description"),
-                    row.GetValue<Guid?>("parent_tag_id")?.ToString("N"),
+                    ToTagId(row.GetValue<Guid?>("parent_tag_id")),
                     alterIds,
                     row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
                     row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
-                    ResolveVisibilityLevel(row.GetValue<short?>("security_level")),
-                    row.GetValue<string>("user_id")));
+                    VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level")),
+                    new SystemId(row.GetValue<string>("user_id"))));
             }
 
             // VERIFIED: 2026-03-17 Elixir tags.ex get_tags() has no explicit sort → database order (ascending). Matches C# OrderBy.
-            return tags.OrderBy(x => x.Id).ToArray();
+            return tags.OrderBy(x => x.Id.Value, StringComparer.Ordinal).ToArray();
         }, _options, cancellationToken);
     }
 
     public async Task<IReadOnlyList<TagPublicReadModel>> ListGuardedAsync(
-        string systemId,
-        string? viewerSystemId,
+        SystemId systemId,
+        SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
@@ -483,13 +485,13 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             foreach (var row in rows)
             {
-                var visibility = ResolveVisibilityLevel(row.GetValue<short?>("security_level"));
-                if (!CanView(friendshipLevel, visibility))
+                var visibility = VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level"));
+                if (!visibility.CanBeViewedBy(friendshipLevel))
                 {
                     continue;
                 }
 
-                var tagId = row.GetValue<Guid>("id").ToString("N");
+                var tagId = new TagId(row.GetValue<Guid>("id").ToString("N"));
                 var alterIds = await GetGuardedAlterIdsAsync(session, keyspace, normalizedSystemId, row.GetValue<Guid>("id"), friendshipLevel);
                 var alters = alterIds.Count == 0
                     ? Array.Empty<BareAlter>()
@@ -505,23 +507,23 @@ public sealed class ScyllaTagRepository : ITagRepository
                     row.GetValue<string>("name"),
                     row.GetValue<string?>("color"),
                     row.GetValue<string?>("description"),
-                    row.GetValue<Guid?>("parent_tag_id")?.ToString("N"),
+                    ToTagId(row.GetValue<Guid?>("parent_tag_id")),
                     alters!,
                     row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
                     row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
                     visibility,
-                    row.GetValue<string>("user_id")));
+                    new SystemId(row.GetValue<string>("user_id"))));
             }
 
-            return tags.OrderBy(x => x.Id).ToArray();
+            return tags.OrderBy(x => x.Id.Value, StringComparer.Ordinal).ToArray();
         }, _options, cancellationToken);
     }
 
-    public async Task<TagReadModel?> GetAsync(string systemId, string tagId, CancellationToken cancellationToken = default)
+    public async Task<TagReadModel?> GetAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(tagId, out var tagGuid))
+            if (!TryParseUuid(tagId.Value, out var tagGuid))
             {
                 return null;
             }
@@ -544,28 +546,28 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             var alterIds = await GetAlterIdsAsync(session, keyspace, normalizedSystemId, tagGuid);           
             return new TagReadModel(
-                row.GetValue<Guid>("id").ToString("N"),
+                new TagId(row.GetValue<Guid>("id").ToString("N")),
                 row.GetValue<string>("name"),
                 row.GetValue<string?>("color"),
                 row.GetValue<string?>("description"),
-                row.GetValue<Guid?>("parent_tag_id")?.ToString("N"),
+                ToTagId(row.GetValue<Guid?>("parent_tag_id")),
                 alterIds,
                 row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
                 row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
-                ResolveVisibilityLevel(row.GetValue<short?>("security_level")),
-                row.GetValue<string>("user_id"));
+                VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level")),
+                new SystemId(row.GetValue<string>("user_id")));
         }, _options, cancellationToken);
     }
 
     public async Task<TagPublicReadModel?> GetGuardedAsync(
-        string systemId,
-        string tagId,
-        string? viewerSystemId,
+        SystemId systemId,
+        TagId tagId,
+        SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(tagId, out var tagGuid))
+            if (!TryParseUuid(tagId.Value, out var tagGuid))
             {
                 return null;
             }
@@ -588,8 +590,8 @@ public sealed class ScyllaTagRepository : ITagRepository
                 return null;
             }
 
-            var visibility = ResolveVisibilityLevel(row.GetValue<short?>("security_level"));
-            if (!CanView(friendshipLevel, visibility))
+            var visibility = VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level"));
+            if (!visibility.CanBeViewedBy(friendshipLevel))
             {
                 return null;
             }
@@ -605,20 +607,20 @@ public sealed class ScyllaTagRepository : ITagRepository
                     .Where(x => x != null)
                     .ToArray();
             return new TagPublicReadModel(
-                row.GetValue<Guid>("id").ToString("N"),
+                new TagId(row.GetValue<Guid>("id").ToString("N")),
                 row.GetValue<string>("name"),
                 row.GetValue<string?>("color"),
                 row.GetValue<string?>("description"),
-                row.GetValue<Guid?>("parent_tag_id")?.ToString("N"),
+                ToTagId(row.GetValue<Guid?>("parent_tag_id")),
                 alters!,
                 row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
                 row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
                 visibility,
-                row.GetValue<string>("user_id"));
+                new SystemId(row.GetValue<string>("user_id")));
         }, _options, cancellationToken);
     }
 
-    private static async Task<IReadOnlyList<int>> GetAlterIdsAsync(ISession session, string keyspace, string normalizedSystemId, Guid tagId)
+    private static async Task<IReadOnlyList<AlterId>> GetAlterIdsAsync(ISession session, string keyspace, string normalizedSystemId, Guid tagId)
     {
         var query = new SimpleStatement(
             $"SELECT alter_id FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ?",
@@ -627,15 +629,15 @@ public sealed class ScyllaTagRepository : ITagRepository
         );
 
         var rows = await session.ExecuteAsync(query);
-        return rows.Select(x => (int)x.GetValue<short>("alter_id")).OrderBy(x => x).ToArray();
+        return rows.Select(x => new AlterId(x.GetValue<short>("alter_id"))).OrderBy(x => x.Value).ToArray();
     }
 
-    private static async Task<IReadOnlyList<int>> GetGuardedAlterIdsAsync(
+    private static async Task<IReadOnlyList<AlterId>> GetGuardedAlterIdsAsync(
         ISession session,
         string keyspace,
         string normalizedSystemId,
         Guid tagId,
-        string? friendshipLevel)
+        FriendshipLevel? friendshipLevel)
     {
         var alterIds = await GetAlterIdsAsync(session, keyspace, normalizedSystemId, tagId);
         if (alterIds.Count == 0)
@@ -651,28 +653,28 @@ public sealed class ScyllaTagRepository : ITagRepository
         var visible = rows
             .Select(row => new
             {
-                AlterId = (int)row.GetValue<short>("id"),
-                Visibility = ResolveVisibilityLevel(row.GetValue<short?>("security_level"))
+                AlterId = new AlterId(row.GetValue<short>("id")),
+                Visibility = VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level"))
             })
-            .Where(x => alterIds.Contains(x.AlterId) && CanView(friendshipLevel, x.Visibility))
+            .Where(x => alterIds.Contains(x.AlterId) && x.Visibility.CanBeViewedBy(friendshipLevel))
             .Select(x => x.AlterId)
-            .OrderBy(x => x)
+            .OrderBy(x => x.Value)
             .ToArray();
 
         return visible;
     }
 
-    private async Task<string?> ResolveFriendshipLevelAsync(ISession session, string ownerSystemId, string? viewerSystemId)
+    private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(ISession session, string ownerSystemId, SystemId? viewerSystemId)
     {
-        if (string.IsNullOrWhiteSpace(viewerSystemId))
+        if (string.IsNullOrWhiteSpace(viewerSystemId?.Value))
         {
             return null;
         }
 
-        var normalizedViewerSystemId = _keyspaceResolver.NormalizeSystemId(viewerSystemId);
+        var normalizedViewerSystemId = _keyspaceResolver.NormalizeSystemId(viewerSystemId.Value);
         if (string.Equals(ownerSystemId, normalizedViewerSystemId, StringComparison.Ordinal))
         {
-            return "trusted_friend";
+            return FriendshipLevel.TrustedFriend;
         }
 
         var query = new SimpleStatement(
@@ -681,40 +683,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             normalizedViewerSystemId);
 
         var row = (await session.ExecuteAsync(query)).FirstOrDefault();
-        return row is null ? null : ScyllaFriendshipRepository.ToDomainLevel(row.GetValue<short>("level"));
-    }
-
-    private static VisibilityLevel ResolveVisibilityLevel(short? value)
-    {
-        return value switch
-        {
-            1 => VisibilityLevel.FriendsOnly,
-            2 => VisibilityLevel.TrustedOnly,
-            3 => VisibilityLevel.Private,
-            _ => VisibilityLevel.Public
-        };
-    }
-
-    private static bool CanView(string? friendshipLevel, VisibilityLevel visibilityLevel)
-    {
-        return visibilityLevel switch
-        {
-            VisibilityLevel.Public => true,
-            VisibilityLevel.FriendsOnly => friendshipLevel is "friend" or "trusted_friend",
-            VisibilityLevel.TrustedOnly => friendshipLevel is "trusted_friend",
-            _ => false
-        };
-    }
-
-    private static short ToSecurityLevel(string value)
-    {
-        return value.Trim().ToLowerInvariant() switch
-        {
-            "friends_only" => 1,
-            "trusted_only" => 2,
-            "private" => 3,
-            _ => 0
-        };
+        return row is null ? null : FriendshipLevelExtensions.FromCode(row.GetValue<short>("level"));
     }
 
     internal static bool TryParseUuid(string value, out Guid guid)
@@ -726,4 +695,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
         return Guid.TryParse(value, out guid);
     }
+
+    private static TagId? ToTagId(Guid? guid)
+        => guid is null ? null : new TagId(guid.Value.ToString("N"));
 }

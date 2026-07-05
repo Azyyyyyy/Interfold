@@ -1,13 +1,16 @@
 ﻿using System.Text.Json.Serialization;
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Contracts.Models;
 
-public sealed record AlterPublicFieldReadModel(string Id, string Name, string Type, string? Value);
+// The Id here is the settings field definition's FieldId — alter field values are
+// (field definition id → value) pairs joined against SettingsFieldReadModel.Id.
+public sealed record AlterPublicFieldReadModel(FieldId Id, string Name, FieldType Type, string? Value);
 
 public class BareAlter {
     public BareAlter(
-        int id,
+        AlterId id,
         string name,
         string? avatarUrl,
         AvatarSource? avatarSource,
@@ -26,7 +29,7 @@ public class BareAlter {
         Description = description;
     }
 
-    public int Id { get; set; }
+    public AlterId Id { get; set; }
     public string? AvatarUrl { get; set; }
     public AvatarSource? AvatarSource { get; set; }
     public string? Color { get; set; }
@@ -39,7 +42,7 @@ public class BareAlter {
 public sealed class AlterReadModel : BareAlter {
 
     public AlterReadModel(
-        int id,
+        AlterId id,
         string name,
         string? description,
         string? avatarUrl,

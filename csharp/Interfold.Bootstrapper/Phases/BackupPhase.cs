@@ -3,6 +3,8 @@ using System.IO.Compression;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -45,20 +47,20 @@ namespace Interfold.Bootstrapper.Phases;
 internal static class BackupPhase
 {
     private const string Phase = "backup";
-    private const string PostgresService = "msg-db";
+    private const string PostgresService = ComposeServices.Postgres;
 
     /// <summary>
     /// Allowed values for <see cref="BootstrapOptions.BackupComponent"/>. Kept as an array
     /// so the validator can surface the canonical set in its error message.
     /// </summary>
-    internal static readonly string[] ValidComponents = ["postgres", "scylla", "all"];
+    internal static readonly string[] ValidComponents =
+        Enum.GetValues<BackupDatabaseComponent>().Select(BackupDatabaseComponentExtensions.ToWireValue).ToArray();
 
     public static async Task<int> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
         logger.PhaseStart(Phase);
 
-        var component = options.BackupComponent?.ToLowerInvariant() ?? "all";
-        if (!ValidComponents.Contains(component, StringComparer.Ordinal))
+        if (BackupDatabaseComponentExtensions.TryParse(options.BackupComponent) is not { } component)
         {
             logger.PhaseFail(Phase, "unknown-component");
             throw new InvalidOperationException(
@@ -121,13 +123,13 @@ internal static class BackupPhase
         // ISO-ish, sortable, no separators that need escaping on a Unix filesystem.
         var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
 
-        if (component is "postgres" or "all")
+        if (component is BackupDatabaseComponent.Postgres or BackupDatabaseComponent.All)
         {
             await BackupPostgresAsync(composeFile, backupRoot, timestamp, config, secrets, retainCount, logger, ct)
                 .ConfigureAwait(false);
         }
 
-        if (component is "scylla" or "all")
+        if (component is BackupDatabaseComponent.Scylla or BackupDatabaseComponent.All)
         {
             await BackupScyllaAsync(composeFile, backupRoot, timestamp, config, retainCount, logger, ct)
                 .ConfigureAwait(false);
@@ -169,9 +171,9 @@ internal static class BackupPhase
     {
         return config.DatabaseMode switch
         {
-            "cassandra" => ("cassandra", "/var/lib/cassandra"),
-            "multi" => ("scylla-nam", "/var/lib/scylla"),
-            _ => ("scylla", "/var/lib/scylla"),
+            DatabaseMode.Cassandra => (ComposeServices.Cassandra, "/var/lib/cassandra"),
+            DatabaseMode.Multi => (ComposeServices.ScyllaNam, "/var/lib/scylla"),
+            _ => (ComposeServices.ScyllaSingle, "/var/lib/scylla"),
         };
     }
 
@@ -179,12 +181,12 @@ internal static class BackupPhase
     /// Computes the canonical archive filename for a given component + timestamp. Returned
     /// path is relative to the component subdirectory; callers join with the backup root.
     /// </summary>
-    internal static string BuildArchiveFileName(string component, string timestamp)
+    internal static string BuildArchiveFileName(BackupDatabaseComponent component, string timestamp)
     {
         return component switch
         {
-            "postgres" => $"{timestamp}.dump",
-            "scylla" => $"{timestamp}.tar.gz",
+            BackupDatabaseComponent.Postgres => $"{timestamp}.dump",
+            BackupDatabaseComponent.Scylla => $"{timestamp}.tar.gz",
             _ => throw new InvalidOperationException($"Unknown component '{component}' (expected: postgres | scylla)."),
         };
     }
@@ -276,9 +278,9 @@ internal static class BackupPhase
         BootstrapConfig config, GeneratedSecrets secrets, int retainCount,
         PhaseLogger logger, CancellationToken ct)
     {
-        var componentDir = Path.Combine(backupRoot, "postgres");
+        var componentDir = Path.Combine(backupRoot, BackupStoragePaths.PostgresDir);
         Directory.CreateDirectory(componentDir);
-        var dumpPath = Path.Combine(componentDir, BuildArchiveFileName("postgres", timestamp));
+        var dumpPath = Path.Combine(componentDir, BuildArchiveFileName(BackupDatabaseComponent.Postgres, timestamp));
 
         // Admin role created by DatabaseInitPhase. We don't try to run the dump as the app
         // role — pg_dump needs broader privileges to capture every object regardless of
@@ -311,7 +313,7 @@ internal static class BackupPhase
         }
         logger.Info($"    postgres: wrote {FormatBytes(size)}");
 
-        PruneComponent(componentDir, "postgres", retainCount, logger);
+        PruneComponent(componentDir, BackupDatabaseComponent.Postgres, retainCount, logger);
     }
 
     private static async Task BackupScyllaAsync(
@@ -320,9 +322,9 @@ internal static class BackupPhase
         PhaseLogger logger, CancellationToken ct)
     {
         var (service, dataPath) = ResolveScyllaSeed(config);
-        var componentDir = Path.Combine(backupRoot, "scylla");
+        var componentDir = Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir);
         Directory.CreateDirectory(componentDir);
-        var archivePath = Path.Combine(componentDir, BuildArchiveFileName("scylla", timestamp));
+        var archivePath = Path.Combine(componentDir, BuildArchiveFileName(BackupDatabaseComponent.Scylla, timestamp));
 
         // Snapshot tag pinned to the timestamp so a failed clear (e.g. compose down between
         // snapshot and clear) leaves an obvious orphan an operator can match to the failed
@@ -396,15 +398,15 @@ internal static class BackupPhase
         }
         logger.Info($"    scylla: wrote {FormatBytes(size)}");
 
-        PruneComponent(componentDir, "scylla", retainCount, logger);
+        PruneComponent(componentDir, BackupDatabaseComponent.Scylla, retainCount, logger);
     }
 
-    private static void PruneComponent(string componentDir, string component, int retainCount, PhaseLogger logger)
+    private static void PruneComponent(string componentDir, BackupDatabaseComponent component, int retainCount, PhaseLogger logger)
     {
         var pattern = component switch
         {
-            "postgres" => "*.dump",
-            "scylla" => "*.tar.gz",
+            BackupDatabaseComponent.Postgres => BackupStoragePaths.PostgresArchivePattern,
+            BackupDatabaseComponent.Scylla => BackupStoragePaths.ScyllaArchivePattern,
             _ => throw new InvalidOperationException($"Unknown component '{component}'."),
         };
         var files = new DirectoryInfo(componentDir)

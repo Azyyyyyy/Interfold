@@ -9,6 +9,7 @@ using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Contracts;
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Domain.Abstractions.Repository;
 
@@ -18,14 +19,14 @@ namespace Interfold.Api.Controllers.Base;
 [Authorize]
 public abstract class InterfoldControllerBase : ControllerBase
 {
-    protected string PrincipalId
+    protected SystemId PrincipalId
     {
         get
         {
             if (HttpContext.Items.TryGetValue(InterfoldPrincipalMiddleware.PrincipalIdItemKey, out var value)
                 && value is string principal)
             {
-                return principal;
+                return new SystemId(principal);
             }
 
             throw new InvalidOperationException(
@@ -33,38 +34,41 @@ public abstract class InterfoldControllerBase : ControllerBase
         }
     }
 
-    protected async ValueTask CheckAlterId(int alterId, string? principal = null, CancellationToken? ct = null)
+    protected async ValueTask CheckAlterId(AlterId alterId, SystemId? principal = null, CancellationToken? ct = null)
     {
-        if (alterId <= 0)
+        if (alterId.Value <= 0)
         {
-            throw new InterfoldException("Invalid alter ID.", "invalid_alter_id");
+            throw new InterfoldException("Invalid alter ID.", ErrorCodes.InvalidAlterId);
         }
 
-        if (string.IsNullOrWhiteSpace(principal))
+        if (string.IsNullOrWhiteSpace(principal?.Value))
         {
             return;
         }
 
         if (!ct.HasValue)
         {
-            throw new InterfoldException("CT is required on alter check", "alter_check_server_issue");
+            throw new InterfoldException("CT is required on alter check", ErrorCodes.AlterCheckServerIssue);
         }
 
         var alterRepository = HttpContext.RequestServices.GetRequiredService<IAlterRepository>();
-        var alterExists = await alterRepository.ExistsAsync(principal, alterId, ct.Value);
+        var alterExists = await alterRepository.ExistsAsync(principal.Value, alterId, ct.Value);
         if (!alterExists)
         {
-            throw new InterfoldException("Alter not found", "alter_not_found");
+            throw new InterfoldException("Alter not found", ErrorCodes.AlterNotFound);
         }
     }
 
-    protected string GetIdempotencyKey(string? bodyKey)
+    /// <summary>
+    /// Resolves the idempotency key for the current request: the
+    /// <c>X-Interfold-Idempotency-Key</c> header when present, otherwise a fresh GUID
+    /// (each unkeyed request is its own operation). The header is the only client-supplied
+    /// source — payload-level keys were removed.
+    /// </summary>
+    protected IdempotencyKey GetIdempotencyKey()
     {
-        if (!string.IsNullOrWhiteSpace(bodyKey))
-            return bodyKey;
-
-        var header = Request.Headers["X-Interfold-Idempotency-Key"].FirstOrDefault();
-        return !string.IsNullOrWhiteSpace(header) ? header : Guid.NewGuid().ToString("N");
+        var header = Request.Headers[InterfoldHeaders.IdempotencyKey].FirstOrDefault();
+        return new IdempotencyKey(!string.IsNullOrWhiteSpace(header) ? header : Guid.NewGuid().ToString("N"));
     }
 
     /// <summary>
@@ -128,7 +132,7 @@ public abstract class InterfoldControllerBase : ControllerBase
                     result.Conflict!.Code.ToString()));
         }
 
-        Response.Headers["X-Interfold-Command-Id"] = envelope.CommandId.ToString("N");
+        Response.Headers[InterfoldHeaders.CommandId] = envelope.CommandId.ToString("N");
 
         if (result.Accepted)
             return Ok(result.Result);
@@ -137,7 +141,10 @@ public abstract class InterfoldControllerBase : ControllerBase
         {
             ConflictCode.ConflictDuplicate    => Conflict(result.Conflict),
             ConflictCode.ConflictInvariant    => UnprocessableEntity(result.Conflict),
-            _                                 => StatusCode(500, new { Code = "unknown_error" })
+            _                                 => StatusCode(500, new ErrorResponse(
+                "An unknown error occurred.",
+                ErrorCodes.UnknownError,
+                System.Net.HttpStatusCode.InternalServerError))
         };
     }
 
@@ -181,16 +188,18 @@ public abstract class InterfoldControllerBase : ControllerBase
 
     protected ErrorResponse ConflictToError(Contracts.Operations.ConflictResult conflict)
     {
-        Response.Headers["X-Interfold-OperationId"] = conflict.OperationId;
+        Response.Headers[InterfoldHeaders.OperationId] = conflict.OperationId.Value;
         
         return conflict.Code switch
         {
+            // ResolutionHint doubles as the client-visible error code; ToWireValue keeps the
+            // exact legacy strings ("no_retry" / "manual_merge_required") on the wire.
             ConflictCode.ConflictDuplicate => new ErrorResponse(
-                "A duplicate conflict occurred.", conflict.ResolutionHint, HttpStatusCode.Conflict, conflict.EntityRef),
+                "A duplicate conflict occurred.", conflict.ResolutionHint.ToWireValue(), HttpStatusCode.Conflict, conflict.EntityRef.Value),
             ConflictCode.ConflictInvariant => new ErrorResponse(
-                "The request could not be processed due to a conflict.", conflict.ResolutionHint,
-                HttpStatusCode.UnprocessableEntity, conflict.EntityRef),
-            _ => new ErrorResponse("An unknown error occurred.", "unknown_error", HttpStatusCode.InternalServerError, conflict.EntityRef)
+                "The request could not be processed due to a conflict.", conflict.ResolutionHint.ToWireValue(),
+                HttpStatusCode.UnprocessableEntity, conflict.EntityRef.Value),
+            _ => new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, HttpStatusCode.InternalServerError, conflict.EntityRef.Value)
         };
     }
 }

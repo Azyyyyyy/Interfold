@@ -1,6 +1,8 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.DatabaseBootstrap;
 
 namespace Interfold.Bootstrapper.Phases;
@@ -31,7 +33,7 @@ namespace Interfold.Bootstrapper.Phases;
 internal static class DatabaseInitPhase
 {
     private const string Phase = "db-init";
-    private const string PostgresService = "msg-db";
+    private const string PostgresService = ComposeServices.Postgres;
     private const string PostgresInitUser = "db_init";
 
     public static async Task RunAsync(
@@ -82,7 +84,7 @@ internal static class DatabaseInitPhase
         // DbInitFaultRecoveryTests can confirm a rerun resumes cleanly. We throw rather than
         // return so the Orchestrator's try/catch surfaces a non-zero exit and skips the
         // Launch phase (which would otherwise try to `compose up` an un-initialised stack).
-        if (string.Equals(options.FaultInject, "after-db-postgres", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(options.FaultInject, BootstrapPhase.DbPostgres.ToFaultInjectToken(), StringComparison.OrdinalIgnoreCase))
         {
             logger.Warn("--fault-inject=after-db-postgres triggered; halting before scylla init.");
             throw new InvalidOperationException("fault-inject:after-db-postgres");
@@ -152,9 +154,9 @@ internal static class DatabaseInitPhase
         // propagate via CQL gossip.
         return config.DatabaseMode switch
         {
-            "cassandra" => "cassandra",
-            "multi" => "scylla-nam",
-            _ => "scylla",
+            DatabaseMode.Cassandra => ComposeServices.Cassandra,
+            DatabaseMode.Multi => ComposeServices.ScyllaNam,
+            _ => ComposeServices.ScyllaSingle,
         };
     }
 

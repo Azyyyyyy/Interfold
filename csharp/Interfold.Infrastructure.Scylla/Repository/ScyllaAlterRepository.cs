@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Cassandra;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
@@ -38,9 +39,9 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         _logger = logger;
     }
 
-    public async Task<int?> CreateAsync(string systemId, CreateAlterCommand command, CancellationToken cancellationToken = default)
+    public async Task<AlterId?> CreateAsync(SystemId systemId, CreateAlterCommand command, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await DatabaseTransientRetry.ExecuteScyllaAsync<AlterId?>(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
@@ -67,11 +68,11 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             );
 
             await session.ExecuteAsync(insert);
-            return (int?)next;
+            return new AlterId(next);
         }, _options, cancellationToken, _logger);
     }
 
-    public async Task<bool> ExistsAsync(string systemId, int alterId, CancellationToken cancellationToken = default)
+    public async Task<bool> ExistsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -82,7 +83,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var query = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId,
-                (short)alterId
+                (short)alterId.Value
             );
 
             var rows = await session.ExecuteAsync(query);
@@ -90,7 +91,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         }, _options, cancellationToken, _logger);
     }
 
-    public async Task<bool> UpdateAsync(string systemId, UpdateAlterCommand command, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateAsync(SystemId systemId, UpdateAlterCommand command, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -101,7 +102,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             var batch = new BatchStatement();
 
-            var exists = await ExistsAsync(session, keyspace, normalizedSystemId, (short)command.AlterId);
+            var exists = await ExistsAsync(session, keyspace, normalizedSystemId, (short)command.AlterId.Value);
             if (!exists)
             {
                 return false;
@@ -117,7 +118,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     null,
                     updatedAt,
                     normalizedSystemId,
-                    (short)command.AlterId
+                    (short)command.AlterId.Value
                 ));
             }
             else if (command.AvatarUrl is not null)
@@ -131,12 +132,12 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     sourceShort,
                     updatedAt,
                     normalizedSystemId,
-                    (short)command.AlterId
+                    (short)command.AlterId.Value
                 ));
             }
             UpdateIfNotNull(batch, keyspace, command, "color", command.Color, normalizedSystemId, updatedAt);
             UpdateIfNotNull(batch, keyspace, command, "pronouns", command.Pronouns, normalizedSystemId, updatedAt);
-            UpdateIfNotNull(batch, keyspace, command, "security_level", command.SecurityLevel == null ? null : ToSecurityLevel(command.SecurityLevel), normalizedSystemId, updatedAt);
+            UpdateIfNotNull(batch, keyspace, command, "security_level", command.SecurityLevel is null ? null : command.SecurityLevel.Value.ToCode(), normalizedSystemId, updatedAt);
 
             if (command.Fields is not null)
             {
@@ -145,7 +146,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 var currentRow = (await session.ExecuteAsync(new SimpleStatement(
                     $"SELECT fields FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
                     normalizedSystemId,
-                    (short)command.AlterId
+                    (short)command.AlterId.Value
                 ))).FirstOrDefault();
 
                 var merged = (currentRow?.GetValue<IEnumerable<AlterFieldUdt>?>("fields") ?? [])
@@ -153,7 +154,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
                 foreach (var f in command.Fields)
                 {
-                    merged[f.Id] = f.Value;
+                    merged[f.Id.Value] = f.Value;
                 }
 
                 var udts = merged
@@ -165,7 +166,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     udts,
                     updatedAt,
                     normalizedSystemId,
-                    (short)command.AlterId
+                    (short)command.AlterId.Value
                 ));
             }
 
@@ -180,13 +181,13 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 // Read old alias to remove from lookup table
                 var oldAliasRow = (await session.ExecuteAsync(new SimpleStatement(
                     $"SELECT alias FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
-                    normalizedSystemId, (short)command.AlterId))).FirstOrDefault();
+                    normalizedSystemId, (short)command.AlterId.Value))).FirstOrDefault();
                 var oldAlias = oldAliasRow?.GetValue<string?>("alias");
 
                 // Update the base table
                 batch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alters SET alias = ?, updated_at = ? WHERE user_id = ? AND id = ?",
-                    command.Alias, updatedAt, normalizedSystemId, (short)command.AlterId));
+                    command.Alias, updatedAt, normalizedSystemId, (short)command.AlterId.Value));
 
                 // Remove old lookup entry
                 if (!string.IsNullOrWhiteSpace(oldAlias))
@@ -202,7 +203,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 {
                     batch.Add(new SimpleStatement(
                         $"INSERT INTO {keyspace}.alters_by_alias (user_id, alias, alter_id) VALUES (?, ?, ?)",
-                        normalizedSystemId, newAlias, (short)command.AlterId));
+                        normalizedSystemId, newAlias, (short)command.AlterId.Value));
                 }
             }
 
@@ -221,19 +222,19 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     value,
                     updatedAt,
                     normalizedSystemId,
-                    (short)command.AlterId
+                    (short)command.AlterId.Value
                 ));
         }
     }
 
-    public async Task<bool> DeleteAsync(string systemId, int alterId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var alterIdShort = (short)alterId;
+            var alterIdShort = (short)alterId.Value;
 
             var exists = await ExistsAsync(session, keyspace, normalizedSystemId, alterIdShort);
             if (!exists)
@@ -398,7 +399,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         }, _options, cancellationToken, _logger);
     }
 
-    public async Task<IReadOnlyList<AlterReadModel>> ListAsync(string systemId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<AlterReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -417,14 +418,14 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var rows = await session.ExecuteAsync(query);
             return rows
                 .Select(row => new AlterReadModel(
-                    row.GetValue<short>("id"),
+                    new AlterId(row.GetValue<short>("id")),
                     row.GetValue<string>("name"),
                     row.GetValue<string?>("description"),
                     row.GetValue<string?>("avatar_url"),
-                    ResolveAvatarSource(row.GetValue<short?>("avatar_source")),
+                    AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
                     row.GetValue<string?>("color"),
                     row.GetValue<string?>("pronouns"),
-                    ResolveVisibilityLevel(row.GetValue<short?>("security_level")),
+                    VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level")),
                     ResolveFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
                     row.GetValue<string?>("proxy_name"),
                     row.GetValue<string?>("alias"),
@@ -432,14 +433,14 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     row.GetValue<bool?>("archived"),
                     row.GetValue<bool?>("pinned")
                 ))
-                .OrderBy(x => x.Id)
+                .OrderBy(x => x.Id.Value)
                 .ToArray();
         }, _options, cancellationToken, _logger);
     }
 
     public async Task<IReadOnlyList<BareAlter>> ListGuardedAsync(
-        string systemId,
-        string? viewerSystemId,
+        SystemId systemId,
+        SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
@@ -458,22 +459,22 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             var rows = await session.ExecuteAsync(query);
             return rows
-                .Where(row => CanView(friendshipLevel, ResolveVisibilityLevel(row.GetValue<short?>("security_level"))))
+                .Where(row => VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level")).CanBeViewedBy(friendshipLevel))
                 .Select(row => new BareAlter(
-                    row.GetValue<short>("id"),
+                    new AlterId(row.GetValue<short>("id")),
                     row.GetValue<string>("name"),
                     row.GetValue<string?>("avatar_url"),
-                    ResolveAvatarSource(row.GetValue<short?>("avatar_source")),
+                    AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
                     row.GetValue<string?>("color"),
                     row.GetValue<string?>("pronouns"),
                     row.GetValue<string?>("description"),
                     ResolveGuardedFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions)))
-                .OrderBy(x => x.Id)
+                .OrderBy(x => x.Id.Value)
                 .ToArray();
         }, _options, cancellationToken, _logger);
     }
 
-    public async Task<AlterReadModel?> GetAsync(string systemId, int alterId, CancellationToken cancellationToken = default)
+    public async Task<AlterReadModel?> GetAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -487,21 +488,21 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var query = new SimpleStatement(
                 $"SELECT id, name, alias, fields, security_level, color, pronouns, avatar_url, avatar_source, pinned, archived, untracked, description, proxy_name FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId,
-                (short)alterId
+                (short)alterId.Value
             );
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             return row is null
                 ? null
                 : new AlterReadModel(
-                    row.GetValue<short>("id"),
+                    new AlterId(row.GetValue<short>("id")),
                     row.GetValue<string>("name"),
                     row.GetValue<string?>("description"),
                     row.GetValue<string?>("avatar_url"),
-                    ResolveAvatarSource(row.GetValue<short?>("avatar_source")),
+                    AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
                     row.GetValue<string?>("color"),
                     row.GetValue<string?>("pronouns"),
-                    ResolveVisibilityLevel(row.GetValue<short?>("security_level")),
+                    VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level")),
                     ResolveFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
                     row.GetValue<string?>("proxy_name"),
                     row.GetValue<string?>("alias"),
@@ -513,9 +514,9 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     }
 
     public async Task<BareAlter?> GetGuardedAsync(
-        string systemId,
-        int alterId,
-        string? viewerSystemId,
+        SystemId systemId,
+        AlterId alterId,
+        SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
@@ -530,7 +531,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var query = new SimpleStatement(
                 $"SELECT id, name, avatar_url, avatar_source, description, color, pronouns, pinned, security_level, fields FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId,
-                (short)alterId
+                (short)alterId.Value
             );
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
@@ -539,17 +540,17 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 return null;
             }
 
-            var securityLevel = ResolveVisibilityLevel(row.GetValue<short?>("security_level"));
-            if (!CanView(friendshipLevel, securityLevel))
+            var securityLevel = VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level"));
+            if (!securityLevel.CanBeViewedBy(friendshipLevel))
             {
                 return null;
             }
 
             return new BareAlter(
-                row.GetValue<short>("id"),
+                new AlterId(row.GetValue<short>("id")),
                 row.GetValue<string>("name"),
                 row.GetValue<string?>("avatar_url"),
-                ResolveAvatarSource(row.GetValue<short?>("avatar_source")),
+                AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
                 row.GetValue<string?>("color"),
                 row.GetValue<string?>("pronouns"),
                 row.GetValue<string?>("description"),
@@ -559,8 +560,8 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     }
 
     public async Task<bool> AliasTakenByOtherAsync(
-        string systemId,
-        int alterId,
+        SystemId systemId,
+        AlterId alterId,
         string alias,
         CancellationToken cancellationToken = default
     )
@@ -578,21 +579,21 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             );
 
             var rows = await session.ExecuteAsync(query);
-            return rows.Any(row => row.GetValue<short>("id") != (short)alterId);
+            return rows.Any(row => row.GetValue<short>("id") != (short)alterId.Value);
         }, _options, cancellationToken, _logger);
     }
 
-    private async Task<string?> ResolveFriendshipLevelAsync(ISession session, string ownerSystemId, string? viewerSystemId)
+    private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(ISession session, string ownerSystemId, SystemId? viewerSystemId)
     {
-        if (string.IsNullOrWhiteSpace(viewerSystemId))
+        if (string.IsNullOrWhiteSpace(viewerSystemId?.Value))
         {
             return null;
         }
 
-        var normalizedViewerSystemId = _keyspaceResolver.NormalizeSystemId(viewerSystemId);
+        var normalizedViewerSystemId = _keyspaceResolver.NormalizeSystemId(viewerSystemId.Value);
         if (string.Equals(ownerSystemId, normalizedViewerSystemId, StringComparison.Ordinal))
         {
-            return "trusted_friend";
+            return FriendshipLevel.TrustedFriend;
         }
 
         var query = new SimpleStatement(
@@ -601,54 +602,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             normalizedViewerSystemId);
 
         var row = (await session.ExecuteAsync(query)).FirstOrDefault();
-        return row is null ? null : ScyllaFriendshipRepository.ToDomainLevel(row.GetValue<short>("level"));
-    }
-
-    private static VisibilityLevel ResolveVisibilityLevel(short? value)
-    {
-        // Treat null as public for backward compatibility with older rows.
-        return value switch
-        {
-            1 => VisibilityLevel.FriendsOnly,
-            2 => VisibilityLevel.TrustedOnly,
-            3 => VisibilityLevel.Private,
-            _ => VisibilityLevel.Public
-        };
-    }
-
-    /// <summary>
-    /// Maps the persisted <c>avatar_source</c> smallint into the <see cref="AvatarSource"/> enum.
-    /// Returns <see langword="null"/> when the column is null (no avatar set), so the boundary
-    /// can omit <c>avatar_source</c> from the response payload.
-    /// </summary>
-    private static AvatarSource? ResolveAvatarSource(short? value)
-        => value switch
-        {
-            (short)Interfold.Contracts.Enums.AvatarSource.External => Interfold.Contracts.Enums.AvatarSource.External,
-            (short)Interfold.Contracts.Enums.AvatarSource.Local    => Interfold.Contracts.Enums.AvatarSource.Local,
-            _ => null
-        };
-
-    private static bool CanView(string? friendshipLevel, VisibilityLevel visibilityLevel)
-    {
-        return visibilityLevel switch
-        {
-            VisibilityLevel.Public => true,
-            VisibilityLevel.FriendsOnly => friendshipLevel is "friend" or "trusted_friend",
-            VisibilityLevel.TrustedOnly => friendshipLevel is "trusted_friend",
-            _ => false
-        };
-    }
-
-    private static short ToSecurityLevel(string value)
-    {
-        return value.Trim().ToLowerInvariant() switch
-        {
-            "friends_only" => 1,
-            "trusted_only" => 2,
-            "private" => 3,
-            _ => 0
-        };
+        return row is null ? null : FriendshipLevelExtensions.FromCode(row.GetValue<short>("level"));
     }
 
     private static async Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, short alterId)
@@ -664,13 +618,13 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     }
 
     private async Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(
-        string systemId,
-        string? friendshipLevel,
+        SystemId systemId,
+        FriendshipLevel? friendshipLevel,
         CancellationToken cancellationToken)
     {
         var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
         return definitions
-            .Where(def => CanView(friendshipLevel, ParseVisibilityLevel(def.SecurityLevel)))
+            .Where(def => def.SecurityLevel.CanBeViewedBy(friendshipLevel))
             .ToArray();
     }
 
@@ -684,7 +638,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         }
 
         return definitions
-            .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, alterFields?.FirstOrDefault(x => x.Id.ToString("N") == def.Id)?.Value))
+            .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, alterFields?.FirstOrDefault(x => x.Id.ToString("N") == def.Id.Value)?.Value))
             .ToArray();
     }
 
@@ -701,20 +655,9 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         }
 
         return definitions
-            .Where(def => valuesByFieldId.ContainsKey(def.Id))
-            .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, valuesByFieldId[def.Id]))
+            .Where(def => valuesByFieldId.ContainsKey(def.Id.Value))
+            .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, valuesByFieldId[def.Id.Value]))
             .ToArray();
-    }
-
-    private static VisibilityLevel ParseVisibilityLevel(string? value)
-    {
-        return value?.Trim().ToLowerInvariant() switch
-        {
-            "friends_only" => VisibilityLevel.FriendsOnly,
-            "trusted_only" => VisibilityLevel.TrustedOnly,
-            "private" => VisibilityLevel.Private,
-            _ => VisibilityLevel.Public
-        };
     }
 
     public static void EnsureAlterFieldUdtMapping(ISession session, string keyspace)

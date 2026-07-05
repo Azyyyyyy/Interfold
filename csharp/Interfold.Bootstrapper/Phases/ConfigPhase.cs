@@ -4,6 +4,8 @@ using System.Text.RegularExpressions;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Spectre.Console;
 
 namespace Interfold.Bootstrapper.Phases;
@@ -237,22 +239,22 @@ internal static class ConfigPhase
                                                     () => c.Ports.Scylla = PromptInt("Scylla/Cassandra host port", c.Ports.Scylla, 1, 65535))),
 
             Group("Database",
-                ("Database mode",                   () => c.DatabaseMode,
-                                                    () => c.DatabaseMode = console.Prompt(
+                ("Database mode",                   () => c.DatabaseMode.ToWireValue(),
+                                                    () => c.DatabaseMode = EnumWireExtensions.TryParseDatabaseMode(console.Prompt(
                                                         new TextPrompt<string>("Database mode:")
-                                                            .DefaultValue(c.DatabaseMode)
-                                                            .AddChoices(new[] { "single", "multi", "cassandra" }))),
+                                                            .DefaultValue(c.DatabaseMode.ToWireValue())
+                                                            .AddChoices(ValidDatabaseModes))) ?? c.DatabaseMode),
                 ("Postgres application DB name",    () => c.PostgresDatabase,
                                                     () => c.PostgresDatabase = PromptStr("Postgres application DB name", c.PostgresDatabase)),
                 ("Cluster name",                    () => c.ClusterName,
                                                     () => c.ClusterName = PromptStr("Cluster name (Scylla/Cassandra)", c.ClusterName)),
                 // Scylla keyspace == per-instance region identity; AddChoices enforces the
                 // seven valid values upfront (Validate does the same non-interactively).
-                ("Scylla keyspace (region)",        () => c.ScyllaKeyspace,
-                                                    () => c.ScyllaKeyspace = console.Prompt(
+                ("Scylla keyspace (region)",        () => c.ScyllaKeyspace.ToWireValue(),
+                                                    () => c.ScyllaKeyspace = EnumWireExtensions.ParseScyllaKeyspace(console.Prompt(
                                                         new TextPrompt<string>("Scylla keyspace (region):")
-                                                            .DefaultValue(c.ScyllaKeyspace)
-                                                            .AddChoices(ValidScyllaKeyspaces)))),
+                                                            .DefaultValue(c.ScyllaKeyspace.ToWireValue())
+                                                            .AddChoices(ValidScyllaKeyspaces))))),
 
             // Derivable rows (callback URL, JWT authority, CORS) call ResolveDerivedDefaults
             // on a snapshot so the menu paints the computed default before Enter is pressed.
@@ -276,11 +278,11 @@ internal static class ConfigPhase
 
             // Cluster (NodeGroup) + Observability (OTLP) merged — both too small alone.
             Group("Cluster & telemetry",
-                ("Cluster node group",              () => c.Cluster.NodeGroup,
-                                                    () => c.Cluster.NodeGroup = console.Prompt(
+                ("Cluster node group",              () => c.Cluster.NodeGroup.ToWireValue(),
+                                                    () => c.Cluster.NodeGroup = EnumWireExtensions.ParseNodeGroup(console.Prompt(
                                                         new TextPrompt<string>("Cluster node group:")
-                                                            .DefaultValue(c.Cluster.NodeGroup)
-                                                            .AddChoices(ValidNodeGroups))),
+                                                            .DefaultValue(c.Cluster.NodeGroup.ToWireValue())
+                                                            .AddChoices(ValidNodeGroups)))),
                 // Blank disables OTLP; ShowOrEmpty makes the unset state visible.
                 ("OTLP endpoint",                   () => ShowOrEmpty(c.Observability.OtlpEndpoint),
                                                     () => c.Observability.OtlpEndpoint = PromptStr(
@@ -744,33 +746,41 @@ internal static class ConfigPhase
         string.IsNullOrEmpty(value) ? "<empty>" : value;
 
     /// <summary>
-    /// Seven regional keyspaces the API recognises. Must stay aligned with the region list
-    /// in <c>InterfoldAppHost.Configure</c> and <see cref="PublishPhase.BuildEnvReplacements"/>.
+    /// Wire spellings of every <see cref="ScyllaKeyspace"/> enum value; kept as a string array
+    /// so Spectre.Console's <c>AddChoices</c> and older unit tests can iterate without a
+    /// bespoke enum-projection at the call site. Must stay aligned with the region list in
+    /// <c>InterfoldAppHost.Configure</c> and <see cref="PublishPhase.BuildEnvReplacements"/>;
+    /// derived directly from the enum so future additions surface in one place.
     /// </summary>
-    internal static readonly string[] ValidScyllaKeyspaces =
-        ["nam", "eur", "sam", "sas", "eas", "ocn", "gdpr"];
+    internal static readonly string[] ValidScyllaKeyspaces = Enum
+        .GetValues<ScyllaKeyspace>()
+        .Select(k => k.ToWireValue())
+        .ToArray();
 
     /// <summary>
-    /// The three node roles the API's <c>ApplyCluster</c> branches on. Rejecting outside
-    /// values upfront avoids a silent runtime degrade to the <c>auxiliary</c> default.
+    /// Wire spellings of every <see cref="NodeGroup"/> enum value; consumed by the interactive
+    /// prompt and by the unit tests that smoke-check every valid value at once.
     /// </summary>
-    internal static readonly string[] ValidNodeGroups = ["primary", "auxiliary", "sidecar"];
+    internal static readonly string[] ValidNodeGroups = Enum
+        .GetValues<NodeGroup>()
+        .Select(g => g.ToWireValue())
+        .ToArray();
+
+    /// <summary>
+    /// Wire spellings of every <see cref="DatabaseMode"/> enum value; used by the interactive
+    /// prompt's <c>AddChoices</c> list.
+    /// </summary>
+    internal static readonly string[] ValidDatabaseModes = Enum
+        .GetValues<DatabaseMode>()
+        .Select(m => m.ToWireValue())
+        .ToArray();
 
     /// <summary>
     /// Compose service names <see cref="UpdateSection.Services"/> may reference. Must stay
     /// aligned with the <c>builder.AddContainer(...)</c> names in <c>InterfoldAppHost.Configure</c>;
     /// the seven regional entries mirror <see cref="ValidScyllaKeyspaces"/>.
     /// </summary>
-    internal static readonly string[] ValidUpdateServices =
-    [
-        "msg-db",
-        "scylla",
-        "scylla-nam", "scylla-eur", "scylla-sam", "scylla-sas",
-        "scylla-eas", "scylla-ocn", "scylla-gdpr",
-        "cassandra",
-        "interfold-api",
-        "octocon-web",
-    ];
+    internal static readonly string[] ValidUpdateServices = ComposeServices.AllValidUpdateServices;
 
     /// <summary>The default port for the <c>http</c> URI scheme (RFC 7230 §2.7.1).</summary>
     private const int DefaultHttpPort = 80;
@@ -928,12 +938,9 @@ internal static class ConfigPhase
             seen[port] = name;
         }
 
-        if (config.DatabaseMode is not ("single" or "multi" or "cassandra"))
-        {
-            throw new InvalidOperationException(
-                $"config.databaseMode='{config.DatabaseMode}' is invalid. Expected: single | multi | cassandra. " +
-                "(Translates to AppHost parameters include-scylla / include-cassandra / scylla-topology.)");
-        }
+        // config.databaseMode is now a strongly-typed enum; unknown wire values are rejected at
+        // JSON deserialization time by LowerCaseEnumJsonConverter<DatabaseMode>, so an invalid
+        // string never survives long enough to reach this validator.
 
         // Flows into the API connection string AND `CREATE DATABASE "<name>"`. Postgres-safe
         // identifier keeps both call sites quoting-free within the 63-byte NAMEDATALEN budget.
@@ -965,14 +972,8 @@ internal static class ConfigPhase
                 "Allowed: 1..64 chars matching [A-Za-z0-9 ._-].");
         }
 
-        // Region identity for new-account routing; anything outside ValidScyllaKeyspaces
-        // would produce a runtime "wrong region" failure rather than an upfront error.
-        if (!ValidScyllaKeyspaces.Contains(config.ScyllaKeyspace, StringComparer.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"config.scyllaKeyspace='{config.ScyllaKeyspace}' is invalid. " +
-                $"Expected one of: {string.Join(", ", ValidScyllaKeyspaces)}.");
-        }
+        // config.scyllaKeyspace is now a strongly-typed enum; unknown wire values are rejected at
+        // JSON deserialization time by LowerCaseEnumJsonConverter<ScyllaKeyspace>.
 
         // Derive first so the per-field validators below see the post-derivation values —
         // JSON-load callers get the same end result as the interactive form.
@@ -1001,14 +1002,8 @@ internal static class ConfigPhase
             ValidateAbsoluteHttpUri(origin, "config.apiRuntime.corsAllowedOrigins entry");
         }
 
-        // NodeGroup: three-value whitelist; lower-case comparison so "Primary" still passes.
-        if (string.IsNullOrWhiteSpace(config.Cluster.NodeGroup) ||
-            !ValidNodeGroups.Contains(config.Cluster.NodeGroup.ToLowerInvariant(), StringComparer.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"config.cluster.nodeGroup='{config.Cluster.NodeGroup}' is invalid. " +
-                $"Expected one of: {string.Join(", ", ValidNodeGroups)}.");
-        }
+        // config.cluster.nodeGroup is now a strongly-typed enum; unknown wire values are rejected
+        // at JSON deserialization time by LowerCaseEnumJsonConverter<NodeGroup>.
 
         // Both optional; AvatarStorageRoot lives inside the API container so we don't try
         // to verify the path exists on the bootstrapper host.

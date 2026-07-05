@@ -12,6 +12,8 @@ using Interfold.Api.Helpers;
 using Interfold.Api.Models;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Options;
 
@@ -34,11 +36,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
     {
         logger.LogWarning("Request is not a WebSocket upgrade request");
         context.Response.StatusCode = StatusCodes.Status400BadRequest;
-        await context.Response.WriteAsJsonAsync(new
-        {
-            error = "WebSocket upgrade required.",
-            code = "websocket_upgrade_required"
-        });
+        await context.Response.WriteAsJsonAsync(
+            new ErrorResponse("WebSocket upgrade required.", ErrorCodes.WebSocketUpgradeRequired));
         return;
     }
 
@@ -49,11 +48,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
     {
         logger.LogWarning("Missing or empty token in query string");
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await context.Response.WriteAsJsonAsync(new
-        {
-            error = "Missing socket token.",
-            code = "missing_socket_token"
-        });
+        await context.Response.WriteAsJsonAsync(
+            new ErrorResponse("Missing socket token.", ErrorCodes.MissingSocketToken));
         return;
     }
 
@@ -111,14 +107,14 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             break;
         }
 
-        if (string.Equals(eventName, "heartbeat", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(eventName, PhoenixEventNames.Heartbeat, StringComparison.OrdinalIgnoreCase))
         {
             await SendPhoenixReplyAsync(
                 socket,
                 topic,
                 reference,
                 joinReference,
-                status: "ok",
+                status: PhoenixReplyStatus.Ok,
                 response: new EmptyPayload(),
                 replyAsArrayFrame,
                 context.RequestAborted,
@@ -126,7 +122,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             continue;
         }
 
-        if (string.Equals(eventName, "phx_join", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(eventName, PhoenixEventNames.Join, StringComparison.OrdinalIgnoreCase))
         {
             var payloadToken = string.Empty;
             var isReconnect = false;
@@ -191,8 +187,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                     topic,
                     reference,
                     joinReference,
-                    status: "error",
-                    response: new SocketReasonResponse("unsupported_protocol_version"),
+                    status: PhoenixReplyStatus.Error,
+                    response: new SocketReasonResponse(ErrorCodes.SocketReasons.UnsupportedProtocolVersion),
                     replyAsArrayFrame,
                         context.RequestAborted,
                         sendGate);
@@ -201,15 +197,15 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 && string.Equals(payloadToken, token, StringComparison.Ordinal)
                 && tokenAuthorized)
             {
-                if (!rateLimiter.Allow(requestedSystemId))
+                if (!rateLimiter.Allow(new SystemId(requestedSystemId)))
                 {
                     await SendPhoenixReplyAsync(
                         socket,
                         topic,
                         reference,
                         joinReference,
-                        status: "error",
-                        response: new SocketReasonResponse("rate_limited"),
+                        status: PhoenixReplyStatus.Error,
+                        response: new SocketReasonResponse(ErrorCodes.SocketReasons.RateLimited),
                         replyAsArrayFrame,
                         context.RequestAborted,
                         sendGate);
@@ -233,7 +229,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 {
                     var socketPushContext = new SocketPushContext(
                         socket,
-                        joinedSystemId,
+                        new SystemId(joinedSystemId),
                         joinedTopics,
                         topicJoinReference,
                         topicReplyAsArrayFrame,
@@ -256,14 +252,14 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                         encryptionStateRepository);
                 }
 
-                var initPayload = await WebSocketInitialization.BuildJoinInitPayloadAsync(context, joinedSystemId, context.RequestAborted);
+                var initPayload = await WebSocketInitialization.BuildJoinInitPayloadAsync(context, new SystemId(joinedSystemId), context.RequestAborted);
                 var useBatchedInit = false;
 
                 if (!isReconnect)
                 {
                     var estimatedEncodedBytes = (int)(Encoding.UTF8.GetByteCount(WebSocketEvents.SerializeSocketJson(initPayload)) * 1.1);
                     useBatchedInit = forceBatch
-                        || (string.Equals(platform, "ios", StringComparison.OrdinalIgnoreCase)
+                        || (EnumWireExtensions.TryParseClientPlatform(platform) == ClientPlatform.Ios
                             && estimatedEncodedBytes > batchedInitThresholdBytes
                             && protocolVersion >= new Version(2, 0, 0));
                 }
@@ -292,7 +288,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                     topic,
                     reference,
                     joinReference,
-                    status: "ok",
+                    status: PhoenixReplyStatus.Ok,
                     response: joinResponse,
                     replyAsArrayFrame,
                     context.RequestAborted,
@@ -312,13 +308,13 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             }
             else
             {
-                var unauthorizedReason = tokenAuthFailureReason ?? "unauthorized";
+                var unauthorizedReason = tokenAuthFailureReason ?? ErrorCodes.SocketReasons.Unauthorized;
                 await SendPhoenixReplyAsync(
                     socket,
                     topic,
                     reference,
                     joinReference,
-                    status: "error",
+                    status: PhoenixReplyStatus.Error,
                     response: new SocketReasonResponse(unauthorizedReason),
                     replyAsArrayFrame,
                     context.RequestAborted,
@@ -329,7 +325,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             continue;
         }
 
-        if (string.Equals(eventName, "endpoint", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(eventName, PhoenixEventNames.Endpoint, StringComparison.OrdinalIgnoreCase))
         {
             if (!joinedTopics.ContainsKey(topic))
             {
@@ -338,8 +334,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                     topic,
                     reference,
                     joinReference,
-                    status: "error",
-                    response: new SocketReasonResponse("not_joined"),
+                    status: PhoenixReplyStatus.Error,
+                    response: new SocketReasonResponse(ErrorCodes.SocketReasons.NotJoined),
                     replyAsArrayFrame,
                     context.RequestAborted,
                     sendGate);
@@ -353,7 +349,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 topic,
                 reference,
                 joinReference,
-                status: "ok",
+                status: PhoenixReplyStatus.Ok,
                 response: endpointResult,
                 replyAsArrayFrame,
                 context.RequestAborted,
@@ -367,8 +363,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             topic,
             reference,
             joinReference,
-            status: "error",
-            response: new SocketReasonResponse("event_not_implemented"),
+            status: PhoenixReplyStatus.Error,
+            response: new SocketReasonResponse(ErrorCodes.SocketReasons.EventNotImplemented),
             replyAsArrayFrame,
             context.RequestAborted,
             sendGate);
@@ -408,20 +404,22 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
             StatusCodes.Status400BadRequest,
             ToJsonString(new ErrorResponse(
                 "Invalid endpoint payload.",
-                "socket_endpoint_payload_invalid",
+                ErrorCodes.SocketEndpointPayloadInvalid,
                 System.Net.HttpStatusCode.BadRequest)));
     }
 
-    var payloadObj = payload.Value;
-    var method = payloadObj.TryGetProperty("method", out var methodProp)
-                 && methodProp.ValueKind == JsonValueKind.String
-        ? methodProp.GetString() ?? string.Empty
-        : string.Empty;
+    SocketEndpointProxyRequest? proxyRequest;
+    try
+    {
+        proxyRequest = payload.Value.Deserialize<SocketEndpointProxyRequest>(SocketJson.Options);
+    }
+    catch (JsonException)
+    {
+        proxyRequest = null;
+    }
 
-    var path = payloadObj.TryGetProperty("path", out var pathProp)
-               && pathProp.ValueKind == JsonValueKind.String
-        ? pathProp.GetString() ?? string.Empty
-        : string.Empty;
+    var method = proxyRequest?.Method ?? string.Empty;
+    var path = proxyRequest?.Path ?? string.Empty;
 
     if (string.IsNullOrWhiteSpace(method) || string.IsNullOrWhiteSpace(path))
     {
@@ -429,7 +427,7 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
             StatusCodes.Status400BadRequest,
             ToJsonString(new ErrorResponse(
                 "Endpoint payload must include method and path.",
-                "socket_endpoint_method_path_required",
+                ErrorCodes.SocketEndpointMethodPathRequired,
                 System.Net.HttpStatusCode.BadRequest)));
     }
 
@@ -439,7 +437,7 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
             StatusCodes.Status403Forbidden,
             ToJsonString(new ErrorResponse(
                 "Socket endpoint relay is restricted to /api paths.",
-                "socket_endpoint_path_forbidden",
+                ErrorCodes.SocketEndpointPathForbidden,
                 System.Net.HttpStatusCode.Forbidden)));
     }
 
@@ -473,7 +471,7 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
             StatusCodes.Status500InternalServerError,
             ToJsonString(new ErrorResponse(
                 "Socket endpoint relay resolved a non-loopback target.",
-                "socket_endpoint_proxy_misrouted",
+                ErrorCodes.SocketEndpointProxyMisrouted,
                 System.Net.HttpStatusCode.InternalServerError)));
     }
 
@@ -487,18 +485,16 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
 
     if (!string.IsNullOrWhiteSpace(joinedSystemId))
     {
-        request.Headers.TryAddWithoutValidation("X-Interfold-Principal", joinedSystemId);
+        request.Headers.TryAddWithoutValidation(InterfoldHeaders.Principal, joinedSystemId);
     }
 
-    if (payloadObj.TryGetProperty("body", out var bodyProp)
-        && bodyProp.ValueKind != JsonValueKind.Null
+    // Body is deserialized straight from the payload's JSON string (Phoenix carries
+    // the inner request body as a JSON-string field so we forward it byte-identical
+    // without re-serializing).
+    if (!string.IsNullOrWhiteSpace(proxyRequest?.Body)
         && method is not "GET" and not "HEAD")
     {
-        //This NEEDS to be GetString() because the raw JSON is what we want to forward, not a re-serialized version of the body element.
-        var requestBodyJson = bodyProp.GetString();
-        if (requestBodyJson != null) {
-            request.Content = new StringContent(requestBodyJson, Encoding.UTF8, "application/json");
-        }
+        request.Content = new StringContent(proxyRequest.Body, Encoding.UTF8, "application/json");
     }
 
     var httpClientFactory = websocketContext.RequestServices.GetRequiredService<IHttpClientFactory>();
@@ -575,7 +571,7 @@ static async Task<(bool IsAuthorized, string? FailureReason)> IsSocketJoinTokenA
     if (string.IsNullOrWhiteSpace(token))
     {
         logger.LogWarning("Token is empty or whitespace");
-        return (false, "missing_socket_token");
+        return (false, ErrorCodes.SocketReasons.MissingSocketToken);
     }
 
     logger.LogInformation("Validating token. RequestedSystemId: {SystemId}", requestedSystemId);
@@ -584,7 +580,7 @@ static async Task<(bool IsAuthorized, string? FailureReason)> IsSocketJoinTokenA
     if (!handler.CanReadToken(token))
     {
         logger.LogWarning("Handler cannot read token");
-        return (false, "invalid_socket_token");
+        return (false, ErrorCodes.SocketReasons.InvalidSocketToken);
     }
 
     logger.LogInformation("Token is readable. Verification key count: {KeyCount}", 
@@ -617,26 +613,26 @@ static async Task<(bool IsAuthorized, string? FailureReason)> IsSocketJoinTokenA
         if (string.IsNullOrWhiteSpace(tokenSystemId))
         {
             logger.LogWarning("Token subject (sub) claim is missing or empty");
-            return (false, "invalid_socket_token_subject");
+            return (false, ErrorCodes.SocketReasons.InvalidSocketTokenSubject);
         }
 
         if (!string.Equals(tokenSystemId, requestedSystemId, StringComparison.Ordinal))
         {
             logger.LogWarning("Token subject does not match requested system ID");
-            return (false, "unauthorized_topic");
+            return (false, ErrorCodes.SocketReasons.UnauthorizedTopic);
         }
 
             // Check if token has been revoked
-            var jti = principal.FindFirstValue("jti");
+            var jti = principal.FindFirstValue(JwtClaimNames.Jti);
             if (!string.IsNullOrWhiteSpace(jti))
             {
                 var revocationRepository = context.RequestServices
                     .GetRequiredService<IAuthTokenRevocationRepository>();
-                var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(jti, cancellationToken);
+                var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(new Interfold.Contracts.Ids.Jti(jti), cancellationToken);
                 if (!isTokenValid)
                 {
                     logger.LogWarning("Token has been revoked. JTI: {Jti}", jti);
-                    return (false, "token_revoked");
+                    return (false, ErrorCodes.SocketReasons.TokenRevoked);
                 }
             }
 
@@ -646,7 +642,7 @@ static async Task<(bool IsAuthorized, string? FailureReason)> IsSocketJoinTokenA
     catch (Exception ex)
     {
         logger.LogWarning(ex, "WebSocket token validation failed: {ExceptionMessage}", ex.Message);
-        return (false, "invalid_socket_token");
+        return (false, ErrorCodes.SocketReasons.InvalidSocketToken);
     }
 }
 
@@ -838,7 +834,7 @@ static bool TryParsePhoenixFrame(
     out bool replyAsArrayFrame)
 {
     eventName = string.Empty;
-    topic = "phoenix";
+    topic = PhoenixEventNames.PhoenixTopic;
     payload = null;
     reference = null;
     joinReference = null;
@@ -943,7 +939,7 @@ static bool TryParsePhoenixFrame(
      string topic,
      string? reference,
      string? joinReference,
-     string status,
+     PhoenixReplyStatus status,
      TResponse response,
      bool replyAsArrayFrame,
      CancellationToken cancellationToken,
@@ -951,11 +947,11 @@ static bool TryParsePhoenixFrame(
  {
      var payload = new PhoenixReplyPayload<TResponse>(status, response);
      var bytes = replyAsArrayFrame
-         ? PhxArrayFrame.CreateBytes(joinReference, reference, topic, "phx_reply", payload)
+         ? PhxArrayFrame.CreateBytes(joinReference, reference, topic, PhoenixEventNames.Reply, payload)
          : new PhxFrame<PhoenixReplyPayload<TResponse>>
          {
              Topic = topic,
-             Event = "phx_reply",
+             Event = PhoenixEventNames.Reply,
              Payload = payload,
              Ref = reference,
              JoinRef = joinReference

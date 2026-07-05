@@ -1,0 +1,13 @@
+using System.Text.Json.Serialization;
+
+namespace Interfold.Contracts.Enums;
+
+/// <summary>
+/// Outcome verb carried on <c>SettingsFieldCommandResult.Action</c>. Single-member today
+/// ("field_created"), typed as an enum for consistency with the other command-result actions.
+/// </summary>
+[JsonConverter(typeof(LowerCaseEnumJsonConverter<SettingsFieldAction>))]
+public enum SettingsFieldAction
+{
+    FieldCreated,
+}

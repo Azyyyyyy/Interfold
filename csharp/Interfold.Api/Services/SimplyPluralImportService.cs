@@ -4,11 +4,14 @@ using System.Text;
 using Interfold.Api.Services.SimplyPlural;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Domain;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Options;
+using Interfold.Contracts;
 
 namespace Interfold.Api.Services;
 
@@ -92,23 +95,27 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     public bool? WaitForAvatars { get; set; }
     
     public async Task<SpImportResult> ImportAsync(
-        string systemId,
-        string spToken,
-        string? recoveryKey,
+        SystemId systemId,
+        ImportToken spToken,
+        RecoveryCode? recoveryKey,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Starting Simply Plural import for system {SystemId}", systemId);
-        if (!string.IsNullOrWhiteSpace(recoveryKey))
+
+        // The recovery code is only an input to key derivation; past this block the
+        // import works with the derived encryption key (or none).
+        string? encryptionKey = null;
+        if (!string.IsNullOrWhiteSpace(recoveryKey?.Value))
         {
-            var (encryptionValidation, derivedKey) = await ValidateEncryptionKeyAsync(systemId, recoveryKey, cancellationToken);
+            var (encryptionValidation, derivedKey) = await ValidateEncryptionKeyAsync(systemId, recoveryKey.Value.Value, cancellationToken);
             if (!encryptionValidation.Success)
                 return encryptionValidation;
 
-            recoveryKey = derivedKey;
+            encryptionKey = derivedKey;
         }
 
-        using var httpClient = _httpClientFactory.CreateClient("SimplyPlural");
-        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", spToken); // SP uses non-standard "Authorization: {token}" header
+        using var httpClient = _httpClientFactory.CreateClient(HttpClientNames.SimplyPlural);
+        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", spToken.Value); // SP uses non-standard "Authorization: {token}" header
         httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Interfold/spimport");
 
         // 1. Fetch system data
@@ -136,9 +143,9 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         await ImportPollsAsync(httpClient, spSystemId, systemId, alterAssociations, cancellationToken);
 
         // (optional) 7. Import notes per alter as alter journals
-        if (!string.IsNullOrWhiteSpace(recoveryKey))
+        if (!string.IsNullOrWhiteSpace(encryptionKey))
         {
-            await ImportNotesAsync(httpClient, spSystemId, systemId, alterAssociations, recoveryKey, cancellationToken);
+            await ImportNotesAsync(httpClient, spSystemId, systemId, alterAssociations, encryptionKey, cancellationToken);
         }
 
         // 8. Update account description if available
@@ -172,11 +179,11 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         return new SpImportResult(true, alterCount);
     }
 
-    private async Task<(Dictionary<string, string> FieldMapping, List<string> CreatedFieldIds)> ImportCustomFieldsAsync(
-        HttpClient httpClient, string spSystemId, string systemId, CancellationToken ct)
+    private async Task<(Dictionary<string, FieldId> FieldMapping, List<FieldId> CreatedFieldIds)> ImportCustomFieldsAsync(
+        HttpClient httpClient, string spSystemId, SystemId systemId, CancellationToken ct)
     {
-        var fieldMapping = new Dictionary<string, string>(); // SP field ID -> our field ID
-        var createdFieldIds = new List<string>();
+        var fieldMapping = new Dictionary<string, FieldId>(); // SP field ID -> our field ID
+        var createdFieldIds = new List<FieldId>();
 
         var customFields = await FetchAsync<List<SpEntity<SpCustomFieldContent>>>(httpClient, $"{SpApiBase}/customFields/{spSystemId}", ct);
         if (customFields is null)
@@ -206,19 +213,19 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             var createdId = await _fieldRepository.CreateAsync(systemId, name, fieldType, securityLevel, false, insertedAtUtc, ct);
             if (createdId is not null)
             {
-                fieldMapping[spFieldId] = createdId;
-                createdFieldIds.Add(createdId);
+                fieldMapping[spFieldId] = createdId.Value;
+                createdFieldIds.Add(createdId.Value);
             }
         }
 
         return (fieldMapping, createdFieldIds);
     }
 
-    private async Task<(int AlterCount, Dictionary<string, int> AlterAssociations, List<AvatarDownload> AvatarDownloads)> ImportAltersAsync(
-        HttpClient httpClient, string spSystemId, string systemId,
-        Dictionary<string, string> fieldMapping, CancellationToken ct)
+    private async Task<(int AlterCount, Dictionary<string, AlterId> AlterAssociations, List<AvatarDownload> AvatarDownloads)> ImportAltersAsync(
+        HttpClient httpClient, string spSystemId, SystemId systemId,
+        Dictionary<string, FieldId> fieldMapping, CancellationToken ct)
     {
-        var alterAssociations = new Dictionary<string, int>(); // SP UUID -> our alter ID
+        var alterAssociations = new Dictionary<string, AlterId>(); // SP UUID -> our alter ID
         var avatarDownloads = new List<AvatarDownload>();
         var alterCount = 0;
 
@@ -365,11 +372,11 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         return (alterCount, alterAssociations, avatarDownloads);
     }
 
-    private async Task<Dictionary<string, string>> ImportTagsAsync(
-        HttpClient httpClient, string spSystemId, string systemId,
-        Dictionary<string, int> alterAssociations, CancellationToken ct)
+    private async Task<Dictionary<string, TagId>> ImportTagsAsync(
+        HttpClient httpClient, string spSystemId, SystemId systemId,
+        Dictionary<string, AlterId> alterAssociations, CancellationToken ct)
     {
-        var tagAssociations = new Dictionary<string, string>(); // SP group ID -> our tag ID
+        var tagAssociations = new Dictionary<string, TagId>(); // SP group ID -> our tag ID
 
         var groups = await FetchAsync<List<SpEntity<SpGroupContent>>>(httpClient, $"{SpApiBase}/groups/{spSystemId}", ct);
         if (groups is null)
@@ -400,7 +407,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             var createdTagId = await _tagRepository.CreateAsync(systemId, new CreateTagCommand(name, null, insertedAtUtc), ct);
             if (createdTagId is not null)
             {
-                tagAssociations[spId] = createdTagId;
+                tagAssociations[spId] = createdTagId.Value;
 
                 // Update tag with description and color from SP
                 var tagDesc = content.Desc;
@@ -409,10 +416,10 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
                 var tagSecurityLevel = MapSecurityLevel(content.Private, content.PreventTrusted);
 
-                if (!string.IsNullOrWhiteSpace(tagDesc) || !string.IsNullOrWhiteSpace(tagColor) || tagSecurityLevel != "private")
+                if (!string.IsNullOrWhiteSpace(tagDesc) || !string.IsNullOrWhiteSpace(tagColor) || tagSecurityLevel != VisibilityLevel.Private)
                 {
                     await _tagRepository.UpdateAsync(systemId, new UpdateTagCommand(
-                        TagId: createdTagId,
+                        TagId: createdTagId.Value,
                         Name: null,
                         Color: tagColor,
                         Description: tagDesc,
@@ -460,8 +467,8 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     }
 
     private async Task ImportFrontsAsync(
-        HttpClient httpClient, string spSystemId, string systemId,
-        Dictionary<string, int> alterAssociations, CancellationToken ct)
+        HttpClient httpClient, string spSystemId, SystemId systemId,
+        Dictionary<string, AlterId> alterAssociations, CancellationToken ct)
     {
         // Fetch front history in chunks (SP epoch: Jan 1, 2015)
         const long startEpoch = 1_420_070_400_000;
@@ -553,8 +560,8 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     }
 
     private async Task ImportPollsAsync(
-        HttpClient httpClient, string spSystemId, string systemId,
-        Dictionary<string, int> alterAssociations, CancellationToken ct)
+        HttpClient httpClient, string spSystemId, SystemId systemId,
+        Dictionary<string, AlterId> alterAssociations, CancellationToken ct)
     {
         var polls = await FetchAsync<List<SpEntity<SpPollContent>>>(httpClient, $"{SpApiBase}/polls/{spSystemId}", ct);
         if (polls is null)
@@ -583,7 +590,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             if (desc?.Length > 2000) desc = desc[..2000];
 
             // SP custom=false → "vote" (yes/no/abstain/veto), custom=true → "choice" (multiple options)
-            var type = poll.Content.Custom ? "choice" : "vote";
+            var type = poll.Content.Custom ? PollType.Choice : PollType.Vote;
 
             DateTime? timeEnd = poll.Content.EndTime > 0
                 ? DateTimeOffset.FromUnixTimeMilliseconds(poll.Content.EndTime).UtcDateTime
@@ -628,7 +635,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             if (data.ValueKind != JsonValueKind.Undefined)
             {
                 await _pollRepository.UpdateAsync(systemId, new UpdatePollCommand(
-                    Id: pollId,
+                    Id: pollId.Value,
                     Title: null,
                     Description: null,
                     TimeEnd: null,
@@ -640,8 +647,8 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     }
 
     private async Task ImportNotesAsync(
-        HttpClient httpClient, string spSystemId, string systemId,
-        Dictionary<string, int> alterAssociations, string encryptionKey, CancellationToken ct)
+        HttpClient httpClient, string spSystemId, SystemId systemId,
+        Dictionary<string, AlterId> alterAssociations, string encryptionKey, CancellationToken ct)
     {
         foreach (var (spMemberId, alterId) in alterAssociations)
         {
@@ -698,7 +705,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                     continue;
 
                 await _journalRepository.UpdateAlterAsync(systemId, new UpdateAlterJournalEntryCommand(
-                    EntryId: entryId,
+                    EntryId: entryId.Value,
                     Title: null,
                     Content: content,
                     Color: color,
@@ -758,14 +765,14 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         }
     }
     
-    private async Task<(SpImportResult Result, string DerivedKey)> ValidateEncryptionKeyAsync(string systemId, string recoveryCode, CancellationToken ct)
+    private async Task<(SpImportResult Result, string DerivedKey)> ValidateEncryptionKeyAsync(SystemId systemId, string recoveryCode, CancellationToken ct)
     {
         var state = await _encryptionStateRepository.GetAsync(systemId, ct);
         if (state is null || !state.Initialized || string.IsNullOrWhiteSpace(state.KeyChecksum))
             return (new SpImportResult(false, 0, "Encryption is not initialized for this system."), string.Empty);
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
-        var key = EncryptionKey.DeriveKey(pepper, systemId, recoveryCode, state.Salt);
+        var key = EncryptionKey.DeriveKey(pepper, systemId.Value, recoveryCode, state.Salt);
         var checksum = EncryptionKey.DeriveChecksum(key);
         if (!string.Equals(checksum, state.KeyChecksum, StringComparison.Ordinal))
             return (new SpImportResult(false, 0, "The provided encryption key is invalid."), string.Empty);
@@ -774,75 +781,75 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     }
 
     /// <summary>
-    /// Builds the JSON `data` blob for an imported poll. Returns the blob plus the number of
-    /// SP-side votes we refused to import because they referenced a voter we don't know about
-    /// (unmapped member uuid, blank id, or blank vote string). The caller surfaces that count
-    /// as a single warning per poll rather than spamming one log line per dropped vote.
+    /// Builds the JSON `data` blob for an imported poll in the client's confirmed schema
+    /// (see <see cref="PollDataJson"/>): custom SP polls become choice-poll data
+    /// (<c>choices</c> + <c>responses</c> keyed by <c>choice_id</c>), standard SP polls
+    /// become vote-poll data (<c>responses</c> with yes/no/abstain/veto + <c>allow_veto</c>).
+    /// Returns the blob plus the number of SP-side votes we refused to import because they
+    /// referenced a voter or an option we don't know about (unmapped member uuid, blank id,
+    /// blank vote string, non-standard vote value, or a custom vote that matches no option).
+    /// The caller surfaces that count as a single warning per poll rather than spamming one
+    /// log line per dropped vote.
     /// </summary>
     private static (JsonElement Data, int SkippedUnmappableVotes) BuildPollData(
-        SpPollContent poll, Dictionary<string, int> alterAssociations)
+        SpPollContent poll, Dictionary<string, AlterId> alterAssociations)
     {
         var skippedUnmappableVotes = 0;
+        var responses = new List<PollDataResponse>();
 
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
+        if (poll.Custom)
         {
-            writer.WriteStartObject();
-
-            if (poll.Custom && poll.Options is { Count: > 0 })
+            // SP custom-poll votes carry the chosen option's name in `vote`; mint stable
+            // choice ids and translate name → choice_id. SP option colors have no slot in
+            // the client's {id,name} choice shape and were never rendered — dropped.
+            var choices = new List<PollDataChoice>();
+            var choiceIdByName = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var option in poll.Options ?? [])
             {
-                writer.WriteStartArray("options");
-                foreach (var option in poll.Options)
-                {
-                    writer.WriteStartObject();
-                    writer.WriteString("name", option.Name ?? "");
-                    if (option.Color is not null)
-                        writer.WriteString("color", option.Color);
-                    writer.WriteEndObject();
-                }
-                writer.WriteEndArray();
+                var name = option.Name ?? "";
+                var choiceId = Guid.NewGuid().ToString();
+                choices.Add(new PollDataChoice(choiceId, name));
+                choiceIdByName.TryAdd(name, choiceId);
             }
 
-            if (poll.Votes is { Count: > 0 })
+            foreach (var vote in poll.Votes ?? [])
             {
-                writer.WriteStartArray("votes");
-                foreach (var vote in poll.Votes)
+                if (string.IsNullOrWhiteSpace(vote.Id) || string.IsNullOrWhiteSpace(vote.Vote)
+                    || !alterAssociations.TryGetValue(vote.Id, out var alterId)
+                    || !choiceIdByName.TryGetValue(vote.Vote, out var choiceId))
                 {
-                    // A vote without a voter or an opinion is meaningless. Importing the raw SP
-                    // uuid would also leak a 24-char hex string into a field downstream code
-                    // expects to be a stringified alter id, so we drop the row entirely.
-                    if (string.IsNullOrWhiteSpace(vote.Id) || string.IsNullOrWhiteSpace(vote.Vote))
-                    {
-                        skippedUnmappableVotes++;
-                        continue;
-                    }
-
-                    if (!alterAssociations.TryGetValue(vote.Id, out var alterId))
-                    {
-                        skippedUnmappableVotes++;
-                        continue;
-                    }
-
-                    writer.WriteStartObject();
-                    writer.WriteString("id", alterId.ToString());
-                    writer.WriteString("vote", vote.Vote);
-                    if (vote.Comment is not null)
-                        writer.WriteString("comment", vote.Comment);
-                    writer.WriteEndObject();
+                    skippedUnmappableVotes++;
+                    continue;
                 }
-                writer.WriteEndArray();
+
+                responses.Add(new PollDataResponse(alterId, Vote: null, ChoiceId: choiceId, Comment: vote.Comment));
             }
 
-            writer.WriteEndObject();
+            return (PollDataJson.ToJsonElement(new ChoicePollData(choices, responses)), skippedUnmappableVotes);
         }
 
-        var data = JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
-        return (data, skippedUnmappableVotes);
+        foreach (var vote in poll.Votes ?? [])
+        {
+            // A vote without a voter or an opinion is meaningless, and a vote value outside
+            // yes/no/abstain/veto would make the client's poll deserialization throw — drop
+            // the row entirely in either case.
+            if (string.IsNullOrWhiteSpace(vote.Id)
+                || PollDataJson.TryParseVoteValue(vote.Vote) is not { } voteValue
+                || !alterAssociations.TryGetValue(vote.Id, out var alterId))
+            {
+                skippedUnmappableVotes++;
+                continue;
+            }
+
+            responses.Add(new PollDataResponse(alterId, Vote: voteValue, ChoiceId: null, Comment: vote.Comment));
+        }
+
+        return (PollDataJson.ToJsonElement(new VotePollData(responses, poll.AllowVeto)), skippedUnmappableVotes);
     }
 
-    private async Task DownloadAvatarsAsync(string systemId, List<AvatarDownload> downloads, CancellationToken cancellationToken)
+    private async Task DownloadAvatarsAsync(SystemId systemId, List<AvatarDownload> downloads, CancellationToken cancellationToken)
     {
-        using var httpClient = _httpClientFactory.CreateClient("SimplyPlural");
+        using var httpClient = _httpClientFactory.CreateClient(HttpClientNames.SimplyPlural);
 
         foreach (var download in downloads)
         {
@@ -899,7 +906,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     /// passthrough we already wrote synchronously).
     /// </summary>
     private async Task<AvatarDownload?> ImportSystemAvatarAsync(
-        string systemId,
+        SystemId systemId,
         SpSystemContent content,
         CancellationToken cancellationToken)
     {
@@ -983,24 +990,24 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     // `supportMarkdown` is nullable on SpCustomFieldContent because SP's update300 migration
     // emits `null` for legacy fields (see model comment). SP defaults missing to true, so we
     // do the same: null/true -> "text" (markdown), explicit false -> "plaintext".
-    private static string MapFieldType(int spType, bool? supportMarkdown) => spType switch
+    private static FieldType MapFieldType(int spType, bool? supportMarkdown) => spType switch
     {
-        0 => (supportMarkdown ?? true) ? "text" : "plaintext",
-        1 => "colour",
-        2 => "date",
-        3 => "month",
-        4 => "year",
-        5 => "month_year",
-        6 => "timestamp",
-        7 => "month_day",
+        0 => (supportMarkdown ?? true) ? FieldType.Text : FieldType.Plaintext,
+        1 => FieldType.Colour,
+        2 => FieldType.Date,
+        3 => FieldType.Month,
+        4 => FieldType.Year,
+        5 => FieldType.MonthYear,
+        6 => FieldType.Timestamp,
+        7 => FieldType.MonthDay,
         _ => throw new ArgumentOutOfRangeException(nameof(spType), spType, "Unknown SP field type")
     };
 
-    private static string MapSecurityLevel(bool isPrivate, bool preventTrusted) => (isPrivate, preventTrusted) switch
+    private static VisibilityLevel MapSecurityLevel(bool isPrivate, bool preventTrusted) => (isPrivate, preventTrusted) switch
     {
-        (false, _) => "public",
-        (true, false) => "trusted_only",
-        (true, true) => "private",
+        (false, _) => VisibilityLevel.Public,
+        (true, false) => VisibilityLevel.TrustedOnly,
+        (true, true) => VisibilityLevel.Private,
     };
 
     private static DateTimeOffset UnixTimestampToDateTimeOffset(long unixMilliseconds)
@@ -1026,7 +1033,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     /// Pending rehost of a Simply Plural CDN avatar. <see cref="AlterId"/> is required for
     /// <see cref="AvatarKind.Alter"/> entries and unused for <see cref="AvatarKind.System"/>.
     /// </summary>
-    private sealed record AvatarDownload(string Url, string SystemId, AvatarKind Kind, int? AlterId);
+    private sealed record AvatarDownload(string Url, SystemId SystemId, AvatarKind Kind, AlterId? AlterId);
 
     private enum AvatarKind
     {

@@ -34,7 +34,8 @@ public static class InMemoryServiceCollectionExtensions
         PersistenceConfiguration options)
     {
         return services
-            .AddSingleton<IRegionContext>(_ => new InMemoryRegionContext(options.ScyllaKeyspace))
+            .AddSingleton<IRegionContext>(_ => new InMemoryRegionContext(
+                Contracts.Enums.EnumWireExtensions.ParseScyllaKeyspace(options.ScyllaKeyspace)))
             // Seed the in-memory secrets store from `OCTOCON_INMEMORY_SECRETS_SEED__*`
             // configuration values so an external runner (Kotlin Testcontainers harness, ad-hoc
             // local container, etc.) can bootstrap the published image without an in-process
@@ -58,10 +59,10 @@ public static class InMemoryServiceCollectionExtensions
             {
                 var config = sp.GetRequiredService<IConfiguration>();
                 var store = new InMemorySecretsStore();
-                SeedFromConfig(store, config, "OCTOCON_INMEMORY_SECRETS_SEED:ENCRYPTION_PEPPER",           "encryption:pepper");
-                SeedFromConfig(store, config, "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_JWT_ES256_PRIVATE_PEM",  "auth:jwt_es256_private_pem");
-                SeedFromConfig(store, config, "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_DEEP_LINK_SECRET",       "auth:deep_link_secret");
-                SeedFromConfig(store, config, "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_JWT_RSA256_PRIVATE_PEM", "auth:jwt_rsa256_private_pem");
+                SeedFromConfig(store, config, "OCTOCON_INMEMORY_SECRETS_SEED:ENCRYPTION_PEPPER",           SecretsStoreKeys.EncryptionPepper);
+                SeedFromConfig(store, config, "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_JWT_ES256_PRIVATE_PEM",  SecretsStoreKeys.AuthJwtEs256PrivatePem);
+                SeedFromConfig(store, config, "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_DEEP_LINK_SECRET",       SecretsStoreKeys.AuthDeepLinkSecret);
+                SeedFromConfig(store, config, "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_JWT_RSA256_PRIVATE_PEM", SecretsStoreKeys.AuthJwtRsa256PrivatePem);
                 return store;
             })
             .AddSingleton<INotificationTokenRepository, InMemoryNotificationTokenRepository>()

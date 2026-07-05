@@ -3,6 +3,7 @@ using Interfold.Contracts.Models;
 using Interfold.Domain.Abstractions;
 using Interfold.Infrastructure.Persistence;
 using Npgsql;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.Postgres;
 
@@ -21,16 +22,16 @@ public sealed class PostgresIdempotencyStore : IIdempotencyStore
     }
 
     public Task<IdempotencyMatch?> FindAsync(
-        string principalId,
-        string operationId,
-        string idempotencyKey,
+        SystemId principalId,
+        OperationId operationId,
+        IdempotencyKey idempotencyKey,
         CancellationToken cancellationToken = default
     ) => FindCoreAsync(principalId, operationId, idempotencyKey, cancellationToken);
 
     public Task SaveAsync(
-        string principalId,
-        string operationId,
-        string idempotencyKey,
+        SystemId principalId,
+        OperationId operationId,
+        IdempotencyKey idempotencyKey,
         string payloadHash,
         string outcomeHash,
         string? outcomePayload,
@@ -46,9 +47,9 @@ public sealed class PostgresIdempotencyStore : IIdempotencyStore
     );
 
     private async Task<IdempotencyMatch?> FindCoreAsync(
-        string principalId,
-        string operationId,
-        string idempotencyKey,
+        SystemId principalId,
+        OperationId operationId,
+        IdempotencyKey idempotencyKey,
         CancellationToken cancellationToken
     )
     {
@@ -62,9 +63,9 @@ public sealed class PostgresIdempotencyStore : IIdempotencyStore
               AND operation_id = @operation_id
               AND idempotency_key = @idempotency_key", connection);
 
-            command.Parameters.AddWithValue("principal_id", principalId);
-            command.Parameters.AddWithValue("operation_id", operationId);
-            command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+            command.Parameters.AddWithValue("principal_id", principalId.Value);
+            command.Parameters.AddWithValue("operation_id", operationId.Value);
+            command.Parameters.AddWithValue("idempotency_key", idempotencyKey.Value);
 
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken))
@@ -81,9 +82,9 @@ public sealed class PostgresIdempotencyStore : IIdempotencyStore
     }
 
     private async Task SaveCoreAsync(
-        string principalId,
-        string operationId,
-        string idempotencyKey,
+        SystemId principalId,
+        OperationId operationId,
+        IdempotencyKey idempotencyKey,
         string payloadHash,
         string outcomeHash,
         string? outcomePayload,
@@ -117,9 +118,9 @@ public sealed class PostgresIdempotencyStore : IIdempotencyStore
                   outcome_hash = EXCLUDED.outcome_hash,
                   outcome_payload = EXCLUDED.outcome_payload", connection);
 
-            command.Parameters.AddWithValue("principal_id", principalId);
-            command.Parameters.AddWithValue("operation_id", operationId);
-            command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+            command.Parameters.AddWithValue("principal_id", principalId.Value);
+            command.Parameters.AddWithValue("operation_id", operationId.Value);
+            command.Parameters.AddWithValue("idempotency_key", idempotencyKey.Value);
             command.Parameters.AddWithValue("payload_hash", payloadHash);
             command.Parameters.AddWithValue("outcome_hash", outcomeHash);
             command.Parameters.AddWithValue("outcome_payload", (object?)outcomePayload ?? DBNull.Value);

@@ -1,0 +1,151 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace Interfold.Contracts.Ids;
+
+/// <summary>
+/// Shared redaction helper for the secret/token wrapper structs below. <c>ToString()</c> on
+/// these types intentionally does NOT return the raw value — accidental logging or string
+/// interpolation yields a redacted form (first 4 chars + "…"). Use <c>Value</c> explicitly
+/// at serialization/DB/HTTP boundaries.
+/// </summary>
+internal static class SecretRedaction
+{
+    public static string Redact(string value)
+        => value.Length <= 4 ? "…" : $"{value[..4]}…";
+}
+
+/// <summary>
+/// One-time account-link token minted by <c>GET /settings/link_token</c> and consumed by the
+/// <c>/auth/link/{provider}</c> flow. JSON serializes as the raw string
+/// (<c>LinkTokenReadModel.Token</c> response body is unchanged); <c>ToString()</c> redacts.
+/// </summary>
+[JsonConverter(typeof(LinkTokenJsonConverter))]
+public readonly record struct LinkToken
+{
+    public string Value { get; }
+
+    public LinkToken(string value)
+    {
+        Value = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    public override string ToString() => SecretRedaction.Redact(Value);
+}
+
+internal sealed class LinkTokenJsonConverter : JsonConverter<LinkToken>
+{
+    public override LinkToken Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        => new(reader.GetString() ?? string.Empty);
+
+    public override void Write(Utf8JsonWriter writer, LinkToken value, JsonSerializerOptions options)
+        => writer.WriteStringValue(value.Value);
+}
+
+/// <summary>
+/// Device push-notification registration token (FCM/APNs). Carried on
+/// <c>AddPushTokenCommand</c>/<c>RemovePushTokenCommand</c> whose payloads are persisted and
+/// hashed by the idempotency store — the converter emits the raw string so stored hashes
+/// remain valid. <c>ToString()</c> redacts.
+/// </summary>
+[JsonConverter(typeof(PushTokenJsonConverter))]
+public readonly record struct PushToken
+{
+    public string Value { get; }
+
+    public PushToken(string value)
+    {
+        Value = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    public override string ToString() => SecretRedaction.Redact(Value);
+}
+
+internal sealed class PushTokenJsonConverter : JsonConverter<PushToken>
+{
+    public override PushToken Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        => new(reader.GetString() ?? string.Empty);
+
+    public override void Write(Utf8JsonWriter writer, PushToken value, JsonSerializerOptions options)
+        => writer.WriteStringValue(value.Value);
+}
+
+/// <summary>
+/// Caller-supplied third-party API token (SimplyPlural or PluralKit) used by the async import
+/// pipeline. Carried on <c>ImportSpCommand</c>/<c>ImportPkCommand</c> whose persisted payload
+/// hashes must not move — the converter emits the raw string. <c>ToString()</c> redacts.
+/// </summary>
+[JsonConverter(typeof(ImportTokenJsonConverter))]
+public readonly record struct ImportToken
+{
+    public string Value { get; }
+
+    public ImportToken(string value)
+    {
+        Value = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    public override string ToString() => SecretRedaction.Redact(Value);
+}
+
+internal sealed class ImportTokenJsonConverter : JsonConverter<ImportToken>
+{
+    public override ImportToken Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        => new(reader.GetString() ?? string.Empty);
+
+    public override void Write(Utf8JsonWriter writer, ImportToken value, JsonSerializerOptions options)
+        => writer.WriteStringValue(value.Value);
+}
+
+/// <summary>
+/// Plaintext encryption recovery code (post-decryption). Carried on <c>ImportSpCommand</c>
+/// (persisted payload — raw-string converter keeps hashes valid) and the import job queue.
+/// <c>ToString()</c> redacts.
+/// </summary>
+[JsonConverter(typeof(RecoveryCodeJsonConverter))]
+public readonly record struct RecoveryCode
+{
+    public string Value { get; }
+
+    public RecoveryCode(string value)
+    {
+        Value = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    public override string ToString() => SecretRedaction.Redact(Value);
+}
+
+internal sealed class RecoveryCodeJsonConverter : JsonConverter<RecoveryCode>
+{
+    public override RecoveryCode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        => new(reader.GetString() ?? string.Empty);
+
+    public override void Write(Utf8JsonWriter writer, RecoveryCode value, JsonSerializerOptions options)
+        => writer.WriteStringValue(value.Value);
+}
+
+/// <summary>
+/// JWT ID (jti claim) used for token revocation tracking. DB binds unwrap with
+/// <see cref="Value"/> (Npgsql cannot bind the struct). <c>ToString()</c> redacts.
+/// </summary>
+[JsonConverter(typeof(JtiJsonConverter))]
+public readonly record struct Jti
+{
+    public string Value { get; }
+
+    public Jti(string value)
+    {
+        Value = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    public override string ToString() => SecretRedaction.Redact(Value);
+}
+
+internal sealed class JtiJsonConverter : JsonConverter<Jti>
+{
+    public override Jti Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        => new(reader.GetString() ?? string.Empty);
+
+    public override void Write(Utf8JsonWriter writer, Jti value, JsonSerializerOptions options)
+        => writer.WriteStringValue(value.Value);
+}

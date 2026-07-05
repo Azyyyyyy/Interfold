@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Interfold.Contracts.Models;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
@@ -8,7 +9,7 @@ public sealed class InMemoryEncryptionStateRepository : IEncryptionStateReposito
 {
     private readonly ConcurrentDictionary<string, EncryptionState> _states = new(StringComparer.Ordinal);
 
-    public Task<EncryptionState?> GetAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<EncryptionState?> GetAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalizedSystemId = NormalizeSystemId(systemId);
@@ -16,7 +17,7 @@ public sealed class InMemoryEncryptionStateRepository : IEncryptionStateReposito
         return Task.FromResult(state);
     }
 
-    public Task<bool> UpsertAsync(string systemId, bool initialized, string? keyChecksum, string? salt, CancellationToken cancellationToken = default)
+    public Task<bool> UpsertAsync(SystemId systemId, bool initialized, string? keyChecksum, string? salt, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalizedSystemId = NormalizeSystemId(systemId);
@@ -27,6 +28,8 @@ public sealed class InMemoryEncryptionStateRepository : IEncryptionStateReposito
 
         return Task.FromResult(true);
     }
+
+    private static string NormalizeSystemId(SystemId systemId) => NormalizeSystemId(systemId.Value);
 
     private static string NormalizeSystemId(string systemId)
     {

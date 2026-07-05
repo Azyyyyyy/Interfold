@@ -4,6 +4,7 @@ using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -35,7 +36,7 @@ namespace Interfold.Bootstrapper.Phases;
 internal static class RestorePhase
 {
     private const string Phase = "restore";
-    private const string PostgresService = "msg-db";
+    private const string PostgresService = ComposeServices.Postgres;
 
     /// <summary>
     /// Compose services stopped BEFORE the scylla restore so client-side hydration
@@ -43,7 +44,7 @@ internal static class RestorePhase
     /// Kept as an internal readonly array so tests / SystemdInstallPhase can assert the
     /// canonical set without hard-coding it.
     /// </summary>
-    internal static readonly string[] ScyllaRestoreClientServices = ["interfold-api", "octocon-web"];
+    internal static readonly string[] ScyllaRestoreClientServices = [ComposeServices.InterfoldApi, ComposeServices.OctoconWeb];
 
     public static async Task<int> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
@@ -155,12 +156,12 @@ internal static class RestorePhase
         {
             if (postgres is null)
             {
-                postgres = ResolveLatestArchive(Path.Combine(backupRoot, "postgres"), "*.dump")?.FullName;
+                postgres = ResolveLatestArchive(Path.Combine(backupRoot, BackupStoragePaths.PostgresDir), BackupStoragePaths.PostgresArchivePattern)?.FullName;
                 if (postgres is not null) logger.Info($"    resolved --restore-latest postgres: {postgres}");
             }
             if (scylla is null)
             {
-                scylla = ResolveLatestArchive(Path.Combine(backupRoot, "scylla"), "*.tar.gz")?.FullName;
+                scylla = ResolveLatestArchive(Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir), BackupStoragePaths.ScyllaArchivePattern)?.FullName;
                 if (scylla is not null) logger.Info($"    resolved --restore-latest scylla: {scylla}");
             }
         }

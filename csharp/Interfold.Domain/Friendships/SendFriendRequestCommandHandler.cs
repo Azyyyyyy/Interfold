@@ -6,6 +6,8 @@ using Interfold.Contracts.Models.Read;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Friendships;
 
@@ -39,7 +41,7 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
             {
-                return RejectDuplicate(command, "friend_request:send");
+                return RejectDuplicate(command, EntityRefs.FriendRequestSend);
             }
 
             var replay = CommandSerialization.Deserialize<FriendshipCommandResult>(previous.OutcomePayload);
@@ -50,39 +52,41 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
         }
 
         var resolvedTargetSystemId = await _repository.ResolveUserIdAsync(
-            command.Payload.TargetSystemId,
+            command.Payload.TargetSystemId.Value,
             cancellationToken);
 
         if (resolvedTargetSystemId is null)
         {
-            return RejectInvariant(command, "friend_request:no_user");
+            return RejectInvariant(command, EntityRefs.FriendRequestNoUser);
         }
+
+        var targetSystemId = resolvedTargetSystemId.Value;
 
         var outcome = await _repository.SendRequestAsync(
             command.PrincipalId,
-            resolvedTargetSystemId,
+            targetSystemId,
             cancellationToken);
 
         if (outcome is SendFriendRequestOutcome.AlreadyFriends)
         {
-            return RejectInvariant(command, "friend_request:already_friends");
+            return RejectInvariant(command, EntityRefs.FriendRequestAlreadyFriends);
         }
 
         if (outcome is SendFriendRequestOutcome.AlreadySent)
         {
-            return RejectInvariant(command, "friend_request:already_sent");
+            return RejectInvariant(command, EntityRefs.FriendRequestAlreadySent);
         }
 
         if (outcome is SendFriendRequestOutcome.NoUser)
         {
-            return RejectInvariant(command, "friend_request:no_user");
+            return RejectInvariant(command, EntityRefs.FriendRequestNoUser);
         }
 
-        var action = outcome is SendFriendRequestOutcome.Accepted ? "accepted" : "sent";
+        var action = outcome is SendFriendRequestOutcome.Accepted ? FriendshipAction.Accepted : FriendshipAction.Sent;
 
         var result = new FriendshipCommandResult(
             command.PrincipalId,
-            resolvedTargetSystemId,
+            targetSystemId,
             action,
             Replay: false);
 
@@ -102,24 +106,24 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
         {
             await _eventBus.PublishAsync(new FriendshipAddedEvent(
                 command.PrincipalId,
-                resolvedTargetSystemId), cancellationToken);
+                targetSystemId), cancellationToken);
 
             await _eventBus.PublishAsync(new FriendshipAddedEvent(
-                resolvedTargetSystemId,
+                targetSystemId,
                 command.PrincipalId), cancellationToken);
 
             await _eventBus.PublishAsync(new FriendRequestRemovedToEvent(
-                resolvedTargetSystemId,
+                targetSystemId,
                 command.PrincipalId), cancellationToken);
         }
         else
         {
             await _eventBus.PublishAsync(new FriendRequestSentEvent(
                 command.PrincipalId,
-                resolvedTargetSystemId), cancellationToken);
+                targetSystemId), cancellationToken);
 
             await _eventBus.PublishAsync(new FriendRequestReceivedEvent(
-                resolvedTargetSystemId,
+                targetSystemId,
                 command.PrincipalId), cancellationToken);
         }
 
@@ -128,13 +132,13 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
 
     private static CommandExecutionResult<FriendshipCommandResult> RejectDuplicate(
         CommandEnvelope<SendFriendRequestCommand> command,
-        string entityRef)
+        EntityRef entityRef)
         => CommandExecutionResult<FriendshipCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<FriendshipCommandResult> RejectInvariant(
         CommandEnvelope<SendFriendRequestCommand> command,
-        string entityRef)
+        EntityRef entityRef)
         => CommandExecutionResult<FriendshipCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

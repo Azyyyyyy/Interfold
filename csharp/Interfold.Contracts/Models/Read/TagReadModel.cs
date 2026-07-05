@@ -1,51 +1,49 @@
-﻿namespace Interfold.Contracts.Models.Read;
+﻿using Interfold.Contracts.Ids;
+
+namespace Interfold.Contracts.Models.Read;
 
 public sealed record TagReadModel(
-    string Id,
+    TagId Id,
     string Name,
     string? Color,
     string? Description,
-    string? ParentTagId,
-    IReadOnlyList<int> Alters,
+    TagId? ParentTagId,
+    IReadOnlyList<AlterId> Alters,
     DateTime InsertedAt,
     DateTime UpdatedAt,
     VisibilityLevel SecurityLevel,
-    string? UserId
+    SystemId? UserId
 );
 
 public sealed record TagPublicReadModel(
-    string Id,
+    TagId Id,
     string Name,
     string? Color,
     string? Description,
-    string? ParentTagId,
+    TagId? ParentTagId,
     IReadOnlyList<BareAlter> Alters,
     DateTime InsertedAt,
     DateTime UpdatedAt,
     VisibilityLevel SecurityLevel,
-    string? UserId
+    SystemId? UserId
 );
 
 public sealed record CreateTagRequest(
     string Name,
-    string? ParentTagId,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    TagId? ParentTagId
+);
 
 public sealed record UpdateTagRequest(
     string? Name = null,
     string? Color = null,
     string? Description = null,
-    string? SecurityLevel = null,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    VisibilityLevel? SecurityLevel = null
+);
 
 public sealed record TagAlterRequest(
-    int? AlterId,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    AlterId? AlterId
+);
 
 public sealed record SetParentRequest(
-    string? ParentTagId,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    TagId? ParentTagId
+);
