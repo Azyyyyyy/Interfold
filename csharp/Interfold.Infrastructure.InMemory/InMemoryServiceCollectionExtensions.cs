@@ -80,7 +80,7 @@ public static class InMemoryServiceCollectionExtensions
             .AddSingleton<IAuthTokenRevocationRepository, InMemoryAuthTokenRevocationRepository>();
     }
 
-    private static void SeedFromConfig(InMemorySecretsStore store, IConfiguration config, string configKey, string secretKey)
+    private static void SeedFromConfig(InMemorySecretsStore store, IConfiguration config, string configKey, SecretsStoreKey secretKey)
     {
         var value = config[configKey];
         if (!string.IsNullOrWhiteSpace(value))

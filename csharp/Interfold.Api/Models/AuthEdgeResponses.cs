@@ -1,3 +1,4 @@
+using Interfold.Contracts;
 using Interfold.Contracts.Enums;
 
 namespace Interfold.Api.Models;
@@ -14,14 +15,14 @@ public sealed record NodeRoleResponse(NodeGroup Role, bool OwnsSingletons);
 /// <c>redirect_uri</c> is missing. Same <c>{"error","code","detail"}</c> shape as the
 /// previous anonymous objects.
 /// </summary>
-public sealed record OAuthRedirectErrorResponse(string Error, string Code, string Detail);
+public sealed record OAuthRedirectErrorResponse(string Error, ErrorCode Code, string Detail);
 
 /// <summary>
 /// 400 body for an unknown OAuth <c>{provider}</c> route value. Same
 /// <c>{"error","code","provider"}</c> shape as the previous anonymous object — the
 /// provider echoes the raw route string, which is exactly what failed to parse.
 /// </summary>
-public sealed record UnsupportedOAuthProviderResponse(string Error, string Code, string Provider);
+public sealed record UnsupportedOAuthProviderResponse(string Error, ErrorCode Code, string Provider);
 
 /// <summary>
 /// 503 body for <c>GET /settings/link_token</c> on non-primary nodes. Intentionally

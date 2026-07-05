@@ -60,7 +60,7 @@ public sealed class FCMServiceFactoryFixture : IAsyncInitializer
         var store = new InMemorySecretsStore();
         if (seedServiceAccount)
         {
-            store.Seed("fcm:service_account_json", "{\"type\":\"service_account\",\"project_id\":\"test\"}");
+            store.Seed(SecretsStoreKeys.FcmServiceAccountJson, "{\"type\":\"service_account\",\"project_id\":\"test\"}");
         }
         services.AddSingleton<ISecretsStore>(store);
 

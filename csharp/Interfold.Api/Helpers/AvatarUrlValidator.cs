@@ -15,16 +15,16 @@ internal static class AvatarUrlValidator
     /// </summary>
     internal const int MaxLength = 2048;
 
-    internal const string ErrorInvalid = ErrorCodes.AvatarUrlInvalid;
-    internal const string ErrorTooLong = "avatar_url_too_long";
+    internal static readonly ErrorCode ErrorInvalid = ErrorCodes.AvatarUrlInvalid;
+    internal static readonly ErrorCode ErrorTooLong = ErrorCodes.AvatarUrlTooLong;
 
     /// <summary>
     /// Validates and normalises <paramref name="raw"/>. Returns the trimmed URL on success.
     /// </summary>
-    internal static bool TryNormalize(string? raw, out string url, out string errorCode)
+    internal static bool TryNormalize(string? raw, out string url, out ErrorCode errorCode)
     {
         url = string.Empty;
-        errorCode = string.Empty;
+        errorCode = default;
 
         if (string.IsNullOrWhiteSpace(raw))
         {

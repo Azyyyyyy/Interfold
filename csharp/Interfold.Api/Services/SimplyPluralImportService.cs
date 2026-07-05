@@ -87,9 +87,9 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         // The recovery code is only an input to key derivation; past this block the
         // import works with the derived encryption key (or none).
         string? encryptionKey = null;
-        if (!string.IsNullOrWhiteSpace(recoveryKey?.Value))
+        if (recoveryKey is { } providedRecoveryKey && !string.IsNullOrWhiteSpace(providedRecoveryKey.Value))
         {
-            var (encryptionValidation, derivedKey) = await ValidateEncryptionKeyAsync(systemId, recoveryKey.Value.Value, cancellationToken);
+            var (encryptionValidation, derivedKey) = await ValidateEncryptionKeyAsync(systemId, providedRecoveryKey.Value, cancellationToken);
             if (!encryptionValidation.Success)
                 return encryptionValidation;
 
@@ -750,13 +750,14 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     private async Task<(SpImportResult Result, string DerivedKey)> ValidateEncryptionKeyAsync(SystemId systemId, string recoveryCode, CancellationToken ct)
     {
         var state = await _encryptionStateRepository.GetAsync(systemId, ct);
-        if (state is null || !state.Initialized || string.IsNullOrWhiteSpace(state.KeyChecksum))
+        if (state is not { Initialized: true, KeyChecksum: { } keyChecksum, Salt: { } salt }
+            || string.IsNullOrWhiteSpace(keyChecksum.Value))
             return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "Encryption is not initialized for this system."), string.Empty);
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
-        var key = EncryptionKey.DeriveKey(pepper, systemId.Value, recoveryCode, state.Salt);
+        var key = EncryptionKey.DeriveKey(pepper, systemId.Value, recoveryCode, salt.Value);
         var checksum = EncryptionKey.DeriveChecksum(key);
-        if (!string.Equals(checksum, state.KeyChecksum, StringComparison.Ordinal))
+        if (!string.Equals(checksum, keyChecksum.Value, StringComparison.Ordinal))
             return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "The provided encryption key is invalid."), string.Empty);
 
         return (new SpImportResult(true, 0), key);
@@ -785,11 +786,11 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             // choice ids and translate name → choice_id. SP option colors have no slot in
             // the client's {id,name} choice shape and were never rendered — dropped.
             var choices = new List<PollDataChoice>();
-            var choiceIdByName = new Dictionary<string, string>(StringComparer.Ordinal);
+            var choiceIdByName = new Dictionary<string, PollChoiceId>(StringComparer.Ordinal);
             foreach (var option in poll.Options ?? [])
             {
                 var name = option.Name ?? "";
-                var choiceId = Guid.NewGuid().ToString();
+                var choiceId = new PollChoiceId(Guid.NewGuid().ToString());
                 choices.Add(new PollDataChoice(choiceId, name));
                 choiceIdByName.TryAdd(name, choiceId);
             }

@@ -113,6 +113,7 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
                     var tokens = tokenRows.Select(r => r.GetValue<string>("push_token"))
                         .Where(t => !string.IsNullOrWhiteSpace(t))
                         .Distinct(StringComparer.Ordinal)
+                        .Select(t => new PushToken(t))
                         .ToArray();
                     return new FriendNotificationTokens(new SystemId(friendId), tokens);
                 },

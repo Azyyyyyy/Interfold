@@ -28,14 +28,40 @@ namespace Interfold.Contracts.Models;
 /// <c>RemoveAlterFromPollsAsync</c> (alter deletion).
 /// </para>
 /// </summary>
+/// <summary>
+/// A choice-poll option id — opaque to the client, distinct from <c>PollId</c>/<c>TagId</c>
+/// so server-side mutators can't cross-wire them. JSON serializes as the raw string.
+/// </summary>
+[JsonConverter(typeof(PollChoiceIdJsonConverter))]
+public readonly record struct PollChoiceId
+{
+    public string Value { get; }
+
+    public PollChoiceId(string value)
+    {
+        Value = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    public override string ToString() => Value;
+}
+
+internal sealed class PollChoiceIdJsonConverter : System.Text.Json.Serialization.JsonConverter<PollChoiceId>
+{
+    public override PollChoiceId Read(ref System.Text.Json.Utf8JsonReader reader, Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+        => new(reader.GetString() ?? string.Empty);
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, PollChoiceId value, System.Text.Json.JsonSerializerOptions options)
+        => writer.WriteStringValue(value.Value);
+}
+
 public sealed record PollDataChoice(
-    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("id")] PollChoiceId Id,
     [property: JsonPropertyName("name")] string Name);
 
 public sealed record PollDataResponse(
     [property: JsonPropertyName("alter_id")] AlterId AlterId,
     [property: JsonPropertyName("vote")][property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] VoteValue? Vote,
-    [property: JsonPropertyName("choice_id")][property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ChoiceId,
+    [property: JsonPropertyName("choice_id")][property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PollChoiceId? ChoiceId,
     [property: JsonPropertyName("comment")][property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Comment);
 
 /// <summary>

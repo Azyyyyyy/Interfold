@@ -33,7 +33,7 @@ public sealed class PhxFrame<TPayload>
 public sealed class PhxJoinPayload
 {
     [JsonPropertyName("token")]
-    public string Token { get; init; } = string.Empty;
+    public Ids.SocketToken Token { get; init; } = new(string.Empty);
 
     [JsonPropertyName("protocolVersion")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -41,7 +41,8 @@ public sealed class PhxJoinPayload
 
     [JsonPropertyName("platform")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Platform { get; init; }
+    [JsonConverter(typeof(Enums.TolerantClientPlatformJsonConverter))]
+    public Enums.ClientPlatform? Platform { get; init; }
 
     [JsonPropertyName("isReconnect")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

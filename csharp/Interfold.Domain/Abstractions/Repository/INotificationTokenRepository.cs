@@ -30,4 +30,4 @@ public interface INotificationTokenRepository
 /// One friend's registered push tokens. Multiple entries per friend (phone + tablet +
 /// browser) collapse into a single <see cref="Tokens"/> list.
 /// </summary>
-public sealed record FriendNotificationTokens(SystemId FriendSystemId, IReadOnlyList<string> Tokens);
+public sealed record FriendNotificationTokens(SystemId FriendSystemId, IReadOnlyList<PushToken> Tokens);

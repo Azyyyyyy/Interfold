@@ -14,14 +14,14 @@ namespace Interfold.DatabaseBootstrap;
 /// OAuth secrets in particular are blanked out in self-hosted deployments where the operator
 /// hasn't configured a federated provider.
 /// </remarks>
-public static class SeedKeys
+internal static class SeedKeys
 {
     /// <summary>
     /// Well-known key + value selector. Selector reads its value off the seed options at
     /// orchestration time so any future field changes only require touching the options
     /// record + this list.
     /// </summary>
-    public readonly record struct Entry(string Key, Func<PostgresSeedOptions, string> ValueSelector);
+    internal readonly record struct Entry(SecretsStoreKey Key, Func<PostgresSeedOptions, string> ValueSelector);
 
     private static readonly IReadOnlyList<Entry> _all =
     [
@@ -66,5 +66,5 @@ public static class SeedKeys
     ];
 
     /// <summary>All well-known keys with their selectors, in seed order.</summary>
-    public static IReadOnlyList<Entry> All => _all;
+    internal static IReadOnlyList<Entry> All => _all;
 }

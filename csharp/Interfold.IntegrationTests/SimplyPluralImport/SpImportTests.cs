@@ -1154,7 +1154,7 @@ public sealed class SpImportTests : BaseEndpointTest
         services.AddOptions<AuthenticationConfiguration>();
         services.AddSingleton<IAvatarStorage, NullAvatarStorage>();
 
-        services.AddHttpClient("SimplyPlural")
+        services.AddHttpClient(HttpClientNames.SimplyPlural)
             .ConfigurePrimaryHttpMessageHandler(() => stub);
 
         services.AddSingleton<ISimplyPluralImportService, SimplyPluralImportService>();

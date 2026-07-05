@@ -72,7 +72,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Convert.ToHexString(hash)[..32].ToLowerInvariant();
         });
 
-        _systemByLinkToken[token] = _regionContext.ResolveUserRegion(systemId.Value).ToWireValue() + ":" + systemId.Value;
+        _systemByLinkToken[token] = _regionContext.ResolveUserRegion(systemId).ToWireValue() + ":" + systemId.Value;
 
         return Task.FromResult(new LinkToken(token));
     }
@@ -284,7 +284,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         }
 
         var systemKey = GetSystemKey(systemId);
-        var scopedSystemId = _regionContext.ResolveUserRegion(systemId.Value).ToWireValue() + ":" + systemId.Value;
+        var scopedSystemId = _regionContext.ResolveUserRegion(systemId).ToWireValue() + ":" + systemId.Value;
 
         if (_usernameBySystem.ContainsKey(systemKey) is false &&
             _descriptionBySystem.ContainsKey(systemKey) is false &&
@@ -316,6 +316,6 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
         var saltBytes = RandomNumberGenerator.GetBytes(32);
         var salt = Convert.ToBase64String(saltBytes);
-        _ = _encryptionStates.UpsertAsync(new SystemId(scopedSystemId), false, null, salt, CancellationToken.None);
+        _ = _encryptionStates.UpsertAsync(new SystemId(scopedSystemId), false, null, new EncryptionSalt(salt), CancellationToken.None);
     }
 }

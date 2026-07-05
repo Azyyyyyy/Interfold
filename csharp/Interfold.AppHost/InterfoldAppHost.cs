@@ -30,6 +30,47 @@ namespace Interfold.AppHostGraph;
 /// </remarks>
 public static class InterfoldAppHost
 {
+    // --- Aspire health-check registration names ---
+    // Registered via AddHealthChecks().AddCheck / AddAsyncCheck and attached to resources
+    // via WithHealthCheck; the two spellings must match or the annotation silently never
+    // resolves a check.
+    private const string MsgDbHealthCheckName = "msg-db-health";
+    private const string ScyllaHealthCheckName = "scylla-health";
+
+    /// <summary>The per-node CQL readiness gate name (<c>{resource}-cql</c>), shared by the
+    /// AddAsyncCheck registration and the node's WithHealthCheck annotation.</summary>
+    private static string ScyllaCqlCheckName(string resourceName) => $"{resourceName}-cql";
+
+    // --- Aspire endpoint names ---
+    // Declared on WithEndpoint / WithHttpEndpoint / WithHttpsEndpoint and looked up again
+    // via GetEndpoint / WithHttpHealthCheck(endpointName: ...).
+    private const string PostgresEndpointName = "postgres";
+    private const string CqlEndpointName = "cql";
+    private const string HttpEndpointName = "http";
+    private const string HttpsEndpointName = "https";
+
+    /// <summary>The Aspire resource name of the Docker Compose publish environment.</summary>
+    private const string ComposeEnvironmentName = "docker-compose";
+
+    /// <summary>The compose service name Aspire emits for the dashboard resource of the
+    /// <see cref="ComposeEnvironmentName"/> environment (<c>{environment}-dashboard</c>).</summary>
+    private const string DashboardComposeServiceName = ComposeEnvironmentName + "-dashboard";
+
+    // --- Canonical port-slot defaults (mirrored by appsettings.json's Ports block) ---
+    private const int DefaultPostgresPort = 4200;
+    private const int DefaultScyllaPort = 9042;
+    private const int DefaultCassandraPort = 9043;
+    private const int DefaultApiHttpPort = 5000;
+    private const int DefaultApiHttpsPort = 5001;
+    private const int DefaultApiContainerHttpPort = 5100;
+    private const int DefaultApiContainerHttpsPort = 5101;
+    private const int DefaultWebHttpPort = 8080;
+    private const int DefaultWebHttpsPort = 8081;
+
+    /// <summary>CQL cluster-name fallback for dev `aspire run` when the operator hasn't set
+    /// <see cref="AppHostParameterKeys.ClusterName"/>; the bootstrapper always overrides it.</summary>
+    private const string DefaultClusterName = "InterfoldCluster";
+
     /// <summary>
     /// Registers the full Interfold resource graph on the supplied
     /// <see cref="IDistributedApplicationBuilder"/>. Does not call <c>Build()</c> or <c>Run()</c>.
@@ -37,26 +78,31 @@ public static class InterfoldAppHost
     public static void Configure(IDistributedApplicationBuilder builder)
     {
         // --- Configurable host ports (must be declared before health checks reference them) ---
-        int Port(string name, int fallback) => int.TryParse(builder.Configuration[$"Ports:{name}"], out var p) ? p : fallback;
-        var postgresPort = Port("postgres", 4200);
-        var scyllaPort = Port("scylla", 9042);
+        int Port(string key, int fallback) => int.TryParse(builder.Configuration[key], out var p) ? p : fallback;
+
+        // Derives an AddParameter(...) name from its AppHostParameterKeys constant, so the
+        // parameter declaration and the bootstrapper's IConfiguration override share one
+        // spelling.
+        static string ParamName(string key) => AppHostParameterKeys.ToParameterName(key);
+        var postgresPort = Port(AppHostParameterKeys.PortsPostgres, DefaultPostgresPort);
+        var scyllaPort = Port(AppHostParameterKeys.PortsScylla, DefaultScyllaPort);
         // Cassandra has its own port slot so a single host can publish both Scylla and Cassandra
         // when the integration test SharedDbFixture asks for both. The legacy bootstrapper path
         // (only-cassandra-on-Ports:scylla) is preserved further down by falling back to
         // scyllaPort when Cassandra runs alone.
-        var cassandraPort = Port("cassandra", 9043);
-        var apiHttpPort = Port("api-http", 5000);
-        var apiHttpsPort = Port("api-https", 5001);
+        var cassandraPort = Port(AppHostParameterKeys.PortsCassandra, DefaultCassandraPort);
+        var apiHttpPort = Port(AppHostParameterKeys.PortsApiHttp, DefaultApiHttpPort);
+        var apiHttpsPort = Port(AppHostParameterKeys.PortsApiHttps, DefaultApiHttpsPort);
         // Inside-the-container Kestrel ports for the API. These must match the EXPOSE/ARG
         // values baked into the published API image (see /Dockerfile, which defaults them to
         // 5100/5101 and accepts HTTP_PORT / HTTPS_PORT --build-arg overrides). When operators
         // rebuild the image with different ports, set Ports:api-container-http and
         // Ports:api-container-https to match - the targetPort, ASPNETCORE_*_PORTS env vars,
         // and the compose healthcheck URL all derive from these.
-        var apiContainerHttpPort = Port("api-container-http", 5100);
-        var apiContainerHttpsPort = Port("api-container-https", 5101);
-        var webHttpPort = Port("web-http", 8080);
-        var webHttpsPort = Port("web-https", 8081);
+        var apiContainerHttpPort = Port(AppHostParameterKeys.PortsApiContainerHttp, DefaultApiContainerHttpPort);
+        var apiContainerHttpsPort = Port(AppHostParameterKeys.PortsApiContainerHttps, DefaultApiContainerHttpsPort);
+        var webHttpPort = Port(AppHostParameterKeys.PortsWebHttp, DefaultWebHttpPort);
+        var webHttpsPort = Port(AppHostParameterKeys.PortsWebHttps, DefaultWebHttpsPort);
 
         // --- Optional feature flags (used by integration tests to disable API/web and use ephemeral containers) ---
         var includeApi = BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludeApi], fallback: true);
@@ -76,6 +122,13 @@ public static class InterfoldAppHost
         var scyllaTopology = ScyllaTopologyExtensions.Parse(builder.Configuration[AppHostParameterKeys.ScyllaTopology]);
         var isMultiScylla = scyllaTopology == ScyllaTopology.Multi;
 
+        // The regions the Scylla loop below stands up, resolved ONCE so the health-check
+        // registrations and the node resources can't disagree about the node set. Multi
+        // topology gets one node per ScyllaKeyspace; single topology gets one NAM node
+        // (published under the un-suffixed `scylla` service name).
+        ScyllaKeyspace[] scyllaRegions = isMultiScylla ? Enum.GetValues<ScyllaKeyspace>() : [ScyllaKeyspace.Nam];
+        var isMultiScyllaNode = scyllaRegions.Length > 1;
+
         // CQL cluster identity baked into both backends. Cassandra picks it up via
         // CASSANDRA_CLUSTER_NAME (read by the official entrypoint and written into
         // cassandra.yaml); Scylla picks it up via the `--cluster-name` command-line flag
@@ -86,7 +139,7 @@ public static class InterfoldAppHost
         // the existing `includeScylla` / `scyllaTopology` config-read pattern. Defaults to
         // "InterfoldCluster" so dev `aspire run` works without operator config; the bootstrapper
         // overrides via `BootstrapConfig.ClusterName`.
-        var clusterName = builder.Configuration[AppHostParameterKeys.ClusterName] ?? "InterfoldCluster";
+        var clusterName = builder.Configuration[AppHostParameterKeys.ClusterName] ?? DefaultClusterName;
 
         // Postgres is unconditional in the dev `aspire run` workflow and the bootstrapper's
         // publish flow (the API depends on it), but the integration test
@@ -112,7 +165,7 @@ public static class InterfoldAppHost
         if (includeApi)
         {
             builder.Services.AddHealthChecks()
-                .AddCheck("msg-db-health", () =>
+                .AddCheck(MsgDbHealthCheckName, () =>
                 {
                     try
                     {
@@ -128,7 +181,7 @@ public static class InterfoldAppHost
                 // (they probe inside the container, so they work for non-first multi-DC
                 // nodes that don't have host ports) and supersede this one for the Scylla
                 // path. We keep this registration for the Cassandra-only path only.
-                .AddCheck("scylla-health", () =>
+                .AddCheck(ScyllaHealthCheckName, () =>
                 {
                     try
                     {
@@ -159,20 +212,13 @@ public static class InterfoldAppHost
         // `aspire run` and the testing host.
         if (includeScylla)
         {
-            // We mirror the region-list resolution done deeper in the AppHost (search for
-            // `isMultiScylla`) so the health-check names line up exactly with the resource
-            // names added later. Keeping the resolution inline here (instead of hoisting it
-            // out of the Scylla block) localises the change and avoids accidentally moving
-            // unrelated logic.
-            string[] regionsForChecks = isMultiScylla
-                ? Enum.GetValues<ScyllaKeyspace>().Select(EnumWireExtensions.ToWireValue).ToArray()
-                : [ScyllaKeyspace.Nam.ToWireValue()];
-
+            // `scyllaRegions` is the same array the node loop below iterates, so the
+            // health-check names line up exactly with the resource names added later.
             var hcBuilder = builder.Services.AddHealthChecks();
-            foreach (var region in regionsForChecks)
+            foreach (var region in scyllaRegions)
             {
-                var resourceName = ComposeServices.ToScyllaNodeName(region, multiNode: regionsForChecks.Length > 1);
-                hcBuilder.AddAsyncCheck($"{resourceName}-cql", async ct =>
+                var resourceName = ComposeServices.ToScyllaNodeName(region, multiNode: isMultiScyllaNode);
+                hcBuilder.AddAsyncCheck(ScyllaCqlCheckName(resourceName), async ct =>
                     await DockerExecCqlProbe.RunAsync(resourceName, ct).ConfigureAwait(false));
             }
         }
@@ -183,7 +229,7 @@ public static class InterfoldAppHost
         // time, which is not appropriate for self-hosted production stacks (network egress to MCR,
         // nightly image churn). The dev `aspire run` workflow keeps the dashboard.
         var includeDashboard = BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludeDashboard], fallback: true);
-        builder.AddDockerComposeEnvironment("docker-compose")
+        builder.AddDockerComposeEnvironment(ComposeEnvironmentName)
             .WithDashboard(includeDashboard)
             .ConfigureComposeFile(compose =>
             {
@@ -192,22 +238,22 @@ public static class InterfoldAppHost
                 compose.AddNetwork(new Network { Name = ComposeNetworks.Api, Driver = "bridge" });
 
                 // Dashboard needs to be reachable by API for OTLP telemetry
-                if (compose.Services.TryGetValue("docker-compose-dashboard", out var dashboard))
+                if (compose.Services.TryGetValue(DashboardComposeServiceName, out var dashboard))
                 {
-                    dashboard.Networks.Add("api");
+                    dashboard.Networks.Add(ComposeNetworks.Api);
                 }
             });
 
         // --- Parameters (set via user-secrets or environment variables) ---
-        var postgresUser = builder.AddParameter("postgres-user");
-        var postgresPassword = builder.AddParameter("postgres-password", secret: true);
+        var postgresUser = builder.AddParameter(ParamName(AppHostParameterKeys.PostgresUser));
+        var postgresPassword = builder.AddParameter(ParamName(AppHostParameterKeys.PostgresPassword), secret: true);
         // Postgres application database name. Defaults to `interfold` so dev `aspire run`
         // works without any extra config; the bootstrapper overrides this from
         // `BootstrapConfig.PostgresDatabase` in publish mode (via `Parameters:postgres-db`),
         // and the resulting value flows into both the API's connection string below and
         // DatabaseInitPhase's CREATE DATABASE call via the matching seed option. Not a
         // secret — it ends up in compose YAML / .env as plain text.
-        var postgresDb = builder.AddParameter("postgres-db", "interfold", publishValueAsDefault: true);
+        var postgresDb = builder.AddParameter(ParamName(AppHostParameterKeys.PostgresDb), "interfold", publishValueAsDefault: true);
         // Transient init credential. POSTGRES_USER on the msg-db service is hard-coded to
         // "db_init" - a disposable cluster-owner that the bootstrapper's DatabaseInitPhase uses
         // exactly once to create the real app + admin roles, then ALTERs to a fresh random
@@ -221,14 +267,14 @@ public static class InterfoldAppHost
         // PublishPhase.BuildEnvReplacements overrides this value with the one in secrets.json
         // before the .env file is materialised, so the generated default never leaks into a
         // production deployment.
-        var postgresInitPassword = builder.AddParameter("postgres-init-password",
+        var postgresInitPassword = builder.AddParameter(ParamName(AppHostParameterKeys.PostgresInitPassword),
             new GenerateParameterDefault { MinLength = 24 }, secret: true, persist: true);
-        var scyllaUser = builder.AddParameter("scylla-user");
-        var scyllaPassword = builder.AddParameter("scylla-password", secret: true);
+        var scyllaUser = builder.AddParameter(ParamName(AppHostParameterKeys.ScyllaUser));
+        var scyllaPassword = builder.AddParameter(ParamName(AppHostParameterKeys.ScyllaPassword), secret: true);
         // The matching `<user>_admin` role is created by the bootstrapper's DatabaseInitPhase with
         // a freshly generated password that lives only inside internal.secrets - it is never
         // surfaced as an AppHost parameter or compose env var.
-        var encryptionPrivateKey = builder.AddParameter("encryption-private-key", secret: true);
+        var encryptionPrivateKey = builder.AddParameter(ParamName(AppHostParameterKeys.EncryptionPrivateKey), secret: true);
         // The encryption pepper moved into internal.secrets:encryption:pepper.
         // SecretsBootstrapService patches AuthenticationConfiguration.EncryptionPepper at
         // startup and refuses to boot the API if the row is missing.
@@ -252,9 +298,9 @@ public static class InterfoldAppHost
         // The scheme is only registered when the matching client ID is non-empty (see
         // OAuthChallengeServiceCollectionExtensions); leaving the ID blank for a provider
         // disables that provider, which is the intended "I'm not using this one" behaviour.
-        var googleOAuthClientId = builder.AddParameter("google-oauth-client-id", "", publishValueAsDefault: true);
-        var discordOAuthClientId = builder.AddParameter("discord-oauth-client-id", "", publishValueAsDefault: true);
-        var appleOAuthClientId = builder.AddParameter("apple-oauth-client-id", "", publishValueAsDefault: true);
+        var googleOAuthClientId = builder.AddParameter(ParamName(AppHostParameterKeys.GoogleOAuthClientId), "", publishValueAsDefault: true);
+        var discordOAuthClientId = builder.AddParameter(ParamName(AppHostParameterKeys.DiscordOAuthClientId), "", publishValueAsDefault: true);
+        var appleOAuthClientId = builder.AddParameter(ParamName(AppHostParameterKeys.AppleOAuthClientId), "", publishValueAsDefault: true);
 
         // --- API runtime parameters (non-secret, set by the bootstrapper) ---
         // These five plain-text values used to be operator env vars on `docker compose up` (or
@@ -264,11 +310,11 @@ public static class InterfoldAppHost
         // onto the API container as OCTOCON_* env vars. Empty defaults are intentional — Validate
         // refuses to emit a bootstrap without them, and a non-empty operator-supplied value always
         // wins over the bootstrapper's derived default.
-        var scyllaKeyspace = builder.AddParameter("scylla-keyspace", "nam", publishValueAsDefault: true);
-        var oauthCallbackBaseUrl = builder.AddParameter("oauth-callback-base-url", "", publishValueAsDefault: true);
-        var jwtAuthority = builder.AddParameter("jwt-authority", "", publishValueAsDefault: true);
-        var jwtAudience = builder.AddParameter("jwt-audience", "octocon", publishValueAsDefault: true);
-        var corsAllowedOrigins = builder.AddParameter("cors-allowed-origins", "", publishValueAsDefault: true);
+        var scyllaKeyspace = builder.AddParameter(ParamName(AppHostParameterKeys.ScyllaKeyspace), ScyllaKeyspace.Nam.ToWireValue(), publishValueAsDefault: true);
+        var oauthCallbackBaseUrl = builder.AddParameter(ParamName(AppHostParameterKeys.OAuthCallbackBaseUrl), "", publishValueAsDefault: true);
+        var jwtAuthority = builder.AddParameter(ParamName(AppHostParameterKeys.JwtAuthority), "", publishValueAsDefault: true);
+        var jwtAudience = builder.AddParameter(ParamName(AppHostParameterKeys.JwtAudience), "octocon", publishValueAsDefault: true);
+        var corsAllowedOrigins = builder.AddParameter(ParamName(AppHostParameterKeys.CorsAllowedOrigins), "", publishValueAsDefault: true);
 
         // --- Operator tuning parameters (non-secret, set by the bootstrapper) ---
         // Mirror the optional knobs on PersistenceConfiguration / ClusterConfiguration /
@@ -280,9 +326,9 @@ public static class InterfoldAppHost
         // OTLP endpoint, socket threshold) declare an empty default — ApplyStorage /
         // ApplyObservability normalise empty → null so the API's not-configured paths
         // still trigger.
-        var nodeGroup = builder.AddParameter("node-group", "auxiliary", publishValueAsDefault: true);
-        var avatarStorageRoot = builder.AddParameter("avatar-storage-root", "", publishValueAsDefault: true);
-        var avatarPublicBase = builder.AddParameter("avatar-public-base", "", publishValueAsDefault: true);
+        var nodeGroup = builder.AddParameter(ParamName(AppHostParameterKeys.NodeGroup), "auxiliary", publishValueAsDefault: true);
+        var avatarStorageRoot = builder.AddParameter(ParamName(AppHostParameterKeys.AvatarStorageRoot), "", publishValueAsDefault: true);
+        var avatarPublicBase = builder.AddParameter(ParamName(AppHostParameterKeys.AvatarPublicBase), "", publishValueAsDefault: true);
 
         // Resolve the effective in-container avatar storage path AT APPHOST-BUILD TIME so we
         // can both (a) pipe the literal value as OCTOCON_AVATAR_STORAGE_ROOT to the API
@@ -301,12 +347,12 @@ public static class InterfoldAppHost
             ? DefaultContainerAvatarStorageRoot
             : rawAvatarStorageRoot;
         var useDefaultAvatarStorageRoot = string.IsNullOrWhiteSpace(rawAvatarStorageRoot);
-        var otlpEndpoint = builder.AddParameter("otlp-endpoint", "", publishValueAsDefault: true);
-        var socketBatchBytesThreshold = builder.AddParameter("socket-batch-bytes-threshold", "", publishValueAsDefault: true);
-        var dbRetryAttempts = builder.AddParameter("db-retry-attempts", "3", publishValueAsDefault: true);
-        var dbRetryInitialDelayMs = builder.AddParameter("db-retry-initial-delay-ms", "100", publishValueAsDefault: true);
-        var dbRetryMaxDelayMs = builder.AddParameter("db-retry-max-delay-ms", "1500", publishValueAsDefault: true);
-        var hydrationMaxConcurrency = builder.AddParameter("hydration-max-concurrency", "8", publishValueAsDefault: true);
+        var otlpEndpoint = builder.AddParameter(ParamName(AppHostParameterKeys.OtlpEndpoint), "", publishValueAsDefault: true);
+        var socketBatchBytesThreshold = builder.AddParameter(ParamName(AppHostParameterKeys.SocketBatchBytesThreshold), "", publishValueAsDefault: true);
+        var dbRetryAttempts = builder.AddParameter(ParamName(AppHostParameterKeys.DbRetryAttempts), "3", publishValueAsDefault: true);
+        var dbRetryInitialDelayMs = builder.AddParameter(ParamName(AppHostParameterKeys.DbRetryInitialDelayMs), "100", publishValueAsDefault: true);
+        var dbRetryMaxDelayMs = builder.AddParameter(ParamName(AppHostParameterKeys.DbRetryMaxDelayMs), "1500", publishValueAsDefault: true);
+        var hydrationMaxConcurrency = builder.AddParameter(ParamName(AppHostParameterKeys.HydrationMaxConcurrency), "8", publishValueAsDefault: true);
 
         // --- Reject well-known default passwords at startup (dev mode only; compose relies on shell guard) ---
         // Each backend's check is gated on the matching `include-*` toggle so a caller that
@@ -391,9 +437,9 @@ public static class InterfoldAppHost
         {
             msgDb = builder.AddContainer(ComposeServices.Postgres, "timescale/timescaledb", "latest-pg18")
                 .WithContainerNetworkAlias(ComposeServices.Postgres)
-                .WithEnvironment("POSTGRES_USER", "db_init")
-                .WithEnvironment("POSTGRES_PASSWORD", postgresInitPassword)
-                .WithEnvironment("PGDATA", "/var/lib/postgresql/data/pgdata")
+                .WithEnvironment(ContainerEnvNames.PostgresUser, "db_init")
+                .WithEnvironment(ContainerEnvNames.PostgresPassword, postgresInitPassword)
+                .WithEnvironment(ContainerEnvNames.PgData, "/var/lib/postgresql/data/pgdata")
                 // initdb's default --auth-host is `trust`, which produces `host all all 127.0.0.1/32 trust`
                 // in pg_hba.conf BEFORE the entrypoint appends `host all all all scram-sha-256`. With
                 // first-match-wins ordering, TCP loopback connections (e.g. `psql -h 127.0.0.1` from
@@ -404,14 +450,14 @@ public static class InterfoldAppHost
                 // Unix socket connections still use `local all all trust`, which is what the bootstrapper's
                 // DatabaseInitPhase relies on (it connects as db_init via the socket to mint the app +
                 // admin roles before the password is scrambled).
-                .WithEnvironment("POSTGRES_INITDB_ARGS", "--auth-host=scram-sha-256")
+                .WithEnvironment(ContainerEnvNames.PostgresInitDbArgs, "--auth-host=scram-sha-256")
                 // Bump pg_ctl's wait timeout from the 60s default. The postgres image entrypoint
                 // does `pg_ctl -m fast -w stop` after the timescaledb-tune init script runs, then
                 // re-execs postgres in normal mode. On slow Docker-in-Docker disks the shutdown
                 // checkpoint can take well past 60s, which makes the entrypoint exit with
                 // "pg_ctl: server does not shut down" and the container die before the bootstrapper's
                 // WaitForPostgresAsync ever sees normal mode. 300s gives us comfortable headroom.
-                .WithEnvironment("PGCTLTIMEOUT", "300")
+                .WithEnvironment(ContainerEnvNames.PgCtlTimeout, "300")
                 // timescaledb-tune (the image's 001_timescaledb_tune.sh init script) reads
                 // /sys/fs/cgroup/memory.max to size shared_buffers. Self-hosting hosts running on
                 // Docker Desktop / cgroup-v2-restricted environments may not expose that file, in
@@ -419,15 +465,15 @@ public static class InterfoldAppHost
                 // TS_TUNE_MEMORY + TS_TUNE_NUM_CPUS bypasses auto-detection with safe conservative
                 // defaults; operators on bigger boxes can override these env vars in a
                 // docker-compose.override.yaml without re-running the bootstrapper.
-                .WithEnvironment("TS_TUNE_MEMORY", "1GB")
-                .WithEnvironment("TS_TUNE_NUM_CPUS", "2")
-                .WithEndpoint(port: postgresPort, targetPort: 5432, name: "postgres", scheme: "tcp")
+                .WithEnvironment(ContainerEnvNames.TsTuneMemory, "1GB")
+                .WithEnvironment(ContainerEnvNames.TsTuneNumCpus, "2")
+                .WithEndpoint(port: postgresPort, targetPort: 5432, name: PostgresEndpointName, scheme: "tcp")
                 .PublishAsDockerComposeService((_, service) =>
                 {
-                    service.Networks = ["postgres"];
+                    service.Networks = [ComposeNetworks.Postgres];
                     service.Healthcheck = new Healthcheck
                     {
-                        Test = ["CMD-SHELL", "pg_isready -U $POSTGRES_USER -d postgres"],
+                        Test = ["CMD-SHELL", $"pg_isready -U ${ContainerEnvNames.PostgresUser} -d postgres"],
                         Interval = "10s",
                         Timeout = "5s",
                         Retries = 10,
@@ -435,7 +481,7 @@ public static class InterfoldAppHost
                     };
                 });
             if (includeApi)
-                msgDb.WithHealthCheck("msg-db-health");
+                msgDb.WithHealthCheck(MsgDbHealthCheckName);
             if (persistentContainers)
             {
                 msgDb.WithVolume(ComposeVolumes.PostgresData, "/var/lib/postgresql/data");
@@ -451,16 +497,15 @@ public static class InterfoldAppHost
         if (includeScylla)
         {
             // --- ScyllaDB nodes (single or multi based on scylla-topology) ---
-            string[] regions = isMultiScylla
-                ? Enum.GetValues<ScyllaKeyspace>().Select(EnumWireExtensions.ToWireValue).ToArray()
-                : [ScyllaKeyspace.Nam.ToWireValue()];
-
             IResourceBuilder<ContainerResource>? previousNode = null;
 
-            foreach (var region in regions)
+            foreach (var region in scyllaRegions)
             {
-                var name = ComposeServices.ToScyllaNodeName(region, multiNode: regions.Length > 1);
-                var seeds = previousNode is null ? $"--seeds={name}" : $"--seeds=scylla-{regions[0]},scylla-{regions[1]}";
+                var regionWire = region.ToWireValue();
+                var name = ComposeServices.ToScyllaNodeName(region, multiNode: isMultiScyllaNode);
+                var seeds = previousNode is null
+                    ? $"--seeds={name}"
+                    : $"--seeds={ComposeServices.ToScyllaNodeName(scyllaRegions[0], multiNode: true)},{ComposeServices.ToScyllaNodeName(scyllaRegions[1], multiNode: true)}";
 
                 // Belt-and-braces for the multi-DC topology: even with the per-node CQL
                 // health-check chain serialising joins below, Scylla 2026.1's Raft topology
@@ -489,12 +534,12 @@ public static class InterfoldAppHost
                 var node = builder.AddContainer(name, "scylladb/scylla", "2026.1")
                     .WithContainerNetworkAlias(name)
                     .WithArgs([.. nodeArgs])
-                    .WithBindMount($"../../db/scylla/cassandra-rackdc.{region}.properties", "/etc/scylla/cassandra-rackdc.properties", isReadOnly: true)
-                    .WithEnvironment("CQLSH_USER", scyllaUser)
-                    .WithEnvironment("CQLSH_PASSWORD", scyllaPassword)
+                    .WithBindMount($"../../db/scylla/cassandra-rackdc.{regionWire}.properties", "/etc/scylla/cassandra-rackdc.properties", isReadOnly: true)
+                    .WithEnvironment(ContainerEnvNames.CqlshUser, scyllaUser)
+                    .WithEnvironment(ContainerEnvNames.CqlshPassword, scyllaPassword)
                     .PublishAsDockerComposeService((_, service) =>
                     {
-                        service.Networks = ["scylla"];
+                        service.Networks = [ComposeNetworks.Scylla];
                         // `nodetool status` returning UN means gossip-bootstrap is done, but the
                         // CQL listener can come up several seconds later (we've observed gaps of
                         // 60–90s on slow DinD hosts between NORMAL mode and "Starting listening
@@ -513,7 +558,7 @@ public static class InterfoldAppHost
                         service.Healthcheck = new Healthcheck
                         {
                             Test = ["CMD-SHELL",
-                                "cqlsh -u \"$$CQLSH_USER\" -p \"$$CQLSH_PASSWORD\" -e 'DESCRIBE CLUSTER' >/dev/null 2>&1"],
+                                $"cqlsh -u \"$${ContainerEnvNames.CqlshUser}\" -p \"$${ContainerEnvNames.CqlshPassword}\" -e 'DESCRIBE CLUSTER' >/dev/null 2>&1"],
                             Interval = "15s",
                             Timeout = "10s",
                             Retries = 20,
@@ -523,7 +568,7 @@ public static class InterfoldAppHost
 
                 if (persistentContainers)
                 {
-                    node.WithVolume(regions.Length > 1 ? ComposeVolumes.ScyllaRegionData(region) : ComposeVolumes.ScyllaData, "/var/lib/scylla");
+                    node.WithVolume(isMultiScyllaNode ? ComposeVolumes.ScyllaRegionData(regionWire) : ComposeVolumes.ScyllaData, "/var/lib/scylla");
                     node.WithLifetime(ContainerLifetime.Persistent);
                 }
 
@@ -532,11 +577,11 @@ public static class InterfoldAppHost
                 // from "wait for Running" (~container started) to "wait for Healthy" (CQL
                 // accepting traffic), which serialises the multi-DC join sequence and avoids
                 // the Raft topology coordinator banning concurrent joiners.
-                node.WithHealthCheck($"{name}-cql");
+                node.WithHealthCheck(ScyllaCqlCheckName(name));
 
                 if (previousNode is null)
                 {
-                    node.WithEndpoint(port: scyllaPort, targetPort: 9042, name: "cql", scheme: "tcp");
+                    node.WithEndpoint(port: scyllaPort, targetPort: 9042, name: CqlEndpointName, scheme: "tcp");
                     cqlEndpointOwners.Add(node);
                 }
                 else
@@ -566,28 +611,28 @@ public static class InterfoldAppHost
             // slot (default 9043) so the two CQL listeners don't collide.
             var cassandraEndpointPort = includeScylla ? cassandraPort : scyllaPort;
 
-            var cassandra = builder.AddDockerfile("cassandra", "../../db/cassandra")
-                .WithContainerNetworkAlias("cassandra")
-                .WithEnvironment("CASSANDRA_CLUSTER_NAME", clusterName)
-                .WithEnvironment("CASSANDRA_LISTEN_ADDRESS", "cassandra")
-                .WithEnvironment("CASSANDRA_BROADCAST_ADDRESS", "cassandra")
-                .WithEnvironment("CASSANDRA_BROADCAST_RPC_ADDRESS", "cassandra")
-                .WithEnvironment("CASSANDRA_RPC_ADDRESS", "0.0.0.0")
-                .WithEnvironment("CASSANDRA_ENDPOINT_SNITCH", "GossipingPropertyFileSnitch")
-                .WithEnvironment("CASSANDRA_NUM_TOKENS", "16")
-                .WithEnvironment("CASSANDRA_DC", "nam")
-                .WithEnvironment("CASSANDRA_RACK", "rack1")
-                .WithEnvironment("MAX_HEAP_SIZE", "512M")
-                .WithEnvironment("HEAP_NEWSIZE", "256M")
-                .WithEnvironment("CQLSH_USER", scyllaUser)
-                .WithEnvironment("CQLSH_PASSWORD", scyllaPassword)
-                .WithEndpoint(port: cassandraEndpointPort, targetPort: 9042, name: "cql", scheme: "tcp")
+            var cassandra = builder.AddDockerfile(ComposeServices.Cassandra, "../../db/cassandra")
+                .WithContainerNetworkAlias(ComposeServices.Cassandra)
+                .WithEnvironment(ContainerEnvNames.CassandraClusterName, clusterName)
+                .WithEnvironment(ContainerEnvNames.CassandraListenAddress, ComposeServices.Cassandra)
+                .WithEnvironment(ContainerEnvNames.CassandraBroadcastAddress, ComposeServices.Cassandra)
+                .WithEnvironment(ContainerEnvNames.CassandraBroadcastRpcAddress, ComposeServices.Cassandra)
+                .WithEnvironment(ContainerEnvNames.CassandraRpcAddress, "0.0.0.0")
+                .WithEnvironment(ContainerEnvNames.CassandraEndpointSnitch, "GossipingPropertyFileSnitch")
+                .WithEnvironment(ContainerEnvNames.CassandraNumTokens, "16")
+                .WithEnvironment(ContainerEnvNames.CassandraDc, ScyllaKeyspace.Nam.ToWireValue())
+                .WithEnvironment(ContainerEnvNames.CassandraRack, "rack1")
+                .WithEnvironment(ContainerEnvNames.MaxHeapSize, "512M")
+                .WithEnvironment(ContainerEnvNames.HeapNewSize, "256M")
+                .WithEnvironment(ContainerEnvNames.CqlshUser, scyllaUser)
+                .WithEnvironment(ContainerEnvNames.CqlshPassword, scyllaPassword)
+                .WithEndpoint(port: cassandraEndpointPort, targetPort: 9042, name: CqlEndpointName, scheme: "tcp")
                 .PublishAsDockerComposeService((_, service) =>
                 {
-                    service.Networks = ["scylla"];
+                    service.Networks = [ComposeNetworks.Scylla];
                     service.Healthcheck = new Healthcheck
                     {
-                        Test = ["CMD-SHELL", "cqlsh -u \"$$CQLSH_USER\" -p \"$$CQLSH_PASSWORD\" -e 'describe cluster' || nodetool status | grep -q '^UN'"],
+                        Test = ["CMD-SHELL", $"cqlsh -u \"$${ContainerEnvNames.CqlshUser}\" -p \"$${ContainerEnvNames.CqlshPassword}\" -e 'describe cluster' || nodetool status | grep -q '^UN'"],
                         Interval = "15s",
                         Timeout = "10s",
                         Retries = 20,
@@ -600,7 +645,7 @@ public static class InterfoldAppHost
                 // Only attach the AppHost-level "scylla-health" check when Cassandra owns the
                 // Ports:scylla endpoint. When Scylla is also included, Scylla owns it and the
                 // Cassandra container relies on its own per-service compose healthcheck.
-                cassandra.WithHealthCheck("scylla-health");
+                cassandra.WithHealthCheck(ScyllaHealthCheckName);
             }
             if (persistentContainers)
             {
@@ -629,15 +674,15 @@ public static class InterfoldAppHost
             // The earlier guard (`includeApi && !includePostgres` -> throw) means msgDb is
             // guaranteed non-null on this branch.
             var msgDbResource = msgDb!;
-            var pgEndpoint = msgDbResource.GetEndpoint("postgres");
+            var pgEndpoint = msgDbResource.GetEndpoint(PostgresEndpointName);
 
             void ConfigureApiCommon(IResourceBuilder<IResourceWithEnvironment> api)
             {
                 api.WithEnvironment(OctoconEnvKeys.Persistence, PersistenceModeExtensions.ScyllaPostgresWireValue)
-                   .WithEnvironment(OctoconEnvKeys.SingleScyllaInstance, isMultiScylla ? "false" : "true")
+                   .WithEnvironment(OctoconEnvKeys.SingleScyllaInstance, BoolWire.ToWireValue(!isMultiScylla))
                    .WithEnvironment(OctoconEnvKeys.PostgresConnection,
                        ReferenceExpression.Create($"Host={pgEndpoint.Property(EndpointProperty.Host)};Port={pgEndpoint.Property(EndpointProperty.Port)};Database={postgresDb};Username={postgresUser};Password={postgresPassword}"))
-                   .WithEnvironment("ENCRYPTION_PRIVATE_KEY", encryptionPrivateKey);
+                   .WithEnvironment(ContainerEnvNames.EncryptionPrivateKey, encryptionPrivateKey);
             }
 
             // Self-hosting only: the API container needs the bootstrapper-generated TLS material
@@ -653,21 +698,21 @@ public static class InterfoldAppHost
             // enclosing scope so it cannot be `static`.
             void ConfigureApiSelfHostEnv(IResourceBuilder<ContainerResource> api)
             {
-                api.WithBindMount("../../certs", "/certs", isReadOnly: true)
+                api.WithBindMount(CertsPaths.HostDir, CertsPaths.ContainerDir, isReadOnly: true)
                    // The published API container (built with `dotnet publish /t:PublishContainer`)
                    // defaults to listening on HTTP 8080. The Aspire compose graph below declares
                    // targetPort=apiContainerHttpPort/apiContainerHttpsPort, so we override the SDK
                    // defaults to keep the two in sync. HTTPS terminates inside the container using
                    // the leaf PFX written by CertificatePhase - operators can still front this with
                    // a reverse proxy but direct HTTPS access works out of the box.
-                   .WithEnvironment("ASPNETCORE_HTTP_PORTS", apiContainerHttpPort.ToString())
-                   .WithEnvironment("ASPNETCORE_HTTPS_PORTS", apiContainerHttpsPort.ToString())
+                   .WithEnvironment(ContainerEnvNames.AspNetCoreHttpPorts, apiContainerHttpPort.ToString())
+                   .WithEnvironment(ContainerEnvNames.AspNetCoreHttpsPorts, apiContainerHttpsPort.ToString())
                    // Kestrel default-endpoint cert path. Kestrel reads this from configuration
                    // (see https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel/endpoints#configure-https).
                    // The matching Password used to live in this env block too; it has moved to
                    // internal.secrets:certs:leaf_pfx_password and Program.cs loads it directly
                    // via a one-shot Npgsql query before Kestrel binds.
-                   .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__Path", "/certs/leaf.pfx")
+                   .WithEnvironment(ContainerEnvNames.AspNetCoreKestrelDefaultCertPath, CertsPaths.LeafPfx)
                    // Trust-distribution paths consumed by TrustController in Interfold.Api to
                    // serve /.well-known/interfold-root-ca.{crt,pem,sha256}. Both files live
                    // inside the read-only /certs bind mount above (CertificatePhase writes
@@ -675,8 +720,8 @@ public static class InterfoldAppHost
                    // run`), these stay blank and the controller short-circuits to 404. The
                    // sha256 file is also the source of the HTTP ETag on the cert routes so
                    // `--rotate-certs` invalidates downstream caches on the next response.
-                   .WithEnvironment(OctoconEnvKeys.TrustRootCaPath, "/certs/rootCA.crt")
-                   .WithEnvironment(OctoconEnvKeys.TrustRootCaFingerprintPath, "/certs/rootCA.sha256.txt")
+                   .WithEnvironment(OctoconEnvKeys.TrustRootCaPath, CertsPaths.RootCaCrt)
+                   .WithEnvironment(OctoconEnvKeys.TrustRootCaFingerprintPath, CertsPaths.RootCaFingerprint)
                    // OAuth client IDs are public per-provider identifiers that get rendered into
                    // each scheme's authorize-redirect URL. Attached on the container path only so
                    // the dev `aspire run` workflow keeps reading them from launchSettings.json /
@@ -752,19 +797,19 @@ public static class InterfoldAppHost
             if (!string.IsNullOrEmpty(apiImageRef))
             {
                 // Self-hosting path: pre-built image reference, no csproj needed.
-                var (imageName, imageTag) = SplitImageRef(apiImageRef);
-                var apiContainer = builder.AddContainer(ComposeServices.InterfoldApi, imageName, imageTag)
-                    .WithHttpEndpoint(port: apiHttpPort, targetPort: apiContainerHttpPort, name: "http")
-                    .WithHttpsEndpoint(port: apiHttpsPort, targetPort: apiContainerHttpsPort, name: "https")
-                    .WithHttpHealthCheck("/health/ready", endpointName: "http")
+                var apiImage = ImageRef.Parse(apiImageRef);
+                var apiContainer = builder.AddContainer(ComposeServices.InterfoldApi, apiImage.Image, apiImage.Tag)
+                    .WithHttpEndpoint(port: apiHttpPort, targetPort: apiContainerHttpPort, name: HttpEndpointName)
+                    .WithHttpsEndpoint(port: apiHttpsPort, targetPort: apiContainerHttpsPort, name: HttpsEndpointName)
+                    .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
                     .WithExternalHttpEndpoints()
                     .WaitFor(msgDbResource)
                     .PublishAsDockerComposeService((_, service) =>
                     {
-                        service.Networks = ["scylla", "postgres", "api"];
+                        service.Networks = [ComposeNetworks.Scylla, ComposeNetworks.Postgres, ComposeNetworks.Api];
                         service.Healthcheck = new Healthcheck
                         {
-                            Test = ["CMD", "curl", "-f", $"http://localhost:{apiContainerHttpPort}/health/ready"],
+                            Test = ["CMD", "curl", "-f", $"http://localhost:{apiContainerHttpPort}{HealthEndpoints.Ready}"],
                             Interval = "15s",
                             Timeout = "5s",
                             Retries = 10,
@@ -775,18 +820,18 @@ public static class InterfoldAppHost
                         // table is already populated. We still gate on msg-db being healthy via
                         // depends_on so a freshly cleaned compose stack doesn't race to start the
                         // API before postgres opens its listening socket.
-                        if (service.DependsOn.TryGetValue("msg-db", out var msgDbDep))
-                            msgDbDep.Condition = "service_healthy";
+                        if (service.DependsOn.TryGetValue(ComposeServices.Postgres, out var msgDbDep))
+                            msgDbDep.Condition = ComposeDependencyCondition.ServiceHealthy;
                         // Gate API startup on scylla being CQL-ready, not merely on its container
                         // having entered the running state. Without this, the bootstrapper's
                         // `up` command (which doesn't run db-init and therefore doesn't pre-warm
                         // scylla itself) can race the API into scylla before the cluster has
                         // finished gossip-bootstrap, producing "connection refused on 9042" and
                         // a crash on the very first ScyllaMigrationService.StartingAsync call.
-                        if (service.DependsOn.TryGetValue("scylla", out var scyllaDep))
-                            scyllaDep.Condition = "service_healthy";
-                        if (service.DependsOn.TryGetValue("cassandra", out var cassandraDep))
-                            cassandraDep.Condition = "service_healthy";
+                        if (service.DependsOn.TryGetValue(ComposeServices.ScyllaSingle, out var scyllaDep))
+                            scyllaDep.Condition = ComposeDependencyCondition.ServiceHealthy;
+                        if (service.DependsOn.TryGetValue(ComposeServices.Cassandra, out var cassandraDep))
+                            cassandraDep.Condition = ComposeDependencyCondition.ServiceHealthy;
                     });
                 ConfigureApiCommon(apiContainer);
                 ConfigureApiSelfHostEnv(apiContainer);
@@ -795,29 +840,29 @@ public static class InterfoldAppHost
             }
             else
             {
-                var apiProject = builder.AddProject<Projects.Interfold_Api>("interfold-api")
-                    .WithHttpEndpoint(port: apiHttpPort, targetPort: apiContainerHttpPort, name: "http")
-                    .WithHttpsEndpoint(port: apiHttpsPort, targetPort: apiContainerHttpsPort, name: "https")
-                    .WithHttpHealthCheck("/health/ready", endpointName: "http")
+                var apiProject = builder.AddProject<Projects.Interfold_Api>(ComposeServices.InterfoldApi)
+                    .WithHttpEndpoint(port: apiHttpPort, targetPort: apiContainerHttpPort, name: HttpEndpointName)
+                    .WithHttpsEndpoint(port: apiHttpsPort, targetPort: apiContainerHttpsPort, name: HttpsEndpointName)
+                    .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
                     .WithExternalHttpEndpoints()
                     .WaitFor(msgDbResource)
                     .PublishAsDockerComposeService((_, service) =>
                     {
-                        service.Networks = ["scylla", "postgres", "api"];
+                        service.Networks = [ComposeNetworks.Scylla, ComposeNetworks.Postgres, ComposeNetworks.Api];
                         service.Healthcheck = new Healthcheck
                         {
-                            Test = ["CMD", "curl", "-f", $"http://localhost:{apiContainerHttpPort}/health/ready"],
+                            Test = ["CMD", "curl", "-f", $"http://localhost:{apiContainerHttpPort}{HealthEndpoints.Ready}"],
                             Interval = "15s",
                             Timeout = "5s",
                             Retries = 10,
                             StartPeriod = "20s"
                         };
-                        if (service.DependsOn.TryGetValue("msg-db", out var msgDbDep))
-                            msgDbDep.Condition = "service_healthy";
-                        if (service.DependsOn.TryGetValue("scylla", out var scyllaDep))
-                            scyllaDep.Condition = "service_healthy";
-                        if (service.DependsOn.TryGetValue("cassandra", out var cassandraDep))
-                            cassandraDep.Condition = "service_healthy";
+                        if (service.DependsOn.TryGetValue(ComposeServices.Postgres, out var msgDbDep))
+                            msgDbDep.Condition = ComposeDependencyCondition.ServiceHealthy;
+                        if (service.DependsOn.TryGetValue(ComposeServices.ScyllaSingle, out var scyllaDep))
+                            scyllaDep.Condition = ComposeDependencyCondition.ServiceHealthy;
+                        if (service.DependsOn.TryGetValue(ComposeServices.Cassandra, out var cassandraDep))
+                            cassandraDep.Condition = ComposeDependencyCondition.ServiceHealthy;
                     });
                 ConfigureApiCommon(apiProject);
                 foreach (var owner in cqlEndpointOwners)
@@ -849,16 +894,16 @@ public static class InterfoldAppHost
                 if (string.IsNullOrWhiteSpace(serverName)) serverName = "_";
 
                 web = web
-                    .WithHttpEndpoint(port: webHttpPort, targetPort: 80, name: "http")
-                    .WithHttpsEndpoint(port: webHttpsPort, targetPort: 443, name: "https")
-                    .WithBindMount("../../certs", "/certs", isReadOnly: true)
+                    .WithHttpEndpoint(port: webHttpPort, targetPort: 80, name: HttpEndpointName)
+                    .WithHttpsEndpoint(port: webHttpsPort, targetPort: 443, name: HttpsEndpointName)
+                    .WithBindMount(CertsPaths.HostDir, CertsPaths.ContainerDir, isReadOnly: true)
                     .WithBindMount(
                         "../../web/nginx/default.conf.template",
                         "/etc/nginx/templates/default.conf.template",
                         isReadOnly: true)
-                    .WithEnvironment("NGINX_SERVER_NAME", serverName)
-                    .WithEnvironment("NGINX_SSL_CERT_FILE", "/certs/leaf.crt")
-                    .WithEnvironment("NGINX_SSL_KEY_FILE", "/certs/leaf.key")
+                    .WithEnvironment(ContainerEnvNames.NginxServerName, serverName)
+                    .WithEnvironment(ContainerEnvNames.NginxSslCertFile, CertsPaths.LeafCrt)
+                    .WithEnvironment(ContainerEnvNames.NginxSslKeyFile, CertsPaths.LeafKey)
                     // Without this, the 301 from the :80 server block would emit
                     // `Location: https://$host$request_uri` with no port. Browsers resolve the
                     // missing port to 443, but the bootstrapper binds the container's :443 onto
@@ -866,14 +911,14 @@ public static class InterfoldAppHost
                     // isn't bound. Pre-compute the `:<port>` suffix here (or empty when the
                     // operator chose 443) and let the template stitch it into the Location.
                     .WithEnvironment(
-                        "NGINX_HTTPS_PORT_SUFFIX",
+                        ContainerEnvNames.NginxHttpsPortSuffix,
                         webHttpsPort == 443 ? string.Empty : $":{webHttpsPort}")
                     // The default envsubst step in the upstream nginx image substitutes every
                     // env var it can resolve, which would clobber nginx's own runtime
                     // variables (`$host`, `$uri`, ...). Restrict it to the NGINX_* names we
                     // actually want substituted.
-                    .WithEnvironment("NGINX_ENVSUBST_FILTER", "^NGINX_")
-                    .WithHttpHealthCheck("/", endpointName: "http")
+                    .WithEnvironment(ContainerEnvNames.NginxEnvsubstFilter, "^NGINX_")
+                    .WithHttpHealthCheck("/", endpointName: HttpEndpointName)
                     // Must come AFTER the endpoint registrations - Aspire's external-endpoint
                     // pass walks the resource's current endpoint set, so calling this before
                     // WithHttpEndpoint / WithHttpsEndpoint produces a service with only
@@ -881,7 +926,7 @@ public static class InterfoldAppHost
                     .WithExternalHttpEndpoints()
                     .PublishAsDockerComposeService((_, service) =>
                     {
-                        service.Networks = ["api"];
+                        service.Networks = [ComposeNetworks.Api];
                         service.                    Healthcheck = new Healthcheck
                         {
                             // `-k` because the leaf is signed by the bootstrapper's private root
@@ -906,12 +951,12 @@ public static class InterfoldAppHost
                 // target), confusing operators who configured `webHttps=false` expecting "no
                 // HTTPS at all" rather than "two ports both serving plaintext".
                 web = web
-                    .WithHttpEndpoint(port: webHttpPort, targetPort: 8080, name: "http")
-                    .WithHttpHealthCheck("/", endpointName: "http")
+                    .WithHttpEndpoint(port: webHttpPort, targetPort: 8080, name: HttpEndpointName)
+                    .WithHttpHealthCheck("/", endpointName: HttpEndpointName)
                     .WithExternalHttpEndpoints()
                     .PublishAsDockerComposeService((_, service) =>
                     {
-                        service.Networks = ["api"];
+                        service.Networks = [ComposeNetworks.Api];
                         service.                    Healthcheck = new Healthcheck
                         {
                             Test = ["CMD", "curl", "-f", "http://localhost:8080/"],
@@ -926,22 +971,4 @@ public static class InterfoldAppHost
         }
     }
 
-    /// <summary>
-    /// Splits an image reference like <c>ghcr.io/foo/bar:1.2.3</c> or <c>interfold-api:test</c>
-    /// into (image, tag). Tags only - SHA digests would need a different code path.
-    /// </summary>
-    private static (string Image, string Tag) SplitImageRef(string reference)
-    {
-        // Find the LAST colon that isn't inside the registry-port portion (e.g. localhost:5000/foo:tag).
-        // The tag separator is the last colon after the last slash, since any colon before the last slash
-        // belongs to the registry hostname.
-        var lastSlash = reference.LastIndexOf('/');
-        var lastColon = reference.LastIndexOf(':');
-        if (lastColon > lastSlash && lastColon > 0)
-        {
-            return (reference[..lastColon], reference[(lastColon + 1)..]);
-        }
-        // No tag specified - default to "latest".
-        return (reference, "latest");
-    }
 }

@@ -11,6 +11,13 @@ public static class InterfoldHeaders
     public const string CommandId = "X-Interfold-Command-Id";
     public const string Contract = "X-Interfold-Contract";
     public const string RequestId = "X-Interfold-Request-Id";
+
+    /// <summary>
+    /// Generic proxy-supplied correlation header ACCEPTED on inbound requests. Deliberately
+    /// asymmetric with <see cref="RequestId"/>: reverse proxies and load balancers stamp the
+    /// generic spelling, while responses echo the branded one.
+    /// </summary>
+    public const string InboundRequestId = "X-Request-Id";
     public const string Principal = "X-Interfold-Principal";
 }
 

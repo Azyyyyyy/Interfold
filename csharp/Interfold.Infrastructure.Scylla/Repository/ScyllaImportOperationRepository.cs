@@ -283,7 +283,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
     private static ImportOperationSnapshot MapRow(Row row)
     {
         var statusText = row.GetValue<string>("status");
-        var status = Enum.TryParse<ImportOperationStatus>(statusText, ignoreCase: true, out var parsed)
+        var status = ImportOperationStatusExtensions.TryParseWireValue(statusText, out var parsed)
             ? parsed
             : ImportOperationStatus.Queued;
 

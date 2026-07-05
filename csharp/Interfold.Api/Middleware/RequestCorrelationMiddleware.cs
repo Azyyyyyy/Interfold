@@ -52,7 +52,7 @@ public sealed class RequestCorrelationMiddleware(RequestDelegate next, ILogger<R
 
     private static string GetOrGenerateRequestId(HttpContext context)
     {
-        if (context.Request.Headers.TryGetValue("X-Request-Id", out StringValues existing)
+        if (context.Request.Headers.TryGetValue(InterfoldHeaders.InboundRequestId, out StringValues existing)
             && !StringValues.IsNullOrEmpty(existing))
         {
             return existing.ToString();

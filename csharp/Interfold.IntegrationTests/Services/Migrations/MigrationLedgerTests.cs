@@ -280,8 +280,8 @@ public sealed class MigrationLedgerTests(ScyllaWebFactoryFixture fixture) : Base
     private async Task<NpgsqlConnection> OpenAdminPostgresConnectionAsync()
     {
         var secrets = BuildPostgresSecretsStore();
-        var adminUser = await secrets.GetAsync("postgres:admin_username");
-        var adminPassword = await secrets.GetAsync("postgres:admin_password");
+        var adminUser = await secrets.GetAsync(SecretsStoreKeys.PostgresAdminUsername);
+        var adminPassword = await secrets.GetAsync(SecretsStoreKeys.PostgresAdminPassword);
 
         var builder = new NpgsqlConnectionStringBuilder(SharedDb.PostgresConnectionString)
         {

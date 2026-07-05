@@ -494,7 +494,7 @@ internal static class UpdateImagesPhase
         int apiHttpPort, DateTime deadline, PhaseLogger logger, CancellationToken ct)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-        var url = $"http://localhost:{apiHttpPort}/health/ready";
+        var url = $"http://localhost:{apiHttpPort}{HealthEndpoints.Ready}";
         var attempt = 0;
         while (DateTime.UtcNow < deadline)
         {

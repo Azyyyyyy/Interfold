@@ -29,13 +29,13 @@ public static class FriendshipSocketEventHandlers
     }
 
     public static Task HandleAsync(FriendshipRemovedEvent evt, SocketPushContext context)
-        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.Removed, "friend_id", evt.SystemId, context);
+        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.Removed, SocketPayloadPropertyKeys.FriendId, evt.SystemId, context);
 
     public static Task HandleAsync(FriendshipTrustedEvent evt, SocketPushContext context)
-        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.Trusted, "friend_id", evt.SystemId, context);
+        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.Trusted, SocketPayloadPropertyKeys.FriendId, evt.SystemId, context);
 
     public static Task HandleAsync(FriendshipUntrustedEvent evt, SocketPushContext context)
-        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.Untrusted, "friend_id", evt.SystemId, context);
+        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.Untrusted, SocketPayloadPropertyKeys.FriendId, evt.SystemId, context);
 
     public static async Task HandleAsync(FriendRequestSentEvent evt, SocketPushContext context, IFriendshipRepository friendshipRepository)
     {
@@ -60,10 +60,10 @@ public static class FriendshipSocketEventHandlers
     }
 
     public static Task HandleAsync(FriendRequestRemovedFromEvent evt, SocketPushContext context)
-        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.RequestRemoved, "system_id", evt.FromSystemId, context);
+        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.RequestRemoved, SocketPayloadPropertyKeys.SystemId, evt.FromSystemId, context);
 
     public static Task HandleAsync(FriendRequestRemovedToEvent evt, SocketPushContext context)
-        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.RequestRemoved, "system_id", evt.ToSystemId, context);
+        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.RequestRemoved, SocketPayloadPropertyKeys.SystemId, evt.ToSystemId, context);
 
     private static async Task SendRequestPayloadAsync(
         SystemId targetSystemId,
@@ -158,8 +158,8 @@ public static class FriendshipSocketEventHandlers
 
         ISocketPayload payload = payloadKey switch
         {
-            "friend_id" => new FriendIdSocketPayload(payloadValue),
-            "system_id" => new SystemIdSocketPayload(payloadValue),
+            SocketPayloadPropertyKeys.FriendId => new FriendIdSocketPayload(payloadValue),
+            SocketPayloadPropertyKeys.SystemId => new SystemIdSocketPayload(payloadValue),
             _ => throw new InvalidOperationException($"Unrecognized socket payload key '{payloadKey}'.")
         };
 

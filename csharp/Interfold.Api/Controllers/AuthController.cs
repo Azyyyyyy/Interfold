@@ -128,7 +128,7 @@ public sealed class AuthController : OAuthControllerBase
             var saltBytes = RandomNumberGenerator.GetBytes(32);
             var salt = Convert.ToBase64String(saltBytes);
 
-            await _encryptionRepository.UpsertAsync(systemId, false, null, salt, HttpContext.RequestAborted);
+            await _encryptionRepository.UpsertAsync(systemId, false, null, new EncryptionSalt(salt), HttpContext.RequestAborted);
         }
 
         var token = await IssueDeepLinkTokenAsync(systemId);

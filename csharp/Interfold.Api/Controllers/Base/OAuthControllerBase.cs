@@ -79,17 +79,17 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
                 {
                     var redirectUri = BuildCallbackBaseUri(provider);
                     var appleId = await AppleOAuth.ExchangeCodeForAppleIdAsync(code, redirectUri, HttpContext.RequestAborted);
-                    if (!string.IsNullOrWhiteSpace(appleId?.Value))
+                    if (appleId is { } exchangedAppleId && !string.IsNullOrWhiteSpace(exchangedAppleId.Value))
                     {
-                        return appleId.Value.Value;
+                        return exchangedAppleId.Value;
                     }
                 }
 
                 var idToken = await GetValueAsync(OAuthQueryKeys.IdToken);
                 var sub = AppleOAuth.ExtractSubFromJwt(idToken);
-                if (!string.IsNullOrWhiteSpace(sub?.Value))
+                if (sub is { } tokenSub && !string.IsNullOrWhiteSpace(tokenSub.Value))
                 {
-                    return sub.Value.Value;
+                    return tokenSub.Value;
                 }
 
                 return await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.AppleIdFallback, OAuthQueryKeys.Id, OAuthQueryKeys.Sub);

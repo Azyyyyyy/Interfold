@@ -61,21 +61,20 @@ public sealed class SetupEncryptionCommandHandler : ICommandHandler<SetupEncrypt
         }
         
         var existing = await _repository.GetAsync(command.PrincipalId, cancellationToken);
-        if (string.IsNullOrWhiteSpace(existing?.Salt))
+        if (existing?.Salt is not { } salt || string.IsNullOrWhiteSpace(salt.Value))
         {
             throw new InterfoldException("Salt must be provided.", ErrorCodes.EncryptionSaltRequired);
         }
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
-        string salt = existing.Salt;
-        var key = EncryptionKey.DeriveKey(pepper, command.PrincipalId.Value, command.Payload.RecoveryCode.Value, salt);
+        var key = EncryptionKey.DeriveKey(pepper, command.PrincipalId.Value, command.Payload.RecoveryCode.Value, salt.Value);
         var checksum = EncryptionKey.DeriveChecksum(key);
 
-        var persisted = await _repository.UpsertAsync(command.PrincipalId, true, checksum, null, cancellationToken);
+        var persisted = await _repository.UpsertAsync(command.PrincipalId, true, new KeyChecksum(checksum), null, cancellationToken);
         if (!persisted)
             return RejectInvariant(command, EntityRefs.SettingsEncryptionSetupFailed);
 
-        var result = new EncryptionCommandResult(command.PrincipalId, EncryptionAction.EncryptionSetup, key, Replay: false);
+        var result = new EncryptionCommandResult(command.PrincipalId, EncryptionAction.EncryptionSetup, new EncryptionKeyMaterial(key), Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
 
         await _idempotencyStore.SaveAsync(

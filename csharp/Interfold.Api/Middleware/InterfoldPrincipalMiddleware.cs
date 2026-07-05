@@ -46,11 +46,11 @@ public sealed class InterfoldPrincipalMiddleware(RequestDelegate next)
                && typeof(InterfoldControllerBase).IsAssignableFrom(actionDescriptor.ControllerTypeInfo.AsType());
     }
 
-    private static string? ResolvePrincipalId(ClaimsPrincipal user)
+    private static Interfold.Contracts.Ids.SystemId? ResolvePrincipalId(ClaimsPrincipal user)
     {
         var sub = user.FindFirst(JwtClaimNames.Sub)?.Value
                   ?? user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-        return string.IsNullOrWhiteSpace(sub) ? null : sub;
+        return string.IsNullOrWhiteSpace(sub) ? null : new Interfold.Contracts.Ids.SystemId(sub);
     }
 }

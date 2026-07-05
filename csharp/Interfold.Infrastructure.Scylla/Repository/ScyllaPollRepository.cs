@@ -166,7 +166,7 @@ public sealed class ScyllaPollRepository : IPollRepository
             {
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.polls SET data = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
-                    command.Data.Value.ToString(),
+                    command.Data.Value.GetRawText(),
                     normalizedSystemId,
                     pollGuid));
             }

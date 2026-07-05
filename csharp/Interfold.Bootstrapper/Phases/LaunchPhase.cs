@@ -3,6 +3,7 @@ using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Contracts.Configuration;
 using static Interfold.Bootstrapper.Phases.CassandraImagePhase;
 
 namespace Interfold.Bootstrapper.Phases;
@@ -106,7 +107,7 @@ internal static class LaunchPhase
     {
         // Use a per-attempt 5s timeout so a hung TCP connect doesn't burn the whole budget on one probe.
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-        var url = $"http://localhost:{apiHttpPort}/health/ready";
+        var url = $"http://localhost:{apiHttpPort}{HealthEndpoints.Ready}";
         logger.Info($"    polling {url} (up to {HealthTimeout.TotalMinutes:F0}m)");
 
         var deadline = DateTime.UtcNow + HealthTimeout;

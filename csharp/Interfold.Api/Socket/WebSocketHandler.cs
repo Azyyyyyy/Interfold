@@ -41,7 +41,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
         return;
     }
 
-    var token = context.Request.Query["token"].ToString();
+    var token = context.Request.Query[SocketQueryKeys.Token].ToString();
     logger.LogInformation("Token from query string length: {TokenLength}", token?.Length ?? 0);
     
     if (string.IsNullOrWhiteSpace(token))
@@ -144,7 +144,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             var payloadToken = joinPayload.Token;
             var isReconnect = joinPayload.IsReconnect ?? false;
             var forceBatch = joinPayload.ForceBatch ?? false;
-            var platform = joinPayload.Platform ?? "unknown";
+            var platform = joinPayload.Platform;
             var protocolVersion = new Version(1, 0, 0);
             var protocolSupported = joinPayload.ProtocolVersion is null
                 || TryParseLooseVersion(joinPayload.ProtocolVersion, out protocolVersion);
@@ -171,7 +171,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                         sendGate);
             }
             else if (isSystemTopic
-                && string.Equals(payloadToken, token, StringComparison.Ordinal)
+                && string.Equals(payloadToken.Value, token, StringComparison.Ordinal)
                 && tokenAuthorized)
             {
                 if (!rateLimiter.Allow(new SystemId(requestedSystemId)))
@@ -236,7 +236,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 {
                     var estimatedEncodedBytes = (int)(Encoding.UTF8.GetByteCount(WebSocketEvents.SerializeSocketJson(initPayload)) * 1.1);
                     useBatchedInit = forceBatch
-                        || (EnumWireExtensions.TryParseClientPlatform(platform) == ClientPlatform.Ios
+                        || (platform == ClientPlatform.Ios
                             && estimatedEncodedBytes > batchedInitThresholdBytes
                             && protocolVersion >= new Version(2, 0, 0));
                 }
@@ -300,7 +300,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                     replyAsArrayFrame,
                     context.RequestAborted,
                     sendGate);
-                await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, unauthorizedReason, context.RequestAborted);
+                await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, unauthorizedReason.Value, context.RequestAborted);
             }
 
             continue;
@@ -382,7 +382,7 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     if (payload is null || payload.Value.ValueKind != JsonValueKind.Object)
     {
         return new SocketEndpointProxyResponse(
-            StatusCodes.Status400BadRequest,
+            System.Net.HttpStatusCode.BadRequest,
             ToJsonString(new ErrorResponse(
                 "Invalid endpoint payload.",
                 ErrorCodes.SocketEndpointPayloadInvalid,
@@ -405,7 +405,7 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     if (string.IsNullOrWhiteSpace(method) || string.IsNullOrWhiteSpace(path))
     {
         return new SocketEndpointProxyResponse(
-            StatusCodes.Status400BadRequest,
+            System.Net.HttpStatusCode.BadRequest,
             ToJsonString(new ErrorResponse(
                 "Endpoint payload must include method and path.",
                 ErrorCodes.SocketEndpointMethodPathRequired,
@@ -415,7 +415,7 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     if (!path.StartsWith("/api", StringComparison.OrdinalIgnoreCase))
     {
         return new SocketEndpointProxyResponse(
-            StatusCodes.Status403Forbidden,
+            System.Net.HttpStatusCode.Forbidden,
             ToJsonString(new ErrorResponse(
                 "Socket endpoint relay is restricted to /api paths.",
                 ErrorCodes.SocketEndpointPathForbidden,
@@ -449,7 +449,7 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
         // HttpClient skips TLS validation, so a future regression that let a non-loopback
         // host through here would silently weaken every self-call. Fail fast instead.
         return new SocketEndpointProxyResponse(
-            StatusCodes.Status500InternalServerError,
+            System.Net.HttpStatusCode.InternalServerError,
             ToJsonString(new ErrorResponse(
                 "Socket endpoint relay resolved a non-loopback target.",
                 ErrorCodes.SocketEndpointProxyMisrouted,
@@ -464,9 +464,9 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {socketToken}");
     request.Headers.TryAddWithoutValidation("Accept", "application/json");
 
-    if (!string.IsNullOrWhiteSpace(joinedSystemId?.Value))
+    if (joinedSystemId is { } principal && !string.IsNullOrWhiteSpace(principal.Value))
     {
-        request.Headers.TryAddWithoutValidation(InterfoldHeaders.Principal, joinedSystemId.Value.Value);
+        request.Headers.TryAddWithoutValidation(InterfoldHeaders.Principal, principal.Value);
     }
 
     // Body is deserialized straight from the payload's JSON string (Phoenix carries
@@ -485,7 +485,7 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     try
     {
         var responseBody = await response.Content.ReadAsStringAsync(websocketContext.RequestAborted);
-        return new SocketEndpointProxyResponse((int)response.StatusCode, responseBody);
+        return new SocketEndpointProxyResponse(response.StatusCode, responseBody);
     }
     finally
     {
@@ -537,7 +537,7 @@ internal static string ResolveLoopbackBaseUri(ICollection<string>? addresses)
         .Replace("://*",       "://127.0.0.1", StringComparison.Ordinal);
 }
 
-static async Task<(bool IsAuthorized, string? FailureReason)> IsSocketJoinTokenAuthorizedAsync(
+static async Task<(bool IsAuthorized, ErrorCode? FailureReason)> IsSocketJoinTokenAuthorizedAsync(
     HttpContext context,
     string token,
     string requestedSystemId,

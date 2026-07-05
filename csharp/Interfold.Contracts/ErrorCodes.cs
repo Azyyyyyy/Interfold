@@ -1,7 +1,8 @@
 namespace Interfold.Contracts;
 
 /// <summary>
-/// Central registry of the client-visible error identifiers, mirroring the
+/// Central registry of the client-visible error identifiers as typed <see cref="ErrorCode"/>
+/// members, mirroring the
 /// <see cref="SocketEventNames"/> pattern: every <c>ErrorResponse.Code</c>,
 /// <c>SocketReasonResponse.Reason</c>, and <c>InterfoldException.Code</c> literal lives here
 /// so the wire vocabulary is greppable in one place. The string values are frozen —
@@ -10,68 +11,69 @@ namespace Interfold.Contracts;
 public static class ErrorCodes
 {
     // Generic
-    public const string UnknownError = "unknown_error";
-    public const string BadRequest = "bad_request";
+    public static readonly ErrorCode UnknownError = new("unknown_error");
+    public static readonly ErrorCode BadRequest = new("bad_request");
 
     // Friendships / friend requests
-    public const string CannotSendSelf = "cannot_send_self";
-    public const string CannotCancelSelf = "cannot_cancel_self";
-    public const string CannotAcceptSelf = "cannot_accept_self";
-    public const string CannotRejectSelf = "cannot_reject_self";
-    public const string CannotTrustSelf = "cannot_trust_self";
-    public const string CannotUntrustSelf = "cannot_untrust_self";
-    public const string CannotViewOwnFriendship = "cannot_view_own_friendship";
-    public const string CannotDeleteOwnFriendship = "cannot_delete_own_friendship";
-    public const string FriendshipNotFound = "friendship_not_found";
+    public static readonly ErrorCode CannotSendSelf = new("cannot_send_self");
+    public static readonly ErrorCode CannotCancelSelf = new("cannot_cancel_self");
+    public static readonly ErrorCode CannotAcceptSelf = new("cannot_accept_self");
+    public static readonly ErrorCode CannotRejectSelf = new("cannot_reject_self");
+    public static readonly ErrorCode CannotTrustSelf = new("cannot_trust_self");
+    public static readonly ErrorCode CannotUntrustSelf = new("cannot_untrust_self");
+    public static readonly ErrorCode CannotViewOwnFriendship = new("cannot_view_own_friendship");
+    public static readonly ErrorCode CannotDeleteOwnFriendship = new("cannot_delete_own_friendship");
+    public static readonly ErrorCode FriendshipNotFound = new("friendship_not_found");
 
     // Entity lookups
-    public const string SystemNotFound = "system_not_found";
-    public const string AlterNotFound = "alter_not_found";
-    public const string TagNotFound = "tag_not_found";
-    public const string PollNotFound = "poll_not_found";
-    public const string FrontNotFound = "front_not_found";
-    public const string JournalEntryNotFound = "journal_entry_not_found";
+    public static readonly ErrorCode SystemNotFound = new("system_not_found");
+    public static readonly ErrorCode AlterNotFound = new("alter_not_found");
+    public static readonly ErrorCode TagNotFound = new("tag_not_found");
+    public static readonly ErrorCode PollNotFound = new("poll_not_found");
+    public static readonly ErrorCode FrontNotFound = new("front_not_found");
+    public static readonly ErrorCode JournalEntryNotFound = new("journal_entry_not_found");
 
     // Validation
-    public const string InvalidAlterId = "invalid_alter_id";
-    public const string InvalidParentTagId = "invalid_parent_tag_id";
-    public const string InvalidPushToken = "invalid_push_token";
-    public const string InvalidEndpoint = "invalid_endpoint";
-    public const string InvalidPlatform = "invalid_platform";
-    public const string InvalidAnchor = "invalid_anchor";
-    public const string InvalidEndAnchor = "invalid_end_anchor";
-    public const string PollInvalidTimeEnd = "poll_invalid_time_end";
-    public const string AvatarFileEmpty = "avatar_file_empty";
-    public const string AvatarFileRequired = "avatar_file_required";
-    public const string AvatarUrlInvalid = "avatar_url_invalid";
+    public static readonly ErrorCode InvalidAlterId = new("invalid_alter_id");
+    public static readonly ErrorCode InvalidParentTagId = new("invalid_parent_tag_id");
+    public static readonly ErrorCode InvalidPushToken = new("invalid_push_token");
+    public static readonly ErrorCode InvalidEndpoint = new("invalid_endpoint");
+    public static readonly ErrorCode InvalidPlatform = new("invalid_platform");
+    public static readonly ErrorCode InvalidAnchor = new("invalid_anchor");
+    public static readonly ErrorCode InvalidEndAnchor = new("invalid_end_anchor");
+    public static readonly ErrorCode PollInvalidTimeEnd = new("poll_invalid_time_end");
+    public static readonly ErrorCode AvatarFileEmpty = new("avatar_file_empty");
+    public static readonly ErrorCode AvatarFileRequired = new("avatar_file_required");
+    public static readonly ErrorCode AvatarUrlInvalid = new("avatar_url_invalid");
+    public static readonly ErrorCode AvatarUrlTooLong = new("avatar_url_too_long");
 
     // Auth
-    public const string InvalidOAuthProvider = "invalid_oauth_provider";
-    public const string InvalidToken = "invalid_token";
-    public const string MissingRedirectUri = "missing_redirect_uri";
-    public const string TokenRevoked = "token_revoked";
+    public static readonly ErrorCode InvalidOAuthProvider = new("invalid_oauth_provider");
+    public static readonly ErrorCode InvalidToken = new("invalid_token");
+    public static readonly ErrorCode MissingRedirectUri = new("missing_redirect_uri");
+    public static readonly ErrorCode TokenRevoked = new("token_revoked");
 
     // Firebase client-config endpoint
-    public const string FirebaseConfigUnavailable = "firebase_config_unavailable";
+    public static readonly ErrorCode FirebaseConfigUnavailable = new("firebase_config_unavailable");
 
     // Recovery-code decryption (RecoveryCodeResolver)
-    public const string RecoveryCodeNotProvided = "recovery_code_not_provided";
-    public const string RecoveryCodeNotJwe = "recovery_code_not_jwe";
-    public const string DecryptionError = "decryption_error";
+    public static readonly ErrorCode RecoveryCodeNotProvided = new("recovery_code_not_provided");
+    public static readonly ErrorCode RecoveryCodeNotJwe = new("recovery_code_not_jwe");
+    public static readonly ErrorCode DecryptionError = new("decryption_error");
 
     // WebSocket HTTP upgrade errors
-    public const string WebSocketUpgradeRequired = "websocket_upgrade_required";
-    public const string MissingSocketToken = "missing_socket_token";
+    public static readonly ErrorCode WebSocketUpgradeRequired = new("websocket_upgrade_required");
+    public static readonly ErrorCode MissingSocketToken = new("missing_socket_token");
 
     // Internal invariants surfaced via InterfoldException
-    public const string AlterCheckServerIssue = "alter_check_server_issue";
-    public const string EncryptionSaltRequired = "encryption_salt_required";
+    public static readonly ErrorCode AlterCheckServerIssue = new("alter_check_server_issue");
+    public static readonly ErrorCode EncryptionSaltRequired = new("encryption_salt_required");
 
     // Socket endpoint relay
-    public const string SocketEndpointPayloadInvalid = "socket_endpoint_payload_invalid";
-    public const string SocketEndpointMethodPathRequired = "socket_endpoint_method_path_required";
-    public const string SocketEndpointPathForbidden = "socket_endpoint_path_forbidden";
-    public const string SocketEndpointProxyMisrouted = "socket_endpoint_proxy_misrouted";
+    public static readonly ErrorCode SocketEndpointPayloadInvalid = new("socket_endpoint_payload_invalid");
+    public static readonly ErrorCode SocketEndpointMethodPathRequired = new("socket_endpoint_method_path_required");
+    public static readonly ErrorCode SocketEndpointPathForbidden = new("socket_endpoint_path_forbidden");
+    public static readonly ErrorCode SocketEndpointProxyMisrouted = new("socket_endpoint_proxy_misrouted");
 
     /// <summary>
     /// Reasons carried on <c>SocketReasonResponse</c> frames when a socket message is refused,
@@ -79,15 +81,15 @@ public static class ErrorCodes
     /// </summary>
     public static class SocketReasons
     {
-        public const string UnsupportedProtocolVersion = "unsupported_protocol_version";
-        public const string RateLimited = "rate_limited";
-        public const string NotJoined = "not_joined";
-        public const string EventNotImplemented = "event_not_implemented";
-        public const string MissingSocketToken = ErrorCodes.MissingSocketToken;
-        public const string InvalidSocketToken = "invalid_socket_token";
-        public const string InvalidSocketTokenSubject = "invalid_socket_token_subject";
-        public const string UnauthorizedTopic = "unauthorized_topic";
-        public const string TokenRevoked = "token_revoked";
-        public const string Unauthorized = "unauthorized";
+        public static readonly ErrorCode UnsupportedProtocolVersion = new("unsupported_protocol_version");
+        public static readonly ErrorCode RateLimited = new("rate_limited");
+        public static readonly ErrorCode NotJoined = new("not_joined");
+        public static readonly ErrorCode EventNotImplemented = new("event_not_implemented");
+        public static readonly ErrorCode MissingSocketToken = ErrorCodes.MissingSocketToken;
+        public static readonly ErrorCode InvalidSocketToken = new("invalid_socket_token");
+        public static readonly ErrorCode InvalidSocketTokenSubject = new("invalid_socket_token_subject");
+        public static readonly ErrorCode UnauthorizedTopic = new("unauthorized_topic");
+        public static readonly ErrorCode TokenRevoked = new("token_revoked");
+        public static readonly ErrorCode Unauthorized = new("unauthorized");
     }
 }

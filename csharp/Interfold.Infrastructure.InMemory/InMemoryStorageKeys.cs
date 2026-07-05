@@ -20,7 +20,7 @@ internal static class InMemoryStorageKeys
     /// <summary>The per-system dictionary partition key: <c>"{region}:{systemId}"</c>.</summary>
     public static string ForSystem(IRegionContext regionContext, SystemId systemId)
     {
-        var region = regionContext.ResolveUserRegion(systemId.Value).ToWireValue();
+        var region = regionContext.ResolveUserRegion(systemId).ToWireValue();
         return $"{region}:{systemId.Value}";
     }
 }

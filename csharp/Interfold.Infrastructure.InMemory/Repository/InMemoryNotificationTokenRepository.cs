@@ -78,6 +78,7 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
             var distinctTokens = tokens.Keys
                 .Where(t => !string.IsNullOrWhiteSpace(t))
                 .Distinct(StringComparer.Ordinal)
+                .Select(t => new PushToken(t))
                 .ToArray();
             if (distinctTokens.Length == 0)
                 continue;

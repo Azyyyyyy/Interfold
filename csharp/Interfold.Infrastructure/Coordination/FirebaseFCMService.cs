@@ -73,7 +73,9 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             return;
 
         var profile = await _accounts.GetPublicProfileAsync(systemId, cancellationToken).ConfigureAwait(false);
-        var frontingDisplayName = !string.IsNullOrWhiteSpace(profile?.Username?.Value) ? profile!.Username!.Value.Value : "A friend";
+        var frontingDisplayName = profile?.Username is { } username && !string.IsNullOrWhiteSpace(username.Value)
+            ? username.Value
+            : "A friend";
 
         // Relative path so each client resolves against its own origin. The SW's
         // notificationclick handler and mobile handlers both hard-code this shape.
@@ -128,7 +130,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             {
                 var message = new MulticastMessage
                 {
-                    Tokens = chunk,
+                    Tokens = chunk.Select(t => t.Value).ToArray(),
                     Notification = new Notification
                     {
                         Title = $"Front update: {frontingDisplayName}",
@@ -168,7 +170,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
     // Removes tokens the SDK flags as permanently invalid (Unregistered / InvalidArgument).
     // Everything else is logged and left in place so the next flush can retry.
     private async Task PruneInvalidTokensAsync(
-        IReadOnlyList<string> tokens,
+        IReadOnlyList<PushToken> tokens,
         BatchResponse response,
         CancellationToken cancellationToken)
     {
@@ -188,23 +190,23 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             {
                 try
                 {
-                    await _tokens.RemoveAsync(new PushToken(token), cancellationToken).ConfigureAwait(false);
+                    await _tokens.RemoveAsync(token, cancellationToken).ConfigureAwait(false);
                     _logger.LogInformation(
                         "[fcm] Pruned invalid token ({Code}). token_prefix={TokenPrefix}",
-                        fmEx.MessagingErrorCode, TokenPrefix(token));
+                        fmEx.MessagingErrorCode, TokenPrefix(token.Value));
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     _logger.LogWarning(ex,
                         "[fcm] Failed to prune invalid token. token_prefix={TokenPrefix}",
-                        TokenPrefix(token));
+                        TokenPrefix(token.Value));
                 }
             }
             else
             {
                 _logger.LogWarning(single.Exception,
                     "[fcm] Per-token delivery failure. token_prefix={TokenPrefix} code={Code}",
-                    TokenPrefix(token),
+                    TokenPrefix(token.Value),
                     (single.Exception as FirebaseMessagingException)?.MessagingErrorCode);
             }
         }

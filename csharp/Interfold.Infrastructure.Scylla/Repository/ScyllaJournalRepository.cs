@@ -114,11 +114,11 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 updateBatch.Add(q);
             }
 
-            if (command.Color is not null)
+            if (command.Color is { } color)
             {
                 var q = new SimpleStatement(
                     $"UPDATE {keyspace}.global_journals SET color = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
-                    command.Color.Value.Value,
+                    color.Value,
                     normalizedSystemId,
                     entryGuid
                 );

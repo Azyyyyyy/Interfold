@@ -17,7 +17,7 @@ public sealed class InMemoryEncryptionStateRepository : IEncryptionStateReposito
         return Task.FromResult(state);
     }
 
-    public Task<bool> UpsertAsync(SystemId systemId, bool initialized, string? keyChecksum, string? salt, CancellationToken cancellationToken = default)
+    public Task<bool> UpsertAsync(SystemId systemId, bool initialized, KeyChecksum? keyChecksum, EncryptionSalt? salt, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalizedSystemId = NormalizeSystemId(systemId);

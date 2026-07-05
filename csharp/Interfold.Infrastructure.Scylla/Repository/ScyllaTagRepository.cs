@@ -43,9 +43,9 @@ public sealed class ScyllaTagRepository : ITagRepository
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             Guid? parentTagId = null;
 
-            if (!string.IsNullOrWhiteSpace(command.ParentTagId?.Value))
+            if (command.ParentTagId is { } requestedParentTagId && !string.IsNullOrWhiteSpace(requestedParentTagId.Value))
             {
-                if (!TryParseUuid(command.ParentTagId.Value.Value, out var parentTagGuid))
+                if (!TryParseUuid(requestedParentTagId.Value, out var parentTagGuid))
                 {
                     return null;
                 }
@@ -145,10 +145,10 @@ public sealed class ScyllaTagRepository : ITagRepository
                 values.Add(command.Name);
             }
 
-            if (command.Color is not null)
+            if (command.Color is { } color)
             {
                 setClauses.Add("color = ?");
-                values.Add(command.Color.Value.Value);
+                values.Add(color.Value);
             }
 
             if (command.Description is not null)

@@ -9,6 +9,24 @@ namespace Interfold.Contracts.Configuration;
 /// </summary>
 public static class AppHostParameterKeys
 {
+    /// <summary>
+    /// The section prefix every <c>Parameters:*</c> key carries. Aspire's
+    /// <c>AddParameter(name)</c> takes the bare name (no prefix), so
+    /// <see cref="ToParameterName"/> strips this to derive the one from the other.
+    /// </summary>
+    public const string ParametersPrefix = "Parameters:";
+
+    /// <summary>
+    /// Derives the Aspire <c>AddParameter</c> name from a <c>Parameters:*</c> configuration
+    /// key, so the parameter declaration and the configuration read can share a single
+    /// constant instead of two spellings that can drift.
+    /// </summary>
+    public static string ToParameterName(string key)
+        => key.StartsWith(ParametersPrefix, StringComparison.Ordinal)
+            ? key[ParametersPrefix.Length..]
+            : throw new ArgumentException(
+                $"'{key}' is not a '{ParametersPrefix}' configuration key.", nameof(key));
+
     // --- Toggles / topology ---
     public const string IncludeApi = "Parameters:include-api";
     public const string IncludePostgres = "Parameters:include-postgres";
@@ -56,8 +74,13 @@ public static class AppHostParameterKeys
     // --- Host port mappings ---
     public const string PortsPostgres = "Ports:postgres";
     public const string PortsScylla = "Ports:scylla";
+    public const string PortsCassandra = "Ports:cassandra";
     public const string PortsApiHttp = "Ports:api-http";
     public const string PortsApiHttps = "Ports:api-https";
     public const string PortsWebHttp = "Ports:web-http";
     public const string PortsWebHttps = "Ports:web-https";
+
+    // --- Inside-the-container Kestrel ports (not host-published; must match the API image) ---
+    public const string PortsApiContainerHttp = "Ports:api-container-http";
+    public const string PortsApiContainerHttps = "Ports:api-container-https";
 }

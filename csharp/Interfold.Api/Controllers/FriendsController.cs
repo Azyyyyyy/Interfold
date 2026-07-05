@@ -100,7 +100,7 @@ public sealed class FriendsController : InterfoldControllerBase
         SystemId id,
         bool trusted,
         OperationId operationId,
-        string selfErrorCode,
+        ErrorCode selfErrorCode,
         BaseRequest? req,
         CancellationToken ct)
     {

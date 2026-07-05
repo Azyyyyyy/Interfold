@@ -16,9 +16,22 @@ public sealed record EmptyPayload : ISocketPayload;
 
 public sealed record PhoenixReplyPayload<TResponse>(PhoenixReplyStatus Status, TResponse Response) : ISocketPayload;
 
-public sealed record SocketReasonResponse(string Reason) : ISocketPayload;
+public sealed record SocketReasonResponse(ErrorCode Reason) : ISocketPayload;
 
-public sealed record SocketEndpointProxyResponse(int Status, string Body) : ISocketPayload;
+// Status is HTTP semantics; the converter pins the historical bare-number wire form
+// (SocketJson has no enum policy, but explicit is safer than relying on the default).
+public sealed record SocketEndpointProxyResponse(
+    [property: JsonConverter(typeof(NumericHttpStatusCodeJsonConverter))] System.Net.HttpStatusCode Status,
+    string Body) : ISocketPayload;
+
+internal sealed class NumericHttpStatusCodeJsonConverter : JsonConverter<System.Net.HttpStatusCode>
+{
+    public override System.Net.HttpStatusCode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        => (System.Net.HttpStatusCode)reader.GetInt32();
+
+    public override void Write(Utf8JsonWriter writer, System.Net.HttpStatusCode value, JsonSerializerOptions options)
+        => writer.WriteNumberValue((int)value);
+}
 
 /// <summary>
 /// Typed shape of the <c>endpoint</c> Phoenix frame payload. <c>Body</c> is a raw

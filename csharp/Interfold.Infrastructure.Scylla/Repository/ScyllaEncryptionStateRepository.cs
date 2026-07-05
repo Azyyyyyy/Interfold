@@ -41,12 +41,12 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
                 ? null
                 : new EncryptionState(
                     row.GetValue<bool?>("encryption_initialized") ?? false,
-                    row.GetValue<string?>("encryption_key_checksum"),
-                    row.GetValue<string?>("salt"));
+                    KeyChecksum.FromNullable(row.GetValue<string?>("encryption_key_checksum")),
+                    EncryptionSalt.FromNullable(row.GetValue<string?>("salt")));
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> UpsertAsync(SystemId systemId, bool initialized, string? keyChecksum, string? salt, CancellationToken cancellationToken = default)
+    public async Task<bool> UpsertAsync(SystemId systemId, bool initialized, KeyChecksum? keyChecksum, EncryptionSalt? salt, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -55,12 +55,12 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
             SimpleStatement statement;
-            if (salt is null)
+            if (salt is not { } newSalt)
             {
                 statement = new SimpleStatement(
                     $"UPDATE {keyspace}.users SET encryption_initialized = ?, encryption_key_checksum = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                     initialized,
-                    keyChecksum,
+                    keyChecksum?.Value,
                     normalizedSystemId
                 );
             }
@@ -69,8 +69,8 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
                 statement = new SimpleStatement(
                     $"UPDATE {keyspace}.users SET encryption_initialized = ?, encryption_key_checksum = ?, salt = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                     initialized,
-                    keyChecksum,
-                    salt,
+                    keyChecksum?.Value,
+                    newSalt.Value,
                     normalizedSystemId
                 );
             }

@@ -6,6 +6,7 @@ using Interfold.Domain.Abstractions;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.Scylla;
 
@@ -47,6 +48,8 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
             EnumWireExtensions.ParseScyllaKeyspace(
                 ScyllaConfigResolver.GetKeyspaceAsync(configuration).GetAwaiter().GetResult()));
     }
+
+    public ScyllaKeyspace ResolveUserRegion(SystemId systemId) => ResolveUserRegion(systemId.Value);
 
     public ScyllaKeyspace ResolveUserRegion(string systemId)
     {

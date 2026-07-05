@@ -1,4 +1,5 @@
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Abstractions;
 
@@ -11,5 +12,13 @@ namespace Interfold.Domain.Abstractions;
 public interface IRegionContext
 {
     ScyllaKeyspace CurrentRegion { get; }
+
+    /// <summary>
+    /// Raw-string overload for legacy-prefixed spellings (<c>"nam:abcdefg"</c>) and
+    /// pre-<see cref="SystemId"/> plumbing; prefer the typed overload where a
+    /// <see cref="SystemId"/> is in hand.
+    /// </summary>
     ScyllaKeyspace ResolveUserRegion(string systemId);
+
+    ScyllaKeyspace ResolveUserRegion(SystemId systemId);
 }

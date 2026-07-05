@@ -5,7 +5,7 @@ namespace Interfold.Contracts.Models.ImportOperations;
 /// <see cref="ImportOperationStatusExtensions.ToWireValue"/> in the
 /// <c>import_operations.status</c> column (today identical to the enum member name —
 /// the explicit helper freezes the DB spelling against member renames) and read back
-/// with <c>Enum.TryParse</c>.
+/// with <see cref="ImportOperationStatusExtensions.TryParseWireValue"/>.
 /// </summary>
 public enum ImportOperationStatus
 {
@@ -53,4 +53,20 @@ public static class ImportOperationStatusExtensions
         ImportOperationStatus.Failed => nameof(ImportOperationStatus.Failed),
         _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unhandled ImportOperationStatus."),
     };
+
+    /// <summary>
+    /// Tolerant reverse mapping for DB reads (case-insensitive, matching the historical
+    /// <c>Enum.TryParse</c> behavior). Unknown spellings return false.
+    /// </summary>
+    public static bool TryParseWireValue(string? raw, out ImportOperationStatus status)
+    {
+        switch (raw?.ToLowerInvariant())
+        {
+            case "queued": status = ImportOperationStatus.Queued; return true;
+            case "running": status = ImportOperationStatus.Running; return true;
+            case "succeeded": status = ImportOperationStatus.Succeeded; return true;
+            case "failed": status = ImportOperationStatus.Failed; return true;
+            default: status = default; return false;
+        }
+    }
 }

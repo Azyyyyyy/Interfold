@@ -57,17 +57,18 @@ public sealed class RecoverEncryptionCommandHandler : ICommandHandler<RecoverEnc
         }
 
         var state = await _repository.GetAsync(command.PrincipalId, cancellationToken);
-        if (state is null || !state.Initialized || string.IsNullOrWhiteSpace(state.KeyChecksum) || string.IsNullOrWhiteSpace(state.Salt))
+        if (state is not { Initialized: true, KeyChecksum: { } keyChecksum, Salt: { } salt }
+            || string.IsNullOrWhiteSpace(keyChecksum.Value) || string.IsNullOrWhiteSpace(salt.Value))
             return RejectInvariant(command, EntityRefs.SettingsEncryptionNotInitialized);
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
-        var key = EncryptionKey.DeriveKey(pepper, command.PrincipalId.Value, command.Payload.RecoveryCode.Value, state.Salt);
+        var key = EncryptionKey.DeriveKey(pepper, command.PrincipalId.Value, command.Payload.RecoveryCode.Value, salt.Value);
         var checksum = EncryptionKey.DeriveChecksum(key);
 
-        if (!string.Equals(checksum, state.KeyChecksum, StringComparison.Ordinal))
+        if (!string.Equals(checksum, keyChecksum.Value, StringComparison.Ordinal))
             return RejectInvariant(command, EntityRefs.SettingsInvalidRecoveryCode);
 
-        var result = new EncryptionCommandResult(command.PrincipalId, EncryptionAction.EncryptionRecovered, key, Replay: false);
+        var result = new EncryptionCommandResult(command.PrincipalId, EncryptionAction.EncryptionRecovered, new EncryptionKeyMaterial(key), Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
 
         await _idempotencyStore.SaveAsync(

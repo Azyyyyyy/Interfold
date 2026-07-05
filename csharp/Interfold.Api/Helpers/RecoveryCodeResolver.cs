@@ -8,7 +8,7 @@ namespace Interfold.Api.Helpers;
 
 public static class RecoveryCodeResolver
 {
-    public static bool TryResolve(string candidate, string privateKeyPem, out string recoveryCode, out string errorCode)
+    public static bool TryResolve(string candidate, string privateKeyPem, out string recoveryCode, out ErrorCode errorCode)
     {
         recoveryCode = "";
         if (string.IsNullOrWhiteSpace(candidate))
@@ -29,7 +29,7 @@ public static class RecoveryCodeResolver
             return false;
         }
 
-        errorCode = "";
+        errorCode = default;
         return !string.IsNullOrWhiteSpace(recoveryCode);
     }
 

@@ -9,6 +9,9 @@ namespace Interfold.Contracts.Ids;
 /// </summary>
 public static class SystemIdNormalization
 {
+    /// <summary>Typed overload — strips from the wrapped raw value.</summary>
+    public static string StripRegionPrefix(SystemId systemId) => StripRegionPrefix(systemId.Value);
+
     public static string StripRegionPrefix(string systemId)
     {
         if (string.IsNullOrWhiteSpace(systemId))

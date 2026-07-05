@@ -55,7 +55,7 @@ builder.Services.AddInterfoldOptions();
 // Comma-separated allow-list from OCTOCON_CORS_ALLOWED_ORIGINS; blank falls back to
 // allow-any (dev-only — production stacks must set it explicitly). Trailing slashes
 // trimmed for parity with the ASP.NET Core CORS matcher.
-var configuredCorsOrigins = (builder.Configuration["OCTOCON_CORS_ALLOWED_ORIGINS"] ?? string.Empty)
+var configuredCorsOrigins = (builder.Configuration[OctoconEnvKeys.CorsAllowedOrigins] ?? string.Empty)
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     .Select(static origin => origin.TrimEnd('/'))
     .Where(static origin => !string.IsNullOrWhiteSpace(origin))
@@ -97,13 +97,13 @@ var healthChecks = builder.Services.AddHealthChecks();
 if (persistenceConfig.Mode == PersistenceMode.ScyllaPostgres)
 {
     healthChecks.AddCheck<Interfold.Infrastructure.Scylla.ScyllaHealthChecker>(
-        "scylla-ready", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));
+        "scylla-ready", tags: [HealthCheckTags.Ready], timeout: TimeSpan.FromSeconds(5));
     healthChecks.AddCheck<Interfold.Infrastructure.Scylla.ScyllaHealthChecker>(
-        "scylla-startup", tags: ["startup"], timeout: TimeSpan.FromSeconds(30));
+        "scylla-startup", tags: [HealthCheckTags.Startup], timeout: TimeSpan.FromSeconds(30));
     healthChecks.AddCheck<Interfold.Infrastructure.Postgres.PostgresHealthChecker>(
-        "postgres-ready", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));
+        "postgres-ready", tags: [HealthCheckTags.Ready], timeout: TimeSpan.FromSeconds(5));
     healthChecks.AddCheck<Interfold.Infrastructure.Postgres.PostgresHealthChecker>(
-        "postgres-startup", tags: ["startup"], timeout: TimeSpan.FromSeconds(30));
+        "postgres-startup", tags: [HealthCheckTags.Startup], timeout: TimeSpan.FromSeconds(30));
 }
 builder.Services.AddSingleton<IAvatarStorage, LocalAvatarStorage>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -217,7 +217,7 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "Interfold API",
         Version = "v1",
-        Description = "Interfold API - Contract Version: 2026-03-v1"
+        Description = $"Interfold API - Contract Version: {InterfoldContractVersions.Current}"
     });
 
     options.ResolveConflictingActions(apiDescriptions =>
@@ -350,7 +350,7 @@ app.Use(async (ctx, next) =>
 {
     ctx.Response.OnStarting(() =>
     {
-        ctx.Response.Headers[InterfoldHeaders.Contract] = "2026-03-v1";
+        ctx.Response.Headers[InterfoldHeaders.Contract] = InterfoldContractVersions.Current;
         return Task.CompletedTask;
     });
     await next();
@@ -545,7 +545,7 @@ static void LoadLeafPfxPasswordFromStoreIfNeeded(IConfigurationBuilder cfg)
     var existingPassword = config["Kestrel:Certificates:Default:Password"];
     if (!string.IsNullOrWhiteSpace(existingPassword)) return;
 
-    var pgConn = config["OCTOCON_POSTGRES_CONNECTION"];
+    var pgConn = config[OctoconEnvKeys.PostgresConnection];
     if (string.IsNullOrWhiteSpace(pgConn))
     {
         throw new InvalidOperationException(

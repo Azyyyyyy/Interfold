@@ -45,4 +45,4 @@ public sealed record ImportDispatchCommandResult(
 
 public sealed record SettingsFieldCommandResult(SystemId SystemId, SettingsFieldAction Action, FieldId FieldId, bool Replay) : ICommandResult;
 
-public sealed record EncryptionCommandResult(SystemId SystemId, EncryptionAction Action, string Key, bool Replay) : ICommandResult;
+public sealed record EncryptionCommandResult(SystemId SystemId, EncryptionAction Action, EncryptionKeyMaterial Key, bool Replay) : ICommandResult;

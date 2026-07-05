@@ -223,7 +223,7 @@ public sealed class SettingsController : InterfoldControllerBase
 
         var execution = await _setupEncryptionHandler.HandleAsync(envelope, ct);
         if (execution.Accepted)
-            return new SuccessResponse<EncryptionKeyResponse>(new EncryptionKeyResponse(Convert.ToBase64String(Encoding.UTF8.GetBytes(execution.Result!.Key))));
+            return new SuccessResponse<EncryptionKeyResponse>(new EncryptionKeyResponse(Convert.ToBase64String(Encoding.UTF8.GetBytes(execution.Result!.Key.Value))));
 
         return ConflictToError(execution.Conflict!);
     }
@@ -245,7 +245,7 @@ public sealed class SettingsController : InterfoldControllerBase
 
         var execution = await _recoverEncryptionHandler.HandleAsync(envelope, ct);
         if (execution.Accepted)
-            return new SuccessResponse<EncryptionKeyResponse>(new EncryptionKeyResponse(Convert.ToBase64String(Encoding.UTF8.GetBytes(execution.Result!.Key))));
+            return new SuccessResponse<EncryptionKeyResponse>(new EncryptionKeyResponse(Convert.ToBase64String(Encoding.UTF8.GetBytes(execution.Result!.Key.Value))));
 
         //TODO: To ensure route works as expected
         return ConflictToError(execution.Conflict!);
@@ -471,7 +471,9 @@ public sealed class SettingsController : InterfoldControllerBase
     public async Task<Response<ImportDispatchResponse>> ImportSp([FromBody] SettingsImportRequest req, CancellationToken ct)
     {
         string? recoveryCode = null;
-        if (!string.IsNullOrWhiteSpace(req.RecoveryCode?.Value) && !TryResolveRecoveryCode(req.RecoveryCode.Value.Value, out recoveryCode, out var decryptionErrorCode))
+        if (req.RecoveryCode is { } suppliedRecoveryCode
+            && !string.IsNullOrWhiteSpace(suppliedRecoveryCode.Value)
+            && !TryResolveRecoveryCode(suppliedRecoveryCode.Value, out recoveryCode, out var decryptionErrorCode))
             return new ErrorResponse("Failed to decrypt recovery code.", decryptionErrorCode, System.Net.HttpStatusCode.BadRequest);
 
         var envelope = new CommandEnvelope<ImportSpCommand>(
@@ -747,6 +749,6 @@ public sealed class SettingsController : InterfoldControllerBase
         return new AvatarUploadPayload(null, emptyFilePart);
     }
 
-    private bool TryResolveRecoveryCode(string candidate, out string recoveryCode, out string errorCode)
+    private bool TryResolveRecoveryCode(string candidate, out string recoveryCode, out ErrorCode errorCode)
         => Helpers.RecoveryCodeResolver.TryResolve(candidate, _authenticationConfiguration.CurrentValue.Rsa256PrivateKey, out recoveryCode, out errorCode);
 }

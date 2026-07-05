@@ -34,8 +34,8 @@ public sealed class InMemoryNotificationTokenRepositoryTests
         var result = await tokens.ListTokensForFriendsOfAsync(new SystemId("alice"), CancellationToken.None);
 
         await Assert.That(result.Count).IsEqualTo(2);
-        await Assert.That(result.Any(g => g.FriendSystemId == new SystemId("bob") && g.Tokens.Contains("bob-token"))).IsTrue();
-        await Assert.That(result.Any(g => g.FriendSystemId == new SystemId("carol") && g.Tokens.Contains("carol-token"))).IsTrue();
+        await Assert.That(result.Any(g => g.FriendSystemId == new SystemId("bob") && g.Tokens.Contains(new PushToken("bob-token")))).IsTrue();
+        await Assert.That(result.Any(g => g.FriendSystemId == new SystemId("carol") && g.Tokens.Contains(new PushToken("carol-token")))).IsTrue();
         await Assert.That(result.Any(g => g.FriendSystemId == new SystemId("alice"))).IsFalse()
             .Because("The fronting-changed push targets friends of the system, not the system itself.");
     }
@@ -87,8 +87,8 @@ public sealed class InMemoryNotificationTokenRepositoryTests
         var bobGroup = result.Single();
         await Assert.That(bobGroup.FriendSystemId).IsEqualTo(new SystemId("bob"));
         await Assert.That(bobGroup.Tokens.Count).IsEqualTo(2);
-        await Assert.That(bobGroup.Tokens.Contains("bob-phone")).IsTrue();
-        await Assert.That(bobGroup.Tokens.Contains("bob-tablet")).IsTrue();
+        await Assert.That(bobGroup.Tokens.Contains(new PushToken("bob-phone"))).IsTrue();
+        await Assert.That(bobGroup.Tokens.Contains(new PushToken("bob-tablet"))).IsTrue();
     }
 
     [Test]

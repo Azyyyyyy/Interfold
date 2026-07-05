@@ -143,7 +143,7 @@ public sealed class FrontingController : InterfoldControllerBase
     //TODO: To ensure route works as expected
     [HttpGet("month")]
     public async Task<Response<IReadOnlyList<FrontHistoryReadModel>>> Month(
-        [FromQuery(Name = "end_anchor")] string endAnchor,
+        [FromQuery(Name = FrontingQueryKeys.EndAnchor)] string endAnchor,
         CancellationToken ct)
     {
         // Binding stays string so an unparseable anchor keeps this exact error body.
@@ -161,8 +161,8 @@ public sealed class FrontingController : InterfoldControllerBase
 
     [HttpGet("between")]
     public async Task<Response<IReadOnlyList<FrontHistoryReadModel>>> Between(
-        [FromQuery(Name = "start")] string startAnchor,
-        [FromQuery(Name = "end")] string endAnchor,
+        [FromQuery(Name = FrontingQueryKeys.Start)] string startAnchor,
+        [FromQuery(Name = FrontingQueryKeys.End)] string endAnchor,
         CancellationToken ct)
     {
         if (!UnixSeconds.TryParse(startAnchor, out var unixStart) || !UnixSeconds.TryParse(endAnchor, out var unixEnd))

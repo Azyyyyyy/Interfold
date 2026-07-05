@@ -40,7 +40,7 @@ public sealed class SecretsBootstrapService(
     IOptionsMonitor<FirebaseClientConfiguration> firebaseOptions,
     ILogger<SecretsBootstrapService> logger) : IHostedLifecycleService
 {
-    private static readonly (string Key, Action<AuthenticationConfiguration, string> Patch)[] AuthSecretMappings =
+    private static readonly (SecretsStoreKey Key, Action<AuthenticationConfiguration, string> Patch)[] AuthSecretMappings =
     [
         (SecretsStoreKeys.OAuthGoogleClientSecret,  (auth, v) => auth.GoogleOAuthClientSecret = v),
         (SecretsStoreKeys.OAuthDiscordClientSecret, (auth, v) => auth.DiscordOAuthClientSecret = v),
@@ -63,7 +63,7 @@ public sealed class SecretsBootstrapService(
         PropertyNameCaseInsensitive = true,
     };
 
-    private static readonly (string Key, Action<FirebaseClientConfiguration, string> Patch)[] FirebaseClientMappings =
+    private static readonly (SecretsStoreKey Key, Action<FirebaseClientConfiguration, string> Patch)[] FirebaseClientMappings =
     [
         (SecretsStoreKeys.FirebaseClientAndroid, (opts, v) =>
             opts.Android = ParseOrThrow<FirebaseAndroidClientConfig>(SecretsStoreKeys.FirebaseClientAndroid, v)),
@@ -99,7 +99,7 @@ public sealed class SecretsBootstrapService(
         if (string.IsNullOrWhiteSpace(auth.EncryptionPepper))
         {
             throw new InvalidOperationException(
-                $"[secrets-bootstrap] internal.secrets:{SecretsStoreKeys.EncryptionPepper} is missing or empty. " +
+                $"[secrets-bootstrap] internal.secrets:{SecretsStoreKeys.EncryptionPepper.Value} is missing or empty. " +
                 "Run the bootstrapper to seed it, or insert the row manually before starting the API.");
         }
 
@@ -129,7 +129,7 @@ public sealed class SecretsBootstrapService(
     /// escalated to an <see cref="InvalidOperationException"/> so the API refuses to boot
     /// on a bad seed rather than silently returning 503 forever.
     /// </summary>
-    private static T ParseOrThrow<T>(string key, string json)
+    private static T ParseOrThrow<T>(SecretsStoreKey key, string json)
     {
         try
         {
@@ -137,14 +137,14 @@ public sealed class SecretsBootstrapService(
             if (parsed is null)
             {
                 throw new InvalidOperationException(
-                    $"[secrets-bootstrap] internal.secrets:{key} parsed to null. The row exists but does not deserialise into a {typeof(T).Name}.");
+                    $"[secrets-bootstrap] internal.secrets:{key.Value} parsed to null. The row exists but does not deserialise into a {typeof(T).Name}.");
             }
             return parsed;
         }
         catch (JsonException ex)
         {
             throw new InvalidOperationException(
-                $"[secrets-bootstrap] internal.secrets:{key} is malformed JSON. Re-seed via the bootstrapper or fix the row manually before restarting the API.",
+                $"[secrets-bootstrap] internal.secrets:{key.Value} is malformed JSON. Re-seed via the bootstrapper or fix the row manually before restarting the API.",
                 ex);
         }
     }
