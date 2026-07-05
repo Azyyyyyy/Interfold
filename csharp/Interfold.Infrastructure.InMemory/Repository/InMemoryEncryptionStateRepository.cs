@@ -7,12 +7,12 @@ namespace Interfold.Infrastructure.InMemory.Repository;
 
 public sealed class InMemoryEncryptionStateRepository : IEncryptionStateRepository
 {
-    private readonly ConcurrentDictionary<string, EncryptionState> _states = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<SystemId, EncryptionState> _states = new();
 
     public Task<EncryptionState?> GetAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalizedSystemId = NormalizeSystemId(systemId);
+        var normalizedSystemId = InMemoryStorageKeys.Normalize(systemId);
         _states.TryGetValue(normalizedSystemId, out var state);
         return Task.FromResult(state);
     }
@@ -20,7 +20,7 @@ public sealed class InMemoryEncryptionStateRepository : IEncryptionStateReposito
     public Task<bool> UpsertAsync(SystemId systemId, bool initialized, KeyChecksum? keyChecksum, EncryptionSalt? salt, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalizedSystemId = NormalizeSystemId(systemId);
+        var normalizedSystemId = InMemoryStorageKeys.Normalize(systemId);
 
         _states.TryGetValue(normalizedSystemId, out EncryptionState? value);
         _states[normalizedSystemId] = new EncryptionState(Initialized: initialized, KeyChecksum: keyChecksum,
@@ -28,8 +28,4 @@ public sealed class InMemoryEncryptionStateRepository : IEncryptionStateReposito
 
         return Task.FromResult(true);
     }
-
-    private static string NormalizeSystemId(SystemId systemId) => InMemoryStorageKeys.NormalizeSystemId(systemId);
-
-    private static string NormalizeSystemId(string systemId) => InMemoryStorageKeys.NormalizeSystemId(systemId);
 }

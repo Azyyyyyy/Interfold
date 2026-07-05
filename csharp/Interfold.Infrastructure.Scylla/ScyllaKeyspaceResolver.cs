@@ -22,6 +22,15 @@ public static class ScyllaKeyspaceResolverExtensions
 
     public static string NormalizeSystemId(this IScyllaKeyspaceResolver resolver, Interfold.Contracts.Ids.SystemId systemId)
         => resolver.NormalizeSystemId(systemId.Value);
+
+    /// <summary>
+    /// Region-strip a <see cref="Interfold.Contracts.Ids.SystemId"/> and return a fresh
+    /// <see cref="Interfold.Contracts.Ids.SystemId"/> so repository private helpers can
+    /// carry the typed id through the operation instead of unwrapping to <see cref="string"/>
+    /// at every hop. CQL binds still use <c>.Value</c> at the storage boundary.
+    /// </summary>
+    public static Interfold.Contracts.Ids.SystemId NormalizeTyped(this IScyllaKeyspaceResolver resolver, Interfold.Contracts.Ids.SystemId systemId)
+        => new(resolver.NormalizeSystemId(systemId.Value));
 }
 
 public sealed class ScyllaKeyspaceResolver : IScyllaKeyspaceResolver

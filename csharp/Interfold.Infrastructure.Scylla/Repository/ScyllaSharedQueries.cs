@@ -20,7 +20,7 @@ internal static class ScyllaSharedQueries
     public static async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(
         ISession session,
         IScyllaKeyspaceResolver keyspaceResolver,
-        string ownerSystemId,
+        SystemId ownerSystemId,
         SystemId? viewerSystemId)
     {
         if (string.IsNullOrWhiteSpace(viewerSystemId?.Value))
@@ -28,16 +28,16 @@ internal static class ScyllaSharedQueries
             return null;
         }
 
-        var normalizedViewerSystemId = keyspaceResolver.NormalizeSystemId(viewerSystemId.Value);
-        if (string.Equals(ownerSystemId, normalizedViewerSystemId, StringComparison.Ordinal))
+        var normalizedViewerSystemId = keyspaceResolver.NormalizeTyped(viewerSystemId.Value);
+        if (ownerSystemId == normalizedViewerSystemId)
         {
             return FriendshipLevel.TrustedFriend;
         }
 
         var query = new SimpleStatement(
             "SELECT level FROM global.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
-            ownerSystemId,
-            normalizedViewerSystemId);
+            ownerSystemId.Value,
+            normalizedViewerSystemId.Value);
 
         var row = (await session.ExecuteAsync(query)).FirstOrDefault();
         return row is null ? null : FriendshipLevelExtensions.FromCode(row.GetValue<short>("level"));

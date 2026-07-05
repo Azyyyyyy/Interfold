@@ -102,7 +102,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             var batch = new BatchStatement();
 
-            var exists = await ExistsAsync(session, keyspace, normalizedSystemId, command.AlterId.ToStorageShort());
+            var exists = await ExistsAsync(session, keyspace, new SystemId(normalizedSystemId), command.AlterId);
             if (!exists)
             {
                 return false;
@@ -236,7 +236,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             var alterIdShort = alterId.ToStorageShort();
 
-            var exists = await ExistsAsync(session, keyspace, normalizedSystemId, alterIdShort);
+            var exists = await ExistsAsync(session, keyspace, new SystemId(normalizedSystemId), alterId);
             if (!exists)
             {
                 return false;
@@ -584,14 +584,14 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     }
 
     private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(ISession session, string ownerSystemId, SystemId? viewerSystemId)
-        => ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, ownerSystemId, viewerSystemId);
+        => ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new SystemId(ownerSystemId), viewerSystemId);
 
-    private static async Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, short alterId)
+    private static async Task<bool> ExistsAsync(ISession session, string keyspace, SystemId normalizedSystemId, AlterId alterId)
     {
         var query = new SimpleStatement(
             $"SELECT id FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
-            normalizedSystemId,
-            alterId
+            normalizedSystemId.Value,
+            alterId.ToStorageShort()
         );
 
         var rows = await session.ExecuteAsync(query);

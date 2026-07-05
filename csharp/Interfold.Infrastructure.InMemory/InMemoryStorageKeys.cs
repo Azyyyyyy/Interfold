@@ -12,6 +12,15 @@ namespace Interfold.Infrastructure.InMemory;
 /// </summary>
 internal static class InMemoryStorageKeys
 {
+    /// <summary>
+    /// Region-strip a <see cref="SystemId"/> and return a fresh <see cref="SystemId"/> so the
+    /// typed key can be used directly as a dictionary key without unwrapping to
+    /// <see cref="string"/>. Preferred entry point for the InMemory repositories that key
+    /// by a normalized system id (friendship, encryption, notification, auth-revocation, ...).
+    /// </summary>
+    public static SystemId Normalize(SystemId systemId)
+        => new(SystemIdNormalization.StripRegionPrefix(systemId.Value));
+
     public static string NormalizeSystemId(SystemId systemId) => NormalizeSystemId(systemId.Value);
 
     public static string NormalizeSystemId(string systemId)

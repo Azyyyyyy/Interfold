@@ -665,7 +665,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     }
 
     private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(ISession session, string ownerSystemId, SystemId? viewerSystemId)
-        => ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, ownerSystemId, viewerSystemId);
+        => ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new SystemId(ownerSystemId), viewerSystemId);
 
     internal static bool TryParseUuid(string value, out Guid guid) => UuidString.TryParse(value, out guid);
 

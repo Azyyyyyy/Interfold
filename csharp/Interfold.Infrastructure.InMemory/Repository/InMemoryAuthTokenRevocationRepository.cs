@@ -12,11 +12,11 @@ namespace Interfold.Infrastructure.InMemory.Repository;
 public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocationRepository
 {
     private static readonly Lock s_lock = new();
-    private static readonly Dictionary<string, TokenRecord> s_tokens = new();
-    
+    private static readonly Dictionary<Jti, TokenRecord> s_tokens = new();
+
     private sealed record TokenRecord(
-        string Jti,
-        string SystemId,
+        Jti Jti,
+        SystemId SystemId,
         DateTimeOffset IssuedAt,
         DateTimeOffset ExpiresAt,
         DateTimeOffset? RevokedAt = null
@@ -33,9 +33,9 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
 
         lock (s_lock)
         {
-            s_tokens[jti.Value] = new TokenRecord(
-                Jti: jti.Value,
-                SystemId: NormalizeSystemId(systemId),
+            s_tokens[jti] = new TokenRecord(
+                Jti: jti,
+                SystemId: InMemoryStorageKeys.Normalize(systemId),
                 IssuedAt: DateTimeOffset.UtcNow,
                 ExpiresAt: expiresAt,
                 RevokedAt: null
@@ -53,7 +53,7 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
 
         lock (s_lock)
         {
-            if (!s_tokens.TryGetValue(jti.Value, out var record))
+            if (!s_tokens.TryGetValue(jti, out var record))
             {
                 return Task.FromResult(false);
             }
@@ -72,16 +72,12 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
 
         lock (s_lock)
         {
-            if (s_tokens.TryGetValue(jti.Value, out var record) && record.RevokedAt is null)
+            if (s_tokens.TryGetValue(jti, out var record) && record.RevokedAt is null)
             {
-                s_tokens[jti.Value] = record with { RevokedAt = DateTimeOffset.UtcNow };
+                s_tokens[jti] = record with { RevokedAt = DateTimeOffset.UtcNow };
             }
         }
 
         return Task.CompletedTask;
     }
-
-    private static string NormalizeSystemId(SystemId systemId) => InMemoryStorageKeys.NormalizeSystemId(systemId);
-
-    private static string NormalizeSystemId(string systemId) => InMemoryStorageKeys.NormalizeSystemId(systemId);
 }

@@ -673,7 +673,6 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var alterIdShort = alterId.ToStorageShort();
 
             // Step 1: list every per-alter journal entry id for this alter via the by-alter
             // view (the partition key is (user_id, alter_id), so this is one single-partition
@@ -683,7 +682,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var listQuery = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.alter_journals_by_alter WHERE user_id = ? AND alter_id = ?",
                 normalizedSystemId,
-                alterIdShort);
+                alterId.ToStorageShort());
             var entryIds = (await session.ExecuteAsync(listQuery))
                 .Select(r => r.GetValue<Guid>("id"))
                 .ToArray();
@@ -697,7 +696,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 $"SELECT global_journal_id, alter_id FROM {keyspace}.global_journal_alters WHERE user_id = ?",
                 normalizedSystemId);
             var attachedGlobals = (await session.ExecuteAsync(attachmentsQuery))
-                .Where(r => r.GetValue<short>("alter_id") == alterIdShort)
+                .Where(r => AlterId.FromStorageShort(r.GetValue<short>("alter_id")) == alterId)
                 .Select(r => r.GetValue<Guid>("global_journal_id"))
                 .ToArray();
 
@@ -717,11 +716,11 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                     $"DELETE FROM {keyspace}.alter_journals WHERE user_id = ? AND id = ? AND alter_id = ?",
                     normalizedSystemId,
                     entryId,
-                    alterIdShort));
+                    alterId.ToStorageShort()));
                 batch.Add(new SimpleStatement(
                     $"DELETE FROM {keyspace}.alter_journals_by_alter WHERE user_id = ? AND alter_id = ? AND id = ?",
                     normalizedSystemId,
-                    alterIdShort,
+                    alterId.ToStorageShort(),
                     entryId));
             }
 
@@ -731,7 +730,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                     $"DELETE FROM {keyspace}.global_journal_alters WHERE user_id = ? AND global_journal_id = ? AND alter_id = ?",
                     normalizedSystemId,
                     globalJournalId,
-                    alterIdShort));
+                    alterId.ToStorageShort()));
             }
 
             await session.ExecuteAsync(batch);

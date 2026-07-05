@@ -244,16 +244,14 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }
     }
 
-    public async Task<SystemId?> FindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
-        => ToSystemId(await FindOrCreateSystemIdByRegistryColumnAsync("discord_id", discordId.Value, cancellationToken));
+    public Task<SystemId?> FindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
+        => FindOrCreateSystemIdByRegistryColumnAsync("discord_id", discordId.Value, cancellationToken);
 
-    public async Task<SystemId?> FindSystemIdByEmailAsync(Email email, CancellationToken cancellationToken = default)
-        => ToSystemId(await FindOrCreateSystemIdByRegistryColumnAsync("email", email.Value, cancellationToken));
+    public Task<SystemId?> FindSystemIdByEmailAsync(Email email, CancellationToken cancellationToken = default)
+        => FindOrCreateSystemIdByRegistryColumnAsync("email", email.Value, cancellationToken);
 
-    public async Task<SystemId?> FindSystemIdByAppleIdAsync(AppleId appleId, CancellationToken cancellationToken = default)
-        => ToSystemId(await FindOrCreateSystemIdByRegistryColumnAsync("apple_id", appleId.Value, cancellationToken));
-
-    private static SystemId? ToSystemId(string? raw) => raw is null ? null : new SystemId(raw);
+    public Task<SystemId?> FindSystemIdByAppleIdAsync(AppleId appleId, CancellationToken cancellationToken = default)
+        => FindOrCreateSystemIdByRegistryColumnAsync("apple_id", appleId.Value, cancellationToken);
 
     public Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, DiscordId discordId, CancellationToken cancellationToken = default)
         => LinkIdentityAsync(systemId, "discord_id", discordId.Value, cancellationToken);
@@ -344,9 +342,13 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    private async Task<string?> TryFindSystemIdByRegistryColumnAsync(string columnName, string value, CancellationToken cancellationToken)
+    // Returns the scoped `{region}:{userId}` composite wrapped in a SystemId — this file's
+    // in-process caches and downstream callers keep operating in the scoped-composite
+    // shape until Slice 4 introduces a dedicated value object. The typing here just plugs
+    // the string leak at the SystemId? boundary the interface promises.
+    private async Task<SystemId?> TryFindSystemIdByRegistryColumnAsync(string columnName, string value, CancellationToken cancellationToken)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await DatabaseTransientRetry.ExecuteScyllaAsync<SystemId?>(async () =>
         {
             if (string.IsNullOrWhiteSpace(value))
             {
@@ -364,22 +366,22 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             {
                 var userId = NormalizeRegistryUserId(row.GetValue<string>("user_id"));
                 var region = row.GetValue<string?>("region") ?? _keyspaceResolver.DefaultKeyspace;
-                return $"{region}:{userId}";
+                return new SystemId($"{region}:{userId}");
             }
 
             return null;
         }, _options, cancellationToken);
     }
 
-    private async Task<string?> FindOrCreateSystemIdByRegistryColumnAsync(string columnName, string value, CancellationToken cancellationToken)
+    private async Task<SystemId?> FindOrCreateSystemIdByRegistryColumnAsync(string columnName, string value, CancellationToken cancellationToken)
     {
         var existing = await TryFindSystemIdByRegistryColumnAsync(columnName, value, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(existing))
+        if (existing is { } typedExisting && !string.IsNullOrWhiteSpace(typedExisting.Value))
         {
-            return existing;
+            return typedExisting;
         }
 
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await DatabaseTransientRetry.ExecuteScyllaAsync<SystemId?>(async () =>
         {
             if (string.IsNullOrWhiteSpace(value))
             {
@@ -427,7 +429,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             await session.ExecuteAsync(createUserBatch);
 
-            return $"{newRegion}:{newUserId}";
+            return new SystemId($"{newRegion}:{newUserId}");
         }, _options, cancellationToken);
     }
 
@@ -462,9 +464,9 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
             var owner = await TryFindSystemIdByRegistryColumnAsync(columnName, value, cancellationToken);
-            if (!string.IsNullOrWhiteSpace(owner))
+            if (owner is { } typedOwner && !string.IsNullOrWhiteSpace(typedOwner.Value))
             {
-                var normalizedOwner = NormalizeRegistryUserId(_keyspaceResolver.NormalizeSystemId(owner));
+                var normalizedOwner = NormalizeRegistryUserId(_keyspaceResolver.NormalizeSystemId(typedOwner));
                 if (!string.Equals(normalizedOwner, normalizedSystemId, StringComparison.Ordinal))
                 {
                     return AccountLinkResult.UserExists;

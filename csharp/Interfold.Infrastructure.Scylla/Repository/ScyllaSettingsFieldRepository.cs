@@ -32,7 +32,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             EnsureFieldUdtMapping(session, keyspace);
 
@@ -69,7 +69,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync<FieldId?>(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             EnsureFieldUdtMapping(session, keyspace);
 
@@ -81,7 +81,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             await session.ExecuteAsync(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 fields,
-                normalizedSystemId));
+                normalizedSystemId.Value));
 
             return new FieldId(fieldId.ToString("N"));
         }, _options, cancellationToken);
@@ -103,7 +103,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             }
 
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             EnsureFieldUdtMapping(session, keyspace);
 
@@ -149,7 +149,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             await session.ExecuteAsync(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 fields,
-                normalizedSystemId));
+                normalizedSystemId.Value));
 
             return true;
         }, _options, cancellationToken);
@@ -165,7 +165,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             }
 
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             EnsureFieldUdtMapping(session, keyspace);
 
@@ -187,7 +187,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 fields,
-                normalizedSystemId));
+                normalizedSystemId.Value));
 
             await session.ExecuteAsync(batch);
 
@@ -205,7 +205,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             }
 
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             EnsureFieldUdtMapping(session, keyspace);
 
@@ -231,17 +231,17 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             await session.ExecuteAsync(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 fields,
-                normalizedSystemId));
+                normalizedSystemId.Value));
 
             return true;
         }, _options, cancellationToken);
     }
 
-    private static async Task<List<UserFieldUdt>?> LoadFieldsAsync(ISession session, string keyspace, string normalizedSystemId)
+    private static async Task<List<UserFieldUdt>?> LoadFieldsAsync(ISession session, string keyspace, SystemId normalizedSystemId)
     {
         var query = new SimpleStatement(
             $"SELECT fields FROM {keyspace}.users WHERE id = ? LIMIT 1",
-            normalizedSystemId);
+            normalizedSystemId.Value);
 
         var row = (await session.ExecuteAsync(query)).FirstOrDefault();
         if (row is null)
@@ -305,14 +305,14 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     private static async Task<BatchStatement> RemoveFieldValuesFromAltersAsync(
         ISession session,
         string keyspace,
-        string normalizedSystemId,
+        SystemId normalizedSystemId,
         Guid fieldId)
     {
         ScyllaAlterRepository.EnsureAlterFieldUdtMapping(session, keyspace);
 
         var rows = await session.ExecuteAsync(new SimpleStatement(
             $"SELECT id, fields FROM {keyspace}.alters WHERE user_id = ?",
-            normalizedSystemId));
+            normalizedSystemId.Value));
 
         var batch = new BatchStatement();
 
@@ -334,7 +334,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.alters SET fields = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                 fields,
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 alterId));
         }
 
