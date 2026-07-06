@@ -23,7 +23,7 @@ public sealed class AuthenticationConfiguration
     /// HMAC signing secret for the phase-F deep-link token exchange.
     /// Sourced from <c>internal.secrets</c> via <c>auth:deep_link_secret</c> — populated
     /// by <c>AuthenticationSecretsPostConfigure</c> from the snapshot
-    /// <c>SecretsSnapshotLoader</c> primes at startup. Never read from env. Required —
+    /// <c>SecretsPreBuildLoader</c> primes pre-Build. Never read from env. Required —
     /// a missing row fails <c>.ValidateOnStart()</c> at boot.
     /// </summary>
     [Required(AllowEmptyStrings = false)]

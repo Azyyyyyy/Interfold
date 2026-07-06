@@ -26,7 +26,6 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using Npgsql;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
@@ -35,10 +34,11 @@ var builder = WebApplication.CreateBuilder(args);
 // --- Aspire ServiceDefaults (OTel, resilience, service discovery) ---
 builder.AddServiceDefaults();
 
-// Self-host only: patch the leaf PFX password into IConfiguration before the host builds
-// so Kestrel can unlock /certs/leaf.pfx at HTTPS-bind time. See LoadLeafPfxPasswordFromStoreIfNeeded
-// below for the self-host trigger + ordering rationale.
-LoadLeafPfxPasswordFromStoreIfNeeded(builder.Configuration);
+// Unified secrets snapshot: fetches every internal.secrets row the API's PostConfigure
+// patchers need (auth, Firebase client, FCM) plus the leaf PFX password, all before the
+// host builds. See SecretsPreBuildLoader for the Postgres-vs-InMemory branch + ordering
+// rationale. The returned snapshot is registered as a singleton instance below.
+var secretsSnapshot = SecretsPreBuildLoader.Load(builder.Configuration);
 
 //Database connections which have been implemented
 ScyllaServiceCollectionExtensions.Register();
@@ -54,22 +54,32 @@ IOptionsMonitor<AuthenticationConfiguration>? authOptionsMonitor = null;
 builder.Services.AddInterfoldOptions();
 
 // Startup snapshots for the three purely-env-bound options. AuthenticationConfiguration is
-// deliberately absent: post-Slice-5 it goes through the AuthenticationSecretsPostConfigure
-// pipeline which pulls from an ISecretsSnapshot populated by SecretsSnapshotLoader on
-// IHostedLifecycleService.StartingAsync — probing it here would resolve validation before
-// the loader has run and trip [Required] on the mandatory secret fields. The two probe
-// consumers (JWT bearer ValidAudience and AddInterfoldAuthChallengeSchemes) read directly
-// from builder.Configuration for the four env-bound values they need, below.
+// deliberately absent: it goes through the AuthenticationSecretsPostConfigure pipeline which
+// pulls from an ISecretsSnapshot populated pre-Build by SecretsPreBuildLoader — probing it
+// here would resolve validation before the secret-store-sourced fields are patched in and
+// trip [Required] on the mandatory secret fields. The two probe consumers (JWT bearer
+// ValidAudience and AddInterfoldAuthChallengeSchemes) read directly from builder.Configuration
+// for the four env-bound values they need, below.
 //
 // ASP0000: BuildServiceProvider inside application code duplicates singleton graphs — that's
 // the intended cost here (see the Slice 3 plan "Program.cs startup rebuild penalty" note).
 // The alternative — hand-maintained Bind*(IConfiguration) helpers — is exactly what this
 // slice retired to keep the options pipeline the single source of truth.
+//
+// The probe SP is built off a CLONE of builder.Services in which the framework's factory
+// IConfiguration registration ("services.AddSingleton(_ => appConfiguration)", intentionally
+// set up so the SP owns configuration disposal) is swapped for a non-owning proxy. Without
+// that swap, disposing the probe SP would also dispose the shared ConfigurationManager, and
+// any subsequent ConfigureAppConfiguration callback — notably the one WebApplicationFactory<T>
+// registers during integration tests — would throw ObjectDisposedException at builder.Build()
+// when it tries to Add() a source to the disposed manager. See
+// StartupProbeConfigurationProxy for the full rationale.
 PersistenceConfiguration persistenceConfig;
 CorsOptions corsOptions;
 ClusterConfiguration clusterConfig;
+var probeServices = StartupProbeConfigurationProxy.SwapInto(builder.Services, builder.Configuration);
 #pragma warning disable ASP0000
-using (var probeProvider = builder.Services.BuildServiceProvider(validateScopes: false))
+using (var probeProvider = probeServices.BuildServiceProvider(validateScopes: false))
 #pragma warning restore ASP0000
 {
     persistenceConfig = probeProvider.GetRequiredService<IOptions<PersistenceConfiguration>>().Value;
@@ -101,15 +111,16 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Registered BEFORE persistence services so its StartingAsync runs before migration services
-// try to read admin creds / OAuth secrets out of IConfiguration, and — new in Slice 5 —
-// before ValidationHostedService dereferences AuthenticationConfiguration / FirebaseClient-
-// Configuration to enforce [Required] via .ValidateOnStart().
-builder.Services.AddSingleton<SecretsSnapshot>();
-builder.Services.AddSingleton<ISecretsSnapshot>(sp => sp.GetRequiredService<SecretsSnapshot>());
+// Registered BEFORE persistence services so the snapshot (already populated pre-Build by
+// SecretsPreBuildLoader) is visible before migration services try to read admin creds /
+// OAuth secrets out of IConfiguration, and before ValidationHostedService dereferences
+// AuthenticationConfiguration / FirebaseClientConfiguration / FcmConfiguration to enforce
+// [Required] via .ValidateOnStart().
+builder.Services.AddSingleton<ISecretsSnapshot>(secretsSnapshot);
+builder.Services.AddSingleton(secretsSnapshot);
 builder.Services.AddSingleton<IPostConfigureOptions<AuthenticationConfiguration>, AuthenticationSecretsPostConfigure>();
 builder.Services.AddSingleton<IPostConfigureOptions<FirebaseClientConfiguration>, FirebaseClientSecretsPostConfigure>();
-builder.Services.AddHostedService<SecretsSnapshotLoader>();
+builder.Services.AddSingleton<IPostConfigureOptions<FcmConfiguration>, FcmSecretsPostConfigure>();
 
 // --- Dependency Injection ---
 // The snapshots above already reflect the env-bound IOptions<T> values; passing them into
@@ -180,12 +191,13 @@ builder.Services.AddHttpClient(LoopbackHttpClient.Name)
 // TODO: Look into how we can make this better WITHOUT breaking existing clients
 //
 // ValidAudience and the OAuth client IDs are env-bound values that must be read at
-// registration time to wire into the JWT handler / challenge schemes. Post-Slice-5 we
-// deliberately do not resolve IOptions<AuthenticationConfiguration>.Value here — that would
-// trigger .ValidateOnStart() before SecretsSnapshotLoader.StartingAsync populates the
-// [Required] secret fields. builder.Configuration is the same source ApplyAuthentication
-// reads from, so this is byte-identical to the pre-Slice-5 probe for the four public fields
-// we still need at boot.
+// registration time to wire into the JWT handler / challenge schemes. We deliberately do
+// not resolve IOptions<AuthenticationConfiguration>.Value here — that would trigger
+// .ValidateOnStart() before AuthenticationSecretsPostConfigure patches in the [Required]
+// secret fields (already populated in the snapshot pre-Build by SecretsPreBuildLoader).
+// builder.Configuration is the same source ApplyAuthentication reads from, so this is
+// byte-identical to the options-pipeline probe for the four public fields we still need at
+// boot.
 var jwtAudienceAtBoot = builder.Configuration[OctoconEnvKeys.JwtAudience] ?? "octocon";
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -332,10 +344,11 @@ authOptionsMonitor = app.Services.GetRequiredService<IOptionsMonitor<Authenticat
 
 // Defer the ES256 verification-key log to ApplicationStarted so we don't dereference
 // IOptionsMonitor<AuthenticationConfiguration>.CurrentValue between app.Build() and
-// app.Run(). Post-Slice-5 .ValidateOnStart() + [Required] on the secret fields means an
-// early CurrentValue resolution would trip validation before SecretsSnapshotLoader has
-// populated the snapshot — the log fires after both the loader and the ValidateOnStart
-// hosted service have run, so the count reflects the fully-patched configuration.
+// app.Run(). .ValidateOnStart() + [Required] on the secret fields means an early
+// CurrentValue resolution would trip validation before the ValidateOnStart hosted service
+// has run — the log fires after that hosted service completes, so the count reflects the
+// fully-patched configuration (the snapshot itself is already populated pre-Build by
+// SecretsPreBuildLoader, well before this point).
 var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("AuthStartup");
 app.Lifetime.ApplicationStarted.Register(() =>
 {
@@ -582,63 +595,4 @@ static string NormalizePem(string pem)
         .Replace("\r", "\n", StringComparison.Ordinal);
 
     return normalized;
-}
-
-/// <summary>
-/// Fetches <c>certs:leaf_pfx_password</c> from <c>internal.secrets</c> via a transient
-/// Npgsql connection and writes it into <c>Kestrel:Certificates:Default:Password</c> so
-/// Kestrel's built-in PFX loader can unlock the leaf cert at HTTPS-endpoint bind time.
-///
-/// Self-host only: triggered solely when the AppHost has injected a Kestrel default-cert
-/// path AND a Postgres connection string. Local dev (which uses the default dotnet dev
-/// cert) sees neither and the loader becomes a no-op.
-/// </summary>
-static void LoadLeafPfxPasswordFromStoreIfNeeded(IConfigurationBuilder cfg)
-{
-    var config = (IConfigurationRoot)((IConfigurationBuilder)cfg).Build();
-    var pfxPath = config["Kestrel:Certificates:Default:Path"]
-                  ?? Environment.GetEnvironmentVariable("ASPNETCORE_Kestrel__Certificates__Default__Path");
-    if (string.IsNullOrWhiteSpace(pfxPath)) return;
-
-    // If the operator pinned a password via env (the legacy path) prefer that over the
-    // store lookup. Lets local dev or one-off recovery flows bypass the DB roundtrip.
-    var existingPassword = config["Kestrel:Certificates:Default:Password"];
-    if (!string.IsNullOrWhiteSpace(existingPassword)) return;
-
-    var pgConn = config[OctoconEnvKeys.PostgresConnection];
-    if (string.IsNullOrWhiteSpace(pgConn))
-    {
-        throw new InvalidOperationException(
-            "Kestrel default-cert path is set but OCTOCON_POSTGRES_CONNECTION is missing; " +
-            "cannot fetch certs:leaf_pfx_password from internal.secrets.");
-    }
-
-    string? password;
-    try
-    {
-        using var conn = new NpgsqlConnection(pgConn);
-        conn.Open();
-        using var cmd = new NpgsqlCommand(
-            "SELECT value FROM internal.secrets WHERE key = 'certs:leaf_pfx_password' LIMIT 1",
-            conn);
-        password = cmd.ExecuteScalar() as string;
-    }
-    catch (Exception ex)
-    {
-        throw new InvalidOperationException(
-            "Failed to fetch certs:leaf_pfx_password from internal.secrets. Ensure Postgres " +
-            "is reachable at startup and that DatabaseInitPhase has seeded the row.", ex);
-    }
-
-    if (string.IsNullOrEmpty(password))
-    {
-        throw new InvalidOperationException(
-            "Row internal.secrets[certs:leaf_pfx_password] is missing or empty; " +
-            "re-run the bootstrapper so SecretsPhase + DatabaseInitPhase seed it.");
-    }
-
-    cfg.AddInMemoryCollection(new Dictionary<string, string?>
-    {
-        ["Kestrel:Certificates:Default:Password"] = password,
-    });
 }

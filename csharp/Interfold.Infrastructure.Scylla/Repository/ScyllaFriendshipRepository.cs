@@ -19,25 +19,34 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
     private readonly IScyllaSessionProvider _sessionProvider;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
+    private readonly IAccountRepository _accounts;
     private readonly PersistenceConfiguration _options;
 
     public ScyllaFriendshipRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaKeyspaceResolver keyspaceResolver,
+        IAccountRepository accounts,
         IOptions<PersistenceConfiguration> options)
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
+        _accounts = accounts;
         _options = options.Value;
     }
 
     public async Task<SystemId?> ResolveUserIdAsync(UsernameOrSystemId userNameOrId, CancellationToken cancellationToken = default)
     {
+        // Slice 7: the resolve entrypoint dispatches on LookupHandle rather than pre-
+        // normalising via NormalizeSystemId. NormalizeSystemId only strips region tags
+        // (nam/eur/...), so a "discord:1234" input came through unchanged and then got
+        // silently mishandled by the pre-Slice-7 direct-user_id/username-fanout path.
+        // Passing the raw input straight into ResolveUserIdInScyllaAsync lets the LookupHandle
+        // switch inside pick the right registry column (or delegate to the account repo
+        // for the Discord branch).
         return await DatabaseTransientRetry.ExecuteScyllaAsync<SystemId?>(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalized = new SystemId(_keyspaceResolver.NormalizeSystemId(userNameOrId.Value));
-            return await ResolveUserIdInScyllaAsync(session, normalized);
+            return await ResolveUserIdInScyllaAsync(session, userNameOrId.Value, cancellationToken);
         }, _options, cancellationToken);
     }
 
@@ -262,7 +271,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
             var normalizedTargetSystemId = _keyspaceResolver.NormalizeTyped(targetSystemId);
 
-            var resolvedTargetUserId = await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId);
+            var resolvedTargetUserId = await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId.Value, cancellationToken);
             if (resolvedTargetUserId is null)
             {
                 return SendFriendRequestOutcome.NoUser;
@@ -298,7 +307,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
             var normalizedSourceSystemId = _keyspaceResolver.NormalizeTyped(sourceSystemId);
 
-            var resolvedSourceUserId = await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId);
+            var resolvedSourceUserId = await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId.Value, cancellationToken);
             if (resolvedSourceUserId is null)
             {
                 return FriendRequestMutationOutcome.NoUser;
@@ -328,7 +337,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
             var normalizedSourceSystemId = _keyspaceResolver.NormalizeTyped(sourceSystemId);
 
-            var resolvedSourceUserId = await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId);
+            var resolvedSourceUserId = await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId.Value, cancellationToken);
             if (resolvedSourceUserId is null)
             {
                 return FriendRequestMutationOutcome.NoUser;
@@ -358,7 +367,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
             var normalizedTargetSystemId = _keyspaceResolver.NormalizeTyped(targetSystemId);
 
-            var resolvedTargetUserId = await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId);
+            var resolvedTargetUserId = await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId.Value, cancellationToken);
             if (resolvedTargetUserId is null)
             {
                 return FriendRequestMutationOutcome.NoUser;
@@ -463,35 +472,73 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         return (await session.ExecuteAsync(query)).Any();
     }
 
-    private static async Task<SystemId?> ResolveUserIdInScyllaAsync(ISession session, SystemId userNameOrId)
+    private async Task<SystemId?> ResolveUserIdInScyllaAsync(
+        ISession session,
+        string rawInput,
+        CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(userNameOrId.Value))
+        if (string.IsNullOrWhiteSpace(rawInput))
         {
             return null;
         }
 
-        var input = userNameOrId.Value.Trim();
+        var input = rawInput.Trim();
 
-        // First, try direct lookup in user_registry (handles 7-char IDs)
-        var directQuery = new SimpleStatement(
-            $"SELECT user_id FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE user_id = ? LIMIT 1",
-            input);
-        var directRow = (await session.ExecuteAsync(directQuery)).FirstOrDefault();
-        if (directRow != null)
+        // Slice 7: LookupHandle picks the routing lane. Unparseable input (bare-prefix
+        // like "nam:", or unknown non-region prefix like "xxx:abcdefg") falls through to
+        // the same user_registry.user_id lookup as a bare id, using the WHOLE input as
+        // the query value — this matches the strict-rejection contract in
+        // LookupHandle.TryParse's xml-doc and mirrors ScyllaUserRegistryRegionContext's
+        // fallback branch.
+        if (!LookupHandle.TryParse(input, out var handle))
         {
-            return new SystemId(directRow.GetValue<string>("user_id"));
+            return await LookupByUserIdAsync(session, input);
         }
 
+        return handle.Kind switch
+        {
+            LookupKind.Username => await LookupByUsernameFanoutAsync(session, handle.RawId),
+            // Discord dispatch delegates to the account repo's find-only lookup so an
+            // unknown Discord id surfaces as null instead of spawning a phantom account
+            // (which is what FindOrCreateSystemIdByDiscordIdAsync would do). See the
+            // decision doc-comment on IAccountRepository.TryFindSystemIdByDiscordIdAsync.
+            LookupKind.Discord => await _accounts.TryFindSystemIdByDiscordIdAsync(
+                new DiscordId(handle.RawId), cancellationToken),
+            // Region / Id / (unreachable fallback) all target user_registry.user_id with
+            // the bare RawId. NormalizeSystemId would produce the same value for Region-
+            // shaped input, so this branch is byte-equivalent to the pre-Slice-7 direct
+            // lookup path for the common "resolve a scoped principal id" case.
+            _ => await LookupByUserIdAsync(session, handle.RawId),
+        };
+    }
+
+    private static async Task<SystemId?> LookupByUserIdAsync(ISession session, string userId)
+    {
+        var directQuery = new SimpleStatement(
+            $"SELECT user_id FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE user_id = ? LIMIT 1",
+            userId);
+        var directRow = (await session.ExecuteAsync(directQuery)).FirstOrDefault();
+        return directRow is null
+            ? null
+            : new SystemId(directRow.GetValue<string>("user_id"));
+    }
+
+    private static async Task<SystemId?> LookupByUsernameFanoutAsync(ISession session, string username)
+    {
         var existingKeyspaces = await GetExistingRegionalKeyspacesAsync(session);
 
-        // If not found as direct ID, try as username via denormalized lookup table across known regional keyspaces.
+        // Username lookup fans out across the regional keyspaces that actually exist —
+        // the users_by_username table is per-region and there is no global reverse
+        // index. Missing keyspaces / missing tables are skipped rather than propagated
+        // so a partially-provisioned cluster still resolves usernames in the regions it
+        // does have.
         foreach (var region in existingKeyspaces.Where(CanonicalRegions.Contains))
         {
             try
             {
                 var userQuery = new SimpleStatement(
                     $"SELECT user_id FROM {region}.users_by_username WHERE username = ? LIMIT 1",
-                    input);
+                    username);
                 var userRow = (await session.ExecuteAsync(userQuery)).FirstOrDefault();
                 if (userRow != null)
                 {

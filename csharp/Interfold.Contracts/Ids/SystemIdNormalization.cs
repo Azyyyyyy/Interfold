@@ -16,6 +16,15 @@ namespace Interfold.Contracts.Ids;
 /// with a colon" behaviour would have silently corrupted a <c>username:alice</c> input,
 /// which the new logic leaves untouched.
 /// </para>
+///
+/// <para>
+/// <b>Related Slice 7 helper.</b> Handles that carry a discriminator prefix
+/// (<c>username:</c>, <c>discord:</c>, <c>id:</c>) are the domain of
+/// <see cref="LookupHandle.TryParse"/>, not this method. Callers that need the routing
+/// table (which registry column to hit for a given prefix) should use <c>LookupHandle</c>;
+/// callers that just need to canonicalise a principal id keep using
+/// <c>StripRegionPrefix</c>.
+/// </para>
 /// </summary>
 public static class SystemIdNormalization
 {

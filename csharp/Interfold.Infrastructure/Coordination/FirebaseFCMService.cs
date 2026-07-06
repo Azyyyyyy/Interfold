@@ -1,11 +1,13 @@
 using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Google.Apis.Auth.OAuth2;
+using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Secrets;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Retry;
 using Interfold.Contracts;
@@ -28,7 +30,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
     // FCM v1 multicast cap. https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages/send
     private const int FcmMulticastMax = 500;
 
-    private readonly ISecretsStore _secretsStore;
+    private readonly IOptions<FcmConfiguration> _options;
     private readonly INotificationTokenRepository _tokens;
     private readonly IAccountRepository _accounts;
     private readonly IAlterRepository _alters;
@@ -39,13 +41,13 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
     private FirebaseApp? _app;
 
     public FirebaseFCMService(
-        ISecretsStore secretsStore,
+        IOptions<FcmConfiguration> options,
         INotificationTokenRepository tokens,
         IAccountRepository accounts,
         IAlterRepository alters,
         ILogger<FirebaseFCMService> logger)
     {
-        _secretsStore = secretsStore;
+        _options = options;
         _tokens = tokens;
         _accounts = accounts;
         _alters = alters;
@@ -229,10 +231,13 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
         {
             if (_messaging is not null) return _messaging;
 
-            var serviceAccountJson = await _secretsStore.GetAsync(SecretsStoreKeys.FcmServiceAccountJson, ct).ConfigureAwait(false);
+            var serviceAccountJson = _options.Value.ServiceAccountJson;
             if (string.IsNullOrWhiteSpace(serviceAccountJson))
             {
-                // Row was deleted after the DI factory picked us over NullFCMService.
+                // Row was absent from the snapshot the DI factory consulted when it picked
+                // us over NullFCMService. Should be unreachable in practice (the snapshot
+                // is populated once at startup and doesn't change mid-process) — kept as a
+                // defensive belt-and-braces guard.
                 _logger.LogError(
                     "[fcm] {Key} disappeared between DI-graph build and first send. " +
                     "Restart the API after re-seeding the row, or drop it and let the factory pick NullFCMService.",

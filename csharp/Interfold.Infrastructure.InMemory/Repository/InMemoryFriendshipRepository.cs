@@ -23,17 +23,66 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
 
     private readonly ConcurrentDictionary<SystemId, ConcurrentDictionary<SystemId, FriendshipState>> _friendships = new();
     private readonly ConcurrentDictionary<SystemId, ConcurrentDictionary<SystemId, RequestState>> _outgoingRequests = new();
+    private readonly IAccountRepository? _accounts;
 
-    public Task<SystemId?> ResolveUserIdAsync(UsernameOrSystemId userNameOrId, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Parameterless / find-only-account ctor used from the DI container.
+    /// <paramref name="accounts"/> is optional so the older tests that instantiate this
+    /// repository directly (e.g. <c>InMemoryNotificationTokenRepositoryTests</c>) don't
+    /// have to spin up an account repository; those tests never exercise the
+    /// <c>Kind.Discord</c> branch, so a null delegate is safe there. Production wiring
+    /// always passes a real <see cref="IAccountRepository"/>.
+    /// </summary>
+    public InMemoryFriendshipRepository(IAccountRepository? accounts = null)
+    {
+        _accounts = accounts;
+    }
+
+    public async Task<SystemId?> ResolveUserIdAsync(UsernameOrSystemId userNameOrId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(userNameOrId.Value))
         {
-            return Task.FromResult<SystemId?>(null);
+            return null;
         }
 
-        // In-memory mode has no user registry; treat provided value as canonical id,
-        // but normalize by stripping any region prefix to match Scylla NormalizeSystemId semantics.
-        return Task.FromResult<SystemId?>(Normalize(new SystemId(userNameOrId.Value.Trim())));
+        var input = userNameOrId.Value.Trim();
+
+        // Slice 7: mirror the ScyllaFriendshipRepository routing table so both backends
+        // dispatch identically. InMemory has no user_registry / users_by_username tables,
+        // so Kind.Region / Kind.Id inputs collapse onto "normalise and return" — that's
+        // the behaviour the pre-Slice-7 repo had for bare ids, and the tests explicitly
+        // seed users via EnsureUserExistsAsync so the returned SystemId always maps to a
+        // real InMemory record. Kind.Username has no InMemory reverse-index either —
+        // returning null matches "no such username" cleanly and avoids the pre-Slice-7
+        // footgun where "username:alice" would be treated as a literal system id
+        // "username:alice".
+        //
+        // Unparseable inputs (unknown non-region prefix like "xxx:foo", or the
+        // colon-at-boundary shapes ":foo" / "foo:") must NOT silently normalise-and-
+        // return: the Slice 7 contract on LookupHandle.TryParse says callers should
+        // "treat 'not parseable' as opaque bare id and query user_registry.user_id with
+        // the whole input, misses → NoUser". InMemory has no user_registry, so the
+        // equivalent behaviour is "no such user" — return null so the command handler
+        // surfaces the same friend_request:no_user (422) that Scylla / Cassandra emit
+        // for the same inputs. Falling back to `Normalize(new SystemId(input))` here
+        // was the pre-Slice-7 InMemory footgun that silently accepted "xxx:whatever"
+        // as a valid recipient and let a phantom friend request be created.
+        if (!LookupHandle.TryParse(input, out var handle))
+        {
+            return null;
+        }
+
+        return handle.Kind switch
+        {
+            LookupKind.Discord => _accounts is null
+                ? null
+                : await _accounts.TryFindSystemIdByDiscordIdAsync(new DiscordId(handle.RawId), cancellationToken),
+            LookupKind.Username => null,
+            // Region / Id both target the raw system id; Normalize collapses "nam:abc"
+            // → "abc" so the storage key matches what other InMemory repos wrote when
+            // the caller passed the scoped shape.
+            _ => Normalize(new SystemId(handle.RawId)),
+        };
     }
 
     public Task<FriendshipLevel?> GetFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken = default)

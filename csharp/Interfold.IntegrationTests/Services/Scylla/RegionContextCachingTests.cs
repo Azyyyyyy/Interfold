@@ -74,4 +74,104 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
         var result = ctx.ResolveUserRegion("user-1");
         await Assert.That(result).IsEqualTo(ScyllaKeyspace.Nam);
     }
+
+    // ---------------- Slice 7: LookupHandle-driven cache-key routing --------
+    //
+    // These pin the (cacheKey, LookupHandle?) contract inside HandleForLookup — the read-
+    // side helper that replaces the pre-Slice-7 SplitDiscriminatorPrefix. The invariants
+    // being locked in:
+    //
+    // - Bare id / "id:<raw>" / "<region>:<raw>" all cache under the same key (they all
+    //   identify the same user_registry row).
+    // - "username:X" / "discord:X" keep their full prefixed form as the cache key so a
+    //   username "abcdefg" cannot spuriously alias the bare id "abcdefg".
+    // - Unknown non-region prefixes ("xxx:abcdefg") don't get silently stripped — the
+    //   whole input is the cache key AND the query value, matching the strict-rejection
+    //   contract in LookupHandle.TryParse's xml-doc.
+
+    [Test]
+    public async Task ResolveUserRegion_ExplicitIdPrefix_SharesCacheKeyWithBareId()
+    {
+        var ctx = BuildContext("nam");
+        ctx.RegisterRegion("abcdefg", ScyllaKeyspace.Eur);
+
+        var fromBare    = ctx.ResolveUserRegion("abcdefg");
+        var fromIdPrefix = ctx.ResolveUserRegion("id:abcdefg");
+
+        using (Assert.Multiple())
+        {
+            await Assert.That(fromBare).IsEqualTo(ScyllaKeyspace.Eur);
+            await Assert.That(fromIdPrefix).IsEqualTo(ScyllaKeyspace.Eur)
+                .Because("'id:abcdefg' and 'abcdefg' must resolve to the same cached entry — both are the strict 'this is a system id' assertion routing to user_registry.user_id.");
+        }
+    }
+
+    [Test]
+    public async Task ResolveUserRegion_UsernamePrefix_KeepsFullFormAsCacheKey()
+    {
+        // Register two entries whose after-colon halves collide: an "abcdefg" system id
+        // in Eur, and a "username:abcdefg" (someone whose username happens to match a
+        // 7-char alphanumeric shape) in Sam. If the cache key stripped the "username:"
+        // prefix, the second RegisterRegion would overwrite the first and the bare
+        // lookup would return the wrong region.
+        var ctx = BuildContext("nam");
+        ctx.RegisterRegion("abcdefg", ScyllaKeyspace.Eur);
+        ctx.RegisterRegion("username:abcdefg", ScyllaKeyspace.Sam);
+
+        using (Assert.Multiple())
+        {
+            await Assert.That(ctx.ResolveUserRegion("abcdefg")).IsEqualTo(ScyllaKeyspace.Eur)
+                .Because("The bare id must remain cached under its own key even after a username handle with the same after-colon shape was registered.");
+            await Assert.That(ctx.ResolveUserRegion("username:abcdefg")).IsEqualTo(ScyllaKeyspace.Sam)
+                .Because("Username handles must round-trip through their prefixed cache key so username 'abcdefg' doesn't alias the bare id 'abcdefg'.");
+        }
+    }
+
+    [Test]
+    public async Task ResolveUserRegion_DiscordPrefix_KeepsFullFormAsCacheKey()
+    {
+        // Same anti-aliasing invariant as the username case: a Discord snowflake ("1234")
+        // cached under its prefixed shape must not collide with a bare id "1234". These
+        // aren't likely to overlap in production (Discord snowflakes are much longer
+        // than the 7-char system-id alphabet), but the invariant is worth pinning so a
+        // future test-fixture id shape can't silently poison the cache.
+        var ctx = BuildContext("nam");
+        ctx.RegisterRegion("1234", ScyllaKeyspace.Eur);
+        ctx.RegisterRegion("discord:1234", ScyllaKeyspace.Sam);
+
+        using (Assert.Multiple())
+        {
+            await Assert.That(ctx.ResolveUserRegion("1234")).IsEqualTo(ScyllaKeyspace.Eur);
+            await Assert.That(ctx.ResolveUserRegion("discord:1234")).IsEqualTo(ScyllaKeyspace.Sam);
+        }
+    }
+
+    [Test]
+    public async Task ResolveUserRegion_UnknownPrefix_KeepsFullFormAsCacheKey()
+    {
+        // 'xxx' is not a region tag and not a discriminator prefix — LookupHandle.TryParse
+        // rejects it. The cache key must be the WHOLE original input so a rejected handle
+        // is deterministic and round-trippable, matching the fallback branch in
+        // LookupAsync that queries user_registry.user_id with the same whole input.
+        var ctx = BuildContext("nam");
+        ctx.RegisterRegion("xxx:abcdefg", ScyllaKeyspace.Sam);
+
+        var result = ctx.ResolveUserRegion("xxx:abcdefg");
+        await Assert.That(result).IsEqualTo(ScyllaKeyspace.Sam)
+            .Because("Unknown non-region prefix must NOT be silently stripped — the whole input is both the cache key and the eventual user_id query value.");
+    }
+
+    [Test]
+    public async Task ResolveUserRegion_ExplicitIdPrefix_UsesCachedRegionSetViaBareRegister()
+    {
+        // The complementary direction of the "shared key" invariant: register with the
+        // bare form, resolve via "id:" prefix, must not miss the cache. This is the
+        // shape a controller sees when a client asks for /users/id:abcdefg but the
+        // account layer registered the user under just "abcdefg".
+        var ctx = BuildContext("nam");
+        ctx.RegisterRegion("abcdefg", ScyllaKeyspace.Ocn);
+
+        var result = ctx.ResolveUserRegion("id:abcdefg");
+        await Assert.That(result).IsEqualTo(ScyllaKeyspace.Ocn);
+    }
 }

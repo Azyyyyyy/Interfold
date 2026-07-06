@@ -159,7 +159,20 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult(true);
     }
 
-    public Task<SystemId?> FindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
+    public Task<SystemId?> TryFindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(discordId.Value))
+        {
+            return Task.FromResult<SystemId?>(null);
+        }
+
+        return Task.FromResult<SystemId?>(
+            _systemByDiscord.TryGetValue(discordId.Value, out var scopedSystemId)
+                ? new SystemId(scopedSystemId)
+                : null);
+    }
+
+    public Task<SystemId?> FindOrCreateSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(discordId.Value))
         {

@@ -606,7 +606,7 @@ public class BaseEndpointTest
         var authConfig = factory.Services.GetRequiredService<IOptionsMonitor<AuthenticationConfiguration>>().CurrentValue;
 
         // Mirror the fixture-side seed of the ES256 keypair so the JWT we issue here verifies
-        // against the API's SecretsSnapshotLoader-primed configuration on the server side.
+        // against the API's SecretsPreBuildLoader-primed configuration on the server side.
         authConfig.JwtEs256PrivateKeyPem = TestDbCredentials.JwtEs256PrivateKeyPem;
 
         var jti = Guid.NewGuid().ToString("N");

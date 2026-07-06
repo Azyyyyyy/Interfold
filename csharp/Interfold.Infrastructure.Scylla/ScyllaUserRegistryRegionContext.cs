@@ -56,12 +56,15 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         if (string.IsNullOrWhiteSpace(systemId))
             return CurrentRegion;
 
-        // Slice 4: split off the raw id + any discriminator prefix ("username" / "discord" / a
-        // region tag) up front. Region-scoped ids parse cleanly via ScopedSystemId; the
-        // discriminator prefixes (which are NOT regions) fall through to the generic-split path.
-        var (raw, prefix) = SplitDiscriminatorPrefix(systemId);
+        // Slice 7: LookupHandle.TryParse replaces the private SplitDiscriminatorPrefix from
+        // Slice 4. A parseable handle carries an explicit Kind so LookupAsync knows which
+        // registry column to hit; an unparseable input (unknown prefix, or bare-prefix like
+        // "nam:") falls through to the "opaque bare id" branch inside LookupAsync with the
+        // whole systemId as the query value — matching the strict-rejection contract in
+        // LookupHandle.TryParse's xml-doc.
+        var (cacheKey, handle) = HandleForLookup(systemId);
 
-        if (_cache.TryGetValue(raw, out var cached))
+        if (_cache.TryGetValue(cacheKey, out var cached))
             return cached;
 
         // Synchronous path: attempt a best-effort lookup on the calling thread.
@@ -71,17 +74,17 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         // context that an ASP.NET request would occupy.
         try
         {
-            var region = LookupAsync(raw, prefix).GetAwaiter().GetResult();
-            if (TryParseRegion(raw, region, out var parsed))
+            var region = LookupAsync(handle, systemId).GetAwaiter().GetResult();
+            if (TryParseRegion(cacheKey, region, out var parsed))
             {
-                StoreInCache(raw, parsed);
+                StoreInCache(cacheKey, parsed);
                 return parsed;
             }
         }
         catch (Exception ex)
         {
             // Any exception (session not yet ready, network error) falls through to default.
-            _logger.LogWarning(ex, "Region lookup for system {SystemId} failed; falling back to default region.", raw);
+            _logger.LogWarning(ex, "Region lookup for system {SystemId} failed; falling back to default region.", cacheKey);
         }
 
         return CurrentRegion;
@@ -98,15 +101,15 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         if (string.IsNullOrWhiteSpace(systemId))
             return CurrentRegion;
 
-        var (raw, prefix) = SplitDiscriminatorPrefix(systemId);
+        var (cacheKey, handle) = HandleForLookup(systemId);
 
-        if (_cache.TryGetValue(raw, out var cached))
+        if (_cache.TryGetValue(cacheKey, out var cached))
             return cached;
 
-        var region = await LookupAsync(raw, prefix, cancellationToken);
-        if (TryParseRegion(raw, region, out var parsed))
+        var region = await LookupAsync(handle, systemId, cancellationToken);
+        if (TryParseRegion(cacheKey, region, out var parsed))
         {
-            StoreInCache(raw, parsed);
+            StoreInCache(cacheKey, parsed);
             return parsed;
         }
 
@@ -120,8 +123,8 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         if (string.IsNullOrWhiteSpace(systemId))
             return;
 
-        var (raw, _) = SplitDiscriminatorPrefix(systemId);
-        StoreInCache(raw, region);
+        var (cacheKey, _) = HandleForLookup(systemId);
+        StoreInCache(cacheKey, region);
     }
 
     // ------------------------------------------------------------------
@@ -151,33 +154,31 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
     }
 
     private async Task<string?> LookupAsync(
-        string normalizedSystemId,
-        string? prefix,
+        LookupHandle? handle,
+        string originalInput,
         CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            SimpleStatement query;
 
-            if (prefix == "username")
+            // Fallback shape (handle == null) happens when LookupHandle.TryParse rejected
+            // the input as unparseable — bare-prefix like "nam:", or an unknown non-region
+            // prefix like "xxx:abcdefg". We deliberately query user_id with the WHOLE
+            // original input so the strict-rejection contract holds: a rejected handle
+            // becomes an opaque bare-id lookup, never a silent prefix-strip.
+            var (column, value) = handle switch
             {
-                query = new SimpleStatement(
-                    $"SELECT region FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE username = ? LIMIT 1",
-                    normalizedSystemId);
-            }
-            else if (prefix == "discord")
-            {
-                query = new SimpleStatement(
-                    $"SELECT region FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE discord_id = ? LIMIT 1",
-                    normalizedSystemId);
-            }
-            else 
-            {
-                query = new SimpleStatement(
-                    $"SELECT region FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE user_id = ? LIMIT 1",
-                    normalizedSystemId);                
-            }
+                { Kind: LookupKind.Username } h => ("username", h.RawId),
+                { Kind: LookupKind.Discord } h => ("discord_id", h.RawId),
+                { Kind: LookupKind.Region } h => ("user_id", h.RawId),
+                { Kind: LookupKind.Id } h => ("user_id", h.RawId),
+                _ => ("user_id", originalInput),
+            };
+
+            var query = new SimpleStatement(
+                $"SELECT region FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE {column} = ? LIMIT 1",
+                value);
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             return row?.GetValue<string>("region");
@@ -197,30 +198,34 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
     }
 
     /// <summary>
-    /// Split an incoming lookup id into (raw, prefix). Recognises the two shapes
-    /// <c>ResolveUserRegion</c> sees: (a) region-scoped principal ids like <c>"nam:abcdefg"</c>
-    /// where the prefix is a valid <see cref="ScyllaKeyspace"/>, and (b) discriminator-prefixed
-    /// lookup keys like <c>"username:alice"</c> / <c>"discord:1234"</c> / <c>"id:abcdefg"</c>
-    /// where the prefix names which registry column to query. Unscoped inputs return
-    /// (systemId, null). This is the surviving prefix parser after Slice 4 collapsed the
-    /// other two implementations — the "username" / "discord" branching would otherwise
-    /// require reaching into ScopedSystemId internals for a case that isn't a scoped id.
+    /// Turn an incoming lookup input into a (cache key, parsed handle) pair.
+    /// <see cref="LookupHandle.TryParse"/> is the single source of truth for the routing
+    /// table; this helper just picks the cache key so different-shape inputs referring to
+    /// the same user (bare id, region-scoped id, explicit <c>id:</c> prefix) collapse
+    /// onto the same cache entry while username / Discord lookups keep their own key
+    /// space (there's no ambiguity — a username string can't collide with a system id in
+    /// the same 7-char alphabet). Unparseable input keeps its whole original string as
+    /// the cache key so a rejected handle round-trips deterministically.
     /// </summary>
-    private static (string raw, string? prefix) SplitDiscriminatorPrefix(string systemId)
+    private static (string cacheKey, LookupHandle? handle) HandleForLookup(string systemId)
     {
-        if (ScopedSystemId.TryParseScoped(systemId, out var scoped))
+        if (!LookupHandle.TryParse(systemId, out var parsed))
         {
-            // Emit the canonical lowercase region tag so LookupAsync's prefix-equality checks
-            // (== "username" / == "discord") see a stable byte shape.
-            return (scoped.RawId, scoped.Region.ToWireValue());
+            return (systemId, null);
         }
 
-        var separator = systemId.IndexOf(':');
-        if (separator > 0 && separator < systemId.Length - 1)
+        var cacheKey = parsed.Kind switch
         {
-            return (systemId[(separator + 1)..], systemId[..separator].ToLowerInvariant());
-        }
+            // System-id-shaped inputs canonicalise onto RawId so "abcdefg",
+            // "nam:abcdefg", and "id:abcdefg" collide in the cache (they all identify the
+            // same user_registry row).
+            LookupKind.Region => parsed.RawId,
+            LookupKind.Id => parsed.RawId,
+            // Username / Discord handles keep their prefix in the cache key so a username
+            // "abcdefg" doesn't spuriously alias the bare id "abcdefg".
+            _ => parsed.OriginalValue,
+        };
 
-        return (systemId, null);
+        return (cacheKey, parsed);
     }
 }

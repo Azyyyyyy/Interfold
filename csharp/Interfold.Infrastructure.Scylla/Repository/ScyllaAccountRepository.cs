@@ -247,7 +247,10 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }
     }
 
-    public Task<SystemId?> FindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
+    public Task<SystemId?> TryFindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
+        => TryFindSystemIdByRegistryColumnAsync("discord_id", discordId.Value, cancellationToken);
+
+    public Task<SystemId?> FindOrCreateSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
         => FindOrCreateSystemIdByRegistryColumnAsync("discord_id", discordId.Value, cancellationToken);
 
     public Task<SystemId?> FindSystemIdByEmailAsync(Email email, CancellationToken cancellationToken = default)

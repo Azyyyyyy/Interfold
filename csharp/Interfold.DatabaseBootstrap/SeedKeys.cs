@@ -48,8 +48,10 @@ internal static class SeedKeys
         new(SecretsStoreKeys.AuthJwtRsa256PrivatePem,  o => o.JwtRsa256PrivateKeyPem ?? string.Empty),
         new(SecretsStoreKeys.AuthJwtEs256PrivatePem,   o => o.JwtEs256PrivateKeyPem ?? string.Empty),
         new(SecretsStoreKeys.AuthDeepLinkSecret,       o => o.DeepLinkSecret ?? string.Empty),
-        // The leaf PFX password is fetched by a one-shot ISecretsStore lookup in Program.cs
-        // before Kestrel binds. No env shadow.
+        // The leaf PFX password is fetched by SecretsPreBuildLoader via a bare NpgsqlConnection
+        // before builder.Build() runs, then written into IConfiguration under
+        // Kestrel:Certificates:Default:Password so the framework's cert loader observes it out
+        // of the frozen IConfigurationRoot. No env shadow.
         new(SecretsStoreKeys.CertsLeafPfxPassword,     o => o.LeafPfxPassword ?? string.Empty),
         // Firebase client-init payloads (public values) — SecretsBootstrapService
         // deserialises each into the matching FirebaseClientConfiguration variant so
@@ -59,9 +61,10 @@ internal static class SeedKeys
         new(SecretsStoreKeys.FirebaseClientIos,        o => o.FirebaseIosClientJson ?? string.Empty),
         new(SecretsStoreKeys.FirebaseClientWeb,        o => o.FirebaseWebClientJson ?? string.Empty),
         // FCM v1 service-account credential (PRIVATE — authenticates the API to Google
-        // FCM). Read directly by the IFCMService DI factory in ClusterServiceCollectionExtensions;
-        // absent row → NullFCMService fallback so deployments without Firebase silently
-        // no-op the push flow.
+        // FCM). Loaded into the secrets snapshot by SecretsPreBuildLoader and copied onto
+        // FcmConfiguration by FcmSecretsPostConfigure; the IFCMService DI factory reads
+        // IOptions<FcmConfiguration> — absent row → NullFCMService fallback so deployments
+        // without Firebase silently no-op the push flow.
         new(SecretsStoreKeys.FcmServiceAccountJson,    o => o.FcmServiceAccountJson ?? string.Empty),
     ];
 

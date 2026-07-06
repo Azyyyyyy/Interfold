@@ -1,5 +1,5 @@
+using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
-using Interfold.Contracts.Secrets;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
@@ -57,12 +57,18 @@ public sealed class FCMServiceFactoryFixture : IAsyncInitializer
         services.AddSingleton<IAccountRepository, InMemoryAccountRepository>();
         services.AddSingleton<IAlterRepository, InMemoryAlterRepository>();
 
-        var store = new InMemorySecretsStore();
+        // IFCMService now resolves the credential via IOptions<FcmConfiguration> (populated
+        // in production by FcmSecretsPostConfigure from the secrets snapshot); the fixture
+        // just configures the options bucket directly rather than seeding a secrets store.
         if (seedServiceAccount)
         {
-            store.Seed(SecretsStoreKeys.FcmServiceAccountJson, "{\"type\":\"service_account\",\"project_id\":\"test\"}");
+            services.Configure<FcmConfiguration>(o =>
+                o.ServiceAccountJson = "{\"type\":\"service_account\",\"project_id\":\"test\"}");
         }
-        services.AddSingleton<ISecretsStore>(store);
+        else
+        {
+            services.Configure<FcmConfiguration>(o => o.ServiceAccountJson = null);
+        }
 
         services.AddInterfoldCluster(role);
         return new FCMFactoryScope(services.BuildServiceProvider());

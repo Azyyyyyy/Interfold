@@ -108,7 +108,7 @@ public sealed class AuthController : OAuthControllerBase
 
         var resolvedSystemId = oauthProvider switch
         {
-            OAuthProvider.Discord => await _accounts.FindSystemIdByDiscordIdAsync(new DiscordId(identity), HttpContext.RequestAborted),
+            OAuthProvider.Discord => await _accounts.FindOrCreateSystemIdByDiscordIdAsync(new DiscordId(identity), HttpContext.RequestAborted),
             OAuthProvider.Google => await _accounts.FindSystemIdByEmailAsync(new Email(identity), HttpContext.RequestAborted),
             OAuthProvider.Apple => await _accounts.FindSystemIdByAppleIdAsync(new AppleId(identity), HttpContext.RequestAborted),
             _ => null

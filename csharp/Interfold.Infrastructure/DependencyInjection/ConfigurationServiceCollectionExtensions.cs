@@ -70,6 +70,19 @@ public static class ConfigurationServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
+        // Startup-baked: the FCM v1 service-account credential is deserialised from
+        // internal.secrets by FcmSecretsPostConfigure. No [Required] and no
+        // ValidateDataAnnotations here — the row is opt-in per deployment (absent row →
+        // NullFCMService fallback in the IFCMService DI factory) — but ValidateOnStart still
+        // forces the post-configure to run at boot so the snapshot lookup path is exercised
+        // the same way the other secret-store-sourced options are. Bind onto the
+        // Octocon:Fcm section for symmetry with the other typed options; the section has no
+        // env-var backing today, so the initial value is whatever ServiceAccountJson defaults
+        // to (null) and FcmSecretsPostConfigure supplies the runtime value.
+        services.AddOptions<FcmConfiguration>()
+            .Configure<IConfiguration>((opts, config) => config.GetSection(FcmConfiguration.SectionName).Bind(opts))
+            .ValidateOnStart();
+
         // Registered for completeness; OTLP exporters are wired at startup so runtime changes
         // to OtlpEndpoint only take effect after a restart. ValidateOnStart runs
         // [AbsoluteHttpUri] on the (optional) endpoint so a garbled env var trips at boot,
@@ -278,10 +291,10 @@ public static class ConfigurationServiceCollectionExtensions
 
         // JWT signing material, deep-link secret, and encryption pepper are intentionally
         // left at their property-initialiser defaults here. AuthenticationSecretsPostConfigure
-        // runs after this apply callback, reads the values from the SecretsSnapshot the
-        // SecretsSnapshotLoader primed on IHostedLifecycleService.StartingAsync, and
-        // .ValidateOnStart() enforces [Required] on the four mandatory fields — a missing
-        // row surfaces as an OptionsValidationException naming the offending property.
+        // runs after this apply callback, reads the values from the SecretsSnapshot that
+        // SecretsPreBuildLoader primed pre-Build, and .ValidateOnStart() enforces [Required]
+        // on the four mandatory fields — a missing row surfaces as an
+        // OptionsValidationException naming the offending property.
 
         // The OAuth challenge query parameters (scopes / response_type / response_mode) plus
         // each provider's scheme name + authorization endpoint are constants in

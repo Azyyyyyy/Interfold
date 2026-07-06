@@ -5,7 +5,7 @@ namespace Interfold.Api.Services.Secrets;
 
 /// <summary>
 /// Thread-safe in-memory <see cref="ISecretsSnapshot"/>. Written to exactly once by
-/// <see cref="SecretsSnapshotLoader"/> during host startup; every subsequent read (from the
+/// <see cref="SecretsPreBuildLoader"/> before the host builds; every subsequent read (from the
 /// two <see cref="Microsoft.Extensions.Options.IPostConfigureOptions{TOptions}"/> patchers)
 /// is a lock-free dictionary lookup.
 ///
@@ -26,12 +26,13 @@ internal sealed class SecretsSnapshot : ISecretsSnapshot
         => _values.TryGetValue(key.Value, out var value) ? value : null;
 
     /// <summary>
-    /// Called by <see cref="SecretsSnapshotLoader.StartingAsync"/> exactly once with the
-    /// full set of rows read from <see cref="ISecretsStore"/>. Blank / null values are
-    /// filtered out so <see cref="Get"/> returns <c>null</c> for a row that exists in the
-    /// store but was seeded with an empty string — matches the pre-Slice-5
-    /// <see cref="SecretsBootstrapService"/> semantics (which also skipped the patch delegate
-    /// on <c>IsNullOrWhiteSpace</c>).
+    /// Called by <see cref="SecretsPreBuildLoader.Load"/> exactly once with the full set of
+    /// rows read from Postgres (or the <c>OCTOCON_INMEMORY_SECRETS_SEED:*</c> config keys in
+    /// the no-Postgres branch). Blank / null values are filtered out so <see cref="Get"/>
+    /// returns <c>null</c> for a row that exists in the store but was seeded with an empty
+    /// string — the post-configure patchers treat "row absent" and "row empty" as the same
+    /// state so a partially-seeded deployment behaves like an unseeded one instead of trying
+    /// to use an empty credential.
     /// </summary>
     internal void Populate(IReadOnlyDictionary<SecretsStoreKey, string?> values)
     {

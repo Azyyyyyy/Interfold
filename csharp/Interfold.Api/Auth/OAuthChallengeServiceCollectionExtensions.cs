@@ -92,10 +92,10 @@ internal static class OAuthChallengeServiceCollectionExtensions
     /// Takes the three client IDs individually rather than a whole
     /// <see cref="AuthenticationConfiguration"/> snapshot so the boundary between "env-bound,
     /// safe to read at builder-time" and "secret-store-sourced, requires the post-configure
-    /// pipeline" is explicit at the call site — post-Slice-5 the caller reads directly from
+    /// pipeline" is explicit at the call site — the caller reads directly from
     /// <c>builder.Configuration</c> to avoid resolving the options monitor before
-    /// <c>SecretsSnapshotLoader.StartingAsync</c> populates the <see cref="RequiredAttribute"/>
-    /// secret fields.
+    /// <c>AuthenticationSecretsPostConfigure</c> patches in the <see cref="RequiredAttribute"/>
+    /// secret fields (already populated in the snapshot pre-Build by <c>SecretsPreBuildLoader</c>).
     /// </para>
     /// </summary>
     public static IServiceCollection AddInterfoldAuthChallengeSchemes(

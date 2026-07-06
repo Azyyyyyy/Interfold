@@ -74,7 +74,9 @@ static class SecretsStoreKeys
 
     /// <summary>
     /// FCM v1 service-account credential (PRIVATE — authenticates the API to Google FCM).
-    /// Read directly by the <c>IFCMService</c> DI factory; absent row → NullFCMService
+    /// Loaded into the secrets snapshot by <c>SecretsPreBuildLoader</c> and copied onto
+    /// <c>FcmConfiguration</c> by <c>FcmSecretsPostConfigure</c>; the <c>IFCMService</c> DI
+    /// factory reads <c>IOptions&lt;FcmConfiguration&gt;</c> — absent row → NullFCMService
     /// fallback so deployments without Firebase silently no-op the push flow.
     /// </summary>
     public static readonly SecretsStoreKey FcmServiceAccountJson = new("fcm:service_account_json");

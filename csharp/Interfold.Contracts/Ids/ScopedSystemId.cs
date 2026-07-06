@@ -198,12 +198,13 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
     /// Strip a leading <c>{region}:</c> prefix if present. The strip fires only when the
     /// substring before the first colon is a recognised region tag; every other input
     /// (blank, no colon, colon-at-start, non-region prefix like <c>"username:"</c>) is
-    /// returned unchanged. Refusing to strip unknown prefixes preserves the read-side
-    /// branch in <c>ScyllaUserRegistryRegionContext.LookupAsync</c> that routes
-    /// <c>username:</c> / <c>discord:</c> / <c>id:</c> to their respective registry
-    /// columns. A bare prefix like <c>"nam:"</c> deliberately returns empty so
-    /// <see cref="Compose(ScyllaKeyspace, string)"/> surfaces the caller-bug via its
-    /// blank-raw guard rather than emitting a malformed <c>"nam:nam:"</c>.
+    /// returned unchanged. Refusing to strip unknown prefixes preserves the strict
+    /// routing contract in <see cref="LookupHandle.TryParse"/> — post-Slice-7 the
+    /// discriminator prefixes (<c>username:</c> / <c>discord:</c> / <c>id:</c>) are the
+    /// domain of <c>LookupHandle</c>, and this method's job is unchanged: strip a region
+    /// tag or leave the input alone. A bare prefix like <c>"nam:"</c> deliberately returns
+    /// empty so <see cref="Compose(ScyllaKeyspace, string)"/> surfaces the caller-bug via
+    /// its blank-raw guard rather than emitting a malformed <c>"nam:nam:"</c>.
     /// </summary>
     internal static string StripLeadingRegionPrefix(string maybeScoped)
     {
