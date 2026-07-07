@@ -48,18 +48,34 @@ namespace Interfold.Api.Services.Secrets;
 /// </para>
 ///
 /// <para>
-/// <b>Non-pooled by design.</b> The connection this loader opens is forced to
-/// <c>Pooling=false</c> (see <see cref="WithPoolingDisabled"/>). Npgsql keys its connection pool
-/// on the full connection string, so any consumer that opens with the same string joins the same
-/// pool. In the integration-test rig, <c>SharedDbFixture</c> deliberately pins the app's Postgres
+/// <b>Dedicated pool by design.</b> Npgsql keys its connection pool on the full canonical
+/// connection string, so any consumer that opens with the same string joins the same pool. In
+/// the integration-test rig, <c>SharedDbFixture</c> deliberately pins the app's Postgres
 /// connection string to <c>Maximum Pool Size=5</c> to catch pool leaks in the app's runtime code;
 /// if this one-shot startup fetch shared that pool, N parallel <c>InterfoldWebApplicationFactory</c>
 /// builds would contend for those 5 slots plus whatever the app's own startup wanted, blowing the
-/// 15s pool timeout with <c>NpgsqlException: connection pool has been exhausted</c>. Forcing
-/// <c>Pooling=false</c> here gives the loader a dedicated physical connection per invocation,
-/// isolated from the app pool's identity — the extra ~10-30ms of a full connect on each factory
-/// build is trivial next to the alternative of failing every second startup. Production loads
-/// secrets once at boot per process, so the &quot;no pool re-use&quot; cost is a rounding error there too.
+/// 15s pool timeout with <c>NpgsqlException: connection pool has been exhausted</c>.
+/// </para>
+///
+/// <para>
+/// The fix is <see cref="WithDedicatedPoolIdentity"/>: rewrite the connection string to include
+/// <c>Application Name=octocon-secrets-preload</c> and <c>Maximum Pool Size=10</c>. The distinct
+/// Application Name changes the canonical string, giving the loader its own pool identity
+/// completely isolated from the app pool. Pooling stays enabled so subsequent factory builds
+/// reuse physical connections instead of paying full TCP+auth handshake on every startup. The
+/// cap of 10 is ample for the observed peak (~3-5 concurrent factory builds during a session)
+/// and, together with the app's 5-slot pool, keeps our total Postgres client footprint at 15 —
+/// well under Postgres's default <c>max_connections=100</c>. The <c>application_name</c> also
+/// surfaces in <c>pg_stat_activity</c> so ops can see the loader's connections at a glance.
+/// </para>
+///
+/// <para>
+/// <b>Historical note.</b> An earlier version of this loader used <c>Pooling=false</c> to escape
+/// the shared pool. That worked for the Npgsql-side pool contention but pushed the problem down
+/// one layer: every parallel factory build opened a fresh physical connection, and under peak
+/// test parallelism we started tripping <c>Postgres 53300: sorry, too many clients already</c>.
+/// The dedicated-pool approach fixes both failure modes at once — bounded footprint, connection
+/// reuse, and full isolation from the app's pool.
 /// </para>
 /// </summary>
 internal static class SecretsPreBuildLoader
@@ -146,12 +162,14 @@ internal static class SecretsPreBuildLoader
     private static Dictionary<string, string?> FetchFromPostgres(string pgConn)
     {
         var rows = new Dictionary<string, string?>(StringComparer.Ordinal);
-        // Force Pooling=false so this one-shot fetch never competes with the app's runtime
-        // pool. See the class-level "Non-pooled by design" note for the full rationale.
-        var nonPooledConn = WithPoolingDisabled(pgConn);
+        // Route through a dedicated Npgsql pool (distinct Application Name → distinct pool
+        // identity, bounded MaxPoolSize) so this one-shot fetch is isolated from the app pool
+        // and can't be starved by, or starve, the app's runtime connections. See the
+        // class-level "Dedicated pool by design" note for the full rationale.
+        var loaderConn = WithDedicatedPoolIdentity(pgConn);
         try
         {
-            using var conn = new NpgsqlConnection(nonPooledConn);
+            using var conn = new NpgsqlConnection(loaderConn);
             conn.Open();
             using var cmd = new NpgsqlCommand(
                 "SELECT key, value FROM internal.secrets WHERE key = ANY(@keys)", conn);
@@ -181,31 +199,56 @@ internal static class SecretsPreBuildLoader
     }
 
     /// <summary>
-    /// Returns a copy of <paramref name="pgConn"/> with <c>Pooling=false</c> forced on, regardless
-    /// of what the input specified. Round-trips through <see cref="NpgsqlConnectionStringBuilder"/>
-    /// so we never depend on brittle string manipulation and any operator-supplied keywords
-    /// (host, port, credentials, timeouts, SSL settings, application_name, etc.) survive the
-    /// round-trip untouched.
+    /// The Application Name we stamp onto the loader's connection string. Two purposes:
+    /// (1) shifts the canonical connection string away from the app's, giving us a dedicated
+    /// Npgsql pool identity; (2) surfaces in Postgres's <c>pg_stat_activity.application_name</c>
+    /// so operators can distinguish loader connections from app connections during triage.
+    /// </summary>
+    internal const string LoaderApplicationName = "octocon-secrets-preload";
+
+    /// <summary>
+    /// The bounded pool ceiling the loader gets. 10 is comfortably above the observed peak
+    /// concurrent factory-build count in the integration suite (~3-5) and, combined with the
+    /// app's fixture-pinned 5-slot pool, keeps our total Postgres client footprint at 15 —
+    /// well under the Postgres default <c>max_connections=100</c>. Bumping this is safe up to
+    /// <c>max_connections</c> minus the app pool and any other consumers.
+    /// </summary>
+    internal const int LoaderMaxPoolSize = 10;
+
+    /// <summary>
+    /// Returns a copy of <paramref name="pgConn"/> rewritten to route through a dedicated
+    /// Npgsql pool. Sets <c>Application Name=</c><see cref="LoaderApplicationName"/> (which
+    /// shifts the canonical connection string, giving us a distinct pool identity from the
+    /// app), <c>Maximum Pool Size=</c><see cref="LoaderMaxPoolSize"/> (bounded ceiling that
+    /// keeps our Postgres client footprint predictable), and leaves <c>Pooling=true</c> (the
+    /// Npgsql default) so subsequent invocations reuse physical connections.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Why override rather than append.</b> Npgsql keys its pool on the full canonical
-    /// connection string, so any pre-existing <c>Pooling=true</c> or a bare positive
-    /// <c>Maximum Pool Size=N</c> in the input string would land us back in a shared pool with
-    /// whoever else opens the same string. The whole point of this helper is to opt out of pool
-    /// contention entirely, so we explicitly set the value rather than only appending when
-    /// unset — that's the invariant the unit tests pin.
+    /// Round-trips through <see cref="NpgsqlConnectionStringBuilder"/> so we never depend on
+    /// brittle string manipulation, and any operator-supplied keywords (host, port, credentials,
+    /// timeouts, SSL settings, etc.) survive the round-trip untouched.
+    /// </para>
+    /// <para>
+    /// <b>Why override rather than append.</b> Any pre-existing Application Name or MaxPoolSize
+    /// in the input would land us back in a shared pool with whoever else opens the same string.
+    /// The whole point of this helper is to guarantee isolation, so we explicitly set both values
+    /// rather than only appending when unset — that's the invariant the unit tests pin.
     /// </para>
     /// <para>
     /// Extracted (rather than inlined) so it can be exercised in isolation from
     /// <c>SecretsPreBuildLoaderPoolingTests</c> without spinning up Postgres.
     /// </para>
     /// </remarks>
-    internal static string WithPoolingDisabled(string pgConn)
+    internal static string WithDedicatedPoolIdentity(string pgConn)
     {
         var builder = new NpgsqlConnectionStringBuilder(pgConn)
         {
-            Pooling = false,
+            ApplicationName = LoaderApplicationName,
+            MaxPoolSize = LoaderMaxPoolSize,
+            // Pooling defaults to true in Npgsql; assign explicitly so a future edit that
+            // toggles the default doesn't silently strand us in pool-less mode again.
+            Pooling = true,
         };
         return builder.ConnectionString;
     }

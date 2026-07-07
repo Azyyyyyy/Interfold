@@ -537,6 +537,37 @@ internal static string ResolveLoopbackBaseUri(ICollection<string>? addresses)
         .Replace("://*",       "://127.0.0.1", StringComparison.Ordinal);
 }
 
+/// <summary>
+/// Region-prefix-tolerant equality between the JWT <c>sub</c> claim and the socket topic id.
+/// <para>
+/// Slice 4 hardened <c>InterfoldPrincipalMiddleware</c> so every JWT that lands on an
+/// Interfold controller must carry a scoped <c>{region}:{rawId}</c> sub. Socket topics on
+/// the wire stay in raw <c>system:{rawId}</c> form: <c>SystemTopic.TryParse</c> returns the
+/// bare id, and the pump-side push routing already tolerates the scoped/raw split via
+/// <c>SystemTopic.IdMatches</c> and via the publisher-side filter in
+/// <c>InProcessEventBus.PublishAsync</c> (see that method's lines 80-96 for the mirror
+/// rationale). This helper is the third and previously-missing comparison site that has to
+/// agree on what "same principal" means — without it, a scoped-sub JWT joining a raw-topic
+/// channel 401s at the socket layer even though the middleware + pump would both accept it.
+/// </para>
+/// <para>
+/// Marked <c>internal</c> so the unit test project can drive the four token/topic prefix
+/// shapes directly rather than having to spin up a full <c>WebApplicationFactory</c>.
+/// </para>
+/// </summary>
+internal static bool IsTokenSubjectAuthorizedForTopic(string? tokenSubject, string? requestedSystemId)
+{
+    if (string.IsNullOrWhiteSpace(tokenSubject) || string.IsNullOrWhiteSpace(requestedSystemId))
+    {
+        return false;
+    }
+
+    return string.Equals(
+        SystemIdNormalization.StripRegionPrefix(tokenSubject),
+        SystemIdNormalization.StripRegionPrefix(requestedSystemId),
+        StringComparison.Ordinal);
+}
+
 static async Task<(bool IsAuthorized, ErrorCode? FailureReason)> IsSocketJoinTokenAuthorizedAsync(
     HttpContext context,
     string token,
@@ -597,7 +628,7 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason)> IsSocketJoinTok
             return (false, ErrorCodes.SocketReasons.InvalidSocketTokenSubject);
         }
 
-        if (!string.Equals(tokenSystemId, requestedSystemId, StringComparison.Ordinal))
+        if (!IsTokenSubjectAuthorizedForTopic(tokenSystemId, requestedSystemId))
         {
             logger.LogWarning("Token subject does not match requested system ID");
             return (false, ErrorCodes.SocketReasons.UnauthorizedTopic);

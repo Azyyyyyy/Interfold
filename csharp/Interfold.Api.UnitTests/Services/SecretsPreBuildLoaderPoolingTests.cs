@@ -4,11 +4,23 @@ using Npgsql;
 namespace Interfold.Api.UnitTests.Services;
 
 /// <summary>
-/// Pins the pool-isolation contract for <see cref="SecretsPreBuildLoader.WithPoolingDisabled"/>.
-/// If any of these break, the loader will silently re-enter shared-pool territory and the
-/// Npgsql pool-exhaustion regression that used to blow up parallel factory builds in the
-/// integration suite (<c>NpgsqlException: connection pool has been exhausted, either raise
-/// 'Max Pool Size' (currently 5) or 'Timeout' (currently 15 seconds)</c>) will come back.
+/// Pins the pool-isolation contract for <see cref="SecretsPreBuildLoader.WithDedicatedPoolIdentity"/>.
+/// If any of these break, the loader will silently re-enter shared-pool territory (or the
+/// bounded-pool guarantee will be lost) and one of two integration-suite regressions will come
+/// back:
+/// <list type="bullet">
+///   <item>
+///   Losing the dedicated pool identity → the loader rejoins the app's 5-slot pool
+///   (<c>SharedDbFixture</c> deliberately pins <c>Maximum Pool Size=5</c>) and parallel factory
+///   builds fail with <c>NpgsqlException: connection pool has been exhausted, either raise
+///   'Max Pool Size' (currently 5) or 'Timeout' (currently 15 seconds)</c>.
+///   </item>
+///   <item>
+///   Losing the bounded ceiling → each parallel factory build opens fresh physical connections
+///   without bound, and once we hit Postgres's <c>max_connections</c> (default 100) the suite
+///   fails with <c>Npgsql.PostgresException: 53300: sorry, too many clients already</c>.
+///   </item>
+/// </list>
 ///
 /// Every test round-trips through the real <see cref="NpgsqlConnectionStringBuilder"/> so
 /// keyword aliases and casing quirks are covered by the same parser Npgsql uses at
@@ -17,73 +29,106 @@ namespace Interfold.Api.UnitTests.Services;
 public sealed class SecretsPreBuildLoaderPoolingTests
 {
     /// <summary>
-    /// Core invariant: whatever the input said about pooling, the output must disable it.
-    /// The pool identity is keyed on the canonical connection string, so a mismatched
-    /// Pooling keyword is the difference between "join the app's 5-slot pool" and "open a
-    /// dedicated physical connection".
+    /// Core invariant: the loader stamps its distinctive Application Name onto the output.
+    /// Npgsql keys its pool identity on the full canonical connection string, so this is what
+    /// gives the loader its own pool separate from the app's. If this ever gets dropped, the
+    /// loader silently re-joins the app pool and the "pool exhausted" regression returns.
     /// </summary>
     [Test]
-    public async Task WithPoolingDisabled_WhenInputHasNoPoolingKeyword_ForcesPoolingFalse()
+    public async Task WithDedicatedPoolIdentity_StampsLoaderApplicationName()
     {
         const string input = "Host=localhost;Port=5432;Username=app;Password=pw;Database=octocon";
 
-        var output = SecretsPreBuildLoader.WithPoolingDisabled(input);
+        var output = SecretsPreBuildLoader.WithDedicatedPoolIdentity(input);
 
         var parsed = new NpgsqlConnectionStringBuilder(output);
-        await Assert.That(parsed.Pooling).IsFalse();
+        await Assert.That(parsed.ApplicationName).IsEqualTo(SecretsPreBuildLoader.LoaderApplicationName);
     }
 
     /// <summary>
-    /// Regression pin against a subtle failure mode: an operator (or test fixture) that
-    /// left <c>Pooling=true</c> explicitly in the connection string previously would have
-    /// been honoured, dropping us back into shared-pool contention. This test proves we
-    /// override rather than append.
+    /// Regression pin against a subtle failure mode: an operator (or upstream config) that
+    /// stamps its own Application Name would previously have been honoured, leaving the loader
+    /// sharing that consumer's pool identity. This test proves we override rather than defer.
     /// </summary>
     [Test]
-    public async Task WithPoolingDisabled_WhenInputExplicitlyEnablesPooling_OverridesToFalse()
+    public async Task WithDedicatedPoolIdentity_OverridesPreExistingApplicationName()
     {
         const string input =
-            "Host=localhost;Port=5432;Username=app;Password=pw;Database=octocon;Pooling=true";
+            "Host=localhost;Port=5432;Username=app;Password=pw;Database=octocon;Application Name=some-other-app";
 
-        var output = SecretsPreBuildLoader.WithPoolingDisabled(input);
+        var output = SecretsPreBuildLoader.WithDedicatedPoolIdentity(input);
 
         var parsed = new NpgsqlConnectionStringBuilder(output);
-        await Assert.That(parsed.Pooling).IsFalse();
+        await Assert.That(parsed.ApplicationName).IsEqualTo(SecretsPreBuildLoader.LoaderApplicationName);
+    }
+
+    /// <summary>
+    /// Bounded-ceiling invariant: MaxPoolSize on the output must match the loader's constant.
+    /// This is what caps our Postgres client footprint at a known value. Without it, unbounded
+    /// pool growth under high parallelism trips Postgres's <c>max_connections</c> and the
+    /// "too many clients already" regression returns.
+    /// </summary>
+    [Test]
+    public async Task WithDedicatedPoolIdentity_StampsBoundedMaxPoolSize()
+    {
+        const string input = "Host=localhost;Port=5432;Username=app;Password=pw;Database=octocon";
+
+        var output = SecretsPreBuildLoader.WithDedicatedPoolIdentity(input);
+
+        var parsed = new NpgsqlConnectionStringBuilder(output);
+        await Assert.That(parsed.MaxPoolSize).IsEqualTo(SecretsPreBuildLoader.LoaderMaxPoolSize);
     }
 
     /// <summary>
     /// The specific shape the integration-test fixture uses (<c>SharedDbFixture</c> pins
-    /// <c>Maximum Pool Size=5</c>). If the loader ever re-joined that pool, N parallel
-    /// factory builds would deadlock inside the 15s pool timeout with the exact error
-    /// this Step-2 change eliminates. Pin that shape here explicitly so the regression
-    /// is visible without having to re-run the whole integration suite.
+    /// <c>Maximum Pool Size=5</c>). Pin this shape here explicitly so the regression is visible
+    /// without having to re-run the whole integration suite: after the rewrite the loader must
+    /// carry ITS OWN ceiling, not the fixture's 5-slot value.
     /// </summary>
     [Test]
-    public async Task WithPoolingDisabled_WhenInputPinsMaxPoolSize_StillDisablesPooling()
+    public async Task WithDedicatedPoolIdentity_OverridesFixtureMaxPoolSize()
     {
         const string input =
             "Host=localhost;Port=5432;Username=app;Password=pw;Database=octocon;Maximum Pool Size=5";
 
-        var output = SecretsPreBuildLoader.WithPoolingDisabled(input);
+        var output = SecretsPreBuildLoader.WithDedicatedPoolIdentity(input);
 
         var parsed = new NpgsqlConnectionStringBuilder(output);
-        await Assert.That(parsed.Pooling).IsFalse();
+        await Assert.That(parsed.MaxPoolSize).IsEqualTo(SecretsPreBuildLoader.LoaderMaxPoolSize);
     }
 
     /// <summary>
-    /// Round-trip invariant: overriding Pooling must not clobber any other keyword the
-    /// operator supplied (credentials, TLS mode, application_name, timeouts, etc.). If
-    /// this breaks, a production deployment could silently lose critical settings on
-    /// startup — no thanks. Assert that the host/port/user/database quadruple survives.
+    /// Pooling must stay enabled (the Npgsql default) so subsequent factory builds reuse
+    /// physical connections instead of paying full TCP+auth handshake on every startup.
+    /// Explicitly asserted here because an earlier iteration of this loader forced
+    /// <c>Pooling=false</c>, which pushed the exhaustion problem down to Postgres itself
+    /// (<c>53300: sorry, too many clients already</c>) — that regression must not return.
     /// </summary>
     [Test]
-    public async Task WithPoolingDisabled_PreservesAllOtherKeywords()
+    public async Task WithDedicatedPoolIdentity_KeepsPoolingEnabled()
+    {
+        const string input =
+            "Host=localhost;Port=5432;Username=app;Password=pw;Database=octocon;Pooling=false";
+
+        var output = SecretsPreBuildLoader.WithDedicatedPoolIdentity(input);
+
+        var parsed = new NpgsqlConnectionStringBuilder(output);
+        await Assert.That(parsed.Pooling).IsTrue();
+    }
+
+    /// <summary>
+    /// Round-trip invariant: setting our loader keywords must not clobber any other keyword
+    /// the operator supplied (credentials, TLS mode, timeouts, etc.). If this breaks, a
+    /// production deployment could silently lose critical settings on startup — no thanks.
+    /// </summary>
+    [Test]
+    public async Task WithDedicatedPoolIdentity_PreservesAllOtherKeywords()
     {
         const string input =
             "Host=db.internal;Port=6543;Username=app;Password=super-secret;Database=octocon;" +
-            "SSL Mode=Require;Application Name=api;Timeout=30;Command Timeout=60";
+            "SSL Mode=Require;Timeout=30;Command Timeout=60";
 
-        var output = SecretsPreBuildLoader.WithPoolingDisabled(input);
+        var output = SecretsPreBuildLoader.WithDedicatedPoolIdentity(input);
 
         var parsed = new NpgsqlConnectionStringBuilder(output);
         using (Assert.Multiple())
@@ -94,27 +139,33 @@ public sealed class SecretsPreBuildLoaderPoolingTests
             await Assert.That(parsed.Password).IsEqualTo("super-secret");
             await Assert.That(parsed.Database).IsEqualTo("octocon");
             await Assert.That(parsed.SslMode).IsEqualTo(SslMode.Require);
-            await Assert.That(parsed.ApplicationName).IsEqualTo("api");
             await Assert.That(parsed.Timeout).IsEqualTo(30);
             await Assert.That(parsed.CommandTimeout).IsEqualTo(60);
-            await Assert.That(parsed.Pooling).IsFalse();
+            await Assert.That(parsed.ApplicationName).IsEqualTo(SecretsPreBuildLoader.LoaderApplicationName);
+            await Assert.That(parsed.MaxPoolSize).IsEqualTo(SecretsPreBuildLoader.LoaderMaxPoolSize);
+            await Assert.That(parsed.Pooling).IsTrue();
         }
     }
 
     /// <summary>
     /// Idempotence: applying the transform twice must produce a string that still parses
-    /// with <c>Pooling=false</c>. Guards against a future refactor that accidentally
-    /// double-appends the keyword and produces a string Npgsql refuses to parse.
+    /// with the loader's identity + ceiling. Guards against a future refactor that
+    /// accidentally double-appends keywords or produces a string Npgsql refuses to parse.
     /// </summary>
     [Test]
-    public async Task WithPoolingDisabled_IsIdempotent()
+    public async Task WithDedicatedPoolIdentity_IsIdempotent()
     {
         const string input = "Host=localhost;Port=5432;Username=app;Password=pw;Database=octocon";
 
-        var once  = SecretsPreBuildLoader.WithPoolingDisabled(input);
-        var twice = SecretsPreBuildLoader.WithPoolingDisabled(once);
+        var once  = SecretsPreBuildLoader.WithDedicatedPoolIdentity(input);
+        var twice = SecretsPreBuildLoader.WithDedicatedPoolIdentity(once);
 
         var parsed = new NpgsqlConnectionStringBuilder(twice);
-        await Assert.That(parsed.Pooling).IsFalse();
+        using (Assert.Multiple())
+        {
+            await Assert.That(parsed.ApplicationName).IsEqualTo(SecretsPreBuildLoader.LoaderApplicationName);
+            await Assert.That(parsed.MaxPoolSize).IsEqualTo(SecretsPreBuildLoader.LoaderMaxPoolSize);
+            await Assert.That(parsed.Pooling).IsTrue();
+        }
     }
 }

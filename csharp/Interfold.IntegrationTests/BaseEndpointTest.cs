@@ -614,13 +614,37 @@ public class BaseEndpointTest
         var now = DateTimeOffset.UtcNow;
         var expiresAt = now.AddDays(1);
 
-        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, new Interfold.Contracts.Ids.Jti(jti), new Interfold.Contracts.Ids.SystemId(systemId));
-        await rev.RecordTokenAsync(new Interfold.Contracts.Ids.Jti(jti), new Interfold.Contracts.Ids.SystemId(systemId), expiresAt, CancellationToken.None);
+        // Slice 4 hardened InterfoldPrincipalMiddleware to reject any JWT whose `sub` claim
+        // is not in scoped `{region}:{rawId}` form (see ScopedSystemId.TryParseScoped). The
+        // WebSocket `endpoint` frame proxies the socket's JWT back into the same API host —
+        // so a raw-sub token minted here 401s at the inner controller, the command handler
+        // never runs, the event bus never publishes, and the pump-side push the test is
+        // waiting for never arrives (surfaces as a 30s+ timeout on every endpoint-proxy
+        // WebSocket test). Compose is idempotent (strips any existing region prefix before
+        // re-applying), so callers that already pass a scoped id get the same value out.
+        // Nam is the default region the InMemory bootstrapper seeds, matching the sibling
+        // token minter InterfoldWebApplicationFactory.CreateToken.
+        //
+        // The socket-join gate (WebSocketHandler.IsTokenSubjectAuthorizedForTopic) is the
+        // dual: it tolerates the scoped-sub / raw-topic split so a `system:{rawId}` topic
+        // can be joined by a `nam:{rawId}`-sub JWT without a strict-equality 401 — see the
+        // helper's summary for the full rationale. Both edits ship together.
+        var scoped = Interfold.Contracts.Ids.ScopedSystemId.Compose(Interfold.Contracts.Enums.ScyllaKeyspace.Nam, systemId);
+        var scopedSystemId = scoped.AsSystemId();
 
-        // Ensure user row exists in backing store (required for Scylla/Cassandra)
+        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, new Interfold.Contracts.Ids.Jti(jti), scopedSystemId);
+        // Record the same scoped id so any audit column persisted alongside the revocation
+        // row is byte-identical to the JWT sub — future readers cross-referencing revocation
+        // by system id see the wire-canonical shape rather than a raw-id ghost.
+        await rev.RecordTokenAsync(new Interfold.Contracts.Ids.Jti(jti), scopedSystemId, expiresAt, CancellationToken.None);
+
+        // EnsureUserExistsAsync goes through AttachPrincipalAuth → factory.CreateToken which
+        // already auto-scopes internally (Slice 4 fix), so passing the raw `systemId` here
+        // is correct — the user row is keyed by principal identity, and the auth helper
+        // handles the wire shape.
         using var client = factory.CreateClient();
         await EnsureUserExistsAsync(client, systemId);
-        
+
         return token;
     }
 
