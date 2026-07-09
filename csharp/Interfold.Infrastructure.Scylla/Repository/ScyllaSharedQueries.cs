@@ -30,7 +30,7 @@ internal static class ScyllaSharedQueries
         }
 
         var normalizedViewerSystemId = keyspaceResolver.NormalizeTyped(viewerSystemId.Value);
-        if (ownerSystemId == normalizedViewerSystemId)
+        if (keyspaceResolver.NormalizeTyped(ownerSystemId) == normalizedViewerSystemId)
         {
             return FriendshipLevel.TrustedFriend;
         }

@@ -49,18 +49,16 @@ public sealed class ScyllaKeyspaceResolver : IScyllaKeyspaceResolver
 
     public string ResolveRegionalKeyspace(string systemId)
     {
-        // Slice 4: TryParseScoped subsumes the "extract prefix + guard against id/username/discord"
-        // dance the pre-Slice-4 code did by hand. A valid-region prefix routes straight to that
-        // keyspace; every other shape (no prefix, id/username/discord discriminator, unknown
-        // region tag) falls through to the region-context lookup — a strict improvement over the
-        // old code, which returned "unknown" verbatim for an unrecognised prefix and would then
-        // attempt CQL against a non-existent keyspace.
-        if (Contracts.Ids.ScopedSystemId.TryParseScoped(systemId, out var scoped))
-        {
-            return scoped.Region.ToWireValue();
-        }
+        if (string.IsNullOrWhiteSpace(systemId))
+            return DefaultKeyspace;
 
-        return _regionContext.ResolveUserRegion(systemId).ToWireValue();
+        // Slice 4: JWT-derived principals arrive scoped (nam:sys-abc) while public-route
+        // bindings stay raw (sys-abc). The pre-fix TryParseScoped fast path routed scoped
+        // ids straight to the prefix region and raw ids through user_registry — the same
+        // principal could be written in nam.* and read from eur.* when the registry row
+        // was absent or carried a different home region. Canonicalise to the stripped raw
+        // id and resolve through IRegionContext so both wire forms share one keyspace.
+        return _regionContext.ResolveUserRegion(NormalizeSystemId(systemId)).ToWireValue();
     }
 
     public string ResolveGlobalKeyspace() => ScyllaGlobalKeyspace.Name;

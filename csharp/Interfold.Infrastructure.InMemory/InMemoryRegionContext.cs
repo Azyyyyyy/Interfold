@@ -25,7 +25,21 @@ public sealed class InMemoryRegionContext : IRegionContext
             return CurrentRegion;
         }
 
-        var index = Math.Abs(systemId.GetHashCode(StringComparison.Ordinal)) % Regions.Length;
+        // Slice 4: post-hardening, callers routinely arrive here with either the raw
+        // "sys-abc..." shape (route-bound SystemId) or the scoped "nam:sys-abc..." shape
+        // (JWT-derived ScopedSystemId, or a downstream Compose call). Hashing whichever
+        // shape happened to reach us produces two different regions for the same
+        // principal — the row written under one shape becomes invisible to the read
+        // under the other, surfacing as `system_not_found` 404s in PublicSystemsController
+        // for every test that seeds a user via the /api/settings/username principal path
+        // and reads back through a raw [FromRoute] SystemId URL segment.
+        //
+        // Strip the region prefix first so the hash is a function of the principal, not
+        // of the caller's chosen wire form. Mirrors ScyllaUserRegistryRegionContext's
+        // tolerance (see RegionContextCachingTests.ResolveUserRegion_StripsLegacyPrefix_
+        // BeforeCacheLookup for the equivalent invariant on the persistent backend).
+        var normalized = SystemIdNormalization.StripRegionPrefix(systemId);
+        var index = Math.Abs(normalized.GetHashCode(StringComparison.Ordinal)) % Regions.Length;
         return Regions[index];
     }
 

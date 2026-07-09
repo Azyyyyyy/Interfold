@@ -45,11 +45,26 @@ public enum LookupKind
 /// <para>
 /// <b>Strict rejection of unknown non-region prefixes.</b> An input like <c>"xxx:abcdefg"</c>
 /// (where <c>xxx</c> is neither a region tag nor one of the four discriminator prefixes)
-/// returns <see langword="false"/> from <see cref="TryParse"/>. Callers are expected to
-/// treat "not parseable" as "opaque bare id" and query the <c>user_registry.user_id</c>
-/// column with the whole input (not the after-colon slice) — this is a behaviour change
-/// from the pre-Slice-7 <c>SplitDiscriminatorPrefix</c> which silently stripped any
-/// prefix-with-colon.
+/// returns <see langword="false"/> from <see cref="TryParse"/>. Callers with a real
+/// registry (Scylla: <c>user_registry.user_id</c>) are expected to treat "not parseable"
+/// as "opaque bare id" and query the registry with the <b>whole</b> input (not the
+/// after-colon slice) — the miss then surfaces as <c>friend_request:no_user</c> (422).
+/// This is a behaviour change from the pre-Slice-7 <c>SplitDiscriminatorPrefix</c> which
+/// silently stripped any prefix-with-colon.
+/// </para>
+///
+/// <para>
+/// <b>Backend asymmetry on the unparseable branch.</b> The "opaque round-trip → miss"
+/// chain above works on Scylla / Cassandra because those backends have a real
+/// <c>user_registry.user_id</c> lookup that produces the miss. The InMemory backend has
+/// no such intermediate lookup: round-tripping an unparseable input would flow the
+/// opaque id straight into the friend-request writer with no existence check, creating
+/// a phantom friend request. So the InMemory dispatch returns <see langword="null"/>
+/// directly for the unparseable branch instead of round-tripping — the observable
+/// outcome (422 <c>friend_request:no_user</c>) is the same across all three backends
+/// even though the InMemory path is shorter. See
+/// <c>InMemoryFriendshipRepository.ResolveUserIdAsync</c>'s rationale block for the
+/// full asymmetry and the cross-backend integration pin.
 /// </para>
 /// </summary>
 public readonly record struct LookupHandle

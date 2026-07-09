@@ -132,7 +132,7 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         }
 
         var principalId = PrincipalId;
-        if (principalId == systemId)
+        if (principalId.RawId == SystemIdNormalization.StripRegionPrefix(systemId))
         {
             return new ErrorResponse(
                 "You cannot view your own system through this endpoint.",

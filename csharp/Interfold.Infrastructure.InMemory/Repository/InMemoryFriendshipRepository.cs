@@ -58,15 +58,24 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
         // "username:alice".
         //
         // Unparseable inputs (unknown non-region prefix like "xxx:foo", or the
-        // colon-at-boundary shapes ":foo" / "foo:") must NOT silently normalise-and-
-        // return: the Slice 7 contract on LookupHandle.TryParse says callers should
-        // "treat 'not parseable' as opaque bare id and query user_registry.user_id with
-        // the whole input, misses → NoUser". InMemory has no user_registry, so the
-        // equivalent behaviour is "no such user" — return null so the command handler
-        // surfaces the same friend_request:no_user (422) that Scylla / Cassandra emit
-        // for the same inputs. Falling back to `Normalize(new SystemId(input))` here
-        // was the pre-Slice-7 InMemory footgun that silently accepted "xxx:whatever"
-        // as a valid recipient and let a phantom friend request be created.
+        // colon-at-boundary shapes ":foo" / "foo:") return null. The LookupHandle
+        // type-level doc's "opaque bare id round-trip → query user_registry.user_id →
+        // miss → NoUser" chain is a valid *Scylla* behaviour because that backend has a
+        // real user_registry.user_id column that produces the miss. InMemory has no such
+        // intermediate lookup: if we round-trip the opaque input via Normalize, the
+        // downstream friend-request pipeline writes the request directly under the
+        // opaque "xxx:foo" key with no existence check, producing a phantom friend
+        // request and a 204 NoContent instead of the 422 friend_request:no_user that
+        // SendFriendRequestPrefixTests.SendFriendRequest_UnknownPrefix_ReturnsNoUser
+        // pins as the cross-backend contract. Return null here so the command handler
+        // surfaces the same 422 the Scylla path produces for the same input — the
+        // observable is the same across backends even though the internal path is
+        // shorter for InMemory (short-circuit here rather than round-trip-then-miss).
+        //
+        // Any unit test that expects "opaque round-trip" for unknown prefixes on the
+        // *InMemory* repo (as an earlier Slice-7 draft did in ResolveUserIdDispatchTests)
+        // is pinning a shape that would resurrect the pre-Slice-7 phantom-create footgun
+        // — update it to expect null instead.
         if (!LookupHandle.TryParse(input, out var handle))
         {
             return null;

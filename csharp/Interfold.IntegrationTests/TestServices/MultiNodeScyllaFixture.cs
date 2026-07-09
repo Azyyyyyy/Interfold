@@ -115,6 +115,29 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
         await base.InitializeAsync().ConfigureAwait(false);
     }
 
+    public override async ValueTask DisposeAsync()
+    {
+        using var _ = LifecycleProbe.BeginTimed("AfterFixtureDispose:MultiNodeScyllaFixture");
+        LifecycleProbe.Log("BeforeFixtureDispose:MultiNodeScyllaFixture");
+
+        try
+        {
+            await AspireContainerCleanup
+                .StopResourcesAsync(AspireContainerCleanup.MultiNodeScyllaResourceNames())
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // Best-effort pre-stop; base dispose must still run.
+        }
+
+        await base.DisposeAsync().ConfigureAwait(false);
+
+        var remaining = await AspireContainerCleanup.CountRunningAspireContainersAsync().ConfigureAwait(false);
+        if (remaining > 0)
+            LifecycleProbe.Log($"MultiNodeScyllaFixture.RemainingAspireContainers:{remaining}");
+    }
+
     protected override async Task WaitForResourcesAsync(DistributedApplication app, CancellationToken cancellationToken)
     {
         var notifications = app.Services.GetRequiredService<ResourceNotificationService>();

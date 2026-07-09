@@ -153,6 +153,29 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         await base.InitializeAsync().ConfigureAwait(false);
     }
 
+    public override async ValueTask DisposeAsync()
+    {
+        using var _ = LifecycleProbe.BeginTimed("AfterFixtureDispose:SharedDbFixture");
+        LifecycleProbe.Log("BeforeFixtureDispose:SharedDbFixture");
+
+        try
+        {
+            await AspireContainerCleanup
+                .StopResourcesAsync(AspireContainerCleanup.SharedDbResourceNames())
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // Best-effort pre-stop; base dispose must still run.
+        }
+
+        await base.DisposeAsync().ConfigureAwait(false);
+
+        var remaining = await AspireContainerCleanup.CountRunningAspireContainersAsync().ConfigureAwait(false);
+        if (remaining > 0)
+            LifecycleProbe.Log($"SharedDbFixture.RemainingAspireContainers:{remaining}");
+    }
+
     protected override async Task WaitForResourcesAsync(DistributedApplication app, CancellationToken cancellationToken)
     {
         var notifications = app.Services.GetRequiredService<ResourceNotificationService>();

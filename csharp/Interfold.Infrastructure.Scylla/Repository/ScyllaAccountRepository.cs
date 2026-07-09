@@ -50,12 +50,31 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             var oldUsername = oldRow?.GetValue<string?>("username");
 
             var batch = new BatchStatement();
-            batch.Add(new SimpleStatement(
-                $"UPDATE {keyspace}.users SET username = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                username.Value, normalizedSystemId));
-            batch.Add(new SimpleStatement(
-                $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET username = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
-                username.Value, normalizedSystemId));
+            if (oldRow is null)
+            {
+                // First touch for a JWT-scoped principal: mint the regional users row so
+                // GetPublicProfileAsync (and public guarded reads that gate on it) succeed.
+                // InMemory achieves the same implicitly by writing into its username map;
+                // Scylla previously only issued UPDATE, leaving ShowAlter to 404 system_not_found.
+                batch.Add(new SimpleStatement(
+                    $"INSERT INTO {keyspace}.users (id, username, inserted_at, updated_at) VALUES (?, ?, toTimestamp(now()), toTimestamp(now()))",
+                    normalizedSystemId,
+                    username.Value));
+                batch.Add(new SimpleStatement(
+                    $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry (user_id, username, region, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
+                    normalizedSystemId,
+                    username.Value,
+                    keyspace));
+            }
+            else
+            {
+                batch.Add(new SimpleStatement(
+                    $"UPDATE {keyspace}.users SET username = ?, updated_at = toTimestamp(now()) WHERE id = ?",
+                    username.Value, normalizedSystemId));
+                batch.Add(new SimpleStatement(
+                    $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET username = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
+                    username.Value, normalizedSystemId));
+            }
 
             // Remove old lookup entry
             if (!string.IsNullOrWhiteSpace(oldUsername))

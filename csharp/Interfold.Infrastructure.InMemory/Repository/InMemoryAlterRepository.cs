@@ -22,7 +22,10 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         public string? Pronouns { get; set; }
         public string? ProxyName { get; set; }
         public string Name { get; set; } = string.Empty;
-        public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Private;
+        // Match Scylla read semantics: rows without security_level resolve to Public via
+        // VisibilityLevelExtensions.FromCodeOrPublic, so new alters are world-readable
+        // until the owner tightens visibility explicitly.
+        public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Public;
         public Dictionary<string, string?> Fields { get; } = new(StringComparer.OrdinalIgnoreCase);
         public bool Untracked { get; set; }
         public bool Archived { get; set; }
@@ -357,7 +360,8 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             return null;
         }
 
-        if (systemId == viewerSystemId)
+        if (SystemIdNormalization.StripRegionPrefix(systemId) ==
+            SystemIdNormalization.StripRegionPrefix(viewerSystemId.Value))
         {
             return FriendshipLevel.TrustedFriend;
         }

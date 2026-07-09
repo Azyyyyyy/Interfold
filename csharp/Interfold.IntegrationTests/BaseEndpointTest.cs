@@ -60,6 +60,10 @@ public class BaseEndpointTest
     public static void Probe_BeforeTestSession()
         => LifecycleProbe.Log("Before(TestSession)");
 
+    [After(HookType.TestSession)]
+    public static void Probe_AfterTestSession()
+        => LifecycleProbe.Log("After(TestSession)");
+
     internal static bool ReadBoolField(string json, string fieldName)
     {
         using var doc = JsonDocument.Parse(json);

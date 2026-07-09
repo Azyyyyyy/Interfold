@@ -109,20 +109,28 @@ public sealed class ResolveUserIdDispatchTests
     // ---------------- Unparseable / unknown prefix --------------------------
 
     [Test]
-    public async Task ResolveUserId_UnknownPrefix_KeepsWholeInput()
+    public async Task ResolveUserId_UnknownPrefix_ReturnsNull()
     {
-        // "xxx:abcdefg" has an unknown non-region prefix. LookupHandle.TryParse rejects
-        // it, so the InMemory dispatch falls through to the raw-normalise branch with
-        // the whole input. Normalize is a no-op on non-region prefixes (xxx isn't one
-        // of the seven region tags), so the resolved value keeps its literal shape —
-        // this preserves the "opaque bare id" behaviour the pre-Slice-7 fallback would
-        // have delivered.
+        // "xxx:abcdefg" has an unknown non-region prefix (xxx is neither a region tag
+        // nor one of the id/username/discord discriminator prefixes). LookupHandle.
+        // TryParse rejects it, so the InMemory dispatch takes the "unparseable" branch.
+        //
+        // The correct InMemory behaviour is "return null" — NOT "opaque round-trip via
+        // Normalize". The Scylla equivalent round-trips the whole input into a
+        // user_registry.user_id lookup which misses → NoUser → friend_request:no_user
+        // (422). InMemory has no user_registry, so a round-trip here would flow the
+        // opaque id straight into the friend-request writer with no existence check,
+        // creating a phantom friend request under the "xxx:abcdefg" key and returning
+        // 204 NoContent instead of the 422 that the cross-backend contract requires
+        // (pinned by SendFriendRequestPrefixTests.SendFriendRequest_UnknownPrefix_
+        // ReturnsNoUser). See InMemoryFriendshipRepository.ResolveUserIdAsync's
+        // rationale block for the full backend-shape asymmetry.
         var repo = new InMemoryFriendshipRepository();
 
         var resolved = await repo.ResolveUserIdAsync(new UsernameOrSystemId("xxx:abcdefg"));
 
-        await Assert.That(resolved?.Value).IsEqualTo("xxx:abcdefg")
-            .Because("Unknown non-region prefix must NOT be stripped — the value round-trips as an opaque handle so the caller can decide what to do with the miss.");
+        await Assert.That(resolved).IsNull()
+            .Because("Unknown non-region prefix must return null on the InMemory backend so the command handler surfaces the same friend_request:no_user (422) the Scylla path produces via user_registry miss — opaque round-trip is the Scylla-only path, not a portable InMemory pin.");
     }
 
     [Test]

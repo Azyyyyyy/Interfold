@@ -48,7 +48,7 @@ public sealed class LocalAvatarStorage : IAvatarStorage
         if (string.IsNullOrWhiteSpace(avatarUrl))
             return Task.FromResult(false);
 
-        var basePath = PublicBase.TrimEnd('/');
+        var basePath = GetPublicBasePath(PublicBase);
         var storageRoot = Path.GetFullPath(StorageRoot);
         var storageRootWithSep = storageRoot.EndsWith(Path.DirectorySeparatorChar)
             ? storageRoot
@@ -84,7 +84,8 @@ public sealed class LocalAvatarStorage : IAvatarStorage
 
     private async Task<string> SaveAsync(string systemId, string targetId, Stream stream, CancellationToken cancellationToken)
     {
-        var safeSystemId = SafeSegmentPattern.Replace(systemId, "_");
+        var rawSystemId = SystemIdNormalization.StripRegionPrefix(systemId);
+        var safeSystemId = SafeSegmentPattern.Replace(rawSystemId, "_");
         var safeTargetId = SafeSegmentPattern.Replace(targetId, "_");
 
         if (stream.CanSeek)
@@ -107,6 +108,27 @@ public sealed class LocalAvatarStorage : IAvatarStorage
 
         var basePath = PublicBase.TrimEnd('/');
         return $"{basePath}/{safeSystemId}/{safeTargetId}/{fileName}";
+    }
+
+    /// <summary>
+    /// Normalises <see cref="StorageConfiguration.AvatarPublicBase"/> to the URL-path prefix
+    /// used for filesystem layout and delete matching. Absolute http(s) values keep their
+    /// full URL for stamping into <c>avatar_url</c> but expose <see cref="Uri.AbsolutePath"/>
+    /// here so path comparisons line up with request paths.
+    /// </summary>
+    private static string GetPublicBasePath(string publicBase)
+    {
+        if (Uri.TryCreate(publicBase, UriKind.Absolute, out var absolute)
+            && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps))
+        {
+            return absolute.AbsolutePath.TrimEnd('/');
+        }
+
+        var path = publicBase.TrimEnd('/');
+        if (path.Length > 0 && !path.StartsWith('/'))
+            path = "/" + path;
+
+        return path;
     }
 
     private static string DetectExtension(byte[] data) => data switch
