@@ -40,8 +40,8 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
         var sessionProvider = factory.Services.GetRequiredService<IScyllaSessionProvider>();
         var frontingRepo = factory.Services.GetRequiredService<IFrontingRepository>();
 
-        // Interface members take SystemId directly and NormalizeSystemId returns SystemId;
-        // the CQL bind below unwraps once via .Value at the storage boundary.
+        // NormalizeSystemId returns the raw string so it can be bound directly into CQL — the
+        // DataStax driver has no serializer for the SystemId wrapper.
         var normalizedSystemId = keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = keyspaceResolver.ResolveRegionalKeyspace(systemId);
         var session = await sessionProvider.GetSessionAsync();
@@ -55,7 +55,7 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
         // the Step 3 fix.
         await session.ExecuteAsync(new SimpleStatement(
             $"INSERT INTO {keyspace}.current_fronts (user_id, alter_id, id, comment, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            normalizedSystemId.Value,
+            normalizedSystemId,
             alterId,
             frontGuid,
             "synthetic-corrupt-row",
@@ -70,7 +70,7 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
         // out before touching fronts_by_time at all, so the result set must be empty.
         var historyRows = (await session.ExecuteAsync(new SimpleStatement(
             $"SELECT time_start FROM {keyspace}.fronts_by_time WHERE user_id = ?",
-            normalizedSystemId.Value))).ToList();
+            normalizedSystemId))).ToList();
 
         using (Assert.Multiple())
         {

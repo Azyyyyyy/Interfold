@@ -40,7 +40,7 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
             // this call site (and its two UPSERT siblings below) was drift.
             var query = new SimpleStatement(
                 $"SELECT encryption_initialized, encryption_key_checksum, salt FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId.Value
+                normalizedSystemId
             );
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
@@ -68,7 +68,7 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
                     $"UPDATE {keyspace}.users SET encryption_initialized = ?, encryption_key_checksum = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                     initialized,
                     keyChecksum?.Value,
-                    normalizedSystemId.Value
+                    normalizedSystemId
                 );
             }
             else
@@ -78,7 +78,7 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
                     initialized,
                     keyChecksum?.Value,
                     newSalt.Value,
-                    normalizedSystemId.Value
+                    normalizedSystemId
                 );
             }
 

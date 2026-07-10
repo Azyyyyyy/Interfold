@@ -68,8 +68,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var query = new SimpleStatement(
                 $"SELECT level FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
-                normalizedSystemId.Value,
-                normalizedViewerSystemId.Value);
+                normalizedSystemId,
+                normalizedViewerSystemId);
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             return row is null ? null : (FriendshipLevel?)FriendshipLevelExtensions.FromCode(row.GetValue<short>("level"));
@@ -86,7 +86,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
             var query = new SimpleStatement(
                 $"SELECT friend_id, level, since FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ?",
-                normalizedSystemId.Value);
+                normalizedSystemId);
 
             var rows = await session.ExecuteAsync(query);
             var result = await ConcurrentProjection.SelectWithConcurrencyAsync(
@@ -99,7 +99,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
                     var since = row.GetValue<DateTimeOffset?>("since") ?? DateTimeOffset.UtcNow;
 
                     var profileTask = GetFriendProfileAsync(session, friendId);
-                    var frontingTask = GetFrontingAsync(session, friendId, normalizedSystemId);
+                    var frontingTask = GetFrontingAsync(session, friendId, new SystemId(normalizedSystemId));
                     await Task.WhenAll(profileTask, frontingTask);
 
                     return new FriendshipReadModel(
@@ -123,8 +123,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
             var query = new SimpleStatement(
                 $"SELECT friend_id, level, since FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
-                normalizedSystemId.Value,
-                normalizedFriendSystemId.Value);
+                normalizedSystemId,
+                normalizedFriendSystemId);
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             if (row is null)
@@ -134,8 +134,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
             var since = row.GetValue<DateTimeOffset?>("since") ?? DateTimeOffset.UtcNow;
             var level = FriendshipLevelExtensions.FromCode(row.GetValue<short>("level"));
-            var profile = await GetFriendProfileAsync(session, normalizedFriendSystemId);
-            var fronting = await GetFrontingAsync(session, normalizedFriendSystemId, normalizedSystemId);
+            var profile = await GetFriendProfileAsync(session, new SystemId(normalizedFriendSystemId));
+            var fronting = await GetFrontingAsync(session, new SystemId(normalizedFriendSystemId), new SystemId(normalizedSystemId));
 
             return new FriendshipReadModel(
                 profile,
@@ -161,20 +161,20 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var removeBatch = new BatchStatement();
             removeBatch.Add(new SimpleStatement(
                 $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ?",
-                normalizedSystemId.Value,
-                normalizedFriendId.Value));
+                normalizedSystemId,
+                normalizedFriendId));
             removeBatch.Add(new SimpleStatement(
                 $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ?",
-                normalizedFriendId.Value,
-                normalizedSystemId.Value));
+                normalizedFriendId,
+                normalizedSystemId));
             removeBatch.Add(new SimpleStatement(
                 $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id WHERE friend_id = ? AND user_id = ?",
-                normalizedFriendId.Value,
-                normalizedSystemId.Value));
+                normalizedFriendId,
+                normalizedSystemId));
             removeBatch.Add(new SimpleStatement(
                 $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id WHERE friend_id = ? AND user_id = ?",
-                normalizedSystemId.Value,
-                normalizedFriendId.Value));
+                normalizedSystemId,
+                normalizedFriendId));
             await session.ExecuteAsync(removeBatch);
 
             return true;
@@ -199,13 +199,13 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             batch.Add(new SimpleStatement(
                 $"UPDATE {ScyllaGlobalKeyspace.Name}.friendships SET level = ? WHERE user_id = ? AND friend_id = ?",
                 (trusted ? FriendshipLevel.TrustedFriend : FriendshipLevel.Friend).ToCode(),
-                normalizedSystemId.Value,
-                normalizedFriendSystemId.Value));
+                normalizedSystemId,
+                normalizedFriendSystemId));
             batch.Add(new SimpleStatement(
                 $"UPDATE {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id SET level = ? WHERE friend_id = ? AND user_id = ?",
                 (trusted ? FriendshipLevel.TrustedFriend : FriendshipLevel.Friend).ToCode(),
-                normalizedFriendSystemId.Value,
-                normalizedSystemId.Value));
+                normalizedFriendSystemId,
+                normalizedSystemId));
             await session.ExecuteAsync(batch);
 
             return true;
@@ -222,11 +222,11 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
             var incomingTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT from_id, date_sent FROM {ScyllaGlobalKeyspace.Name}.friend_requests_by_to_id WHERE to_id = ?",
-                normalizedSystemId.Value));
+                normalizedSystemId));
 
             var outgoingTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT to_id, date_sent FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ?",
-                normalizedSystemId.Value));
+                normalizedSystemId));
 
             await Task.WhenAll(incomingTask, outgoingTask);
 
@@ -269,12 +269,12 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var normalizedTargetSystemId = _keyspaceResolver.NormalizeSystemId(targetSystemId);
 
-            var resolvedTargetUserId = await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId.Value, cancellationToken);
+            var resolvedTargetUserId = await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId, cancellationToken);
             if (resolvedTargetUserId is null)
             {
                 return SendFriendRequestOutcome.NoUser;
             }
-            normalizedTargetSystemId = resolvedTargetUserId.Value;
+            normalizedTargetSystemId = resolvedTargetUserId.Value.Value;
 
             if (await ExistsFriendshipAsync(session, normalizedSystemId, normalizedTargetSystemId))
             {
@@ -305,12 +305,12 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var normalizedSourceSystemId = _keyspaceResolver.NormalizeSystemId(sourceSystemId);
 
-            var resolvedSourceUserId = await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId.Value, cancellationToken);
+            var resolvedSourceUserId = await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId, cancellationToken);
             if (resolvedSourceUserId is null)
             {
                 return FriendRequestMutationOutcome.NoUser;
             }
-            normalizedSourceSystemId = resolvedSourceUserId.Value;
+            normalizedSourceSystemId = resolvedSourceUserId.Value.Value;
 
             if (await ExistsFriendshipAsync(session, normalizedSystemId, normalizedSourceSystemId))
             {
@@ -335,12 +335,12 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var normalizedSourceSystemId = _keyspaceResolver.NormalizeSystemId(sourceSystemId);
 
-            var resolvedSourceUserId = await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId.Value, cancellationToken);
+            var resolvedSourceUserId = await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId, cancellationToken);
             if (resolvedSourceUserId is null)
             {
                 return FriendRequestMutationOutcome.NoUser;
             }
-            normalizedSourceSystemId = resolvedSourceUserId.Value;
+            normalizedSourceSystemId = resolvedSourceUserId.Value.Value;
 
             if (await ExistsFriendshipAsync(session, normalizedSystemId, normalizedSourceSystemId))
             {
@@ -365,12 +365,12 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var normalizedTargetSystemId = _keyspaceResolver.NormalizeSystemId(targetSystemId);
 
-            var resolvedTargetUserId = await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId.Value, cancellationToken);
+            var resolvedTargetUserId = await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId, cancellationToken);
             if (resolvedTargetUserId is null)
             {
                 return FriendRequestMutationOutcome.NoUser;
             }
-            normalizedTargetSystemId = resolvedTargetUserId.Value;
+            normalizedTargetSystemId = resolvedTargetUserId.Value.Value;
 
             if (await ExistsFriendshipAsync(session, normalizedSystemId, normalizedTargetSystemId))
             {
@@ -397,17 +397,17 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             // Find all friendships for this user
             var friendsTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT friend_id FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ?",
-                normalizedSystemId.Value));
+                normalizedSystemId));
 
             // Find all outgoing requests
             var outgoingRequestsTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT to_id FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ?",
-                normalizedSystemId.Value));
+                normalizedSystemId));
 
             // Find all incoming requests
             var incomingRequestsTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT from_id FROM {ScyllaGlobalKeyspace.Name}.friend_requests_by_to_id WHERE to_id = ?",
-                normalizedSystemId.Value));
+                normalizedSystemId));
 
             await Task.WhenAll(friendsTask, outgoingRequestsTask, incomingRequestsTask);
 
@@ -421,24 +421,24 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             {
                 var friendId = new SystemId(row.GetValue<string>("friend_id"));
                 friendIds.Add(friendId);
-                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ?", normalizedSystemId.Value, friendId.Value));
-                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ?", friendId.Value, normalizedSystemId.Value));
-                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id WHERE friend_id = ? AND user_id = ?", friendId.Value, normalizedSystemId.Value));
-                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id WHERE friend_id = ? AND user_id = ?", normalizedSystemId.Value, friendId.Value));
+                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ?", normalizedSystemId, friendId.Value));
+                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ?", friendId.Value, normalizedSystemId));
+                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id WHERE friend_id = ? AND user_id = ?", friendId.Value, normalizedSystemId));
+                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id WHERE friend_id = ? AND user_id = ?", normalizedSystemId, friendId.Value));
             }
 
             foreach (var row in outgoingRows)
             {
                 var targetId = row.GetValue<string>("to_id");
-                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ? AND to_id = ?", normalizedSystemId.Value, targetId));
-                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests_by_to_id WHERE to_id = ? AND from_id = ?", targetId, normalizedSystemId.Value));
+                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ? AND to_id = ?", normalizedSystemId, targetId));
+                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests_by_to_id WHERE to_id = ? AND from_id = ?", targetId, normalizedSystemId));
             }
 
             foreach (var row in incomingRows)
             {
                 var sourceId = row.GetValue<string>("from_id");
-                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ? AND to_id = ?", sourceId, normalizedSystemId.Value));
-                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests_by_to_id WHERE to_id = ? AND from_id = ?", normalizedSystemId.Value, sourceId));
+                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ? AND to_id = ?", sourceId, normalizedSystemId));
+                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests_by_to_id WHERE to_id = ? AND from_id = ?", normalizedSystemId, sourceId));
             }
 
             if (!batch.IsEmpty)
@@ -451,21 +451,21 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
     }
 
 
-    private static async Task<bool> ExistsFriendshipAsync(ISession session, SystemId userId, SystemId friendId)
+    private static async Task<bool> ExistsFriendshipAsync(ISession session, string userId, string friendId)
     {
         var query = new SimpleStatement(
             $"SELECT friend_id FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
-            userId.Value,
-            friendId.Value);
+            userId,
+            friendId);
 
         return (await session.ExecuteAsync(query)).Any();
     }
 
-    private static async Task<bool> SystemExistsAsync(ISession session, SystemId userId)
+    private static async Task<bool> SystemExistsAsync(ISession session, string userId)
     {
         var query = new SimpleStatement(
             $"SELECT user_id FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE user_id = ? LIMIT 1",
-            userId.Value);
+            userId);
 
         return (await session.ExecuteAsync(query)).Any();
     }
@@ -564,70 +564,70 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
-    private static async Task<bool> ExistsRequestAsync(ISession session, SystemId fromId, SystemId toId)
+    private static async Task<bool> ExistsRequestAsync(ISession session, string fromId, string toId)
     {
         var query = new SimpleStatement(
             $"SELECT to_id FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ? AND to_id = ? LIMIT 1",
-            fromId.Value,
-            toId.Value);
+            fromId,
+            toId);
 
         return (await session.ExecuteAsync(query)).Any();
     }
 
-    private static async Task CreateRequestAsync(ISession session, SystemId fromId, SystemId toId)
+    private static async Task CreateRequestAsync(ISession session, string fromId, string toId)
     {
         var batch = new BatchStatement();
         batch.Add(new SimpleStatement(
             $"INSERT INTO {ScyllaGlobalKeyspace.Name}.friend_requests (from_id, to_id, date_sent, inserted_at, updated_at) VALUES (?, ?, toTimestamp(now()), toTimestamp(now()), toTimestamp(now()))",
-            fromId.Value, toId.Value));
+            fromId, toId));
         batch.Add(new SimpleStatement(
             $"INSERT INTO {ScyllaGlobalKeyspace.Name}.friend_requests_by_to_id (to_id, from_id, date_sent, inserted_at, updated_at) VALUES (?, ?, toTimestamp(now()), toTimestamp(now()), toTimestamp(now()))",
-            toId.Value, fromId.Value));
+            toId, fromId));
         await session.ExecuteAsync(batch);
     }
 
-    private static async Task DeleteRequestAsync(ISession session, SystemId fromId, SystemId toId)
+    private static async Task DeleteRequestAsync(ISession session, string fromId, string toId)
     {
         var batch = new BatchStatement();
         batch.Add(new SimpleStatement(
             $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ? AND to_id = ?",
-            fromId.Value, toId.Value));
+            fromId, toId));
         batch.Add(new SimpleStatement(
             $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests_by_to_id WHERE to_id = ? AND from_id = ?",
-            toId.Value, fromId.Value));
+            toId, fromId));
         await session.ExecuteAsync(batch);
     }
 
-    private static async Task LinkFriendsAndClearRequestsAsync(ISession session, SystemId systemId, SystemId otherSystemId)
+    private static async Task LinkFriendsAndClearRequestsAsync(ISession session, string systemId, string otherSystemId)
     {
         var friendLevel = FriendshipLevel.Friend.ToCode();
         var batch = new BatchStatement();
         batch.Add(new SimpleStatement(
             $"INSERT INTO {ScyllaGlobalKeyspace.Name}.friendships (user_id, friend_id, level, since, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()), toTimestamp(now()))",
-            systemId.Value, otherSystemId.Value, friendLevel));
+            systemId, otherSystemId, friendLevel));
         batch.Add(new SimpleStatement(
             $"INSERT INTO {ScyllaGlobalKeyspace.Name}.friendships (user_id, friend_id, level, since, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()), toTimestamp(now()))",
-            otherSystemId.Value, systemId.Value, friendLevel));
+            otherSystemId, systemId, friendLevel));
         // Maintain friendships_by_friend_id denormalized table
         batch.Add(new SimpleStatement(
             $"INSERT INTO {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id (friend_id, user_id, level, since, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()), toTimestamp(now()))",
-            otherSystemId.Value, systemId.Value, friendLevel));
+            otherSystemId, systemId, friendLevel));
         batch.Add(new SimpleStatement(
             $"INSERT INTO {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id (friend_id, user_id, level, since, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()), toTimestamp(now()))",
-            systemId.Value, otherSystemId.Value, friendLevel));
+            systemId, otherSystemId, friendLevel));
         // Clear requests in both directions
         batch.Add(new SimpleStatement(
             $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ? AND to_id = ?",
-            systemId.Value, otherSystemId.Value));
+            systemId, otherSystemId));
         batch.Add(new SimpleStatement(
             $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ? AND to_id = ?",
-            otherSystemId.Value, systemId.Value));
+            otherSystemId, systemId));
         batch.Add(new SimpleStatement(
             $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests_by_to_id WHERE to_id = ? AND from_id = ?",
-            otherSystemId.Value, systemId.Value));
+            otherSystemId, systemId));
         batch.Add(new SimpleStatement(
             $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests_by_to_id WHERE to_id = ? AND from_id = ?",
-            systemId.Value, otherSystemId.Value));
+            systemId, otherSystemId));
         await session.ExecuteAsync(batch);
     }
 

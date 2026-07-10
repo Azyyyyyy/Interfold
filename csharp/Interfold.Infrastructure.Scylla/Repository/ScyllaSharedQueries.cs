@@ -38,7 +38,7 @@ internal static class ScyllaSharedQueries
         var query = new SimpleStatement(
             $"SELECT level FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
             ownerSystemId.Value,
-            normalizedViewerSystemId.Value);
+            normalizedViewerSystemId);
 
         var row = (await session.ExecuteAsync(query)).FirstOrDefault();
         return row is null ? null : FriendshipLevelExtensions.FromCode(row.GetValue<short>("level"));

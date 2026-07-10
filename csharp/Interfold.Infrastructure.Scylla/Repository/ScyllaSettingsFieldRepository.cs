@@ -82,7 +82,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             await session.ExecuteAsync(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 fields,
-                normalizedSystemId.Value));
+                normalizedSystemId));
 
             return new FieldId(fieldId.ToString("N"));
         }, _options, cancellationToken);
@@ -150,7 +150,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             await session.ExecuteAsync(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 fields,
-                normalizedSystemId.Value));
+                normalizedSystemId));
 
             return true;
         }, _options, cancellationToken);
@@ -188,7 +188,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 fields,
-                normalizedSystemId.Value));
+                normalizedSystemId));
 
             await session.ExecuteAsync(batch);
 
@@ -232,17 +232,17 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             await session.ExecuteAsync(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 fields,
-                normalizedSystemId.Value));
+                normalizedSystemId));
 
             return true;
         }, _options, cancellationToken);
     }
 
-    private static async Task<List<UserFieldUdt>?> LoadFieldsAsync(ISession session, string keyspace, SystemId normalizedSystemId)
+    private static async Task<List<UserFieldUdt>?> LoadFieldsAsync(ISession session, string keyspace, string normalizedSystemId)
     {
         var query = new SimpleStatement(
             $"SELECT fields FROM {keyspace}.users WHERE id = ? LIMIT 1",
-            normalizedSystemId.Value);
+            normalizedSystemId);
 
         var row = (await session.ExecuteAsync(query)).FirstOrDefault();
         if (row is null)
@@ -306,14 +306,14 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     private static async Task<BatchStatement> RemoveFieldValuesFromAltersAsync(
         ISession session,
         string keyspace,
-        SystemId normalizedSystemId,
+        string normalizedSystemId,
         Guid fieldId)
     {
         ScyllaAlterRepository.EnsureAlterFieldUdtMapping(session, keyspace);
 
         var rows = await session.ExecuteAsync(new SimpleStatement(
             $"SELECT id, fields FROM {keyspace}.alters WHERE user_id = ?",
-            normalizedSystemId.Value));
+            normalizedSystemId));
 
         var batch = new BatchStatement();
 
@@ -335,7 +335,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.alters SET fields = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                 fields,
-                normalizedSystemId.Value,
+                normalizedSystemId,
                 alterId));
         }
 

@@ -38,7 +38,7 @@ public sealed class ScyllaPollRepository : IPollRepository
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, title, description, type, data, time_end, inserted_at, updated_at FROM {keyspace}.polls WHERE user_id = ?",
-                normalizedSystemId.Value
+                normalizedSystemId
             );
 
             var rows = await session.ExecuteAsync(query);
@@ -58,7 +58,7 @@ public sealed class ScyllaPollRepository : IPollRepository
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, title, description, type, data, time_end, inserted_at, updated_at FROM {keyspace}.polls WHERE user_id = ? AND id = ? LIMIT 1",
-                normalizedSystemId.Value,
+                normalizedSystemId,
                 pollGuid
             );
 
@@ -78,7 +78,7 @@ public sealed class ScyllaPollRepository : IPollRepository
 
             var insert = new SimpleStatement(
                 $"INSERT INTO {keyspace}.polls (user_id, id, title, description, type, data, time_end, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, toTimestamp(now()))",
-                normalizedSystemId.Value,
+                normalizedSystemId,
                 pollGuid,
                 command.Title,
                 command.Description,
@@ -108,7 +108,7 @@ public sealed class ScyllaPollRepository : IPollRepository
 
             var query = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.polls WHERE user_id = ? AND id = ? LIMIT 1",
-                normalizedSystemId.Value,
+                normalizedSystemId,
                 pollGuid
             );
 
@@ -141,7 +141,7 @@ public sealed class ScyllaPollRepository : IPollRepository
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.polls SET title = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                     command.Title,
-                    normalizedSystemId.Value,
+                    normalizedSystemId,
                     pollGuid));
             }
 
@@ -150,7 +150,7 @@ public sealed class ScyllaPollRepository : IPollRepository
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.polls SET description = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                     command.Description,
-                    normalizedSystemId.Value,
+                    normalizedSystemId,
                     pollGuid));
             }
 
@@ -159,7 +159,7 @@ public sealed class ScyllaPollRepository : IPollRepository
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.polls SET time_end = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                     command.TimeEnd,
-                    normalizedSystemId.Value,
+                    normalizedSystemId,
                     pollGuid));
             }
 
@@ -168,7 +168,7 @@ public sealed class ScyllaPollRepository : IPollRepository
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.polls SET data = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                     command.Data.Value.GetRawText(),
-                    normalizedSystemId.Value,
+                    normalizedSystemId,
                     pollGuid));
             }
 
@@ -200,7 +200,7 @@ public sealed class ScyllaPollRepository : IPollRepository
 
             var delete = new SimpleStatement(
                 $"DELETE FROM {keyspace}.polls WHERE user_id = ? AND id = ?",
-                normalizedSystemId.Value,
+                normalizedSystemId,
                 pollGuid
             );
             await session.ExecuteAsync(delete);
@@ -210,11 +210,11 @@ public sealed class ScyllaPollRepository : IPollRepository
 
     internal static bool TryParseUuid(string value, out Guid guid) => UuidString.TryParse(value, out guid);
 
-    private static async Task<bool> ExistsAsync(ISession session, string keyspace, SystemId normalizedSystemId, Guid pollGuid)
+    private static async Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, Guid pollGuid)
     {
         var query = new SimpleStatement(
             $"SELECT id FROM {keyspace}.polls WHERE user_id = ? AND id = ? LIMIT 1",
-            normalizedSystemId.Value,
+            normalizedSystemId,
             pollGuid
         );
 
