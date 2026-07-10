@@ -171,17 +171,27 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
             // prefix like "xxx:abcdefg". We deliberately query user_id with the WHOLE
             // original input so the strict-rejection contract holds: a rejected handle
             // becomes an opaque bare-id lookup, never a silent prefix-strip.
+            //
+            // Round-3 Commit 2 (canvas #4): the column selector is a typed
+            // UserRegistryLookupColumn instead of the pre-Round-3 magic string
+            // ("username" / "discord_id" / "user_id"). Same shape as Round-2 Commit 11's
+            // ProviderColumn extraction inside ScyllaAccountRepository — the CQL text
+            // still needs to interpolate the raw column name, so the enum's ToColumnName
+            // helper produces it at exactly one spot. The pre-Round-3 spelling put three
+            // magic strings in the switch and a fourth in the CQL builder; a fifth column
+            // name added later could easily drift from the switch. The enum makes that
+            // impossible.
             var (column, value) = handle switch
             {
-                { Kind: LookupKind.Username } h => ("username", h.RawId),
-                { Kind: LookupKind.Discord } h => ("discord_id", h.RawId),
-                { Kind: LookupKind.Region } h => ("user_id", h.RawId),
-                { Kind: LookupKind.Id } h => ("user_id", h.RawId),
-                _ => ("user_id", originalInput),
+                { Kind: LookupKind.Username } h => (UserRegistryLookupColumn.Username, h.RawId),
+                { Kind: LookupKind.Discord } h => (UserRegistryLookupColumn.DiscordId, h.RawId),
+                { Kind: LookupKind.Region } h => (UserRegistryLookupColumn.UserId, h.RawId),
+                { Kind: LookupKind.Id } h => (UserRegistryLookupColumn.UserId, h.RawId),
+                _ => (UserRegistryLookupColumn.UserId, originalInput),
             };
 
             var query = new SimpleStatement(
-                $"SELECT region FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE {column} = ? LIMIT 1",
+                $"SELECT region FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE {ColumnName(column)} = ? LIMIT 1",
                 value);
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
@@ -232,4 +242,33 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
 
         return (cacheKey, parsed);
     }
+
+    /// <summary>
+    /// Round-3 Commit 2 (canvas #4): typed replacement for the pre-Round-3 magic-string
+    /// column literals inside <see cref="LookupAsync"/>. Mirrors the shape of
+    /// <c>ScyllaAccountRepository.ProviderColumn</c> introduced in Round-2 Commit 11 —
+    /// the enum ties the <see cref="LookupKind"/> switch to the CQL column universe so a
+    /// new lookup kind cannot accidentally drift from the SQL builder. The enum stays
+    /// private (nested) because its only consumer is inside this class.
+    /// </summary>
+    private enum UserRegistryLookupColumn
+    {
+        Username,
+        DiscordId,
+        UserId,
+    }
+
+    /// <summary>
+    /// Map the <see cref="UserRegistryLookupColumn"/> enum to the on-disk CQL column name.
+    /// Kept as a <c>private static</c> method rather than an extension so the enum can stay
+    /// nested and inaccessible outside this class — the CQL vocabulary is an implementation
+    /// detail of the registry context.
+    /// </summary>
+    private static string ColumnName(UserRegistryLookupColumn column) => column switch
+    {
+        UserRegistryLookupColumn.Username => "username",
+        UserRegistryLookupColumn.DiscordId => "discord_id",
+        UserRegistryLookupColumn.UserId => "user_id",
+        _ => throw new ArgumentOutOfRangeException(nameof(column), column, "Unknown user-registry lookup column."),
+    };
 }
