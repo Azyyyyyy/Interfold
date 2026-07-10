@@ -167,6 +167,103 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
     public SystemId AsSystemId() => new(Value);
 
     /// <summary>
+    /// Semantic "does <paramref name="candidate"/> refer to the same user as this principal?"
+    /// This is the correct primitive for controllers guarding against self-request /
+    /// self-friendship / self-trust. The obvious <c>principal == candidate</c> spelling
+    /// (via the implicit <see cref="ScopedSystemId"/>→<see cref="SystemId"/> widen) is a
+    /// byte compare of the scoped composite against whatever the client sent in the route
+    /// segment: it catches the trivial <c>"nam:abcdefg"</c> shape but silently misses the
+    /// raw (<c>"abcdefg"</c>) shape because the strings differ. This method canonicalises
+    /// <paramref name="candidate"/> before comparing so raw and same-region-scoped inputs
+    /// both self-reject.
+    ///
+    /// <para>
+    /// <b>Cross-region shapes.</b> If <paramref name="candidate"/> carries its own region
+    /// prefix (e.g. <c>"eur:abcdefg"</c>) it is compared byte-for-byte against the scoped
+    /// composite — a cross-region id that happens to share this raw id is treated as a
+    /// different user, matching the "scoped composite is identity" contract in the type-level
+    /// xml-doc above.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Not to be confused with</b> <see cref="Compose(ScyllaKeyspace, SystemId)"/> which
+    /// unconditionally re-applies this region — that shape is right for the
+    /// <c>FriendshipIdNormalization.CanonicalizeForPrincipal</c> callers that WANT
+    /// principal-region coercion, and wrong for the controller self-check where we do not
+    /// want the client's <c>eur:abcdefg</c> route to coerce into <c>nam:abcdefg</c> and
+    /// falsely self-reject.
+    /// </para>
+    /// </summary>
+    public bool RepresentsSameUserAs(SystemId candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate.Value))
+        {
+            return false;
+        }
+
+        // If the candidate carries its own region prefix, compare scoped-to-scoped.
+        // The strict parse returns false for anything without a valid region tag, so a
+        // discriminator-prefixed input like "username:alice" (which should never reach
+        // this overload since it belongs to UsernameOrSystemId) also falls through to
+        // the raw-id branch and yields "not self" because "alice" != this.RawId.
+        if (TryParseScoped(candidate.Value, out var scopedCandidate))
+        {
+            return string.Equals(Value, scopedCandidate.Value, StringComparison.Ordinal);
+        }
+
+        // Bare / raw shape → treat as living in this principal's region. The pre-Round-2
+        // byte-level `principal == candidate` spelling silently missed this case; every
+        // /api/friends/{rawId} and /api/friend-requests/{rawId}/{action} route hit here.
+        return string.Equals(RawId, candidate.Value, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Route-binding overload for the friend-request send path where the route segment is
+    /// bound as <see cref="UsernameOrSystemId"/>. Delegates to the
+    /// <see cref="RepresentsSameUserAs(SystemId)"/> primitive when the candidate parses as
+    /// a system-id shape (bare or scoped or explicit <c>id:</c> prefix). Username and
+    /// Discord shapes always return <see langword="false"/> — those require a registry
+    /// lookup to resolve to a concrete system id, so the fast-path can't decide self here
+    /// and the downstream handler's post-resolution self-check takes over (see
+    /// <c>SendFriendRequestCommandHandler</c>'s resolved-id self-guard). This preserves
+    /// the Slice-7 fast-path semantics — the controller returns the crisp
+    /// <c>cannot_send_self</c> error for the trivial "client sends their own id" case
+    /// without a repository hop — while replacing the fragile raw string compare that
+    /// silently coupled the two wrapper types' internal <c>.Value</c> shapes.
+    /// </summary>
+    public bool RepresentsSameUserAs(UsernameOrSystemId candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate.Value))
+        {
+            return false;
+        }
+
+        if (!LookupHandle.TryParse(candidate.Value, out var handle))
+        {
+            // Not a parseable handle shape (e.g. "xxx:abcdefg") → fall back to the raw
+            // byte-level compare so an opaque non-handle input still catches the trivial
+            // case where the client happened to send this principal's exact scoped
+            // composite as the route segment. The downstream resolver rejects the opaque
+            // input separately.
+            return string.Equals(Value, candidate.Value, StringComparison.Ordinal);
+        }
+
+        return handle.Kind switch
+        {
+            // Region-scoped or explicit id: shapes translate directly into a SystemId
+            // that the primitive can canonicalise. Bare 7-char handles parse as
+            // LookupKind.Id with RawId == input, so the primitive's raw-id branch fires.
+            LookupKind.Region => RepresentsSameUserAs(new SystemId(candidate.Value)),
+            LookupKind.Id => RepresentsSameUserAs(new SystemId(handle.RawId)),
+
+            // Username / Discord shapes require a registry lookup — the fast-path can't
+            // decide self here without hitting the repository. Fall through to the
+            // downstream handler's post-resolution self-check.
+            _ => false,
+        };
+    }
+
+    /// <summary>
     /// Implicit widen to <see cref="SystemId"/>. Every persistence adapter, event constructor,
     /// and repository entry point downstream of the middleware still declares
     /// <see cref="SystemId"/> parameters (the "unmarked scoped composite" shape) — Slice 4
