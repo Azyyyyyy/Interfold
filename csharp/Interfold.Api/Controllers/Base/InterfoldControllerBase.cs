@@ -5,12 +5,15 @@ using Interfold.Api.Middleware;
 using Interfold.Api.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Net.Http.Headers;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Contracts;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
+using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Controllers.Base;
@@ -109,6 +112,97 @@ public abstract class InterfoldControllerBase : ControllerBase
     /// </summary>
     protected AvatarUrl? QualifyAvatar(AvatarUrl? url, AvatarSource? source)
         => AvatarUrlQualifier.QualifyAvatar(url, source, Request.Scheme, Request.Host);
+
+    /// <summary>
+    /// Reads a multipart/form-data request body and returns the first file part as an
+    /// <see cref="AvatarUploadPayload"/>. Non-multipart requests, empty bodies, boundary
+    /// parse failures, and mid-read <see cref="IOException"/>s all resolve to
+    /// <see cref="AvatarUploadPayload"/> with a <see langword="null"/> stream — the
+    /// caller is expected to treat this as "no upload landed" and NOT dereference the
+    /// stream. A file part that lands with a zero-byte body flips
+    /// <see cref="AvatarUploadPayload.EmptyFilePart"/> to <see langword="true"/> so the
+    /// caller can distinguish "client attached an empty file" from "client attached no
+    /// file at all" (the two are the same 415-adjacent shape on the wire but distinct
+    /// error codes on the response).
+    ///
+    /// <para>
+    /// Post-Round-5 sanity check (Finding 7): consolidates the byte-identical 59-line
+    /// helpers that lived on both <c>AltersController</c> and <c>SettingsController</c>
+    /// (the two controllers that accept avatar uploads: alter avatars and system-owner
+    /// avatars respectively). The duplicated shape predates Round 1 entirely — nothing
+    /// about strong-typing unlocked this consolidation, so this is the honest "not
+    /// typing-unlocked but explicitly requested" cleanup the Round-5 sanity check
+    /// flagged. Both controllers now share this single implementation, so a future
+    /// tweak to multipart parsing (e.g. a size cap, a MIME allow-list, an
+    /// <c>Ampersand.NetworkOnlyRequestBody</c> substitution during test setup) needs
+    /// to land exactly once instead of drifting between the two sites.
+    /// </para>
+    ///
+    /// <para>
+    /// Called from <c>AltersController.UploadAvatar</c> and
+    /// <c>SettingsController.UploadAvatar</c>. Both callers pass
+    /// <see cref="HttpContext.RequestAborted"/> as <paramref name="ct"/>.
+    /// </para>
+    /// </summary>
+    protected async Task<AvatarUploadPayload> ResolveMultipartUploadAsync(CancellationToken ct)
+    {
+        var emptyFilePart = false;
+
+        if (Request.Body is null)
+            return new AvatarUploadPayload(null, emptyFilePart);
+
+        Request.EnableBuffering();
+
+        if (Request.Body.CanSeek)
+            Request.Body.Position = 0;
+
+        if (!MediaTypeHeaderValue.TryParse(Request.ContentType, out var mediaType)
+            || !mediaType.MediaType.HasValue
+            || !mediaType.MediaType.Value.StartsWith("multipart/", StringComparison.OrdinalIgnoreCase))
+        {
+            return new AvatarUploadPayload(null, emptyFilePart);
+        }
+
+        var boundary = HeaderUtilities.RemoveQuotes(mediaType.Boundary).Value;
+        if (string.IsNullOrWhiteSpace(boundary))
+            return new AvatarUploadPayload(null, emptyFilePart);
+
+        try
+        {
+            var reader = new MultipartReader(boundary, Request.Body);
+            MultipartSection? section;
+
+            while ((section = await reader.ReadNextSectionAsync(ct)) is not null)
+            {
+                if (!ContentDispositionHeaderValue.TryParse(section.ContentDisposition, out var disposition))
+                    continue;
+
+                var fileName = HeaderUtilities.RemoveQuotes(disposition.FileNameStar).Value
+                               ?? HeaderUtilities.RemoveQuotes(disposition.FileName).Value;
+
+                if (!string.IsNullOrWhiteSpace(fileName))
+                {
+                    var payload = new MemoryStream();
+                    await section.Body.CopyToAsync(payload, ct);
+                    if (payload.Length <= 0)
+                    {
+                        emptyFilePart = true;
+                        await payload.DisposeAsync();
+                        continue;
+                    }
+
+                    payload.Position = 0;
+                    return new AvatarUploadPayload(payload, emptyFilePart);
+                }
+            }
+        }
+        catch (IOException)
+        {
+            return new AvatarUploadPayload(null, emptyFilePart);
+        }
+
+        return new AvatarUploadPayload(null, emptyFilePart);
+    }
 
     /// <summary>
     /// Executes a command handler with:

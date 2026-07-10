@@ -1,6 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -697,66 +695,6 @@ public sealed class SettingsController : InterfoldControllerBase
 
         FirebaseConfigResolver.ApplyCacheHeaders(Response, payload!);
         return new SuccessResponse<FirebaseClientConfigResponse>(payload!);
-    }
-
-    private async Task<AvatarUploadPayload> ResolveMultipartUploadAsync(CancellationToken ct)
-    {
-        var emptyFilePart = false;
-
-        if (Request.Body is null)
-            return new AvatarUploadPayload(null, emptyFilePart);
-
-        Request.EnableBuffering();
-
-        if (Request.Body.CanSeek)
-            Request.Body.Position = 0;
-
-        if (!MediaTypeHeaderValue.TryParse(Request.ContentType, out var mediaType)
-            || !mediaType.MediaType.HasValue
-            || !mediaType.MediaType.Value.StartsWith("multipart/", StringComparison.OrdinalIgnoreCase))
-        {
-            return new AvatarUploadPayload(null, emptyFilePart);
-        }
-
-        var boundary = HeaderUtilities.RemoveQuotes(mediaType.Boundary).Value;
-        if (string.IsNullOrWhiteSpace(boundary))
-            return new AvatarUploadPayload(null, emptyFilePart);
-
-        try
-        {
-            var reader = new MultipartReader(boundary, Request.Body);
-            MultipartSection? section;
-
-            while ((section = await reader.ReadNextSectionAsync(ct)) is not null)
-            {
-                if (!ContentDispositionHeaderValue.TryParse(section.ContentDisposition, out var disposition))
-                    continue;
-
-                var fileName = HeaderUtilities.RemoveQuotes(disposition.FileNameStar).Value
-                               ?? HeaderUtilities.RemoveQuotes(disposition.FileName).Value;
-
-                if (!string.IsNullOrWhiteSpace(fileName))
-                {
-                    var payload = new MemoryStream();
-                    await section.Body.CopyToAsync(payload, ct);
-                    if (payload.Length <= 0)
-                    {
-                        emptyFilePart = true;
-                        await payload.DisposeAsync();
-                        continue;
-                    }
-
-                    payload.Position = 0;
-                    return new AvatarUploadPayload(payload, emptyFilePart);
-                }
-            }
-        }
-        catch (IOException)
-        {
-            return new AvatarUploadPayload(null, emptyFilePart);
-        }
-
-        return new AvatarUploadPayload(null, emptyFilePart);
     }
 
     private bool TryResolveRecoveryCode(string candidate, out RecoveryCode recoveryCode, out ErrorCode errorCode)
