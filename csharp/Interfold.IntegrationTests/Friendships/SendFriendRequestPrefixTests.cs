@@ -127,7 +127,8 @@ public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : B
         await EnsureUserExistsAsync(client, sender);
 
         // The unique Discord id makes this fresh per run — if the friendship dispatch
-        // ever regressed to FindOrCreateSystemIdByDiscordIdAsync (auto-create), the
+        // ever regressed to the auto-provisioning FindOrCreateSystemIdAsync (post-Round-5
+        // Finding 6 renamed the sole surviving OAuth-login create-on-miss surface), the
         // account would be created and this test would flip to 204. NoUser here is the
         // load-bearing pin on the TryFind delegation the Slice 7 refactor introduced.
         var uniqueDiscord = $"99999{DateTime.UtcNow.Ticks}";

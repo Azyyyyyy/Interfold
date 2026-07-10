@@ -500,8 +500,9 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             LookupKind.Username => await LookupByUsernameFanoutAsync(session, handle.RawId),
             // Discord dispatch delegates to the account repo's find-only lookup so an
             // unknown Discord id surfaces as null instead of spawning a phantom account
-            // (which is what FindOrCreateSystemIdByDiscordIdAsync would do). See the
-            // decision doc-comment on IAccountRepository.TryFindSystemIdByDiscordIdAsync.
+            // (which is what the auto-provisioning FindOrCreateSystemIdAsync would do —
+            // post-Round-5 Finding 6 renamed the sole surviving create-on-miss surface).
+            // See the decision doc-comment on IAccountRepository.TryFindSystemIdByDiscordIdAsync.
             LookupKind.Discord => await _accounts.TryFindSystemIdByDiscordIdAsync(
                 new DiscordId(handle.RawId), cancellationToken),
             // Region / Id / (unreachable fallback) all target user_registry.user_id with

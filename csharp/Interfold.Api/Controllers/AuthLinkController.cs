@@ -122,13 +122,13 @@ public sealed class AuthLinkController : OAuthControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
         }
 
-        var result = typedIdentity switch
-        {
-            { Discord: { } discordId } => await _accounts.LinkDiscordToUserAsync(systemId, discordId, HttpContext.RequestAborted),
-            { Google: { } email } => await _accounts.LinkEmailToUserAsync(systemId, email, HttpContext.RequestAborted),
-            { Apple: { } appleId } => await _accounts.LinkAppleToUserAsync(systemId, appleId, HttpContext.RequestAborted),
-            _ => AccountLinkResult.UserNotFound
-        };
+        // Post-Round-5 Finding 6: dispatch onto the consolidated
+        // IAccountRepository.LinkIdentityToUserAsync (pattern-matches on the same
+        // ProviderIdentity shape). Mirrors the AuthController.Callback simplification —
+        // the pre-Round-5 spelling had this exact 3-branch switch AND the sibling in
+        // AuthController each rewrapping identical shapes to call three near-identical
+        // repository methods.
+        var result = await _accounts.LinkIdentityToUserAsync(systemId, typedIdentity, HttpContext.RequestAborted);
 
         Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthLinkCallback.Value;
 

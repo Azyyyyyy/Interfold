@@ -326,23 +326,31 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     public Task<SystemId?> TryFindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
         => TryFindSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken);
 
-    public Task<SystemId?> FindOrCreateSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
-        => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken);
+    // Post-Round-5 sanity check (Finding 6): FindOrCreateSystemIdAsync and
+    // LinkIdentityToUserAsync are the consolidated OAuth-login shapes. Both dispatch on
+    // ProviderIdentity (R2C7) into the same ProviderColumn-typed internal helpers that
+    // R2C11 already established. Pre-Round-5 we exposed 6 identity-typed public methods
+    // that each did nothing but unwrap `.Value` and pass a hard-coded ProviderColumn —
+    // one for each of the 3 providers × 2 operations. Collapsing them means the
+    // pattern-match lives once (here) instead of once in the AuthController and once in
+    // the AuthLinkController.
+    public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default)
+        => identity switch
+        {
+            { Discord: { } discordId } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken),
+            { Google: { } email } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Email, email.Value, cancellationToken),
+            { Apple: { } appleId } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Apple, appleId.Value, cancellationToken),
+            _ => Task.FromResult<SystemId?>(null),
+        };
 
-    public Task<SystemId?> FindSystemIdByEmailAsync(Email email, CancellationToken cancellationToken = default)
-        => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Email, email.Value, cancellationToken);
-
-    public Task<SystemId?> FindSystemIdByAppleIdAsync(AppleId appleId, CancellationToken cancellationToken = default)
-        => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Apple, appleId.Value, cancellationToken);
-
-    public Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, DiscordId discordId, CancellationToken cancellationToken = default)
-        => LinkIdentityAsync(systemId, ProviderColumn.Discord, discordId.Value, cancellationToken);
-
-    public Task<AccountLinkResult> LinkEmailToUserAsync(SystemId systemId, Email email, CancellationToken cancellationToken = default)
-        => LinkIdentityAsync(systemId, ProviderColumn.Email, email.Value, cancellationToken);
-
-    public Task<AccountLinkResult> LinkAppleToUserAsync(SystemId systemId, AppleId appleId, CancellationToken cancellationToken = default)
-        => LinkIdentityAsync(systemId, ProviderColumn.Apple, appleId.Value, cancellationToken);
+    public Task<AccountLinkResult> LinkIdentityToUserAsync(SystemId systemId, ProviderIdentity identity, CancellationToken cancellationToken = default)
+        => identity switch
+        {
+            { Discord: { } discordId } => LinkIdentityAsync(systemId, ProviderColumn.Discord, discordId.Value, cancellationToken),
+            { Google: { } email } => LinkIdentityAsync(systemId, ProviderColumn.Email, email.Value, cancellationToken),
+            { Apple: { } appleId } => LinkIdentityAsync(systemId, ProviderColumn.Apple, appleId.Value, cancellationToken),
+            _ => Task.FromResult(AccountLinkResult.UserNotFound),
+        };
 
     public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
         => UnlinkIdentityAsync(systemId, ProviderColumn.Discord, cancellationToken);

@@ -116,13 +116,16 @@ public sealed class AuthController : OAuthControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
         }
 
-        var resolvedSystemId = typedIdentity switch
-        {
-            { Discord: { } discordId } => await _accounts.FindOrCreateSystemIdByDiscordIdAsync(discordId, HttpContext.RequestAborted),
-            { Google: { } email } => await _accounts.FindSystemIdByEmailAsync(email, HttpContext.RequestAborted),
-            { Apple: { } appleId } => await _accounts.FindSystemIdByAppleIdAsync(appleId, HttpContext.RequestAborted),
-            _ => null
-        };
+        // Post-Round-5 Finding 6: the pre-Round-5 3-branch pattern-match that dispatched
+        // to one of FindOrCreateSystemIdByDiscordIdAsync / FindSystemIdByEmailAsync /
+        // FindSystemIdByAppleIdAsync now lives inside IAccountRepository.FindOrCreateSystemIdAsync
+        // (which dispatches on the same ProviderIdentity shape). The reasons: (a) both
+        // callers (this + AuthLinkController.Callback) had the same 3-branch switch, (b)
+        // the "Find" prefix on the Email / Apple methods silently hid auto-provisioning
+        // semantics that only the Discord method's name reflected honestly. The
+        // consolidated method's name (FindOrCreateSystemIdAsync) honours the invariant
+        // for all three providers.
+        var resolvedSystemId = await _accounts.FindOrCreateSystemIdAsync(typedIdentity, HttpContext.RequestAborted);
 
         if (string.IsNullOrWhiteSpace(resolvedSystemId?.Value))
         {

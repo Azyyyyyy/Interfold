@@ -17,8 +17,8 @@ namespace Interfold.Api.UnitTests.Friendships;
 /// <para>
 /// Uses a <see cref="RecordingAccountRepository"/> stub so the Discord dispatch branch
 /// can be observed without pulling in the real InMemory account repo (which would auto-
-/// create phantom accounts on miss via <c>FindOrCreateSystemIdByDiscordIdAsync</c>). The
-/// friendship repo's <c>Kind.Discord</c> branch delegates to the find-only
+/// create phantom accounts on miss via <c>FindOrCreateSystemIdAsync</c>). The friendship
+/// repo's <c>Kind.Discord</c> branch delegates to the find-only
 /// <see cref="IAccountRepository.TryFindSystemIdByDiscordIdAsync"/> — the split is why we
 /// can test the "unknown Discord id → null" contract without polluting the account store.
 /// </para>
@@ -51,10 +51,11 @@ public sealed class ResolveUserIdDispatchTests
     [Test]
     public async Task ResolveUserId_DiscordPrefix_UnknownId_ReturnsNull_NoPhantomCreate()
     {
-        // The whole point of routing to TryFindSystemIdByDiscordIdAsync (not
-        // FindOrCreateSystemIdByDiscordIdAsync) is that unknown Discord ids must NOT
-        // spawn phantom accounts. A null return here becomes a "no such user" response
-        // upstream, matching how the friendship flow behaves for any other unknown handle.
+        // The whole point of routing to TryFindSystemIdByDiscordIdAsync (not the
+        // auto-provisioning FindOrCreateSystemIdAsync — see the Round-5 Finding 6
+        // consolidation) is that unknown Discord ids must NOT spawn phantom accounts.
+        // A null return here becomes a "no such user" response upstream, matching how
+        // the friendship flow behaves for any other unknown handle.
         var accounts = new RecordingAccountRepository
         {
             DiscordLookup = _ => null,
@@ -165,12 +166,12 @@ public sealed class ResolveUserIdDispatchTests
         public Task<LinkToken?> GetLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<SystemId?> ResolveSystemIdByLinkTokenAsync(LinkToken linkToken, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> ClearLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<SystemId?> FindOrCreateSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<SystemId?> FindSystemIdByEmailAsync(Email email, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<SystemId?> FindSystemIdByAppleIdAsync(AppleId appleId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, DiscordId discordId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AccountLinkResult> LinkEmailToUserAsync(SystemId systemId, Email email, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AccountLinkResult> LinkAppleToUserAsync(SystemId systemId, AppleId appleId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        // Post-Round-5 Finding 6: the six per-provider Find* / Link* stubs collapsed
+        // onto the two ProviderIdentity-keyed consolidations. Behaviour of the stub is
+        // unchanged — the test only exercises TryFindSystemIdByDiscordIdAsync, so every
+        // other method still throws NotSupportedException.
+        public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AccountLinkResult> LinkIdentityToUserAsync(SystemId systemId, ProviderIdentity identity, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> UnlinkEmailAsync(SystemId systemId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> UnlinkAppleAsync(SystemId systemId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

@@ -190,7 +190,37 @@ public sealed class InMemoryAccountRepository : IAccountRepository
                 : null);
     }
 
-    public Task<SystemId?> FindOrCreateSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
+    // Post-Round-5 Finding 6: the six per-provider public methods
+    // (FindOrCreateSystemIdByDiscordIdAsync + FindSystemIdByEmailAsync +
+    // FindSystemIdByAppleIdAsync + LinkDiscordToUserAsync + LinkEmailToUserAsync +
+    // LinkAppleToUserAsync) collapse onto two ProviderIdentity-keyed methods that
+    // dispatch to the corresponding private helper. The three FindOrCreate* helpers
+    // each write to a distinct pair of dictionaries (discord/email/apple) so the
+    // dispatch stays per-branch; the LinkIdentifier helper is already generic across
+    // the identity wrapper. The rationale for wrapping-at-write in ScopedSystemId
+    // (Round-2 Commit 9 + 12, Round-3 Commit 1) still applies to each branch — see
+    // the FindOrCreateSystemIdByDiscord helper below for the full comment (the R2 /
+    // R3 commit trail closes a scoped-vs-raw drift where the write key didn't match
+    // the read key). Consolidation preserves that fix verbatim per branch.
+    public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default)
+        => identity switch
+        {
+            { Discord: { } discordId } => FindOrCreateSystemIdByDiscord(discordId),
+            { Google: { } email } => FindOrCreateSystemIdByEmail(email),
+            { Apple: { } appleId } => FindOrCreateSystemIdByApple(appleId),
+            _ => Task.FromResult<SystemId?>(null),
+        };
+
+    public Task<AccountLinkResult> LinkIdentityToUserAsync(SystemId systemId, ProviderIdentity identity, CancellationToken cancellationToken = default)
+        => identity switch
+        {
+            { Discord: { } discordId } => Task.FromResult(LinkIdentifier(systemId, discordId, _discordBySystem, _systemByDiscord, static id => id.Value)),
+            { Google: { } email } => Task.FromResult(LinkIdentifier(systemId, email, _emailBySystem, _systemByEmail, static e => e.Value)),
+            { Apple: { } appleId } => Task.FromResult(LinkIdentifier(systemId, appleId, _appleBySystem, _systemByApple, static id => id.Value)),
+            _ => Task.FromResult(AccountLinkResult.UserNotFound),
+        };
+
+    private Task<SystemId?> FindOrCreateSystemIdByDiscord(DiscordId discordId)
     {
         if (string.IsNullOrWhiteSpace(discordId.Value))
         {
@@ -223,7 +253,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
     }
 
-    public Task<SystemId?> FindSystemIdByEmailAsync(Email email, CancellationToken cancellationToken = default)
+    private Task<SystemId?> FindOrCreateSystemIdByEmail(Email email)
     {
         if (string.IsNullOrWhiteSpace(email.Value))
         {
@@ -235,7 +265,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
         }
 
-        // Round-2 Commit 9 + 12 + Round-3 Commit 1: see FindOrCreateSystemIdByDiscordIdAsync
+        // Round-2 Commit 9 + 12 + Round-3 Commit 1: see FindOrCreateSystemIdByDiscord
         // above for rationale (including the scoped-vs-raw drift the retype closes).
         var newSystemId = Guid.NewGuid().ToString("N");
         var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
@@ -246,7 +276,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
     }
 
-    public Task<SystemId?> FindSystemIdByAppleIdAsync(AppleId appleId, CancellationToken cancellationToken = default)
+    private Task<SystemId?> FindOrCreateSystemIdByApple(AppleId appleId)
     {
         if (string.IsNullOrWhiteSpace(appleId.Value))
         {
@@ -258,7 +288,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
         }
 
-        // Round-2 Commit 9 + 12 + Round-3 Commit 1: see FindOrCreateSystemIdByDiscordIdAsync
+        // Round-2 Commit 9 + 12 + Round-3 Commit 1: see FindOrCreateSystemIdByDiscord
         // above for rationale (including the scoped-vs-raw drift the retype closes).
         var newSystemId = Guid.NewGuid().ToString("N");
         var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
@@ -268,15 +298,6 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         EnsureEncryptionSaltForSystem(scopedNew);
         return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
     }
-
-    public Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, DiscordId discordId, CancellationToken cancellationToken = default)
-        => Task.FromResult(LinkIdentifier(systemId, discordId, _discordBySystem, _systemByDiscord, static id => id.Value));
-
-    public Task<AccountLinkResult> LinkEmailToUserAsync(SystemId systemId, Email email, CancellationToken cancellationToken = default)
-        => Task.FromResult(LinkIdentifier(systemId, email, _emailBySystem, _systemByEmail, static e => e.Value));
-
-    public Task<AccountLinkResult> LinkAppleToUserAsync(SystemId systemId, AppleId appleId, CancellationToken cancellationToken = default)
-        => Task.FromResult(LinkIdentifier(systemId, appleId, _appleBySystem, _systemByApple, static id => id.Value));
 
     public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
