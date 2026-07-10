@@ -164,6 +164,20 @@ public readonly record struct Jti
     /// </summary>
     public static Jti? From(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : new Jti(value);
+
+    /// <summary>
+    /// Mint a fresh JWT ID as a wrapped <see cref="Jti"/>. Round-2 Commit 4 added this so
+    /// JWT-issue sites (currently <c>AuthController.IssueDeepLinkTokenAsync</c>) can produce
+    /// the typed value in one call instead of holding a raw
+    /// <c>Guid.NewGuid().ToString("N")</c> string as a local across the two or three
+    /// downstream call sites that each rewrap into <see cref="Jti"/> at use. Any incidental
+    /// log statement or exception-message-with-locals in that window would emit the
+    /// unredacted JTI verbatim; the wrapper's <see cref="ToString"/> redacts. Format is
+    /// 32-char lowercase hex, no dashes - byte-identical to the pre-Round-2 raw shape so
+    /// existing tokens verify, the revocation-store row key is unchanged, and no wire
+    /// format drifts. Total function - never returns <see langword="default"/>.
+    /// </summary>
+    public static Jti NewJti() => new(Guid.NewGuid().ToString("N"));
 }
 
 internal sealed class JtiJsonConverter : JsonConverter<Jti>

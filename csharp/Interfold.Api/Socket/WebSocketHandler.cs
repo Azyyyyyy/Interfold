@@ -690,16 +690,21 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason)> IsSocketJoinTok
             return (false, ErrorCodes.SocketReasons.UnauthorizedTopic);
         }
 
-            // Check if token has been revoked
-            var jti = principal.FindFirstValue(JwtClaimNames.Jti);
-            if (!string.IsNullOrWhiteSpace(jti))
+            // Round-2 Commit 4: Jti.From wraps the possibly-null JWT claim so the null-check
+            // runs on the typed Jti? rather than on a bare string local. The pre-Round-2
+            // shape kept the raw JTI alive across the string.IsNullOrWhiteSpace guard AND
+            // through the LogWarning at :702 — {Jti} interpolated a bare string, so the
+            // structured-log sink emitted the token id verbatim. With the wrapper the log
+            // routes through Jti.ToString which redacts.
+            var jti = Interfold.Contracts.Ids.Jti.From(principal.FindFirstValue(JwtClaimNames.Jti));
+            if (jti is { } typedJti)
             {
                 var revocationRepository = context.RequestServices
                     .GetRequiredService<IAuthTokenRevocationRepository>();
-                var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(new Interfold.Contracts.Ids.Jti(jti), cancellationToken);
+                var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(typedJti, cancellationToken);
                 if (!isTokenValid)
                 {
-                    logger.LogWarning("Token has been revoked. JTI: {Jti}", jti);
+                    logger.LogWarning("Token has been revoked. JTI: {Jti}", typedJti);
                     return (false, ErrorCodes.SocketReasons.TokenRevoked);
                 }
             }

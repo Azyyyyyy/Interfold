@@ -4,7 +4,8 @@ namespace Interfold.Api.UnitTests.Ids;
 
 /// <summary>
 /// Pins the <c>Jti.From(string?)</c> and <c>LinkToken.From(string?)</c> factories added in
-/// Step 7 of the strong-typing rescan.
+/// Step 7 of the strong-typing rescan, plus the <c>Jti.NewJti()</c> mint factory added in
+/// Round-2 Commit 4.
 ///
 /// <para>
 /// Pre-Step-7, the two callers (<c>AuthController.RevokeToken</c> for Jti,
@@ -26,11 +27,22 @@ namespace Interfold.Api.UnitTests.Ids;
 /// </para>
 ///
 /// <para>
+/// The <c>NewJti</c> mint factory (Round-2 Commit 4) is the same story on the write side:
+/// <c>AuthController.IssueDeepLinkTokenAsync</c> pre-Round-2 held a raw
+/// <c>Guid.NewGuid().ToString("N")</c> string as a local across the <c>CreateToken</c>
+/// and <c>RecordTokenAsync</c> call sites, each of which re-wrapped with
+/// <c>new Jti(jti)</c>. Any log line in between would leak the freshly-minted JTI
+/// verbatim. The three <c>JtiNewJti_*</c> tests below pin uniqueness, wire-format
+/// byte-identity with the pre-Round-2 raw shape, and redaction under interpolation.
+/// </para>
+///
+/// <para>
 /// This suite is deliberately small and targeted: the four-input matrix
-/// (null / empty / whitespace-only / valid) for each of the two factories, exactly
-/// mirroring what the two Step-7 call sites can throw at them in production. Broader
-/// wrapper-shape tests (JSON round-trip, redaction behaviour) belong with the wrapper
-/// itself; this file only pins the invariants the Step-7 rewrite depends on.
+/// (null / empty / whitespace-only / valid) for each of the two <c>From</c> factories,
+/// exactly mirroring what the two Step-7 call sites can throw at them in production,
+/// plus a three-test set for <c>NewJti</c>. Broader wrapper-shape tests (JSON round-trip,
+/// redaction behaviour) belong with the wrapper itself; this file only pins the
+/// invariants the Step-7 / Commit-4 rewrites depend on.
 /// </para>
 /// </summary>
 public sealed class SecretTokensFromFactoryTests
@@ -160,6 +172,65 @@ public sealed class SecretTokensFromFactoryTests
                 .Because("The wrapped LinkToken must redact under interpolation — the AuthLinkController's cookie / redirect logs live in the same span as the From call and must not leak the token verbatim.");
             await Assert.That(interpolated).StartsWith("link_token = 0123")
                 .Because("Pins the first-4-chars + ellipsis contract for LinkToken symmetrically with the Jti case.");
+        }
+    }
+
+    // ---------------- Round-2 Commit 4: Jti.NewJti() mint factory --------------------
+
+    [Test]
+    public async Task JtiNewJti_ProducesUniqueValueEachCall()
+    {
+        // AuthController.IssueDeepLinkTokenAsync calls NewJti() once per issued token; two
+        // consecutive calls collided would mean two issued deep-link tokens share the same
+        // revocation-store row key, so revoking one silently revokes both. The mint uses
+        // Guid.NewGuid() under the hood which is a version-4 (random) GUID — collision
+        // probability is astronomically low but must be pinned so a future edit that swaps
+        // to a Guid.Empty stub for testing does not silently ship past this file.
+        var a = Jti.NewJti();
+        var b = Jti.NewJti();
+
+        await Assert.That(a.Value).IsNotEqualTo(b.Value)
+            .Because("Two NewJti() calls must produce distinct values — a collision would silently merge the revocation entries for two independently-issued tokens, so revoking one would revoke both without any warning.");
+    }
+
+    [Test]
+    public async Task JtiNewJti_ProducesThirtyTwoCharLowercaseHex()
+    {
+        // Pins the wire format: 32 lowercase hex characters, no dashes. This matches the
+        // pre-Round-2 raw `Guid.NewGuid().ToString("N")` shape byte-for-byte, so any JWT
+        // issued before Round-2 still verifies against a JTI produced by NewJti() today
+        // (and vice versa), and the revocation-store row key is unchanged. Any drift here
+        // (uppercase, hyphens, base64, longer/shorter) would silently invalidate every
+        // pre-Round-2 issued token on the first NewJti() production issuance.
+        var jti = Jti.NewJti();
+
+        using (Assert.Multiple())
+        {
+            await Assert.That(jti.Value.Length).IsEqualTo(32)
+                .Because("Guid.NewGuid().ToString(\"N\") yields exactly 32 characters — a change here would break byte-identity with every pre-Round-2 issued JTI and orphan the revocation store on the first issue after deploy.");
+            await Assert.That(jti.Value).Matches(@"^[0-9a-f]{32}$")
+                .Because("Only lowercase hex; no dashes, no uppercase. Any drift would break byte-identity with the pre-Round-2 raw shape.");
+        }
+    }
+
+    [Test]
+    public async Task JtiNewJti_ValueRedactsUnderInterpolation()
+    {
+        // Belt-and-braces on the safety story Round-2 Commit 4 is enforcing: after NewJti
+        // returns a wrapped Jti, an incidental $"{jti}" in a log statement (or in an
+        // exception message that captures the local) must go through the redacting
+        // ToString(). Without this, the AuthController mint-and-record window at
+        // IssueDeepLinkTokenAsync could leak the freshly-minted JTI into structured logs
+        // before the token is even returned to the OAuth callback client.
+        var jti = Jti.NewJti();
+        var interpolated = $"jti = {jti}";
+
+        using (Assert.Multiple())
+        {
+            await Assert.That(interpolated).DoesNotContain(jti.Value)
+                .Because("The freshly-minted Jti must redact under interpolation — the AuthController mint site logs several operation-id + redirect messages between NewJti and the RecordTokenAsync call, none of which should ever leak the JTI verbatim.");
+            await Assert.That(interpolated).StartsWith($"jti = {jti.Value[..4]}")
+                .Because("Redaction preserves the first 4 chars (per SecretRedaction.Redact) so operators can still correlate log lines across the mint / verify / revoke lifecycle without the full JTI being exposed.");
         }
     }
 }

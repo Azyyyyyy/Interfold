@@ -166,7 +166,12 @@ public sealed class AuthController : OAuthControllerBase
     private async Task<string> IssueDeepLinkTokenAsync(Interfold.Contracts.Ids.SystemId systemId)
     {
         var authConfig = AuthOptions.CurrentValue;
-        var jti = Guid.NewGuid().ToString("N");
+        // Round-2 Commit 4: Jti.NewJti() mints + wraps in one call so the raw JTI string no
+        // longer lives as a bare local across the CreateToken and RecordTokenAsync sites,
+        // each of which re-wrapped with `new Jti(jti)` pre-Round-2. Any incidental log
+        // statement or exception-with-locals between mint and wrap would emit the
+        // unredacted JTI verbatim; the wrapper's ToString redacts.
+        var jti = Interfold.Contracts.Ids.Jti.NewJti();
 
         // Set expiry to 100 years in the future. This is practically permanent
         // but avoids DateTimeOffset.MaxValue which can cause int64 overflow on validation.
@@ -174,10 +179,10 @@ public sealed class AuthController : OAuthControllerBase
         var now = DateTimeOffset.UtcNow;
         var expiresAt = now.AddYears(100);
 
-        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, new Interfold.Contracts.Ids.Jti(jti), systemId);
+        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, jti, systemId);
         
         // Record the issued token for revocation tracking
-        await _tokenRevocation.RecordTokenAsync(new Interfold.Contracts.Ids.Jti(jti), systemId, expiresAt, HttpContext.RequestAborted);
+        await _tokenRevocation.RecordTokenAsync(jti, systemId, expiresAt, HttpContext.RequestAborted);
 
         // JWS Compact Serialization: base64url(header).base64url(payload).base64url(signature)
         return token;
