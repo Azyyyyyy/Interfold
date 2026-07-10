@@ -28,26 +28,26 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     /// </summary>
     private readonly record struct LinkTokenEntry(ScopedSystemId Scoped, DateTimeOffset ExpiresAt);
 
-    // Round-2 Commit 12 (canvas #22): typed dictionary state inside the InMemory account
-    // repo. Keys stay as string-typed system-key (from GetSystemKey via
-    // InMemoryStorageKeys.ForSystem) because retyping GetSystemKey to return
-    // ScopedSystemId is a cross-cutting change to six repositories and is deferred to a
-    // follow-up. Value fields promote to their canonical wrappers (Username, AvatarUrl,
-    // DiscordId, Email, AppleId, LinkToken, ScopedSystemId) so the stored state carries
-    // the same type discipline as the interface boundaries. The _systemBy{Discord,Email,
-    // Apple} dicts retain their StringComparer.OrdinalIgnoreCase KEY comparer — the
-    // identity types don't self-normalise, so the lookup contract is unchanged.
-    // Descriptions stay string-typed because there is no Description wrapper (they are
-    // genuinely free-form user content, not identifiers).
-    private readonly ConcurrentDictionary<string, Username> _usernameBySystem = new();
-    private readonly ConcurrentDictionary<string, string> _descriptionBySystem = new();
-    private readonly ConcurrentDictionary<string, AvatarUrl> _avatarBySystem = new();
-    private readonly ConcurrentDictionary<string, AvatarSource> _avatarSourceBySystem = new();
-    private readonly ConcurrentDictionary<string, LinkToken> _linkTokenBySystem = new();
+    // Round-2 Commit 12 (canvas #22) retyped the dictionary VALUES to speak wrappers, but
+    // left the per-system KEYS as raw string because retyping GetSystemKey to return
+    // ScopedSystemId was cross-cutting across seven repos. Round-3 Commit 1 (canvas #1)
+    // closes that gap: every per-system dict below now keys on ScopedSystemId directly,
+    // and the readonly record struct's ordinal equality on Value gives byte-identical
+    // lookup semantics to the pre-Round-3 string keys. The identity-side dicts
+    // (_systemBy{Discord,Email,Apple}) still key on raw string because their KEY is the
+    // provider identifier (an Email / DiscordId / AppleId in .Value form) with
+    // StringComparer.OrdinalIgnoreCase to match the case-insensitive lookup contract for
+    // email — the identity wrappers themselves are ordinal-strict and would lose that
+    // contract if used as the key directly.
+    private readonly ConcurrentDictionary<ScopedSystemId, Username> _usernameBySystem = new();
+    private readonly ConcurrentDictionary<ScopedSystemId, string> _descriptionBySystem = new();
+    private readonly ConcurrentDictionary<ScopedSystemId, AvatarUrl> _avatarBySystem = new();
+    private readonly ConcurrentDictionary<ScopedSystemId, AvatarSource> _avatarSourceBySystem = new();
+    private readonly ConcurrentDictionary<ScopedSystemId, LinkToken> _linkTokenBySystem = new();
     private readonly ConcurrentDictionary<LinkToken, LinkTokenEntry> _systemByLinkToken = new();
-    private readonly ConcurrentDictionary<string, DiscordId> _discordBySystem = new();
-    private readonly ConcurrentDictionary<string, Email> _emailBySystem = new();
-    private readonly ConcurrentDictionary<string, AppleId> _appleBySystem = new();
+    private readonly ConcurrentDictionary<ScopedSystemId, DiscordId> _discordBySystem = new();
+    private readonly ConcurrentDictionary<ScopedSystemId, Email> _emailBySystem = new();
+    private readonly ConcurrentDictionary<ScopedSystemId, AppleId> _appleBySystem = new();
     private readonly ConcurrentDictionary<string, ScopedSystemId> _systemByDiscord = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ScopedSystemId> _systemByEmail = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ScopedSystemId> _systemByApple = new(StringComparer.OrdinalIgnoreCase);
@@ -112,9 +112,12 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         // spuriously expire. Round-2 Commit 12: the derived hash is wrapped as LinkToken
         // immediately in the GetOrAdd factory so the token spends zero time as a bare
         // string local — every downstream reference goes through the redacting wrapper.
+        // Round-3 Commit 1 (canvas #1): key is now ScopedSystemId — unwrap to .Value only
+        // for the SHA-256 input (the hash is deterministic in the scoped composite bytes,
+        // matching the pre-Round-3 behaviour exactly).
         var token = _linkTokenBySystem.GetOrAdd(systemKey, static key =>
         {
-            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key));
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key.Value));
             return new LinkToken(Convert.ToHexString(hash)[..32].ToLowerInvariant());
         });
 
@@ -205,9 +208,15 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         // round-trip. Round-2 Commit 12: identity-value dicts now speak the typed DiscordId
         // wrapper; reverse-map dicts store ScopedSystemId — the assignment lines lose all the
         // `.Value` unwraps that used to poke the string-typed slots.
+        // Round-3 Commit 1 (canvas #1): _discordBySystem is now keyed on ScopedSystemId, so
+        // we hand it scopedNew directly. The pre-Round-3 spelling `_discordBySystem[newSystemId]`
+        // stored the value under the RAW id while every downstream read (LinkIdentifier / Unlink*
+        // / GetPublicProfile) looks up by the SCOPED composite via GetSystemKey — a latent
+        // shape mismatch that the raw-string dictionary silently accepted. The retype forces
+        // the write side to match the read side, closing the shape drift as a side-effect.
         var newSystemId = Guid.NewGuid().ToString("N");
         var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
-        _discordBySystem[newSystemId] = discordId;
+        _discordBySystem[scopedNew] = discordId;
         _systemByDiscord[discordId.Value] = scopedNew;
 
         EnsureEncryptionSaltForSystem(scopedNew);
@@ -226,10 +235,11 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
         }
 
-        // Round-2 Commit 9 + 12: see FindOrCreateSystemIdByDiscordIdAsync above for rationale.
+        // Round-2 Commit 9 + 12 + Round-3 Commit 1: see FindOrCreateSystemIdByDiscordIdAsync
+        // above for rationale (including the scoped-vs-raw drift the retype closes).
         var newSystemId = Guid.NewGuid().ToString("N");
         var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
-        _emailBySystem[newSystemId] = email;
+        _emailBySystem[scopedNew] = email;
         _systemByEmail[email.Value] = scopedNew;
 
         EnsureEncryptionSaltForSystem(scopedNew);
@@ -248,10 +258,11 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
         }
 
-        // Round-2 Commit 9 + 12: see FindOrCreateSystemIdByDiscordIdAsync above for rationale.
+        // Round-2 Commit 9 + 12 + Round-3 Commit 1: see FindOrCreateSystemIdByDiscordIdAsync
+        // above for rationale (including the scoped-vs-raw drift the retype closes).
         var newSystemId = Guid.NewGuid().ToString("N");
         var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
-        _appleBySystem[newSystemId] = appleId;
+        _appleBySystem[scopedNew] = appleId;
         _systemByApple[appleId.Value] = scopedNew;
 
         EnsureEncryptionSaltForSystem(scopedNew);
@@ -364,7 +375,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
                 appleId));
     }
 
-    private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
     private ScopedSystemId ResolveScoped(SystemId systemId)
         => ScopedSystemId.Compose(_regionContext.ResolveUserRegion(systemId), systemId);
@@ -377,8 +388,12 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     /// Round-2 Commit 12: linkTokenValue parameter promoted to <see cref="LinkToken"/>?
     /// so callers hand the typed wrapper directly; the record-struct ordinal equality on
     /// the underlying string preserves byte-compat with the pre-Round-2 string.Equals compare.
+    /// Round-3 Commit 1 (canvas #1): systemKey parameter promoted to <see cref="ScopedSystemId"/>?
+    /// so the whole scrub signature speaks wrappers now — the callers already hand in the
+    /// typed <c>GetSystemKey</c> result, and the internal <c>_linkTokenBySystem</c> dict is
+    /// scoped-keyed post-Round-3.
     /// </summary>
-    private void ScrubLinkToken(string? systemKey = null, LinkToken? linkTokenValue = null)
+    private void ScrubLinkToken(ScopedSystemId? systemKey = null, LinkToken? linkTokenValue = null)
     {
         if (linkTokenValue is { } token)
         {
@@ -395,7 +410,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             }
         }
 
-        if (systemKey is not null && _linkTokenBySystem.TryRemove(systemKey, out var storedToken))
+        if (systemKey is { } key && _linkTokenBySystem.TryRemove(key, out var storedToken))
         {
             _systemByLinkToken.TryRemove(storedToken, out _);
         }
@@ -410,11 +425,13 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     /// case-insensitive <see cref="StringComparer.OrdinalIgnoreCase"/> semantics for
     /// email-and-friends). The three call-sites feed static lambdas so there is no
     /// allocation per call.
+    /// Round-3 Commit 1 (canvas #1): <paramref name="identifierBySystem"/> now keys on
+    /// <see cref="ScopedSystemId"/> in step with every other per-system dict in this repo.
     /// </summary>
     private AccountLinkResult LinkIdentifier<TIdentity>(
         SystemId systemId,
         TIdentity identifier,
-        ConcurrentDictionary<string, TIdentity> identifierBySystem,
+        ConcurrentDictionary<ScopedSystemId, TIdentity> identifierBySystem,
         ConcurrentDictionary<string, ScopedSystemId> systemByIdentifier,
         Func<TIdentity, string> extractRawValue)
         where TIdentity : struct

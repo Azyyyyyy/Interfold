@@ -26,15 +26,23 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         // VisibilityLevelExtensions.FromCodeOrPublic, so new alters are world-readable
         // until the owner tightens visibility explicitly.
         public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Public;
-        public Dictionary<string, string?> Fields { get; } = new(StringComparer.OrdinalIgnoreCase);
+        // Round-3 Commit 1 (canvas #2): retyped from Dictionary<string, string?> keyed on
+        // FieldId.Value to Dictionary<FieldId, string?>. The pre-Round-3 map used
+        // StringComparer.OrdinalIgnoreCase, but every writer produces field ids via
+        // Guid.NewGuid().ToString("N") (lowercase hex) and every reader threads through
+        // FieldId — no observed case-mismatch traffic. Record-struct equality on the
+        // wrapper is ordinal on the underlying string, so lookups stay byte-compatible.
+        public Dictionary<FieldId, string?> Fields { get; } = new();
         public bool Untracked { get; set; }
         public bool Archived { get; set; }
         public bool Pinned { get; set; }
     }
 
     private readonly IRegionContext _regionContext;
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<AlterId, AlterState>> _bySystem = new();
-    private readonly ConcurrentDictionary<string, int> _nextIdBySystem = new();
+    // Round-3 Commit 1 (canvas #1): retyped from ConcurrentDictionary<string, ...> to
+    // <ScopedSystemId, ...> so the partition key is a typed wrapper end-to-end.
+    private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<AlterId, AlterState>> _bySystem = new();
+    private readonly ConcurrentDictionary<ScopedSystemId, int> _nextIdBySystem = new();
     private readonly IFriendshipRepository? _friendships;
     private readonly ISettingsFieldRepository? _settingsFields;
     private readonly IPollRepository? _polls;
@@ -142,7 +150,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         {
             foreach (var field in command.Fields)
             {
-                existing.Fields[field.Id.Value] = field.Value;
+                existing.Fields[field.Id] = field.Value;
             }
         }
 
@@ -326,12 +334,17 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         return Task.FromResult(taken);
     }
 
-    internal void RemoveFieldValuesForSystem(Guid fieldId, string systemKey)
+    // Round-3 Commit 1 (canvas #1): retyped systemKey from string to ScopedSystemId in step
+    // with _bySystem's new key type. Round-3 Commit 1 (canvas #2): fieldKey is now a
+    // FieldId built from the Guid rather than a raw hex string, so the AlterState.Fields
+    // Dictionary<FieldId, string?> lookup is a typed compare rather than a stringly-typed
+    // one.
+    internal void RemoveFieldValuesForSystem(Guid fieldId, ScopedSystemId systemKey)
     {
         if (!_bySystem.TryGetValue(systemKey, out var store))
             return;
 
-        var fieldKey = fieldId.ToString("N");
+        var fieldKey = new FieldId(fieldId.ToString("N"));
         foreach (var kv in store)
         {
             var state = kv.Value;
@@ -351,7 +364,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         RemoveFieldValuesForSystem(fieldId, systemKey);
     }
 
-    private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
     private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
     {
@@ -384,12 +397,12 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         }
 
         return definitions
-            .Where(def => alter.Fields.ContainsKey(def.Id.Value))
+            .Where(def => alter.Fields.ContainsKey(def.Id))
             .Select(def => new AlterPublicFieldReadModel(
                 def.Id,
                 def.Name,
                 def.Type,
-                alter.Fields.TryGetValue(def.Id.Value, out var value) ? value : null))
+                alter.Fields.TryGetValue(def.Id, out var value) ? value : null))
             .ToArray();
     }
 

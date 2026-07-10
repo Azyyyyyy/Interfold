@@ -24,9 +24,13 @@ public sealed class InMemoryTagRepository : ITagRepository
 
     private readonly IRegionContext _regionContext;
     private readonly IFriendshipRepository? _friendships;
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<TagId, TagState>> _bySystem = new();
-   // Key: "{systemKey}:{tagId}"  Value: set of alter IDs (dict used as concurrent set)
-   private readonly ConcurrentDictionary<string, ConcurrentDictionary<BareAlter, bool>> _alterMemberships = new();
+    // Round-3 Commit 1 (canvas #1): retyped from ConcurrentDictionary<string, ...> to
+    // <ScopedSystemId, ...> so the partition key is a typed wrapper end-to-end.
+    private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<TagId, TagState>> _bySystem = new();
+    // Round-3 Commit 1 (canvas #3): keyed on the (ScopedSystemId, TagId) tuple instead of
+    // a hand-concatenated "{systemKey}:{tagId}" string. ValueTuple gives structural
+    // equality for free and the previous stringly-typed composite is gone.
+    private readonly ConcurrentDictionary<(ScopedSystemId System, TagId TagId), ConcurrentDictionary<BareAlter, bool>> _alterMemberships = new();
 
     public InMemoryTagRepository(IRegionContext regionContext)
     {
@@ -88,7 +92,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
            var removed = store.TryRemove(tagId, out _);
            if (removed)
-               _alterMemberships.TryRemove($"{systemKey}:{tagId.Value}", out _);
+               _alterMemberships.TryRemove((systemKey, tagId), out _);
            return Task.FromResult(removed);
        }
 
@@ -98,8 +102,7 @@ public sealed class InMemoryTagRepository : ITagRepository
            if (!_bySystem.TryGetValue(systemKey, out var store) || !store.ContainsKey(tagId))
                return Task.FromResult(false);
 
-           var memberKey = $"{systemKey}:{tagId.Value}";
-           var members = _alterMemberships.GetOrAdd(memberKey, _ => new ConcurrentDictionary<BareAlter, bool>());
+           var members = _alterMemberships.GetOrAdd((systemKey, tagId), _ => new ConcurrentDictionary<BareAlter, bool>());
            members[new BareAlter(alterId, "", null, null, null, null, null, null!)] = true;
            return Task.FromResult(true);
        }
@@ -107,8 +110,7 @@ public sealed class InMemoryTagRepository : ITagRepository
        public Task<bool> DetachAlterAsync(SystemId systemId, TagId tagId, AlterId alterId, CancellationToken cancellationToken = default)
        {
            var systemKey = GetSystemKey(systemId);
-           var memberKey = $"{systemKey}:{tagId.Value}";
-           if (!_alterMemberships.TryGetValue(memberKey, out var members))
+           if (!_alterMemberships.TryGetValue((systemKey, tagId), out var members))
                return Task.FromResult(false);
 
            return Task.FromResult(members.Remove(members.FirstOrDefault(x => x.Key.Id == alterId).Key, out _));
@@ -249,25 +251,23 @@ public sealed class InMemoryTagRepository : ITagRepository
                systemId);
        }
 
-    private IReadOnlyList<AlterId> GetAlterIds(string systemKey, TagId tagId)
+    private IReadOnlyList<AlterId> GetAlterIds(ScopedSystemId systemKey, TagId tagId)
     {
-        var memberKey = $"{systemKey}:{tagId.Value}";
-        if (!_alterMemberships.TryGetValue(memberKey, out var members))
+        if (!_alterMemberships.TryGetValue((systemKey, tagId), out var members))
             return Array.Empty<AlterId>();
 
         return members.Keys.OrderBy(x => x.Id.Value).Select(x => x.Id).ToArray();
     }
 
-    private IReadOnlyList<BareAlter> GetAlters(string systemKey, TagId tagId)
+    private IReadOnlyList<BareAlter> GetAlters(ScopedSystemId systemKey, TagId tagId)
     {
-        var memberKey = $"{systemKey}:{tagId.Value}";
-        if (!_alterMemberships.TryGetValue(memberKey, out var members))
+        if (!_alterMemberships.TryGetValue((systemKey, tagId), out var members))
             return Array.Empty<BareAlter>();
 
         return members.Keys.OrderBy(x => x.Id.Value).ToArray();
     }
 
-    private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
     private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
     {

@@ -32,10 +32,19 @@ internal static class InMemoryStorageKeys
     /// idempotent — an incoming <see cref="SystemId"/> that already carries a region prefix
     /// no longer produces a double-prefixed key like <c>"nam:nam:abcdefg"</c>, which was the
     /// silent failure mode of the pre-Slice-4 hand-concatenation.
+    ///
+    /// <para>
+    /// Round-3 Commit 1 (canvas #1): returns the typed <see cref="ScopedSystemId"/> directly
+    /// so the seven InMemory repos can key their per-system dictionaries on the wrapper
+    /// (which is a <c>readonly record struct</c> with ordinal equality on its underlying
+    /// string — behaviourally identical to the pre-Round-3 raw-string key). Round-2 Commit
+    /// 12 retyped the dictionary <b>values</b> to speak wrappers but left the keys as raw
+    /// string because retyping this funnel was cross-cutting; this finishes that story.
+    /// </para>
     /// </summary>
-    public static string ForSystem(IRegionContext regionContext, SystemId systemId)
+    public static ScopedSystemId ForSystem(IRegionContext regionContext, SystemId systemId)
     {
         var region = regionContext.ResolveUserRegion(systemId);
-        return ScopedSystemId.Compose(region, systemId).Value;
+        return ScopedSystemId.Compose(region, systemId);
     }
 }

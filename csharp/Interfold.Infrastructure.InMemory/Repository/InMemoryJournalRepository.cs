@@ -36,10 +36,15 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     }
 
     private readonly IRegionContext _regionContext;
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<EntryId, EntryState>> _bySystem = new();
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<EntryId, (bool Pinned, bool Locked)>> _stateBySystem = new();
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<AlterId, bool>> _entryAlters = new();
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<EntryId, AlterEntryState>> _alterEntriesBySystem = new();
+    // Round-3 Commit 1 (canvas #1): retyped from ConcurrentDictionary<string, ...> to
+    // <ScopedSystemId, ...> so the partition key is a typed wrapper end-to-end.
+    private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<EntryId, EntryState>> _bySystem = new();
+    private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<EntryId, (bool Pinned, bool Locked)>> _stateBySystem = new();
+    // Round-3 Commit 1 (canvas #3): keyed on the (ScopedSystemId, EntryId) tuple instead
+    // of a hand-concatenated "{systemKey}:{entryId}" string. ValueTuple gives structural
+    // equality for free.
+    private readonly ConcurrentDictionary<(ScopedSystemId System, EntryId EntryId), ConcurrentDictionary<AlterId, bool>> _entryAlters = new();
+    private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<EntryId, AlterEntryState>> _alterEntriesBySystem = new();
 
     public InMemoryJournalRepository(IRegionContext regionContext)
     {
@@ -356,7 +361,10 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         return alters.Keys.ToArray();
     }
 
-    private string GetEntryKey(SystemId systemId, EntryId entryId) => $"{GetSystemKey(systemId)}:{entryId.Value}";
+    // Round-3 Commit 1 (canvas #3): typed tuple return replaces the pre-Round-3
+    // "{systemKey}:{entryId}" concat. Callers ripple through the _entryAlters dict.
+    private (ScopedSystemId System, EntryId EntryId) GetEntryKey(SystemId systemId, EntryId entryId)
+        => (GetSystemKey(systemId), entryId);
 
-    private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 }

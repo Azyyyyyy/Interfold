@@ -13,7 +13,11 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
 {
     private readonly IRegionContext _regionContext;
     private readonly IServiceProvider _serviceProvider;
-    private readonly ConcurrentDictionary<string, List<SettingsFieldReadModel>> _bySystem = new(StringComparer.Ordinal);
+    // Round-3 Commit 1 (canvas #1): retyped from ConcurrentDictionary<string, ...> to
+    // <ScopedSystemId, ...>. The pre-Round-3 StringComparer.Ordinal is now the implicit
+    // record-struct equality of ScopedSystemId (which is byte-compare on Value) — no
+    // behavioural drift.
+    private readonly ConcurrentDictionary<ScopedSystemId, List<SettingsFieldReadModel>> _bySystem = new();
 
     public InMemorySettingsFieldRepository(IRegionContext regionContext, IServiceProvider serviceProvider)
     {
@@ -164,7 +168,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
         }
     }
 
-    private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
     internal static bool TryParseUuid(string value, out Guid guid)
     {

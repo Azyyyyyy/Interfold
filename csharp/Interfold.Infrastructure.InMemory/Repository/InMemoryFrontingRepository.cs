@@ -29,9 +29,11 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     private readonly IRegionContext _regionContext;
     private readonly IFriendshipRepository? _friendships;
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<AlterId, FrontState>> _activeBySystem = new();
-    private readonly ConcurrentDictionary<string, List<FrontHistoryState>> _historyBySystem = new();
-    private readonly ConcurrentDictionary<string, AlterId?> _primaryBySystem = new();
+    // Round-3 Commit 1 (canvas #1): retyped from ConcurrentDictionary<string, ...> to
+    // <ScopedSystemId, ...> so the partition key spends zero time as a raw string local.
+    private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<AlterId, FrontState>> _activeBySystem = new();
+    private readonly ConcurrentDictionary<ScopedSystemId, List<FrontHistoryState>> _historyBySystem = new();
+    private readonly ConcurrentDictionary<ScopedSystemId, AlterId?> _primaryBySystem = new();
     private readonly object _sync = new();
 
     public InMemoryFrontingRepository(IRegionContext regionContext, IFriendshipRepository friendships)
@@ -310,7 +312,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         }
     }
 
-    private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
     private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
     {
