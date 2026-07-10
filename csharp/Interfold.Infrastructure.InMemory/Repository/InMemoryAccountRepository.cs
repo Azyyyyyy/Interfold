@@ -28,18 +28,29 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     /// </summary>
     private readonly record struct LinkTokenEntry(ScopedSystemId Scoped, DateTimeOffset ExpiresAt);
 
-    private readonly ConcurrentDictionary<string, string> _usernameBySystem = new();
+    // Round-2 Commit 12 (canvas #22): typed dictionary state inside the InMemory account
+    // repo. Keys stay as string-typed system-key (from GetSystemKey via
+    // InMemoryStorageKeys.ForSystem) because retyping GetSystemKey to return
+    // ScopedSystemId is a cross-cutting change to six repositories and is deferred to a
+    // follow-up. Value fields promote to their canonical wrappers (Username, AvatarUrl,
+    // DiscordId, Email, AppleId, LinkToken, ScopedSystemId) so the stored state carries
+    // the same type discipline as the interface boundaries. The _systemBy{Discord,Email,
+    // Apple} dicts retain their StringComparer.OrdinalIgnoreCase KEY comparer — the
+    // identity types don't self-normalise, so the lookup contract is unchanged.
+    // Descriptions stay string-typed because there is no Description wrapper (they are
+    // genuinely free-form user content, not identifiers).
+    private readonly ConcurrentDictionary<string, Username> _usernameBySystem = new();
     private readonly ConcurrentDictionary<string, string> _descriptionBySystem = new();
-    private readonly ConcurrentDictionary<string, string> _avatarBySystem = new();
+    private readonly ConcurrentDictionary<string, AvatarUrl> _avatarBySystem = new();
     private readonly ConcurrentDictionary<string, AvatarSource> _avatarSourceBySystem = new();
-    private readonly ConcurrentDictionary<string, string> _linkTokenBySystem = new();
-    private readonly ConcurrentDictionary<string, LinkTokenEntry> _systemByLinkToken = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, string> _discordBySystem = new();
-    private readonly ConcurrentDictionary<string, string> _emailBySystem = new();
-    private readonly ConcurrentDictionary<string, string> _appleBySystem = new();
-    private readonly ConcurrentDictionary<string, string> _systemByDiscord = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, string> _systemByEmail = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, string> _systemByApple = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, LinkToken> _linkTokenBySystem = new();
+    private readonly ConcurrentDictionary<LinkToken, LinkTokenEntry> _systemByLinkToken = new();
+    private readonly ConcurrentDictionary<string, DiscordId> _discordBySystem = new();
+    private readonly ConcurrentDictionary<string, Email> _emailBySystem = new();
+    private readonly ConcurrentDictionary<string, AppleId> _appleBySystem = new();
+    private readonly ConcurrentDictionary<string, ScopedSystemId> _systemByDiscord = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ScopedSystemId> _systemByEmail = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ScopedSystemId> _systemByApple = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly IEncryptionStateRepository? _encryptionStates;
     private readonly IRegionContext _regionContext;
@@ -62,7 +73,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     public Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
-        _usernameBySystem[systemKey] = username.Value;
+        _usernameBySystem[systemKey] = username;
         return Task.FromResult(true);
     }
 
@@ -76,7 +87,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     public Task<bool> UpdateAvatarAsync(SystemId systemId, AvatarUrl avatarUrl, AvatarSource source, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
-        _avatarBySystem[systemKey] = avatarUrl.Value;
+        _avatarBySystem[systemKey] = avatarUrl;
         _avatarSourceBySystem[systemKey] = source;
         return Task.FromResult(true);
     }
@@ -98,16 +109,18 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         // Deterministic token derivation kept intact — the InMemory adapter's convention
         // is "same system → same token", which the integration tests lean on. Every call
         // refreshes the expiry so a live client that keeps calling get-or-create doesn't
-        // spuriously expire.
+        // spuriously expire. Round-2 Commit 12: the derived hash is wrapped as LinkToken
+        // immediately in the GetOrAdd factory so the token spends zero time as a bare
+        // string local — every downstream reference goes through the redacting wrapper.
         var token = _linkTokenBySystem.GetOrAdd(systemKey, static key =>
         {
             var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key));
-            return Convert.ToHexString(hash)[..32].ToLowerInvariant();
+            return new LinkToken(Convert.ToHexString(hash)[..32].ToLowerInvariant());
         });
 
         _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkTokenTtl));
 
-        return Task.FromResult(new LinkToken(token));
+        return Task.FromResult(token);
     }
 
     public Task<LinkToken?> GetLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
@@ -122,7 +135,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         // "get" never sees a token that ResolveSystemIdByLinkTokenAsync would refuse.
         if (_systemByLinkToken.TryGetValue(token, out var entry) && entry.ExpiresAt > _timeProvider.GetUtcNow())
         {
-            return Task.FromResult<LinkToken?>(new LinkToken(token));
+            return Task.FromResult<LinkToken?>(token);
         }
 
         ScrubLinkToken(systemKey, token);
@@ -139,12 +152,12 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         // Slice 4 bug A + B fix: check TTL on lookup, and on miss (nonexistent or expired)
         // scrub BOTH sides so the deterministic-token semantics don't leave a dangling
         // pointer that a later GetOrCreate would silently re-adopt.
-        if (_systemByLinkToken.TryGetValue(linkToken.Value, out var entry) && entry.ExpiresAt > _timeProvider.GetUtcNow())
+        if (_systemByLinkToken.TryGetValue(linkToken, out var entry) && entry.ExpiresAt > _timeProvider.GetUtcNow())
         {
             return Task.FromResult<SystemId?>(entry.Scoped.AsSystemId());
         }
 
-        ScrubLinkToken(linkTokenValue: linkToken.Value);
+        ScrubLinkToken(linkTokenValue: linkToken);
         return Task.FromResult<SystemId?>(null);
     }
 
@@ -166,9 +179,11 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(null);
         }
 
+        // Round-2 Commit 12: _systemByDiscord now stores ScopedSystemId — pattern-match to
+        // widen through AsSystemId in one hop.
         return Task.FromResult<SystemId?>(
             _systemByDiscord.TryGetValue(discordId.Value, out var scopedSystemId)
-                ? new SystemId(scopedSystemId)
+                ? scopedSystemId.AsSystemId()
                 : null);
     }
 
@@ -181,17 +196,19 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
         if (_systemByDiscord.TryGetValue(discordId.Value, out var scopedSystemId))
         {
-            return Task.FromResult<SystemId?>(new SystemId(scopedSystemId));
+            return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
         }
 
         // Round-2 Commit 9: hold the ScopedSystemId typed locally so EnsureEncryptionSaltForSystem
         // (which now takes ScopedSystemId per canvas #21) receives the wrapper directly, and the
         // return can widen through AsSystemId without the pre-Round-2 raw `.Value` → `new SystemId(...)`
-        // round-trip. The _systemByDiscord dict is still string-valued until Commit 12.
+        // round-trip. Round-2 Commit 12: identity-value dicts now speak the typed DiscordId
+        // wrapper; reverse-map dicts store ScopedSystemId — the assignment lines lose all the
+        // `.Value` unwraps that used to poke the string-typed slots.
         var newSystemId = Guid.NewGuid().ToString("N");
         var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
-        _discordBySystem[newSystemId] = discordId.Value;
-        _systemByDiscord[discordId.Value] = scopedNew.Value;
+        _discordBySystem[newSystemId] = discordId;
+        _systemByDiscord[discordId.Value] = scopedNew;
 
         EnsureEncryptionSaltForSystem(scopedNew);
         return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
@@ -206,14 +223,14 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
         if (_systemByEmail.TryGetValue(email.Value, out var scopedSystemId))
         {
-            return Task.FromResult<SystemId?>(new SystemId(scopedSystemId));
+            return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
         }
 
-        // Round-2 Commit 9: see FindOrCreateSystemIdByDiscordIdAsync above for rationale.
+        // Round-2 Commit 9 + 12: see FindOrCreateSystemIdByDiscordIdAsync above for rationale.
         var newSystemId = Guid.NewGuid().ToString("N");
         var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
-        _emailBySystem[newSystemId] = email.Value;
-        _systemByEmail[email.Value] = scopedNew.Value;
+        _emailBySystem[newSystemId] = email;
+        _systemByEmail[email.Value] = scopedNew;
 
         EnsureEncryptionSaltForSystem(scopedNew);
         return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
@@ -228,34 +245,34 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
         if (_systemByApple.TryGetValue(appleId.Value, out var scopedSystemId))
         {
-            return Task.FromResult<SystemId?>(new SystemId(scopedSystemId));
+            return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
         }
 
-        // Round-2 Commit 9: see FindOrCreateSystemIdByDiscordIdAsync above for rationale.
+        // Round-2 Commit 9 + 12: see FindOrCreateSystemIdByDiscordIdAsync above for rationale.
         var newSystemId = Guid.NewGuid().ToString("N");
         var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
-        _appleBySystem[newSystemId] = appleId.Value;
-        _systemByApple[appleId.Value] = scopedNew.Value;
+        _appleBySystem[newSystemId] = appleId;
+        _systemByApple[appleId.Value] = scopedNew;
 
         EnsureEncryptionSaltForSystem(scopedNew);
         return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
     }
 
     public Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, DiscordId discordId, CancellationToken cancellationToken = default)
-        => Task.FromResult(LinkIdentifier(systemId, discordId.Value, _discordBySystem, _systemByDiscord));
+        => Task.FromResult(LinkIdentifier(systemId, discordId, _discordBySystem, _systemByDiscord, static id => id.Value));
 
     public Task<AccountLinkResult> LinkEmailToUserAsync(SystemId systemId, Email email, CancellationToken cancellationToken = default)
-        => Task.FromResult(LinkIdentifier(systemId, email.Value, _emailBySystem, _systemByEmail));
+        => Task.FromResult(LinkIdentifier(systemId, email, _emailBySystem, _systemByEmail, static e => e.Value));
 
     public Task<AccountLinkResult> LinkAppleToUserAsync(SystemId systemId, AppleId appleId, CancellationToken cancellationToken = default)
-        => Task.FromResult(LinkIdentifier(systemId, appleId.Value, _appleBySystem, _systemByApple));
+        => Task.FromResult(LinkIdentifier(systemId, appleId, _appleBySystem, _systemByApple, static id => id.Value));
 
     public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
-        if (_discordBySystem.TryRemove(systemKey, out var discordId) && !string.IsNullOrWhiteSpace(discordId))
+        if (_discordBySystem.TryRemove(systemKey, out var discordId) && !string.IsNullOrWhiteSpace(discordId.Value))
         {
-            _systemByDiscord.TryRemove(discordId, out _);
+            _systemByDiscord.TryRemove(discordId.Value, out _);
         }
 
         return Task.FromResult(true);
@@ -264,9 +281,9 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     public Task<bool> UnlinkEmailAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
-        if (_emailBySystem.TryRemove(systemKey, out var email) && !string.IsNullOrWhiteSpace(email))
+        if (_emailBySystem.TryRemove(systemKey, out var email) && !string.IsNullOrWhiteSpace(email.Value))
         {
-            _systemByEmail.TryRemove(email, out _);
+            _systemByEmail.TryRemove(email.Value, out _);
         }
 
         return Task.FromResult(true);
@@ -275,9 +292,9 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     public Task<bool> UnlinkAppleAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
-        if (_appleBySystem.TryRemove(systemKey, out var appleId) && !string.IsNullOrWhiteSpace(appleId))
+        if (_appleBySystem.TryRemove(systemKey, out var appleId) && !string.IsNullOrWhiteSpace(appleId.Value))
         {
-            _systemByApple.TryRemove(appleId, out _);
+            _systemByApple.TryRemove(appleId.Value, out _);
         }
 
         return Task.FromResult(true);
@@ -296,19 +313,19 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             _systemByLinkToken.TryRemove(token, out _);
         }
 
-        if (_discordBySystem.TryRemove(systemKey, out var discordId) && !string.IsNullOrWhiteSpace(discordId))
+        if (_discordBySystem.TryRemove(systemKey, out var discordId) && !string.IsNullOrWhiteSpace(discordId.Value))
         {
-            _systemByDiscord.TryRemove(discordId, out _);
+            _systemByDiscord.TryRemove(discordId.Value, out _);
         }
 
-        if (_emailBySystem.TryRemove(systemKey, out var email) && !string.IsNullOrWhiteSpace(email))
+        if (_emailBySystem.TryRemove(systemKey, out var email) && !string.IsNullOrWhiteSpace(email.Value))
         {
-            _systemByEmail.TryRemove(email, out _);
+            _systemByEmail.TryRemove(email.Value, out _);
         }
 
-        if (_appleBySystem.TryRemove(systemKey, out var appleId) && !string.IsNullOrWhiteSpace(appleId))
+        if (_appleBySystem.TryRemove(systemKey, out var appleId) && !string.IsNullOrWhiteSpace(appleId.Value))
         {
-            _systemByApple.TryRemove(appleId, out _);
+            _systemByApple.TryRemove(appleId.Value, out _);
         }
 
         return Task.FromResult(true);
@@ -317,13 +334,18 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     public Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
-        var username = _usernameBySystem.TryGetValue(systemKey, out var u) ? u : null;
+        // Round-2 Commit 12: every dict now stores the typed wrapper directly, so the
+        // read-side conditional promotes the value-type to its nullable form and the
+        // final AccountPublicProfileReadModel constructor accepts the wrappers without
+        // a `new Username(u)` / `new DiscordId(discord)` re-wrap. Descriptions stay
+        // string-typed (no wrapper).
+        Username? username = _usernameBySystem.TryGetValue(systemKey, out var u) ? u : null;
         var description = _descriptionBySystem.TryGetValue(systemKey, out var d) ? d : null;
-        var avatarUrl = _avatarBySystem.TryGetValue(systemKey, out var a) ? a : null;
+        AvatarUrl? avatarUrl = _avatarBySystem.TryGetValue(systemKey, out var a) ? a : null;
         AvatarSource? avatarSource = _avatarSourceBySystem.TryGetValue(systemKey, out var s) ? s : null;
-        var discordId = _discordBySystem.TryGetValue(systemKey, out var discord) ? discord : null;
-        var email = _emailBySystem.TryGetValue(systemKey, out var e) ? e : null;
-        var appleId = _appleBySystem.TryGetValue(systemKey, out var apple) ? apple : null;
+        DiscordId? discordId = _discordBySystem.TryGetValue(systemKey, out var discord) ? discord : null;
+        Email? email = _emailBySystem.TryGetValue(systemKey, out var e) ? e : null;
+        AppleId? appleId = _appleBySystem.TryGetValue(systemKey, out var apple) ? apple : null;
 
         if (username is null && description is null && avatarUrl is null && discordId is null && email is null && appleId is null)
         {
@@ -333,13 +355,13 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult<AccountPublicProfileReadModel?>(
             new AccountPublicProfileReadModel(
                 systemId,
-                username is null ? null : new Username(username),
+                username,
                 description,
-                AvatarUrl.FromNullable(avatarUrl),
+                avatarUrl,
                 avatarSource,
-                discordId is null ? null : new DiscordId(discordId),
-                email is null ? null : new Email(email),
-                appleId is null ? null : new AppleId(appleId)));
+                discordId,
+                email,
+                appleId));
     }
 
     private string GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
@@ -352,17 +374,20 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     /// or missing entry — the deterministic-token hash means we cannot rely on a
     /// re-issued token to bury the stale mapping, so lazy scrub on read is the guardrail
     /// against dangling reverse-map pointers (Slice 4 bug B).
+    /// Round-2 Commit 12: linkTokenValue parameter promoted to <see cref="LinkToken"/>?
+    /// so callers hand the typed wrapper directly; the record-struct ordinal equality on
+    /// the underlying string preserves byte-compat with the pre-Round-2 string.Equals compare.
     /// </summary>
-    private void ScrubLinkToken(string? systemKey = null, string? linkTokenValue = null)
+    private void ScrubLinkToken(string? systemKey = null, LinkToken? linkTokenValue = null)
     {
-        if (linkTokenValue is not null)
+        if (linkTokenValue is { } token)
         {
-            _systemByLinkToken.TryRemove(linkTokenValue, out _);
+            _systemByLinkToken.TryRemove(token, out _);
             // Also drop the systemKey → token pointer if it still references this token
             // (deterministic-hash tokens make this cheap; no scan of the entire dictionary).
             foreach (var kvp in _linkTokenBySystem)
             {
-                if (string.Equals(kvp.Value, linkTokenValue, StringComparison.Ordinal))
+                if (kvp.Value == token)
                 {
                     _linkTokenBySystem.TryRemove(kvp.Key, out _);
                     break;
@@ -370,25 +395,38 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             }
         }
 
-        if (systemKey is not null && _linkTokenBySystem.TryRemove(systemKey, out var token))
+        if (systemKey is not null && _linkTokenBySystem.TryRemove(systemKey, out var storedToken))
         {
-            _systemByLinkToken.TryRemove(token, out _);
+            _systemByLinkToken.TryRemove(storedToken, out _);
         }
     }
 
-    private AccountLinkResult LinkIdentifier(
+    /// <summary>
+    /// Round-2 Commit 12: promoted from `LinkIdentifier(..., string, ConcurrentDictionary&lt;string, string&gt;, ...)` to a generic-typed helper that
+    /// speaks the wrapper types directly. <typeparamref name="TIdentity"/> is one of
+    /// <see cref="DiscordId"/>, <see cref="Email"/>, <see cref="AppleId"/>; the
+    /// <paramref name="extractRawValue"/> accessor pulls the underlying string only where
+    /// it's needed for the reverse-map key (which stays string-typed to keep the
+    /// case-insensitive <see cref="StringComparer.OrdinalIgnoreCase"/> semantics for
+    /// email-and-friends). The three call-sites feed static lambdas so there is no
+    /// allocation per call.
+    /// </summary>
+    private AccountLinkResult LinkIdentifier<TIdentity>(
         SystemId systemId,
-        string identifier,
-        ConcurrentDictionary<string, string> identifierBySystem,
-        ConcurrentDictionary<string, string> systemByIdentifier)
+        TIdentity identifier,
+        ConcurrentDictionary<string, TIdentity> identifierBySystem,
+        ConcurrentDictionary<string, ScopedSystemId> systemByIdentifier,
+        Func<TIdentity, string> extractRawValue)
+        where TIdentity : struct
     {
-        if (string.IsNullOrWhiteSpace(identifier))
+        var rawValue = extractRawValue(identifier);
+        if (string.IsNullOrWhiteSpace(rawValue))
         {
             return AccountLinkResult.UserNotFound;
         }
 
         var systemKey = GetSystemKey(systemId);
-        var scopedSystemId = ResolveScoped(systemId).Value;
+        var scopedSystemId = ResolveScoped(systemId);
 
         if (_usernameBySystem.ContainsKey(systemKey) is false &&
             _descriptionBySystem.ContainsKey(systemKey) is false &&
@@ -398,18 +436,19 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return AccountLinkResult.UserNotFound;
         }
 
-        if (identifierBySystem.TryGetValue(systemKey, out var existing) && !string.IsNullOrWhiteSpace(existing))
+        if (identifierBySystem.TryGetValue(systemKey, out var existing)
+            && !string.IsNullOrWhiteSpace(extractRawValue(existing)))
         {
             return AccountLinkResult.AlreadyLinked;
         }
 
-        if (systemByIdentifier.TryGetValue(identifier, out var owner) && !string.Equals(owner, scopedSystemId, StringComparison.Ordinal))
+        if (systemByIdentifier.TryGetValue(rawValue, out var owner) && owner != scopedSystemId)
         {
             return AccountLinkResult.UserExists;
         }
 
         identifierBySystem[systemKey] = identifier;
-        systemByIdentifier[identifier] = scopedSystemId;
+        systemByIdentifier[rawValue] = scopedSystemId;
         return AccountLinkResult.Success;
     }
 

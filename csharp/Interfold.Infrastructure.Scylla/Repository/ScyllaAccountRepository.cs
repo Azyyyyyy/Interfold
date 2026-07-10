@@ -53,8 +53,16 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
     private static readonly TimeSpan LinkTokenTtl = TimeSpan.FromMinutes(5);
     private readonly object _linkTokenLock = new();
-    private readonly ConcurrentDictionary<string, string> _linkTokenBySystem = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, LinkTokenEntry> _systemByLinkToken = new(StringComparer.Ordinal);
+    // Round-2 Commit 12 (canvas #20): retyped both link-token dicts to speak wrappers.
+    // The forward map now keys on the scoped composite via ScopedSystemId (record-struct
+    // ordinal equality on Value, equivalent to the pre-Round-2 StringComparer.Ordinal on
+    // the .Value string) and stores the typed LinkToken. The reverse map keys on the
+    // typed LinkToken so any accidental toString-then-dict-key path can no longer bypass
+    // the redacting wrapper. Cache is process-lifetime only (audited in Commit 9); no
+    // storage-layer rehydration reads either dict, so the key-shape change is invisible
+    // externally.
+    private readonly ConcurrentDictionary<ScopedSystemId, LinkToken> _linkTokenBySystem = new();
+    private readonly ConcurrentDictionary<LinkToken, LinkTokenEntry> _systemByLinkToken = new();
 
     private readonly IScyllaSessionProvider _sessionProvider;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
@@ -202,34 +210,32 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
         // Compose is idempotent on already-scoped inputs; the extra safety net is why we're
-        // routing every partition-key composition through it in Slice 4. Round-2 Commit 9:
-        // hold the typed ScopedSystemId locally so the new LinkTokenEntry(...) constructor
-        // hits its typed slot without a string round-trip; the string systemKey is retained
-        // here only because _linkTokenBySystem is still string-keyed until Commit 12.
+        // routing every partition-key composition through it in Slice 4. Round-2 Commit 12:
+        // the typed ScopedSystemId is now the direct dict key — no more `.Value` unwrap at
+        // the dict boundary, and misspelled principal derivations surface as build errors.
         var scoped = ScopedSystemId.Compose(keyspace, normalizedSystemId.Value);
-        var systemKey = scoped.Value;
         var now = DateTimeOffset.UtcNow;
 
         lock (_linkTokenLock)
         {
-            if (_linkTokenBySystem.TryGetValue(systemKey, out var existingToken)
+            if (_linkTokenBySystem.TryGetValue(scoped, out var existingToken)
                 && _systemByLinkToken.TryGetValue(existingToken, out var existingEntry)
                 && existingEntry.ExpiresAt > now)
             {
-                return Task.FromResult(new LinkToken(existingToken));
+                return Task.FromResult(existingToken);
             }
 
-            if (!string.IsNullOrWhiteSpace(existingToken))
+            if (!string.IsNullOrWhiteSpace(existingToken.Value))
             {
-                _linkTokenBySystem.TryRemove(systemKey, out _);
+                _linkTokenBySystem.TryRemove(scoped, out _);
                 _systemByLinkToken.TryRemove(existingToken, out _);
             }
 
-            var token = Guid.NewGuid().ToString();
-            _linkTokenBySystem[systemKey] = token;
+            var token = new LinkToken(Guid.NewGuid().ToString());
+            _linkTokenBySystem[scoped] = token;
             _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkTokenTtl));
 
-            return Task.FromResult(new LinkToken(token));
+            return Task.FromResult(token);
         }
     }
 
@@ -237,21 +243,21 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var systemKey = ScopedSystemId.Compose(keyspace, normalizedSystemId.Value).Value;
+        var scoped = ScopedSystemId.Compose(keyspace, normalizedSystemId.Value);
         var now = DateTimeOffset.UtcNow;
 
         lock (_linkTokenLock)
         {
-            if (_linkTokenBySystem.TryGetValue(systemKey, out var token)
+            if (_linkTokenBySystem.TryGetValue(scoped, out var token)
                 && _systemByLinkToken.TryGetValue(token, out var entry)
                 && entry.ExpiresAt > now)
             {
-                return Task.FromResult<LinkToken?>(new LinkToken(token));
+                return Task.FromResult<LinkToken?>(token);
             }
 
-            if (!string.IsNullOrWhiteSpace(token))
+            if (!string.IsNullOrWhiteSpace(token.Value))
             {
-                _linkTokenBySystem.TryRemove(systemKey, out _);
+                _linkTokenBySystem.TryRemove(scoped, out _);
                 _systemByLinkToken.TryRemove(token, out _);
             }
 
@@ -269,7 +275,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         var now = DateTimeOffset.UtcNow;
         lock (_linkTokenLock)
         {
-            if (_systemByLinkToken.TryGetValue(linkToken.Value, out var entry) && entry.ExpiresAt > now)
+            if (_systemByLinkToken.TryGetValue(linkToken, out var entry) && entry.ExpiresAt > now)
             {
                 // Round-2 Commit 9: entry.Scoped is now the typed wrapper — AsSystemId
                 // widens to the IAccountRepository SystemId? contract without the
@@ -277,10 +283,13 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 return Task.FromResult<SystemId?>(entry.Scoped.AsSystemId());
             }
 
-            _systemByLinkToken.TryRemove(linkToken.Value, out _);
+            _systemByLinkToken.TryRemove(linkToken, out _);
             foreach (var item in _linkTokenBySystem)
             {
-                if (string.Equals(item.Value, linkToken.Value, StringComparison.Ordinal))
+                // Round-2 Commit 12: both sides are typed LinkToken now; record-struct
+                // equality is ordinal on the underlying string so this is byte-equivalent
+                // to the pre-Round-2 string.Equals(..., StringComparison.Ordinal) compare.
+                if (item.Value == linkToken)
                 {
                     _linkTokenBySystem.TryRemove(item.Key, out _);
                     break;
@@ -295,11 +304,11 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var systemKey = ScopedSystemId.Compose(keyspace, normalizedSystemId.Value).Value;
+        var scoped = ScopedSystemId.Compose(keyspace, normalizedSystemId.Value);
 
         lock (_linkTokenLock)
         {
-            if (_linkTokenBySystem.TryRemove(systemKey, out var token))
+            if (_linkTokenBySystem.TryRemove(scoped, out var token))
             {
                 _systemByLinkToken.TryRemove(token, out _);
             }
