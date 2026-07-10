@@ -17,14 +17,18 @@ internal static class InMemoryStorageKeys
     /// typed key can be used directly as a dictionary key without unwrapping to
     /// <see cref="string"/>. Preferred entry point for the InMemory repositories that key
     /// by a normalized system id (friendship, encryption, notification, auth-revocation, ...).
+    ///
+    /// <para>
+    /// Post-Round-5 dead-code sweep: two string-shaped siblings
+    /// (<c>NormalizeSystemId(SystemId)</c> and <c>NormalizeSystemId(string)</c>) that
+    /// predated Round 3's typed dictionary keys have been deleted — grep-verified zero
+    /// callers across the solution. Any caller who genuinely needs the raw
+    /// <see cref="string"/> can call <c>SystemIdNormalization.StripRegionPrefix</c>
+    /// directly (which is the shim those overloads used to delegate to).
+    /// </para>
     /// </summary>
     public static SystemId Normalize(SystemId systemId)
         => new(SystemIdNormalization.StripRegionPrefix(systemId.Value));
-
-    public static string NormalizeSystemId(SystemId systemId) => NormalizeSystemId(systemId.Value);
-
-    public static string NormalizeSystemId(string systemId)
-        => SystemIdNormalization.StripRegionPrefix(systemId);
 
     /// <summary>
     /// The per-system dictionary partition key: <c>"{region}:{systemId}"</c>. Routed through

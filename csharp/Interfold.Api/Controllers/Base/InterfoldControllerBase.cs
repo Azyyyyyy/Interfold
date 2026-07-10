@@ -80,18 +80,6 @@ public abstract class InterfoldControllerBase : ControllerBase
     }
 
     /// <summary>
-    /// Returns <paramref name="url"/> with the server origin prepended when the stored
-    /// value is a relative path. Already-absolute URLs are returned unchanged.
-    /// </summary>
-    /// <remarks>
-    /// Avatar callers should prefer <see cref="QualifyAvatar"/>, which uses the persisted
-    /// <see cref="AvatarSource"/> as the authoritative discriminator instead of inferring
-    /// hosting from the URL prefix.
-    /// </remarks>
-    protected string? QualifyUrl(string? url)
-        => AvatarUrlQualifier.Qualify(url, Request.Scheme, Request.Host);
-
-    /// <summary>
     /// Source-aware avatar qualification: prepends the server origin only when the avatar
     /// is locally hosted (<see cref="AvatarSource.Local"/>). External URLs are passed
     /// through verbatim, and a null / blank input is returned unchanged.
@@ -107,6 +95,16 @@ public abstract class InterfoldControllerBase : ControllerBase
     /// deletion removes the "which overload did the compiler pick?" footgun where an
     /// untyped raw-string source could silently bind to the string overload and return the
     /// wrong wrapper shape when the caller later assigned the result.
+    /// </para>
+    ///
+    /// <para>
+    /// Post-Round-5 dead-code sweep: the sibling <c>QualifyUrl(string?)</c> helper that
+    /// used to accompany this method has been deleted — grep-verified zero non-declaration
+    /// references. It was the string-only escape hatch left over from before the R2C2
+    /// <see cref="AvatarUrl"/> retype; every avatar caller now flows through this typed
+    /// overload, and no non-avatar caller ever adopted it. Non-avatar callers who need
+    /// origin qualification without an <see cref="AvatarSource"/> discriminator can call
+    /// <c>AvatarUrlQualifier.Qualify(string?, string, HostString)</c> directly.
     /// </para>
     /// </summary>
     protected AvatarUrl? QualifyAvatar(AvatarUrl? url, AvatarSource? source)

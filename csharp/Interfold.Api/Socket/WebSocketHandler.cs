@@ -214,8 +214,9 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 topicJoinReference[topic] = joinReference;
 
                 // Start the per-socket event pump now that we know which system this socket is bound to.
-                // The bus filter only delivers events whose TargetSystemId matches JoinedSystemId, so the
-                // pump's ~38 subscriptions only see traffic for this user.
+                // The bus filter only delivers events whose TargetSystemId matches JoinedScopedSystemId
+                // (scoped-to-scoped record-struct equality since R2C13), so the pump's ~38 subscriptions
+                // only see traffic for this user.
                 //
                 // Interlocked.CompareExchange flips pumpStarted from 0 to 1 atomically and returns the
                 // previous value; only the thread that observed 0 actually constructs the push context
@@ -231,7 +232,6 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                     // StripRegionPrefix normalisation is needed on either side.
                     var socketPushContext = new SocketPushContext(
                         socket,
-                        joinedSystemId.Value,
                         scopedSub,
                         joinedTopics,
                         topicJoinReference,

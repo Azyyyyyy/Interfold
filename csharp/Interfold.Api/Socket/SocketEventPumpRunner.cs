@@ -21,11 +21,11 @@ public static class SocketEventPumpRunner
         IJournalRepository journalRepository,
         IEncryptionStateRepository encryptionStateRepository)
     {
-        // Every event subscription below is scoped to context.JoinedSystemId via the bus's
+        // Every event subscription below is scoped to context.JoinedScopedSystemId via the bus's
         // targetSystemId filter. Because every event the pump cares about implements
         // ITargetedClusterEvent, the bus delivers an event to this socket only when its
-        // TargetSystemId equals the socket's JoinedSystemId — i.e. the per-socket pump only
-        // does work when the publish is actually for this user.
+        // TargetSystemId equals the socket's JoinedScopedSystemId — i.e. the per-socket pump
+        // only does work when the publish is actually for this user.
         return Task.WhenAll(
             SubscribeAsync<FrontingStartedEvent>(eventBus, context, evt => FrontingSocketEventHandlers.HandleAsync(evt, context, frontingRepository)),
             SubscribeAsync<FrontingEndedEvent>(eventBus, context, evt => FrontingSocketEventHandlers.HandleAsync(evt, context)),
@@ -93,14 +93,14 @@ public static class SocketEventPumpRunner
         // Keep the loop alive across handler faults; if cancellation comes through
         // context.CancellationToken we still exit cleanly because SubscribeAsync's
         // enumerator observes it and MoveNextAsync simply returns false.
-        // Round-2 Commit 13 (canvas #24): SubscribeAsync now takes ScopedSystemId?. Feed
-        // it the scoped composite that WebSocketHandler parsed from the JWT sub (see the
-        // scopedSub destructure in HandleAsync). Pre-Round-2 we passed the raw
-        // context.JoinedSystemId and the bus normalised both sides through
-        // SystemIdNormalization.StripRegionPrefix on every publish tick; the scoped-
-        // to-scoped compare in InProcessEventBus.PublishAsync is byte-equivalent when
-        // both regions match and correctly rejects the cross-region false positive that
-        // the strip-then-compare shape used to deliver.
+        // Round-2 Commit 13 (canvas #24): SubscribeAsync takes ScopedSystemId?. Feed it the
+        // scoped composite that WebSocketHandler parsed from the JWT sub (see the scopedSub
+        // destructure in HandleAsync). Pre-R2C13 we passed a raw SystemId alongside the
+        // scoped composite and the bus normalised both sides through
+        // SystemIdNormalization.StripRegionPrefix on every publish tick; the scoped-to-
+        // scoped compare in InProcessEventBus.PublishAsync is byte-equivalent when both
+        // regions match and correctly rejects the cross-region false positive that the
+        // strip-then-compare shape used to deliver.
         await foreach (var evt in eventBus.SubscribeAsync<TEvent>(context.JoinedScopedSystemId, context.CancellationToken).ConfigureAwait(false))
         {
             try
