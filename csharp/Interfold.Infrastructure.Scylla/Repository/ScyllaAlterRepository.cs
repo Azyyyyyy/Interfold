@@ -449,7 +449,9 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var friendshipLevel = await ResolveFriendshipLevelAsync(session, normalizedSystemId.Value, viewerSystemId);
+            // Round-2 Commit 6: direct call into ScyllaSharedQueries; the private wrapper
+            // that used to hop string->typed here was pure string-obsession scaffolding.
+            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, normalizedSystemId, viewerSystemId);
             EnsureAlterFieldUdtMapping(session, keyspace);
             var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
 
@@ -525,7 +527,9 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var friendshipLevel = await ResolveFriendshipLevelAsync(session, normalizedSystemId.Value, viewerSystemId);
+            // Round-2 Commit 6: direct call into ScyllaSharedQueries; the private wrapper
+            // that used to hop string->typed here was pure string-obsession scaffolding.
+            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, normalizedSystemId, viewerSystemId);
             EnsureAlterFieldUdtMapping(session, keyspace);
             var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
 
@@ -583,9 +587,6 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             return rows.Any(row => row.GetValue<short>("id") != alterId.ToStorageShort());
         }, _options, cancellationToken, _logger);
     }
-
-    private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(ISession session, string ownerSystemId, SystemId? viewerSystemId)
-        => ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new SystemId(ownerSystemId), viewerSystemId);
 
     private static async Task<bool> ExistsAsync(ISession session, string keyspace, SystemId normalizedSystemId, AlterId alterId)
     {
