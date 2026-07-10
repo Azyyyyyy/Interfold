@@ -13,6 +13,37 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 
 public sealed class ScyllaAccountRepository : IAccountRepository
 {
+    /// <summary>
+    /// Round-2 Commit 11 (canvas #19): the OAuth-provider identity column on the Scylla
+    /// user_registry / users tables. Prior to Round-2 the four internal helpers
+    /// (TryFindSystemIdByRegistryColumnAsync, FindOrCreateSystemIdByRegistryColumnAsync,
+    /// LinkIdentityAsync, UnlinkIdentityAsync) threaded a raw <c>string columnName</c>
+    /// through 10 public entry points, each of which hand-spelled the column name
+    /// (<c>"discord_id"</c> / <c>"email"</c> / <c>"apple_id"</c>) as a magic literal. The
+    /// enum shifts the discriminator from compile-time-invisible strings to a closed
+    /// three-arm sum; misspellings surface at build time, and the CQL string interpolation
+    /// now flows through <see cref="ColumnName"/> as the single translation point.
+    /// </summary>
+    private enum ProviderColumn
+    {
+        Discord,
+        Email,
+        Apple,
+    }
+
+    /// <summary>
+    /// Maps the typed provider onto the Cassandra column / lookup-table suffix. Kept
+    /// switch-exhaustive with an explicit throw so a future enum member without a mapping
+    /// is a hard error rather than a silent-null-column CQL statement.
+    /// </summary>
+    private static string ColumnName(ProviderColumn column) => column switch
+    {
+        ProviderColumn.Discord => "discord_id",
+        ProviderColumn.Email => "email",
+        ProviderColumn.Apple => "apple_id",
+        _ => throw new ArgumentOutOfRangeException(nameof(column), column, "Unknown provider column"),
+    };
+
     // Round-2 Commit 9 (canvas #18): retyped the value field from `string ScopedSystemId`
     // to the typed `ScopedSystemId Scoped`. The InMemory sibling already carried the typed
     // shape — this closes the last string-leak in the two link-token entry types so the
@@ -277,35 +308,41 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }
     }
 
+    // Round-2 Commit 11: every public IAccountRepository entry point below now dispatches
+    // to the internal helper with a typed ProviderColumn instead of a hand-spelled column
+    // literal. The unwrap-to-.Value stays at the entry-point boundary (the internal
+    // helpers still work with the raw provider-value string because it is passed as a CQL
+    // bind parameter, which the driver accepts unchanged).
+
     public Task<SystemId?> TryFindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
-        => TryFindSystemIdByRegistryColumnAsync("discord_id", discordId.Value, cancellationToken);
+        => TryFindSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken);
 
     public Task<SystemId?> FindOrCreateSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
-        => FindOrCreateSystemIdByRegistryColumnAsync("discord_id", discordId.Value, cancellationToken);
+        => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken);
 
     public Task<SystemId?> FindSystemIdByEmailAsync(Email email, CancellationToken cancellationToken = default)
-        => FindOrCreateSystemIdByRegistryColumnAsync("email", email.Value, cancellationToken);
+        => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Email, email.Value, cancellationToken);
 
     public Task<SystemId?> FindSystemIdByAppleIdAsync(AppleId appleId, CancellationToken cancellationToken = default)
-        => FindOrCreateSystemIdByRegistryColumnAsync("apple_id", appleId.Value, cancellationToken);
+        => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Apple, appleId.Value, cancellationToken);
 
     public Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, DiscordId discordId, CancellationToken cancellationToken = default)
-        => LinkIdentityAsync(systemId, "discord_id", discordId.Value, cancellationToken);
+        => LinkIdentityAsync(systemId, ProviderColumn.Discord, discordId.Value, cancellationToken);
 
     public Task<AccountLinkResult> LinkEmailToUserAsync(SystemId systemId, Email email, CancellationToken cancellationToken = default)
-        => LinkIdentityAsync(systemId, "email", email.Value, cancellationToken);
+        => LinkIdentityAsync(systemId, ProviderColumn.Email, email.Value, cancellationToken);
 
     public Task<AccountLinkResult> LinkAppleToUserAsync(SystemId systemId, AppleId appleId, CancellationToken cancellationToken = default)
-        => LinkIdentityAsync(systemId, "apple_id", appleId.Value, cancellationToken);
+        => LinkIdentityAsync(systemId, ProviderColumn.Apple, appleId.Value, cancellationToken);
 
     public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
-        => UnlinkIdentityAsync(systemId, "discord_id", cancellationToken);
+        => UnlinkIdentityAsync(systemId, ProviderColumn.Discord, cancellationToken);
 
     public Task<bool> UnlinkEmailAsync(SystemId systemId, CancellationToken cancellationToken = default)
-        => UnlinkIdentityAsync(systemId, "email", cancellationToken);
+        => UnlinkIdentityAsync(systemId, ProviderColumn.Email, cancellationToken);
 
     public Task<bool> UnlinkAppleAsync(SystemId systemId, CancellationToken cancellationToken = default)
-        => UnlinkIdentityAsync(systemId, "apple_id", cancellationToken);
+        => UnlinkIdentityAsync(systemId, ProviderColumn.Apple, cancellationToken);
 
     public async Task<bool> DeleteAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
@@ -381,8 +418,11 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     // Returns the scoped `{region}:{userId}` composite wrapped in a SystemId — this file's
     // in-process caches and downstream callers keep operating in the scoped-composite
     // shape until Slice 4 introduces a dedicated value object. The typing here just plugs
-    // the string leak at the SystemId? boundary the interface promises.
-    private async Task<SystemId?> TryFindSystemIdByRegistryColumnAsync(string columnName, string value, CancellationToken cancellationToken)
+    // the string leak at the SystemId? boundary the interface promises. Round-2 Commit 11
+    // retyped the column parameter from `string columnName` to the typed ProviderColumn
+    // enum and derives the CQL literal locally via ColumnName(...) — misspellings that
+    // used to be silent runtime "table does not exist" errors are now build failures.
+    private async Task<SystemId?> TryFindSystemIdByRegistryColumnAsync(ProviderColumn column, string value, CancellationToken cancellationToken)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync<SystemId?>(async () =>
         {
@@ -391,6 +431,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 return null;
             }
 
+            var columnName = ColumnName(column);
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var query = new SimpleStatement(
                 $"SELECT user_id, region FROM {ScyllaGlobalKeyspace.Name}.user_registry_by_{columnName} WHERE {columnName} = ? LIMIT 1",
@@ -409,9 +450,9 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    private async Task<SystemId?> FindOrCreateSystemIdByRegistryColumnAsync(string columnName, string value, CancellationToken cancellationToken)
+    private async Task<SystemId?> FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn column, string value, CancellationToken cancellationToken)
     {
-        var existing = await TryFindSystemIdByRegistryColumnAsync(columnName, value, cancellationToken);
+        var existing = await TryFindSystemIdByRegistryColumnAsync(column, value, cancellationToken);
         if (existing is { } typedExisting && !string.IsNullOrWhiteSpace(typedExisting.Value))
         {
             return typedExisting;
@@ -424,6 +465,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 return null;
             }
 
+            var columnName = ColumnName(column);
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
 
             const string idChars = "abcdefghijklmnopqrstuvwxyz";
@@ -493,7 +535,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         return normalized;
     }
 
-    private async Task<AccountLinkResult> LinkIdentityAsync(SystemId systemId, string columnName, string value, CancellationToken cancellationToken)
+    private async Task<AccountLinkResult> LinkIdentityAsync(SystemId systemId, ProviderColumn column, string value, CancellationToken cancellationToken)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -502,11 +544,12 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 return AccountLinkResult.UserNotFound;
             }
 
+            var columnName = ColumnName(column);
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
-            var owner = await TryFindSystemIdByRegistryColumnAsync(columnName, value, cancellationToken);
+            var owner = await TryFindSystemIdByRegistryColumnAsync(column, value, cancellationToken);
             if (owner is { } typedOwner && !string.IsNullOrWhiteSpace(typedOwner.Value))
             {
                 var normalizedOwner = NormalizeRegistryUserId(_keyspaceResolver.NormalizeSystemId(typedOwner));
@@ -556,10 +599,11 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    private async Task<bool> UnlinkIdentityAsync(SystemId systemId, string columnName, CancellationToken cancellationToken)
+    private async Task<bool> UnlinkIdentityAsync(SystemId systemId, ProviderColumn column, CancellationToken cancellationToken)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
+            var columnName = ColumnName(column);
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
