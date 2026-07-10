@@ -84,12 +84,15 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     {
         _logger.LogInformation("Starting Simply Plural import for system {SystemId}", systemId);
 
-        // The recovery code is only an input to key derivation; past this block the
-        // import works with the derived encryption key (or none).
-        string? encryptionKey = null;
+        // Round-2 Commit 5: recovery code + derived key stay typed end-to-end through the
+        // import. The bare-string local that used to hold the derived key across the whole
+        // ImportAsync body (with a `!string.IsNullOrWhiteSpace(encryptionKey)` gate 40+ lines
+        // later at :128) becomes a typed `EncryptionKeyMaterial?` pattern-matched at the
+        // gate. Removes every `.Value` unwrap between the wrapper and the AES/GCM boundary.
+        EncryptionKeyMaterial? encryptionKey = null;
         if (recoveryKey is { } providedRecoveryKey && !string.IsNullOrWhiteSpace(providedRecoveryKey.Value))
         {
-            var (encryptionValidation, derivedKey) = await ValidateEncryptionKeyAsync(systemId, providedRecoveryKey.Value, cancellationToken);
+            var (encryptionValidation, derivedKey) = await ValidateEncryptionKeyAsync(systemId, providedRecoveryKey, cancellationToken);
             if (!encryptionValidation.Success)
                 return encryptionValidation;
 
@@ -125,9 +128,9 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         await ImportPollsAsync(httpClient, spSystemId, systemId, alterAssociations, cancellationToken);
 
         // (optional) 7. Import notes per alter as alter journals
-        if (!string.IsNullOrWhiteSpace(encryptionKey))
+        if (encryptionKey is { } derivedEncryptionKey)
         {
-            await ImportNotesAsync(httpClient, spSystemId, systemId, alterAssociations, encryptionKey, cancellationToken);
+            await ImportNotesAsync(httpClient, spSystemId, systemId, alterAssociations, derivedEncryptionKey, cancellationToken);
         }
 
         // 8. Update account description if available
@@ -630,7 +633,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
     private async Task ImportNotesAsync(
         HttpClient httpClient, string spSystemId, SystemId systemId,
-        Dictionary<string, AlterId> alterAssociations, string encryptionKey, CancellationToken ct)
+        Dictionary<string, AlterId> alterAssociations, EncryptionKeyMaterial encryptionKey, CancellationToken ct)
     {
         foreach (var (spMemberId, alterId) in alterAssociations)
         {
@@ -697,7 +700,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         }
     }
 
-    private static string? PrepareNote(string? content, string encryptionKey, out bool successful)
+    private static string? PrepareNote(string? content, EncryptionKeyMaterial encryptionKey, out bool successful)
     {
         if (string.IsNullOrEmpty(content))
         {
@@ -720,12 +723,15 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         return encrypted;
     }
 
-    // Mirrors client encryptData: real AES-256-GCM with random IV, ciphertext and tag stored separately
-    private static string? TryEncryptForClient(string plaintext, string base64Key)
+    // Mirrors client encryptData: real AES-256-GCM with random IV, ciphertext and tag stored separately.
+    // Round-2 Commit 5: base64Key is typed as EncryptionKeyMaterial end-to-end from the SP import
+    // pipeline. The single `.Value` unwrap here is at the crypto-primitive boundary, where the
+    // base64-string form is the API contract of Convert.FromBase64String.
+    private static string? TryEncryptForClient(string plaintext, EncryptionKeyMaterial base64Key)
     {
         try
         {
-            var key = Convert.FromBase64String(base64Key);
+            var key = Convert.FromBase64String(base64Key.Value);
             if (key.Length != 32)
                 return null;
 
@@ -747,25 +753,27 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         }
     }
     
-    private async Task<(SpImportResult Result, string DerivedKey)> ValidateEncryptionKeyAsync(SystemId systemId, string recoveryCode, CancellationToken ct)
+    // Round-2 Commit 5: signature is typed on both sides. `recoveryCode` arrives from
+    // ImportAsync as the RecoveryCode already unwrapped from a nullable at the outer guard;
+    // the tuple's second slot is now `EncryptionKeyMaterial?` so the caller assigns straight
+    // into a typed nullable local (formerly `string? encryptionKey = null;`) rather than
+    // through the empty-string sentinel + IsNullOrWhiteSpace gate that used to encode the
+    // "no derived key" case. The Commit-3 bridge (`new RecoveryCode(recoveryCode)` inline
+    // wrap + `.Value` unwrap at return) is removed - the whole chain speaks wrappers now.
+    private async Task<(SpImportResult Result, EncryptionKeyMaterial? DerivedKey)> ValidateEncryptionKeyAsync(SystemId systemId, RecoveryCode recoveryCode, CancellationToken ct)
     {
         var state = await _encryptionStateRepository.GetAsync(systemId, ct);
         if (state is not { Initialized: true, KeyChecksum: { } keyChecksum, Salt: { } salt }
             || string.IsNullOrWhiteSpace(keyChecksum.Value))
-            return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "Encryption is not initialized for this system."), string.Empty);
+            return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "Encryption is not initialized for this system."), null);
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
-        // Round-2 Commit 3 bridge: DeriveKey / DeriveChecksum now speak wrappers. RecoveryCode
-        // is bridge-wrapped inline here because ValidateEncryptionKeyAsync itself still takes
-        // `string recoveryCode` — Commit 5 (Finding #3) retypes the SP service parameter and
-        // then removes this bridge. The tuple's `string DerivedKey` shape stays for the same
-        // reason: Commit 5 flips it to `EncryptionKeyMaterial` end-to-end.
-        var key = EncryptionKey.DeriveKey(pepper, systemId, new RecoveryCode(recoveryCode), salt);
+        var key = EncryptionKey.DeriveKey(pepper, systemId, recoveryCode, salt);
         var checksum = EncryptionKey.DeriveChecksum(key);
         if (checksum != keyChecksum)
-            return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "The provided encryption key is invalid."), string.Empty);
+            return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "The provided encryption key is invalid."), null);
 
-        return (new SpImportResult(true, 0), key.Value);
+        return (new SpImportResult(true, 0), key);
     }
 
     /// <summary>
