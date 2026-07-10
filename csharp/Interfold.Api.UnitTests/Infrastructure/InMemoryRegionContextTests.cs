@@ -5,35 +5,21 @@ using Interfold.Infrastructure.InMemory;
 namespace Interfold.Api.UnitTests.Infrastructure;
 
 /// <summary>
-/// Unit tests for <see cref="InMemoryRegionContext"/> — the deterministic region resolver
-/// used by every InMemory repository to derive the per-system partition key.
+/// Unit tests for <see cref="InMemoryRegionContext"/> — the deterministic region
+/// resolver used by every InMemory repository to derive the per-system partition key.
 ///
 /// <para>
-/// Background: Slice 4 hardened the middleware/JWT layer so principal ids reach the
-/// persistence adapters in the scoped <c>{region}:{rawId}</c> wire form, while route-bound
-/// ids on public read endpoints stay in the raw form (a <c>[FromRoute] SystemId</c> binding
-/// wraps the URL segment verbatim). The pre-fix resolver hashed whichever shape it was
-/// handed, which produced a different region for the two shapes of the same principal —
-/// row was written under region X's partition key and read from region Y's, surfacing as
-/// <c>system_not_found</c> 404s in <c>PublicSystemsController</c> for every test that
-/// seeds via the JWT-derived principal and reads through a raw URL segment (the entire
-/// avatar / fronting / visibility / public-batch / field-security cluster).
+/// Principal ids reach persistence in the scoped <c>{region}:{rawId}</c> wire form
+/// (JWT-derived) while route-bound ids on public read endpoints stay raw. The resolver
+/// must strip the region prefix before hashing so both shapes of the same principal
+/// land in the same region — otherwise reads through a raw URL segment 404 against
+/// writes seeded through a JWT-derived scoped principal.
 /// </para>
 ///
 /// <para>
-/// Step 3 of the strong-typing rescan removed the <c>ResolveUserRegion(string)</c>
-/// overload from <see cref="Interfold.Domain.Abstractions.IRegionContext"/>. Every call
-/// site here now wraps its raw input in a <see cref="SystemId"/> at the boundary,
-/// mirroring how production ingress (JWT middleware, route binding) constructs the
-/// wrapper at trust points. The strip-before-hash invariant this suite pins is unchanged;
-/// only the call shape moved.
-/// </para>
-///
-/// <para>
-/// This suite pins the region-strip-before-hash invariant so a future refactor that peels
-/// the normalisation back breaks in the fast unit-test tier, not inside a full-suite
-/// integration run where the 404 looks like a controller bug rather than a resolver one.
-/// The equivalent invariant on the persistent backend already has coverage in
+/// Pins the strip-before-hash invariant in the fast unit-test tier so a future refactor
+/// that peels the normalisation back doesn't hide inside a full integration run. The
+/// equivalent persistent-backend invariant lives in
 /// <c>RegionContextCachingTests.ResolveUserRegion_StripsLegacyPrefix_BeforeCacheLookup</c>.
 /// </para>
 /// </summary>
@@ -60,7 +46,7 @@ public sealed class InMemoryRegionContextTests
         var raw = ctx.ResolveUserRegion(new SystemId(RawId));
 
         await Assert.That(scoped).IsEqualTo(raw)
-            .Because("A scoped nam:{rawId} JWT-derived principal and a raw {rawId} route-bound principal must land in the same region — otherwise InMemoryStorageKeys.ForSystem yields two different partition keys for the same user and public reads 404 with system_not_found (the entire post-Slice-4 avatar/fronting/visibility cluster failure).");
+            .Because("A scoped nam:{rawId} JWT-derived principal and a raw {rawId} route-bound principal must land in the same region — otherwise InMemoryStorageKeys.ForSystem yields two different partition keys for the same user and public reads 404 with system_not_found.");
     }
 
     [Test]

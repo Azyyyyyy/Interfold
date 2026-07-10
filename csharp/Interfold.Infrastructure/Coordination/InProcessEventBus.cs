@@ -35,11 +35,9 @@ public sealed class InProcessEventBus : IClusterEventBus, IDisposable
         void CompleteAll();
     }
 
-    // Round-2 Commit 13 (canvas #24): TargetSystemId promoted from SystemId? to
-    // ScopedSystemId? so the subscriber-side wire shape matches the publisher-side
-    // ITargetedClusterEvent.TargetSystemId shape at the type level. Pre-Round-2 the bus
-    // had to normalise both sides through SystemIdNormalization.StripRegionPrefix on
-    // every publish tick (see PublishAsync below for the historical body).
+    // TargetSystemId is a ScopedSystemId so the subscriber-side wire shape matches the
+    // publisher-side ITargetedClusterEvent.TargetSystemId at the type level — no
+    // strip-and-compare needed in PublishAsync.
     private sealed record Subscription<TEvent>(ChannelWriter<TEvent> Writer, ScopedSystemId? TargetSystemId)
         where TEvent : class;
 
@@ -79,20 +77,12 @@ public sealed class InProcessEventBus : IClusterEventBus, IDisposable
 
         foreach (var subscription in topicBag.Subscriptions.Values)
         {
-            // Subscription with a non-null TargetSystemId only sees events whose target matches.
-            // Subscription with a null TargetSystemId is broadcast (legacy semantics).
+            // Subscription with a non-null TargetSystemId only sees events whose target
+            // matches. Subscription with a null TargetSystemId is broadcast.
             //
-            // Round-2 Commit 13 (canvas #24): the pre-Round-2 body normalised both sides
-            // through SystemIdNormalization.StripRegionPrefix because subscribers passed a
-            // raw SystemId while the event target was a ScopedSystemId. That asymmetry was
-            // documented but load-bearing — any subscriber that ever supplied a scoped
-            // SystemId (via ScopedSystemId.AsSystemId) without stripping would silently
-            // miss every delivery. Round-2 Commit 13 promoted Subscription.TargetSystemId
-            // to ScopedSystemId? and threaded the scoped composite through the socket
-            // subscription flow (WebSocketHandler → SocketPushContext → SocketEventPumpRunner),
-            // so the compare is now scoped-record-struct-equality — byte-equivalent to the
-            // pre-Round-2 shape when both regions match, but rejects a cross-region false
-            // positive that the strip-then-compare shape would have delivered.
+            // Both sides speak ScopedSystemId, so the compare is scoped-record-struct
+            // equality — a cross-region collision (same rawId, different region) is
+            // correctly treated as a different user.
             if (subscription.TargetSystemId is not null
                 && targetedEvent is not null
                 && subscription.TargetSystemId.Value != targetedEvent.TargetSystemId)

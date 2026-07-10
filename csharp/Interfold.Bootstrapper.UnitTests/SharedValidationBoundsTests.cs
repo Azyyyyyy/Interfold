@@ -8,17 +8,16 @@ using TUnit.Core;
 namespace Interfold.Bootstrapper.UnitTests;
 
 /// <summary>
-/// Unit tests for the shared validation surface introduced in Slice 3
-/// (<see cref="ConfigurationBounds"/> + <see cref="AbsolutePathAttribute"/>
-/// + <see cref="AbsoluteHttpUriAttribute"/>). Two responsibilities:
+/// Unit tests for the shared validation surface (<see cref="ConfigurationBounds"/> +
+/// <see cref="AbsolutePathAttribute"/> + <see cref="AbsoluteHttpUriAttribute"/>). Two
+/// responsibilities:
 ///
 /// <list type="number">
 ///   <item>Pure attribute / bounds behaviour — the attributes and constants stand on their own.</item>
 ///   <item>Bootstrapper-vs-API parity — a value that trips the bootstrapper's
 ///     <see cref="ConfigPhase.Validate"/> must also trip <see cref="ValidateOnStart"/>-style
 ///     DataAnnotations on the matching options class, and vice versa. Drift here means an
-///     operator sees a green config gate and then a red API boot — the whole point of the
-///     shared bounds layer is to make that impossible.</item>
+///     operator sees a green config gate followed by a red API boot.</item>
 /// </list>
 /// </summary>
 public sealed class SharedValidationBoundsTests
@@ -150,11 +149,11 @@ public sealed class SharedValidationBoundsTests
     }
 
     // ---------------------------------------------------------------------------------
-    // Bootstrapper ↔ API parity — the whole point of Slice 3's shared-bounds layer.
-    // Every case here tests one out-of-range value against both validators and asserts
-    // the *same* value fails both. If a future refactor loosens one side, the parity
-    // test fails and prevents the operator from seeing a green bootstrap gate followed
-    // by a red API boot.
+    // Bootstrapper ↔ API parity — the whole point of the shared-bounds layer.
+    // Every case tests one out-of-range value against both validators and asserts the
+    // *same* value fails both. If a future refactor loosens one side, the parity test
+    // fails and prevents the operator from seeing a green bootstrap gate followed by a
+    // red API boot.
     // ---------------------------------------------------------------------------------
 
     [Test]

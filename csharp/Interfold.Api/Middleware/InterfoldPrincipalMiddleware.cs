@@ -47,9 +47,9 @@ public sealed class InterfoldPrincipalMiddleware(RequestDelegate next)
     }
 
     /// <summary>
-    /// Slice 4: the JWT <c>sub</c> claim is the one place a scoped-system-id string crosses
-    /// the trust boundary into the process. TryParseScoped enforces the wire invariant here
-    /// — a legacy or hand-crafted token that omits the region prefix (or names an unknown
+    /// The JWT <c>sub</c> claim is the one place a scoped-system-id string crosses the
+    /// trust boundary into the process. TryParseScoped enforces the wire invariant here —
+    /// a legacy or hand-crafted token that omits the region prefix (or names an unknown
     /// region) surfaces as a 401 rather than propagating an ambiguous <c>SystemId</c>
     /// deeper into the command pipeline. Every downstream site reads a
     /// <see cref="Interfold.Contracts.Ids.ScopedSystemId"/> from

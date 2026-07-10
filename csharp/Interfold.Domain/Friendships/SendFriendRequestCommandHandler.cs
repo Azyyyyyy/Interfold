@@ -62,24 +62,20 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
 
         var targetSystemId = resolvedTargetSystemId.Value;
 
-        // Slice 7: the "cannot friend yourself" short-circuit in FriendRequestsController
-        // fires on the pre-resolution route segment (principal.Value == id.Value) so it
-        // only catches the trivial "PUT /api/friend-requests/nam:principal-a" self-request.
-        // The resolved-id self-check below catches the routed-through-a-username /
-        // routed-through-a-discord-id / raw-bare-id shapes where the client couldn't (or
-        // didn't) know their own scoped id. Both guards return the same rejection code so
-        // callers see one uniform "self-request" error regardless of which shape they
-        // used, but keeping both means the controller can fail fast without a repo hop
-        // for the common case AND the handler stays correct for the resolved-shape edge.
+        // The controller's route-segment self-check catches the trivial
+        // "PUT /api/friend-requests/nam:principal-a" case without a repo hop; this
+        // resolved-id check catches the routed-through-a-username / discord-id /
+        // raw-bare-id shapes where the client couldn't (or didn't) know their own scoped
+        // id. Both guards return the same rejection so callers see one uniform error.
         if (targetSystemId == command.PrincipalId.AsSystemId())
         {
             return RejectInvariant(command, EntityRefs.FriendRequestNoUser);
         }
 
-        // Slice 4: the resolver returns a scoped-shape id (the account repos all compose one
-        // before returning). Route the value through Compose one more time so we hand the
-        // event publisher a ScopedSystemId even if a legacy repo path emitted a bare id — the
-        // principal's region is the safe fallback that matches the pre-Slice-4 canonicaliser.
+        // The resolver returns a scoped-shape id today (the account repos all compose one
+        // before returning). Route through Compose one more time so we still hand the
+        // event publisher a ScopedSystemId if a repo path ever emits a bare id — the
+        // principal's region is the safe fallback for the same-region friendship case.
         var targetScopedId = Interfold.Contracts.Ids.ScopedSystemId.Compose(
             command.PrincipalId.Region,
             targetSystemId);

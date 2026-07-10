@@ -14,15 +14,10 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 public sealed class ScyllaAccountRepository : IAccountRepository
 {
     /// <summary>
-    /// Round-2 Commit 11 (canvas #19): the OAuth-provider identity column on the Scylla
-    /// user_registry / users tables. Prior to Round-2 the four internal helpers
-    /// (TryFindSystemIdByRegistryColumnAsync, FindOrCreateSystemIdByRegistryColumnAsync,
-    /// LinkIdentityAsync, UnlinkIdentityAsync) threaded a raw <c>string columnName</c>
-    /// through 10 public entry points, each of which hand-spelled the column name
-    /// (<c>"discord_id"</c> / <c>"email"</c> / <c>"apple_id"</c>) as a magic literal. The
-    /// enum shifts the discriminator from compile-time-invisible strings to a closed
-    /// three-arm sum; misspellings surface at build time, and the CQL string interpolation
-    /// now flows through <see cref="ColumnName"/> as the single translation point.
+    /// OAuth-provider identity column on the Scylla user_registry / users tables. A closed
+    /// three-arm enum rather than a magic column-name string, so misspellings surface at
+    /// build time and CQL interpolation flows through <see cref="ColumnName"/> as the
+    /// single translation point.
     /// </summary>
     private enum ProviderColumn
     {
@@ -44,23 +39,16 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         _ => throw new ArgumentOutOfRangeException(nameof(column), column, "Unknown provider column"),
     };
 
-    // Round-2 Commit 9 (canvas #18): retyped the value field from `string ScopedSystemId`
-    // to the typed `ScopedSystemId Scoped`. The InMemory sibling already carried the typed
-    // shape — this closes the last string-leak in the two link-token entry types so the
-    // reverse-map read at ResolveSystemIdByLinkTokenAsync can hand back a wrapper without
-    // re-wrapping the raw string through `new SystemId(entry.ScopedSystemId)`.
+    // Reverse-map value: scoped systemId + expiry, so ResolveSystemIdByLinkTokenAsync
+    // can hand back the wrapper without a string round-trip through new SystemId(...).
     private readonly record struct LinkTokenEntry(ScopedSystemId Scoped, DateTimeOffset ExpiresAt);
 
     private static readonly TimeSpan LinkTokenTtl = TimeSpan.FromMinutes(5);
     private readonly object _linkTokenLock = new();
-    // Round-2 Commit 12 (canvas #20): retyped both link-token dicts to speak wrappers.
-    // The forward map now keys on the scoped composite via ScopedSystemId (record-struct
-    // ordinal equality on Value, equivalent to the pre-Round-2 StringComparer.Ordinal on
-    // the .Value string) and stores the typed LinkToken. The reverse map keys on the
-    // typed LinkToken so any accidental toString-then-dict-key path can no longer bypass
-    // the redacting wrapper. Cache is process-lifetime only (audited in Commit 9); no
-    // storage-layer rehydration reads either dict, so the key-shape change is invisible
-    // externally.
+    // Forward map keys on the scoped composite; reverse map keys on the typed LinkToken
+    // so any accidental toString-then-dict-key path can't bypass the redacting wrapper.
+    // Process-lifetime only — no storage-layer rehydration reads either dict, so the
+    // key-shape choice is invisible externally.
     private readonly ConcurrentDictionary<ScopedSystemId, LinkToken> _linkTokenBySystem = new();
     private readonly ConcurrentDictionary<LinkToken, LinkTokenEntry> _systemByLinkToken = new();
 
@@ -209,10 +197,8 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        // Compose is idempotent on already-scoped inputs; the extra safety net is why we're
-        // routing every partition-key composition through it in Slice 4. Round-2 Commit 12:
-        // the typed ScopedSystemId is now the direct dict key — no more `.Value` unwrap at
-        // the dict boundary, and misspelled principal derivations surface as build errors.
+        // Compose is idempotent on already-scoped inputs — the safety net for routing
+        // every partition-key composition through the same helper.
         var scoped = ScopedSystemId.Compose(keyspace, normalizedSystemId.Value);
         var now = DateTimeOffset.UtcNow;
 
@@ -277,18 +263,13 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         {
             if (_systemByLinkToken.TryGetValue(linkToken, out var entry) && entry.ExpiresAt > now)
             {
-                // Round-2 Commit 9: entry.Scoped is now the typed wrapper — AsSystemId
-                // widens to the IAccountRepository SystemId? contract without the
-                // pre-Round-2 raw `new SystemId(entry.ScopedSystemId)` re-wrap.
                 return Task.FromResult<SystemId?>(entry.Scoped.AsSystemId());
             }
 
             _systemByLinkToken.TryRemove(linkToken, out _);
             foreach (var item in _linkTokenBySystem)
             {
-                // Round-2 Commit 12: both sides are typed LinkToken now; record-struct
-                // equality is ordinal on the underlying string so this is byte-equivalent
-                // to the pre-Round-2 string.Equals(..., StringComparison.Ordinal) compare.
+                // LinkToken record-struct equality is ordinal on the underlying string.
                 if (item.Value == linkToken)
                 {
                     _linkTokenBySystem.TryRemove(item.Key, out _);
@@ -317,23 +298,18 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }
     }
 
-    // Round-2 Commit 11: every public IAccountRepository entry point below now dispatches
-    // to the internal helper with a typed ProviderColumn instead of a hand-spelled column
-    // literal. The unwrap-to-.Value stays at the entry-point boundary (the internal
-    // helpers still work with the raw provider-value string because it is passed as a CQL
-    // bind parameter, which the driver accepts unchanged).
+    // Every public IAccountRepository entry point below dispatches to an internal helper
+    // with a typed ProviderColumn instead of a hand-spelled column literal. The unwrap-
+    // to-.Value stays at the entry-point boundary — the internal helpers work with the
+    // raw provider-value string because it flows straight into a CQL bind parameter.
 
     public Task<SystemId?> TryFindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
         => TryFindSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken);
 
-    // Post-Round-5 sanity check (Finding 6): FindOrCreateSystemIdAsync and
-    // LinkIdentityToUserAsync are the consolidated OAuth-login shapes. Both dispatch on
-    // ProviderIdentity (R2C7) into the same ProviderColumn-typed internal helpers that
-    // R2C11 already established. Pre-Round-5 we exposed 6 identity-typed public methods
-    // that each did nothing but unwrap `.Value` and pass a hard-coded ProviderColumn —
-    // one for each of the 3 providers × 2 operations. Collapsing them means the
-    // pattern-match lives once (here) instead of once in the AuthController and once in
-    // the AuthLinkController.
+    // FindOrCreateSystemIdAsync and LinkIdentityToUserAsync are the consolidated OAuth-
+    // login shapes. Both dispatch on ProviderIdentity into the same ProviderColumn-typed
+    // internal helpers, so the pattern-match lives once here rather than being duplicated
+    // across AuthController and AuthLinkController.
     public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default)
         => identity switch
         {
@@ -432,13 +408,11 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    // Returns the scoped `{region}:{userId}` composite wrapped in a SystemId — this file's
-    // in-process caches and downstream callers keep operating in the scoped-composite
-    // shape until Slice 4 introduces a dedicated value object. The typing here just plugs
-    // the string leak at the SystemId? boundary the interface promises. Round-2 Commit 11
-    // retyped the column parameter from `string columnName` to the typed ProviderColumn
-    // enum and derives the CQL literal locally via ColumnName(...) — misspellings that
-    // used to be silent runtime "table does not exist" errors are now build failures.
+    // Returns the scoped `{region}:{userId}` composite wrapped in a SystemId — in-process
+    // caches and downstream callers all operate in the scoped-composite shape. The column
+    // parameter is a typed ProviderColumn enum, with the CQL literal derived locally via
+    // ColumnName(...); a misspelled column would be a build failure rather than a silent
+    // runtime "table does not exist".
     private async Task<SystemId?> TryFindSystemIdByRegistryColumnAsync(ProviderColumn column, string value, CancellationToken cancellationToken)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync<SystemId?>(async () =>

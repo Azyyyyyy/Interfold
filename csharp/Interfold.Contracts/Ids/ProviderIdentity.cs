@@ -5,22 +5,8 @@ namespace Interfold.Contracts.Ids;
 /// <c>OAuthControllerBase.ExtractProviderIdentityAsync</c>. Exactly one of
 /// <see cref="Discord"/> / <see cref="Google"/> / <see cref="Apple"/> is populated on a
 /// successful extract; construction is only via the three static factories, which enforce
-/// the invariant at compile time.
-///
-/// <para>
-/// Round-2 Commit 7 introduced this to collapse three duplicated
-/// <c>oauthProvider switch { Discord =&gt; new DiscordId(id), Google =&gt; new Email(id),
-/// Apple =&gt; new AppleId(id) }</c> re-wrap sites (<c>AuthController.Callback</c>,
-/// <c>AuthLinkController.Callback</c>, and <c>AuthLinkController.RedirectWithSocketEventAsync</c>)
-/// that each independently held a raw <c>string identity</c> local across a switch/wrap
-/// boundary and each rewrapped the same value in three different ways. The union carries
-/// the typed identity from the extract site (where the OAuth service returns
-/// <c>DiscordId?</c> / <c>Email?</c> / <c>AppleId?</c> already) all the way to the three
-/// dispatch sites without ever dropping back to <c>string</c>. The three
-/// <c>ExchangeCodeFor*</c> service methods already return the typed nullable, so this
-/// union is the last mile: it removes the last unwrap-and-rewrap in the OAuth callback
-/// pipeline.
-/// </para>
+/// the invariant at compile time. Carries the typed identity end-to-end so the OAuth
+/// callback pipeline never falls back to <c>string</c>.
 ///
 /// <para>
 /// Callers dispatch via property-pattern match:

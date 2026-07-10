@@ -47,35 +47,20 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
 
         var input = userNameOrId.Value.Trim();
 
-        // Slice 7: mirror the ScyllaFriendshipRepository routing table so both backends
-        // dispatch identically. InMemory has no user_registry / users_by_username tables,
-        // so Kind.Region / Kind.Id inputs collapse onto "normalise and return" — that's
-        // the behaviour the pre-Slice-7 repo had for bare ids, and the tests explicitly
-        // seed users via EnsureUserExistsAsync so the returned SystemId always maps to a
-        // real InMemory record. Kind.Username has no InMemory reverse-index either —
-        // returning null matches "no such username" cleanly and avoids the pre-Slice-7
-        // footgun where "username:alice" would be treated as a literal system id
-        // "username:alice".
+        // Mirror the ScyllaFriendshipRepository routing table so both backends dispatch
+        // identically. InMemory has no user_registry / users_by_username tables, so
+        // Kind.Region / Kind.Id inputs collapse onto "normalise and return" — tests
+        // explicitly seed users via EnsureUserExistsAsync so the returned SystemId
+        // always maps to a real record. Kind.Username has no reverse-index — returning
+        // null matches "no such username" cleanly.
         //
         // Unparseable inputs (unknown non-region prefix like "xxx:foo", or the
-        // colon-at-boundary shapes ":foo" / "foo:") return null. The LookupHandle
-        // type-level doc's "opaque bare id round-trip → query user_registry.user_id →
-        // miss → NoUser" chain is a valid *Scylla* behaviour because that backend has a
-        // real user_registry.user_id column that produces the miss. InMemory has no such
-        // intermediate lookup: if we round-trip the opaque input via Normalize, the
-        // downstream friend-request pipeline writes the request directly under the
-        // opaque "xxx:foo" key with no existence check, producing a phantom friend
-        // request and a 204 NoContent instead of the 422 friend_request:no_user that
-        // SendFriendRequestPrefixTests.SendFriendRequest_UnknownPrefix_ReturnsNoUser
-        // pins as the cross-backend contract. Return null here so the command handler
-        // surfaces the same 422 the Scylla path produces for the same input — the
-        // observable is the same across backends even though the internal path is
-        // shorter for InMemory (short-circuit here rather than round-trip-then-miss).
-        //
-        // Any unit test that expects "opaque round-trip" for unknown prefixes on the
-        // *InMemory* repo (as an earlier Slice-7 draft did in ResolveUserIdDispatchTests)
-        // is pinning a shape that would resurrect the pre-Slice-7 phantom-create footgun
-        // — update it to expect null instead.
+        // colon-at-boundary shapes ":foo" / "foo:") return null. On Scylla the same
+        // input round-trips into a user_registry.user_id miss; InMemory has no such
+        // intermediate lookup so round-tripping would flow the opaque id straight into
+        // the friend-request writer with no existence check, creating a phantom request.
+        // Short-circuiting here keeps the observable outcome (422 friend_request:no_user)
+        // aligned across all backends.
         if (!LookupHandle.TryParse(input, out var handle))
         {
             return null;

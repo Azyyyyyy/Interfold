@@ -158,18 +158,14 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 || TryParseLooseVersion(joinPayload.ProtocolVersion, out protocolVersion);
 
             var isSystemTopic = SystemTopic.TryParse(topic, out var requestedTopic);
-            // SystemId? mirrors the joinedSystemId idiom on line 71 — null means "no
-            // system topic on this join" and gates the downstream sub-vs-topic comparison
-            // via the helper's IsNullOrWhiteSpace guard. Pre-Step-4 this was a raw string
-            // that laundered through .Value → string.Empty → new SystemId(...) at the
-            // rate-limit site three lines below; the round-trip is gone.
+            // SystemId? mirrors the joinedSystemId idiom above — null means "no system
+            // topic on this join" and gates the downstream sub-vs-topic comparison.
             SystemId? requestedSystemId = isSystemTopic ? requestedTopic.Id : null;
-            // Round-2 Commit 13 (canvas #24): the third tuple element (`scopedSub`) is the
-            // parsed ScopedSystemId? extracted from the JWT sub inside the helper. Feeding
-            // it into SocketPushContext.JoinedScopedSystemId means the socket event pump
-            // subscribes with the scoped composite instead of the raw topic id, matching
-            // the wire shape of every ITargetedClusterEvent.TargetSystemId and letting the
-            // bus PublishAsync filter compare scoped-to-scoped directly.
+            // scopedSub is the ScopedSystemId? parsed from the JWT sub inside the helper.
+            // Feeding it into SocketPushContext.JoinedScopedSystemId lets the event-pump
+            // subscribe with the scoped composite (matching every
+            // ITargetedClusterEvent.TargetSystemId), so the bus PublishAsync filter can
+            // compare scoped-to-scoped directly.
             var (tokenAuthorized, tokenAuthFailureReason, scopedSub) = await IsSocketJoinTokenAuthorizedAsync(
                 context,
                 token,
@@ -214,9 +210,9 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 topicJoinReference[topic] = joinReference;
 
                 // Start the per-socket event pump now that we know which system this socket is bound to.
-                // The bus filter only delivers events whose TargetSystemId matches JoinedScopedSystemId
-                // (scoped-to-scoped record-struct equality since R2C13), so the pump's ~38 subscriptions
-                // only see traffic for this user.
+                // The bus filter only delivers events whose TargetSystemId matches
+                // JoinedScopedSystemId (scoped-to-scoped record-struct equality), so the
+                // pump's ~38 subscriptions only see traffic for this user.
                 //
                 // Interlocked.CompareExchange flips pumpStarted from 0 to 1 atomically and returns the
                 // previous value; only the thread that observed 0 actually constructs the push context
@@ -224,12 +220,10 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 // becomes a no-op rather than spinning a second pump / second SocketPushContext.
                 if (Interlocked.CompareExchange(ref pumpStarted, 1, 0) == 0)
                 {
-                    // Round-2 Commit 13 (canvas #24): scopedSub is the ScopedSystemId? parsed
-                    // from the JWT sub inside IsSocketJoinTokenAuthorizedAsync (see the
-                    // three-tuple destructure at line 167 for the wire-in). Threaded through
-                    // SocketPushContext into every SocketEventPumpRunner subscription so the
-                    // bus PublishAsync filter compares scoped-to-scoped and no runtime
-                    // StripRegionPrefix normalisation is needed on either side.
+                    // scopedSub (from IsSocketJoinTokenAuthorizedAsync) threads through
+                    // SocketPushContext into every SocketEventPumpRunner subscription, so
+                    // the bus filter compares scoped-to-scoped without a runtime
+                    // StripRegionPrefix normalisation on either side.
                     var socketPushContext = new SocketPushContext(
                         socket,
                         scopedSub,
@@ -570,38 +564,30 @@ internal static string ResolveLoopbackBaseUri(ICollection<string>? addresses)
 /// <summary>
 /// Region-prefix-tolerant equality between the JWT <c>sub</c> claim and the socket topic id.
 /// <para>
-/// Slice 4 hardened <c>InterfoldPrincipalMiddleware</c> so every JWT that lands on an
-/// Interfold controller must carry a scoped <c>{region}:{rawId}</c> sub. Socket topics on
-/// the wire stay in raw <c>system:{rawId}</c> form: <c>SystemTopic.TryParse</c> returns the
-/// bare id, and the pump-side push routing already tolerates the scoped/raw split via
-/// <c>SystemTopic.IdMatches</c> and via the publisher-side filter in
-/// <c>InProcessEventBus.PublishAsync</c> (see that method's lines 80-96 for the mirror
-/// rationale). This helper is the third comparison site that has to agree on what "same
-/// principal" means — without it, a scoped-sub JWT joining a raw-topic channel 401s at
-/// the socket layer even though the middleware + pump would both accept it.
+/// JWTs that land on an HTTP controller must carry a scoped <c>{region}:{rawId}</c> sub
+/// (enforced by <c>InterfoldPrincipalMiddleware</c>). Socket topics on the wire stay in
+/// raw <c>system:{rawId}</c> form. This helper is the third comparison site — after the
+/// middleware and after <c>InProcessEventBus.PublishAsync</c>'s publisher-side filter —
+/// that has to agree on what "same principal" means: without it, a scoped-sub JWT joining
+/// a raw-topic channel would 401 at the socket layer even though the middleware and pump
+/// would both accept it.
 /// </para>
 /// <para>
-/// Step 5 of the strong-typing rescan closes the middleware/socket divergence at the type
-/// level: the <c>ScopedSystemId?</c> first parameter can only be produced by
-/// <see cref="ScopedSystemId.TryParseScoped"/>, which is the identical parse call
-/// <c>InterfoldPrincipalMiddleware.ResolvePrincipalId</c> performs on the HTTP path.
-/// A raw, unscoped, or unknown-region-prefix sub simply cannot be passed here — the
-/// caller in <c>IsSocketJoinTokenAuthorizedAsync</c> returns <c>InvalidSocketTokenSubject</c>
-/// on the parse-fail branch, mirroring the middleware's 401. That means the historical
-/// "raw sub × raw topic" tolerance the helper used to encode is now a
-/// <see cref="ScopedSystemIdTests.TryParseScoped"/> rejection instead — the rejection
-/// matrix moved upstream to where it can be enforced by construction.
+/// The <c>ScopedSystemId?</c> first parameter can only be produced by
+/// <see cref="ScopedSystemId.TryParseScoped"/>, which is the identical parse call the
+/// middleware performs on the HTTP path — the "you must parse the sub first" rejection
+/// matrix is enforced by construction rather than by convention.
 /// </para>
 /// <para>
-/// Sub-side normalisation reads <see cref="ScopedSystemId.RawId"/> directly (the bare id
-/// pre-stripped by <see cref="ScopedSystemId.TryParseScoped"/>). Topic-side normalisation
-/// keeps <see cref="SystemIdNormalization.StripRegionPrefix"/> because <c>SystemTopic.TryParse</c>
-/// wraps whatever the client put after <c>system:</c> into a bare <c>SystemId</c>, which
-/// can still arrive raw <b>or</b> scoped depending on the client.
+/// Sub-side normalisation reads <see cref="ScopedSystemId.RawId"/> directly.
+/// Topic-side normalisation keeps <see cref="SystemIdNormalization.StripRegionPrefix"/>
+/// because <c>SystemTopic.TryParse</c> wraps whatever the client put after
+/// <c>system:</c> into a bare <c>SystemId</c>, which can still arrive raw <b>or</b>
+/// scoped depending on the client.
 /// </para>
 /// <para>
-/// Marked <c>internal</c> so the unit test project can drive the scoped-sub × raw/scoped-
-/// topic matrix directly rather than having to spin up a full <c>WebApplicationFactory</c>.
+/// Marked <c>internal</c> so unit tests can drive the scoped-sub × raw/scoped-topic
+/// matrix directly rather than spinning up a full <c>WebApplicationFactory</c>.
 /// </para>
 /// </summary>
 internal static bool IsTokenSubjectAuthorizedForTopic(
@@ -621,12 +607,10 @@ internal static bool IsTokenSubjectAuthorizedForTopic(
         StringComparison.Ordinal);
 }
 
-// Round-2 Commit 13 (canvas #24): return tuple gained the parsed ScopedSystemId? so the
-// caller in HandleAsync can feed it into SocketPushContext.JoinedScopedSystemId without
-// re-parsing the JWT. The parse already happened inside this method at the TryParseScoped
-// gate, so returning it is free — pre-Round-2 the caller re-derived a raw SystemId from
-// the topic string and let InProcessEventBus.PublishAsync normalise the scoped/raw drift
-// on every publish tick. Now the scoped sub is the single source of truth end-to-end.
+// The return tuple carries the parsed ScopedSystemId? so the caller in HandleAsync can
+// feed it into SocketPushContext.JoinedScopedSystemId without re-parsing the JWT. The
+// parse already happens at the TryParseScoped gate below, so returning it is free —
+// the scoped sub is the single source of truth end-to-end.
 static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? TokenSubject)> IsSocketJoinTokenAuthorizedAsync(
     HttpContext context,
     SocketToken token,
@@ -689,14 +673,12 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? 
         logger.LogInformation("Token validated. TokenSystemId: {TokenSub}, RequestedSystemId: {RequestedSub}",
             tokenSub, requestedSystemId);
 
-        // Mirror InterfoldPrincipalMiddleware.ResolvePrincipalId: the HTTP path 401s on any
-        // JWT whose sub is not in scoped {region}:{rawId} shape (see the middleware's xml-doc
-        // for the Slice-4 rationale). Post-Step-5, the socket path applies the identical
-        // parse so a legacy or hand-crafted unscoped-sub token can't authorise a socket join
-        // it would fail on any subsequent HTTP call. TryParseScoped rejects null, blank,
-        // no-colon, bare-colon, and unknown-region-prefix inputs — the exact rejection
-        // matrix the middleware uses. Downstream the helper is typed as ScopedSystemId?, so
-        // "you must parse the sub first" is enforced by the compiler, not by convention.
+        // Mirror InterfoldPrincipalMiddleware.ResolvePrincipalId: the HTTP path 401s on
+        // any JWT whose sub isn't in scoped {region}:{rawId} shape, and the socket path
+        // applies the identical parse so a legacy or hand-crafted unscoped-sub token
+        // can't authorise a socket join it would fail on any subsequent HTTP call.
+        // TryParseScoped rejects null, blank, no-colon, bare-colon, and unknown-region-
+        // prefix inputs — the exact rejection matrix the middleware uses.
         if (!ScopedSystemId.TryParseScoped(tokenSub, out var scopedSub))
         {
             logger.LogWarning("Token subject (sub) claim is missing, unscoped, or has an unknown region prefix");
@@ -709,12 +691,9 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? 
             return (false, ErrorCodes.SocketReasons.UnauthorizedTopic, null);
         }
 
-            // Round-2 Commit 4: Jti.From wraps the possibly-null JWT claim so the null-check
-            // runs on the typed Jti? rather than on a bare string local. The pre-Round-2
-            // shape kept the raw JTI alive across the string.IsNullOrWhiteSpace guard AND
-            // through the LogWarning at :702 — {Jti} interpolated a bare string, so the
-            // structured-log sink emitted the token id verbatim. With the wrapper the log
-            // routes through Jti.ToString which redacts.
+            // Jti.From wraps the possibly-null JWT claim so the null-check runs on the
+            // typed Jti? and every log site routes through Jti.ToString (which redacts)
+            // rather than interpolating a bare string.
             var jti = Interfold.Contracts.Ids.Jti.From(principal.FindFirstValue(JwtClaimNames.Jti));
             if (jti is { } typedJti)
             {

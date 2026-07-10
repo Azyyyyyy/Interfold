@@ -76,10 +76,10 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
         await Assert.That(result).IsEqualTo(ScyllaKeyspace.Nam);
     }
 
-    // ---------------- Slice 7: LookupHandle-driven cache-key routing --------
+    // ---------------- LookupHandle-driven cache-key routing --------
     //
-    // These pin the (cacheKey, LookupHandle?) contract inside HandleForLookup — the read-
-    // side helper that replaces the pre-Slice-7 SplitDiscriminatorPrefix. The invariants
+    // Pins the (cacheKey, LookupHandle?) contract inside HandleForLookup — the read-side
+    // helper that routes region-context cache reads by handle kind. The invariants
     // being locked in:
     //
     // - Bare id / "id:<raw>" / "<region>:<raw>" all cache under the same key (they all

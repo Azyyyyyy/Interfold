@@ -33,29 +33,18 @@ public sealed class SocketPushContext
 
     /// <summary>
     /// The scoped composite form of the socket's principal, parsed from the JWT sub
-    /// inside <c>WebSocketHandler.IsSocketJoinTokenAuthorizedAsync</c> (Round-2 Commit
-    /// 13, canvas #24). Fed to
+    /// inside <c>WebSocketHandler.IsSocketJoinTokenAuthorizedAsync</c>. Fed to
     /// <see cref="Interfold.Domain.Abstractions.IClusterEventBus.SubscribeAsync{TEvent}"/>
-    /// by <see cref="SocketEventPumpRunner.RunAllAsync"/> so the pump's ~38 subscriptions
-    /// filter on the scoped composite rather than the raw topic id. Pre-R2C13 the pump
-    /// passed a raw <c>SystemId</c> alongside this and the bus normalised both sides
-    /// through <c>SystemIdNormalization.StripRegionPrefix</c> on every publish tick —
-    /// the asymmetry was documented but a real bug vector if a subscriber ever supplied
-    /// a scoped-shaped SystemId without stripping.
-    ///
-    /// <para>
-    /// Post-Round-5 dead-code sweep: the sibling <c>JoinedSystemId</c> (raw
-    /// <see cref="SystemId"/>) that this doc used to cross-reference has been deleted —
-    /// grep-verified zero live readers, the socket event handlers all route on
-    /// <c>evt.TargetSystemId</c> fed into <see cref="TryGetSystemTopic"/>, never on the
-    /// context's own bound id. This property is now the only "who is this socket bound
-    /// to" surface on the context.
-    /// </para>
+    /// by <see cref="SocketEventPumpRunner.RunAllAsync"/> so the pump's ~38
+    /// subscriptions filter on the scoped composite rather than the raw topic id.
+    /// This is the only "who is this socket bound to" surface on the context — socket
+    /// event handlers route on <c>evt.TargetSystemId</c> fed into
+    /// <see cref="TryGetSystemTopic"/>, never on the context's own bound id.
     ///
     /// <para>
     /// Nullable because it's <see langword="null"/> for anonymous sockets that never
-    /// completed a system-topic join. Every downstream consumer already handles the
-    /// null case (the bus's target filter treats null as "no filter").
+    /// completed a system-topic join. Every downstream consumer handles null (the bus's
+    /// target filter treats it as "no filter").
     /// </para>
     /// </summary>
     public ScopedSystemId? JoinedScopedSystemId { get; }

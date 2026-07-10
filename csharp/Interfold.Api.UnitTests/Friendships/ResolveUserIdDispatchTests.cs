@@ -51,11 +51,9 @@ public sealed class ResolveUserIdDispatchTests
     [Test]
     public async Task ResolveUserId_DiscordPrefix_UnknownId_ReturnsNull_NoPhantomCreate()
     {
-        // The whole point of routing to TryFindSystemIdByDiscordIdAsync (not the
-        // auto-provisioning FindOrCreateSystemIdAsync — see the Round-5 Finding 6
-        // consolidation) is that unknown Discord ids must NOT spawn phantom accounts.
-        // A null return here becomes a "no such user" response upstream, matching how
-        // the friendship flow behaves for any other unknown handle.
+        // Routing to TryFindSystemIdByDiscordIdAsync (rather than the auto-provisioning
+        // FindOrCreateSystemIdAsync) is deliberate — unknown Discord ids must NOT spawn
+        // phantom accounts. A null return becomes a "no such user" upstream.
         var accounts = new RecordingAccountRepository
         {
             DiscordLookup = _ => null,
@@ -73,9 +71,9 @@ public sealed class ResolveUserIdDispatchTests
     [Test]
     public async Task ResolveUserId_UsernamePrefix_ReturnsNull_AccountRepoNotConsulted()
     {
-        // InMemory has no users_by_username table. The pre-Slice-7 behaviour would have
-        // returned SystemId("username:alice") verbatim (i.e. treated the literal string
-        // as a system id), which is the exact footgun LookupHandle is here to prevent.
+        // InMemory has no users_by_username table. Returning SystemId("username:alice")
+        // verbatim (treating the literal string as a system id) is the exact footgun
+        // LookupHandle prevents.
         var accounts = new RecordingAccountRepository();
         var repo = new InMemoryFriendshipRepository(accounts);
 
@@ -166,10 +164,9 @@ public sealed class ResolveUserIdDispatchTests
         public Task<LinkToken?> GetLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<SystemId?> ResolveSystemIdByLinkTokenAsync(LinkToken linkToken, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> ClearLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        // Post-Round-5 Finding 6: the six per-provider Find* / Link* stubs collapsed
-        // onto the two ProviderIdentity-keyed consolidations. Behaviour of the stub is
-        // unchanged — the test only exercises TryFindSystemIdByDiscordIdAsync, so every
-        // other method still throws NotSupportedException.
+        // ProviderIdentity-keyed consolidation of the account repo interface — the two
+        // methods below replace six per-provider Find* / Link* stubs. The test only
+        // exercises TryFindSystemIdByDiscordIdAsync, so every other member throws.
         public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AccountLinkResult> LinkIdentityToUserAsync(SystemId systemId, ProviderIdentity identity, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

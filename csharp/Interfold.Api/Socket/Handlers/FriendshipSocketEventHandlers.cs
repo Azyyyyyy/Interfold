@@ -129,11 +129,6 @@ public static class FriendshipSocketEventHandlers
         for (var attempt = 0; attempt < 10; attempt++)
         {
             var index = await friendshipRepository.GetFriendRequestsAsync(targetSystemId, cancellationToken);
-            // Post-Round-5 Finding 8: inlined SystemTopic.IdMatches directly. The private
-            // `IdMatches(string? left, string right)` wrapper this replaced was a trivial
-            // pass-through that added no behaviour beyond narrowing the second parameter
-            // from string? to string — residue from the Round-1 socket-token typing work
-            // that never earned its keep as a distinct symbol.
             var matched = (outgoing ? index.Outgoing : index.Incoming)
                 .FirstOrDefault(r => SystemTopic.IdMatches(r.System?.Id.Value, otherSystemId.Value));
 

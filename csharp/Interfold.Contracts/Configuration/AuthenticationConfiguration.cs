@@ -20,10 +20,9 @@ public sealed class AuthenticationConfiguration
     public string? CallbackBaseUrl { get; set; }
 
     /// <summary>
-    /// HMAC signing secret for the phase-F deep-link token exchange.
+    /// HMAC signing secret for the deep-link token exchange.
     /// Sourced from <c>internal.secrets</c> via <c>auth:deep_link_secret</c> — populated
-    /// by <c>AuthenticationSecretsPostConfigure</c> from the snapshot
-    /// <c>SecretsPreBuildLoader</c> primes pre-Build. Never read from env. Required —
+    /// by <c>AuthenticationSecretsPostConfigure</c>. Never read from env. Required —
     /// a missing row fails <c>.ValidateOnStart()</c> at boot.
     /// </summary>
     [Required(AllowEmptyStrings = false)]
@@ -62,9 +61,7 @@ public sealed class AuthenticationConfiguration
     /// Static server-side pepper used by E2E key derivation. Sourced exclusively from
     /// <c>internal.secrets</c> via <c>encryption:pepper</c> — populated by
     /// <c>AuthenticationSecretsPostConfigure</c>. Never read from env. Required — a
-    /// missing row fails <c>.ValidateOnStart()</c> at boot with the offending field
-    /// named, replacing the ad-hoc <c>InvalidOperationException</c> the pre-Slice-5
-    /// <c>SecretsBootstrapService</c> raised.
+    /// missing row fails <c>.ValidateOnStart()</c> at boot with the offending field named.
     /// </summary>
     [Required(AllowEmptyStrings = false)]
     public string EncryptionPepper { get; set; } = string.Empty;

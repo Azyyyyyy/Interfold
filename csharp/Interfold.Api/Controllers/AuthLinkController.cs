@@ -94,10 +94,9 @@ public sealed class AuthLinkController : OAuthControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, "This link token is invalid or has expired.");
         }
 
-        // Slice 4: the link-token map stores scoped ids on write; ParseScoped enforces that
-        // invariant at the read boundary so a legacy row that lost its prefix (or a Postgres
-        // bootstrap that emitted a bare id) surfaces here rather than as a bad event target
-        // three hops downstream.
+        // The link-token map stores scoped ids on write; TryParseScoped enforces the
+        // invariant at the read boundary so a legacy row that lost its prefix surfaces
+        // here rather than as a bad event target three hops downstream.
         if (!Interfold.Contracts.Ids.ScopedSystemId.TryParseScoped(resolvedSystemId.Value.Value, out var systemId))
         {
             Response.Cookies.Delete(LinkTokenCookieName);
@@ -110,24 +109,15 @@ public sealed class AuthLinkController : OAuthControllerBase
         var redirectUri = Request.Cookies[RedirectUriCookieName];
         Response.Cookies.Delete(RedirectUriCookieName);
 
-        // Round-2 Commit 7: ExtractProviderIdentityAsync returns ProviderIdentity? and
-        // dispatch is a property-pattern match on the populated field. Pre-Round-2 this
-        // switch (and the RedirectWithSocketEventAsync switch below) each independently
-        // rewrapped the same raw string, three times over the callback lifetime; the
-        // union carries the typed identity through once and dispatch happens off the
-        // typed shape rather than the enum + side-band string.
+        // ExtractProviderIdentityAsync returns a ProviderIdentity? that the account repo
+        // dispatches on directly — dispatch happens off the typed shape rather than an
+        // enum + side-band raw string that would need to be re-wrapped at every hop.
         var identity = await ExtractProviderIdentityAsync(oauthProvider);
         if (identity is not { } typedIdentity)
         {
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
         }
 
-        // Post-Round-5 Finding 6: dispatch onto the consolidated
-        // IAccountRepository.LinkIdentityToUserAsync (pattern-matches on the same
-        // ProviderIdentity shape). Mirrors the AuthController.Callback simplification —
-        // the pre-Round-5 spelling had this exact 3-branch switch AND the sibling in
-        // AuthController each rewrapping identical shapes to call three near-identical
-        // repository methods.
         var result = await _accounts.LinkIdentityToUserAsync(systemId, typedIdentity, HttpContext.RequestAborted);
 
         Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthLinkCallback.Value;
@@ -157,9 +147,8 @@ public sealed class AuthLinkController : OAuthControllerBase
 
     private async Task<IActionResult> RedirectWithSocketEventAsync(Interfold.Contracts.Ids.ScopedSystemId systemId, Interfold.Contracts.Ids.ProviderIdentity identity, string? redirectUri)
     {
-        // Round-2 Commit 7: dispatch on the ProviderIdentity union rather than the
-        // OAuthProvider enum + string side-band. Each PublishAsync call keeps its concrete
-        // event type so subscriber routing continues to dispatch by TEvent as before.
+        // Dispatch on the ProviderIdentity union so each PublishAsync gets its concrete
+        // event type; subscriber routing continues to dispatch by TEvent.
         switch (identity)
         {
             case { Discord: { } discordId }:

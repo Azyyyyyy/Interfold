@@ -12,33 +12,23 @@ namespace Interfold.Infrastructure.InMemory.Repository;
 public sealed class InMemoryAccountRepository : IAccountRepository
 {
     /// <summary>
-    /// Slice 4 TTL — matches the 5-minute expiry the Scylla port enforces. Pre-Slice-4 the
-    /// InMemory adapter had no expiry at all, so a link token issued at T+0 was still
-    /// resolvable at T+1h, which diverged from the Scylla adapter and let integration
-    /// tests silently accept stale tokens.
+    /// TTL for link tokens — matches the 5-minute expiry the Scylla port enforces so both
+    /// adapters have the same "get" contract.
     /// </summary>
     private static readonly TimeSpan LinkTokenTtl = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    /// Reverse map from link-token → (scoped systemId, expiry). Retyped in Slice 4 to
-    /// carry a <see cref="ScopedSystemId"/> and an expiry timestamp so
-    /// <see cref="ResolveSystemIdByLinkTokenAsync"/> can honour the same TTL contract as
-    /// the Scylla port. The value tuple also lets us scrub stale entries lazily on the
-    /// first read that sees them expired.
+    /// Reverse map value: scoped systemId + expiry, so
+    /// <see cref="ResolveSystemIdByLinkTokenAsync"/> honours the TTL and stale entries can
+    /// be scrubbed lazily on the first read that sees them expired.
     /// </summary>
     private readonly record struct LinkTokenEntry(ScopedSystemId Scoped, DateTimeOffset ExpiresAt);
 
-    // Round-2 Commit 12 (canvas #22) retyped the dictionary VALUES to speak wrappers, but
-    // left the per-system KEYS as raw string because retyping GetSystemKey to return
-    // ScopedSystemId was cross-cutting across seven repos. Round-3 Commit 1 (canvas #1)
-    // closes that gap: every per-system dict below now keys on ScopedSystemId directly,
-    // and the readonly record struct's ordinal equality on Value gives byte-identical
-    // lookup semantics to the pre-Round-3 string keys. The identity-side dicts
-    // (_systemBy{Discord,Email,Apple}) still key on raw string because their KEY is the
-    // provider identifier (an Email / DiscordId / AppleId in .Value form) with
-    // StringComparer.OrdinalIgnoreCase to match the case-insensitive lookup contract for
-    // email — the identity wrappers themselves are ordinal-strict and would lose that
-    // contract if used as the key directly.
+    // Per-system dicts key on ScopedSystemId (record-struct with ordinal equality on
+    // Value). The identity-side dicts (_systemBy{Discord,Email,Apple}) key on raw string
+    // via StringComparer.OrdinalIgnoreCase — the identity wrappers themselves are
+    // ordinal-strict and would lose the case-insensitive lookup contract for email if
+    // used directly as the key.
     private readonly ConcurrentDictionary<ScopedSystemId, Username> _usernameBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, string> _descriptionBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, AvatarUrl> _avatarBySystem = new();
@@ -54,10 +44,8 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     private readonly IEncryptionStateRepository? _encryptionStates;
     private readonly IRegionContext _regionContext;
-    // Slice 4 bug A: injectable clock so unit tests can exercise the TTL branch without a
-    // 5-minute wall wait. Defaults to TimeProvider.System, so production wiring is
-    // unchanged. Kept internal-shape (no interface indirection beyond TimeProvider) because
-    // we only need "now" — no scheduled work runs on the repository.
+    // Injectable clock so unit tests can exercise the TTL branch without a 5-minute wall
+    // wait. Defaults to TimeProvider.System — no scheduled work runs on the repository.
     private readonly TimeProvider _timeProvider;
 
     public InMemoryAccountRepository(
@@ -106,15 +94,12 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         var scoped = ResolveScoped(systemId);
         var now = _timeProvider.GetUtcNow();
 
-        // Deterministic token derivation kept intact — the InMemory adapter's convention
-        // is "same system → same token", which the integration tests lean on. Every call
-        // refreshes the expiry so a live client that keeps calling get-or-create doesn't
-        // spuriously expire. Round-2 Commit 12: the derived hash is wrapped as LinkToken
-        // immediately in the GetOrAdd factory so the token spends zero time as a bare
-        // string local — every downstream reference goes through the redacting wrapper.
-        // Round-3 Commit 1 (canvas #1): key is now ScopedSystemId — unwrap to .Value only
-        // for the SHA-256 input (the hash is deterministic in the scoped composite bytes,
-        // matching the pre-Round-3 behaviour exactly).
+        // Deterministic token derivation: "same system → same token" is a contract the
+        // integration tests lean on. Every call refreshes the expiry so a live client
+        // that keeps calling get-or-create doesn't spuriously expire. The derived hash
+        // is wrapped as LinkToken inside the GetOrAdd factory so the token spends zero
+        // time as a bare string local — every downstream reference goes through the
+        // redacting wrapper.
         var token = _linkTokenBySystem.GetOrAdd(systemKey, static key =>
         {
             var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key.Value));
@@ -134,8 +119,8 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<LinkToken?>(null);
         }
 
-        // Slice 4 bug A fix: honour the TTL on the read path so a client that only calls
-        // "get" never sees a token that ResolveSystemIdByLinkTokenAsync would refuse.
+        // Honour the TTL on the read path so a client that only calls "get" never sees a
+        // token that ResolveSystemIdByLinkTokenAsync would then refuse.
         if (_systemByLinkToken.TryGetValue(token, out var entry) && entry.ExpiresAt > _timeProvider.GetUtcNow())
         {
             return Task.FromResult<LinkToken?>(token);
@@ -152,9 +137,9 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(null);
         }
 
-        // Slice 4 bug A + B fix: check TTL on lookup, and on miss (nonexistent or expired)
-        // scrub BOTH sides so the deterministic-token semantics don't leave a dangling
-        // pointer that a later GetOrCreate would silently re-adopt.
+        // Check TTL on lookup; on miss (nonexistent or expired) scrub BOTH sides so the
+        // deterministic-token derivation doesn't leave a dangling pointer that a later
+        // GetOrCreate would silently re-adopt.
         if (_systemByLinkToken.TryGetValue(linkToken, out var entry) && entry.ExpiresAt > _timeProvider.GetUtcNow())
         {
             return Task.FromResult<SystemId?>(entry.Scoped.AsSystemId());
@@ -182,26 +167,15 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(null);
         }
 
-        // Round-2 Commit 12: _systemByDiscord now stores ScopedSystemId — pattern-match to
-        // widen through AsSystemId in one hop.
         return Task.FromResult<SystemId?>(
             _systemByDiscord.TryGetValue(discordId.Value, out var scopedSystemId)
                 ? scopedSystemId.AsSystemId()
                 : null);
     }
 
-    // Post-Round-5 Finding 6: the six per-provider public methods
-    // (FindOrCreateSystemIdByDiscordIdAsync + FindSystemIdByEmailAsync +
-    // FindSystemIdByAppleIdAsync + LinkDiscordToUserAsync + LinkEmailToUserAsync +
-    // LinkAppleToUserAsync) collapse onto two ProviderIdentity-keyed methods that
-    // dispatch to the corresponding private helper. The three FindOrCreate* helpers
-    // each write to a distinct pair of dictionaries (discord/email/apple) so the
-    // dispatch stays per-branch; the LinkIdentifier helper is already generic across
-    // the identity wrapper. The rationale for wrapping-at-write in ScopedSystemId
-    // (Round-2 Commit 9 + 12, Round-3 Commit 1) still applies to each branch — see
-    // the FindOrCreateSystemIdByDiscord helper below for the full comment (the R2 /
-    // R3 commit trail closes a scoped-vs-raw drift where the write key didn't match
-    // the read key). Consolidation preserves that fix verbatim per branch.
+    // Two ProviderIdentity-keyed entry points dispatch to per-branch private helpers.
+    // The three FindOrCreate* helpers each write to a distinct pair of dictionaries
+    // (discord / email / apple); LinkIdentifier is generic across the identity wrapper.
     public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default)
         => identity switch
         {
@@ -232,18 +206,11 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
         }
 
-        // Round-2 Commit 9: hold the ScopedSystemId typed locally so EnsureEncryptionSaltForSystem
-        // (which now takes ScopedSystemId per canvas #21) receives the wrapper directly, and the
-        // return can widen through AsSystemId without the pre-Round-2 raw `.Value` → `new SystemId(...)`
-        // round-trip. Round-2 Commit 12: identity-value dicts now speak the typed DiscordId
-        // wrapper; reverse-map dicts store ScopedSystemId — the assignment lines lose all the
-        // `.Value` unwraps that used to poke the string-typed slots.
-        // Round-3 Commit 1 (canvas #1): _discordBySystem is now keyed on ScopedSystemId, so
-        // we hand it scopedNew directly. The pre-Round-3 spelling `_discordBySystem[newSystemId]`
-        // stored the value under the RAW id while every downstream read (LinkIdentifier / Unlink*
-        // / GetPublicProfile) looks up by the SCOPED composite via GetSystemKey — a latent
-        // shape mismatch that the raw-string dictionary silently accepted. The retype forces
-        // the write side to match the read side, closing the shape drift as a side-effect.
+        // Hold the ScopedSystemId typed locally so EnsureEncryptionSaltForSystem receives
+        // the wrapper directly and the return widens through AsSystemId with no string
+        // round-trip. Reverse-map dicts key on ScopedSystemId so the write key matches
+        // the SCOPED composite every downstream read (LinkIdentifier / Unlink* /
+        // GetPublicProfile) uses via GetSystemKey.
         var newSystemId = Guid.NewGuid().ToString("N");
         var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
         _discordBySystem[scopedNew] = discordId;
@@ -265,8 +232,8 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
         }
 
-        // Round-2 Commit 9 + 12 + Round-3 Commit 1: see FindOrCreateSystemIdByDiscord
-        // above for rationale (including the scoped-vs-raw drift the retype closes).
+        // See FindOrCreateSystemIdByDiscord above for the "typed local + scoped-composite
+        // reverse-map key" rationale.
         var newSystemId = Guid.NewGuid().ToString("N");
         var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
         _emailBySystem[scopedNew] = email;
@@ -288,8 +255,8 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
         }
 
-        // Round-2 Commit 9 + 12 + Round-3 Commit 1: see FindOrCreateSystemIdByDiscord
-        // above for rationale (including the scoped-vs-raw drift the retype closes).
+        // See FindOrCreateSystemIdByDiscord above for the "typed local + scoped-composite
+        // reverse-map key" rationale.
         var newSystemId = Guid.NewGuid().ToString("N");
         var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
         _appleBySystem[scopedNew] = appleId;
@@ -366,11 +333,6 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     public Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
-        // Round-2 Commit 12: every dict now stores the typed wrapper directly, so the
-        // read-side conditional promotes the value-type to its nullable form and the
-        // final AccountPublicProfileReadModel constructor accepts the wrappers without
-        // a `new Username(u)` / `new DiscordId(discord)` re-wrap. Descriptions stay
-        // string-typed (no wrapper).
         Username? username = _usernameBySystem.TryGetValue(systemKey, out var u) ? u : null;
         var description = _descriptionBySystem.TryGetValue(systemKey, out var d) ? d : null;
         AvatarUrl? avatarUrl = _avatarBySystem.TryGetValue(systemKey, out var a) ? a : null;
@@ -403,16 +365,9 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     /// <summary>
     /// Drop a link-token from both maps. Used by the two read paths that discover a stale
-    /// or missing entry — the deterministic-token hash means we cannot rely on a
-    /// re-issued token to bury the stale mapping, so lazy scrub on read is the guardrail
-    /// against dangling reverse-map pointers (Slice 4 bug B).
-    /// Round-2 Commit 12: linkTokenValue parameter promoted to <see cref="LinkToken"/>?
-    /// so callers hand the typed wrapper directly; the record-struct ordinal equality on
-    /// the underlying string preserves byte-compat with the pre-Round-2 string.Equals compare.
-    /// Round-3 Commit 1 (canvas #1): systemKey parameter promoted to <see cref="ScopedSystemId"/>?
-    /// so the whole scrub signature speaks wrappers now — the callers already hand in the
-    /// typed <c>GetSystemKey</c> result, and the internal <c>_linkTokenBySystem</c> dict is
-    /// scoped-keyed post-Round-3.
+    /// or missing entry — the deterministic-token hash means a re-issued token can't bury
+    /// a stale mapping, so lazy scrub on read is the guardrail against dangling
+    /// reverse-map pointers.
     /// </summary>
     private void ScrubLinkToken(ScopedSystemId? systemKey = null, LinkToken? linkTokenValue = null)
     {
@@ -438,16 +393,13 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     }
 
     /// <summary>
-    /// Round-2 Commit 12: promoted from `LinkIdentifier(..., string, ConcurrentDictionary&lt;string, string&gt;, ...)` to a generic-typed helper that
-    /// speaks the wrapper types directly. <typeparamref name="TIdentity"/> is one of
+    /// Generic-typed link helper. <typeparamref name="TIdentity"/> is one of
     /// <see cref="DiscordId"/>, <see cref="Email"/>, <see cref="AppleId"/>; the
     /// <paramref name="extractRawValue"/> accessor pulls the underlying string only where
     /// it's needed for the reverse-map key (which stays string-typed to keep the
     /// case-insensitive <see cref="StringComparer.OrdinalIgnoreCase"/> semantics for
     /// email-and-friends). The three call-sites feed static lambdas so there is no
     /// allocation per call.
-    /// Round-3 Commit 1 (canvas #1): <paramref name="identifierBySystem"/> now keys on
-    /// <see cref="ScopedSystemId"/> in step with every other per-system dict in this repo.
     /// </summary>
     private AccountLinkResult LinkIdentifier<TIdentity>(
         SystemId systemId,
@@ -491,27 +443,17 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     }
 
     /// <summary>
-    /// Seed a per-system encryption salt at first-touch by the FindOrCreate paths.
-    ///
-    /// <para>
-    /// Round-2 Commit 9 (canvas #21): retyped the parameter from <c>string
-    /// scopedSystemId</c> to <see cref="ScopedSystemId"/>. Pre-Round-2 the three call
-    /// sites all owned a typed <see cref="ScopedSystemId"/> local and had to unwrap it
-    /// to <c>.Value</c> at the boundary, only for this method to re-wrap it via
-    /// <c>new SystemId(scopedSystemId)</c> for the <see cref="IEncryptionStateRepository.UpsertAsync"/>
-    /// call. The wrapper eliminates that string round-trip and pins the "the caller
-    /// already resolved this to a scoped composite" invariant at the type level.
-    /// </para>
+    /// Seed a per-system encryption salt at first-touch by the FindOrCreate paths. Takes
+    /// <see cref="ScopedSystemId"/> so the "caller already resolved this to a scoped
+    /// composite" invariant is pinned at the type level.
     /// </summary>
     private void EnsureEncryptionSaltForSystem(ScopedSystemId scoped)
     {
         if (_encryptionStates is null)
             return;
 
-        // Round-4 finding #3: mint via EncryptionSalt.NewRandom() so the raw base64 salt
-        // spends zero time as a bare local (ToString() on EncryptionSalt redacts, ToString()
-        // on a string does not). Consolidates the "how many bytes of salt" decision into
-        // the wrapper.
+        // Mint via EncryptionSalt.NewRandom() so the raw base64 salt spends zero time as
+        // a bare local (ToString() on EncryptionSalt redacts; on a string it would not).
         _ = _encryptionStates.UpsertAsync(scoped.AsSystemId(), false, null, EncryptionSalt.NewRandom(), CancellationToken.None);
     }
 }

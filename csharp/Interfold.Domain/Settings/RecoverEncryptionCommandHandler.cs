@@ -62,10 +62,8 @@ public sealed class RecoverEncryptionCommandHandler : ICommandHandler<RecoverEnc
             return RejectInvariant(command, EntityRefs.SettingsEncryptionNotInitialized);
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
-        // Round-2 Commit 3: DeriveKey / DeriveChecksum speak wrappers end-to-end; the raw
-        // `.Value.Value.Value` unwrap ladder collapses. `checksum == keyChecksum` uses the
-        // record-struct value equality (ordinal string equality on the underlying .Value),
-        // matching the old `string.Equals(..., Ordinal)` semantics exactly.
+        // `checksum == keyChecksum` uses the record-struct value equality (ordinal string
+        // equality on the underlying .Value), matching `string.Equals(..., Ordinal)` exactly.
         var key = EncryptionKey.DeriveKey(pepper, command.PrincipalId, command.Payload.RecoveryCode, salt);
         var checksum = EncryptionKey.DeriveChecksum(key);
 

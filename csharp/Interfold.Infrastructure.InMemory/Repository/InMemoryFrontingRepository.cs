@@ -29,8 +29,6 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     private readonly IRegionContext _regionContext;
     private readonly IFriendshipRepository? _friendships;
-    // Round-3 Commit 1 (canvas #1): retyped from ConcurrentDictionary<string, ...> to
-    // <ScopedSystemId, ...> so the partition key spends zero time as a raw string local.
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<AlterId, FrontState>> _activeBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, List<FrontHistoryState>> _historyBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, AlterId?> _primaryBySystem = new();
@@ -314,12 +312,8 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
-    // Post-Round-5 sanity check: body moved to
-    // InMemoryStorageKeys.ResolveFriendshipLevelAsync (the shared static that also serves
-    // the Alter and Tag repos). Round-4 finding #2 aligned this repo's body with Alter's
-    // reference implementation — that alignment is what unblocked the three-way collapse.
-    // The R4 attribution (StripRegionPrefix self-check vs the pre-R4 byte compare) now
-    // lives on the shared static's XML doc.
+    // Delegates to the shared static that also serves the Alter and Tag repos —
+    // see InMemoryStorageKeys.ResolveFriendshipLevelAsync for the self-check semantics.
     private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
         => InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
 }

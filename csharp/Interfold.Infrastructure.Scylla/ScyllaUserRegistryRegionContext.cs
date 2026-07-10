@@ -60,12 +60,11 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         if (string.IsNullOrWhiteSpace(systemId))
             return CurrentRegion;
 
-        // Slice 7: LookupHandle.TryParse replaces the private SplitDiscriminatorPrefix from
-        // Slice 4. A parseable handle carries an explicit Kind so LookupAsync knows which
-        // registry column to hit; an unparseable input (unknown prefix, or bare-prefix like
-        // "nam:") falls through to the "opaque bare id" branch inside LookupAsync with the
-        // whole systemId as the query value — matching the strict-rejection contract in
-        // LookupHandle.TryParse's xml-doc.
+        // A parseable LookupHandle carries an explicit Kind so LookupAsync knows which
+        // registry column to hit; an unparseable input (unknown prefix, or bare-prefix
+        // like "nam:") falls through to the "opaque bare id" branch inside LookupAsync
+        // with the whole systemId as the query value — matches the strict-rejection
+        // contract on LookupHandle.TryParse.
         var (cacheKey, handle) = HandleForLookup(systemId);
 
         if (_cache.TryGetValue(cacheKey, out var cached))
@@ -172,15 +171,10 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
             // original input so the strict-rejection contract holds: a rejected handle
             // becomes an opaque bare-id lookup, never a silent prefix-strip.
             //
-            // Round-3 Commit 2 (canvas #4): the column selector is a typed
-            // UserRegistryLookupColumn instead of the pre-Round-3 magic string
-            // ("username" / "discord_id" / "user_id"). Same shape as Round-2 Commit 11's
-            // ProviderColumn extraction inside ScyllaAccountRepository — the CQL text
-            // still needs to interpolate the raw column name, so the enum's ToColumnName
-            // helper produces it at exactly one spot. The pre-Round-3 spelling put three
-            // magic strings in the switch and a fourth in the CQL builder; a fifth column
-            // name added later could easily drift from the switch. The enum makes that
-            // impossible.
+            // The column selector is a typed UserRegistryLookupColumn rather than a magic
+            // string. The CQL text still needs to interpolate the raw column name, so
+            // ColumnName produces it in exactly one spot — a new lookup kind can't drift
+            // from the SQL builder because the compiler forces the enum branch first.
             var (column, value) = handle switch
             {
                 { Kind: LookupKind.Username } h => (UserRegistryLookupColumn.Username, h.RawId),
@@ -244,12 +238,10 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
     }
 
     /// <summary>
-    /// Round-3 Commit 2 (canvas #4): typed replacement for the pre-Round-3 magic-string
-    /// column literals inside <see cref="LookupAsync"/>. Mirrors the shape of
-    /// <c>ScyllaAccountRepository.ProviderColumn</c> introduced in Round-2 Commit 11 —
-    /// the enum ties the <see cref="LookupKind"/> switch to the CQL column universe so a
-    /// new lookup kind cannot accidentally drift from the SQL builder. The enum stays
-    /// private (nested) because its only consumer is inside this class.
+    /// Typed replacement for magic-string column literals inside
+    /// <see cref="LookupAsync"/>. Ties the <see cref="LookupKind"/> switch to the CQL
+    /// column universe so a new lookup kind cannot accidentally drift from the SQL
+    /// builder. Private/nested because its only consumer is inside this class.
     /// </summary>
     private enum UserRegistryLookupColumn
     {

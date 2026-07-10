@@ -8,8 +8,8 @@ using Microsoft.Extensions.Time.Testing;
 namespace Interfold.Api.UnitTests;
 
 /// <summary>
-/// Slice 4 latent-bug regression suite for <see cref="InMemoryAccountRepository"/>. Each
-/// test targets exactly one of the three bugs called out in the plan:
+/// Regression suite for <see cref="InMemoryAccountRepository"/>'s link-token map. Each
+/// test targets one previously-latent failure mode:
 ///
 ///   * Bug A — no TTL on the reverse-map; a stale entry stayed resolvable indefinitely
 ///     even though the Scylla adapter enforced a 5-minute expiry.
@@ -19,9 +19,9 @@ namespace Interfold.Api.UnitTests;
 ///     (<c>region + ":" + systemId.Value</c>), which double-prefixed any already-scoped
 ///     input to <c>"nam:nam:abcdefg"</c> and broke <c>ClearLinkTokenAsync</c>.
 ///
-/// All three failure modes were invisible pre-Slice-4 because the tests exercised them
-/// through the controller layer which normalised the id first. The direct-repository
-/// coverage below is the guard against reintroduction.
+/// All three were invisible when exercised through the controller layer because the
+/// controller normalised the id first. Direct-repository coverage is the guard against
+/// reintroduction.
 /// </summary>
 public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
 {
@@ -44,9 +44,9 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
     // ---------------- Bug A — TTL honoured on Resolve --------------------
 
     /// <summary>
-    /// A link token issued at T+0 must not resolve after the TTL window has elapsed. Pre-Slice-4
-    /// the InMemory adapter had no expiry at all, so this test would have silently returned
-    /// the systemId at T+1h and diverged from the Scylla adapter's 5-minute contract.
+    /// A link token issued at T+0 must not resolve after the TTL window has elapsed.
+    /// The InMemory adapter needs the same 5-minute expiry as Scylla; without it the
+    /// test would silently return the systemId at T+1h.
     /// </summary>
     [Test]
     public async Task ResolveSystemIdByLinkTokenAsync_TokenPastTtl_ReturnsNull()
@@ -62,13 +62,13 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
 
         var resolved = await repo.ResolveSystemIdByLinkTokenAsync(token);
         await Assert.That(resolved).IsNull()
-            .Because("Bug A regression: a stale token past the 5-minute TTL must not resolve — otherwise the InMemory adapter re-introduces the pre-Slice-4 divergence from Scylla's expiry contract.");
+            .Because("Bug A regression: a stale token past the 5-minute TTL must not resolve — otherwise the InMemory adapter diverges from Scylla's expiry contract.");
     }
 
     /// <summary>
-    /// Sibling to the above — the same TTL also applies to <c>GetLinkTokenAsync</c>, which
-    /// otherwise would advertise a token that <c>ResolveSystemIdByLinkTokenAsync</c> would
-    /// then refuse. Symmetric TTL is the plan's Bug A guarantee.
+    /// Symmetric TTL: the same expiry applies to <c>GetLinkTokenAsync</c>, which would
+    /// otherwise advertise a token that <c>ResolveSystemIdByLinkTokenAsync</c> then
+    /// refuses.
     /// </summary>
     [Test]
     public async Task GetLinkTokenAsync_TokenPastTtl_ReturnsNull()
@@ -88,11 +88,10 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
     // ---------------- Bug B — miss scrubs the reverse map ----------------
 
     /// <summary>
-    /// The deterministic-hash token derivation means the same systemId always produces the
-    /// same reverse-map key. Pre-Slice-4, a miss on that reverse map (nonexistent or
-    /// expired) left the forward map in place, so the next <c>GetOrCreateLinkTokenAsync</c>
-    /// silently adopted the dangling reverse-map pointer. This test pins that a miss
-    /// scrubs the forward pointer, forcing the next call to re-issue rather than adopt.
+    /// The deterministic-hash token derivation means the same systemId always produces
+    /// the same reverse-map key. A miss on the reverse map (nonexistent or expired) must
+    /// scrub the forward pointer so the next <c>GetOrCreateLinkTokenAsync</c> re-issues
+    /// rather than silently adopting a dangling reverse-map pointer.
     /// </summary>
     [Test]
     public async Task ResolveSystemIdByLinkTokenAsync_ExpiredMiss_ScrubsForwardPointer()
@@ -118,12 +117,11 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
     // ---------------- Bug C — no double-prefix, ClearLinkToken works ----
 
     /// <summary>
-    /// Pre-Slice-4 the reverse-map stored <c>region + ":" + systemId.Value</c>, which
-    /// double-prefixed an already-scoped input to <c>"nam:nam:abcdefg"</c>. After the
-    /// Compose migration the same input produces exactly <c>"nam:abcdefg"</c> once, so
-    /// <c>ClearLinkTokenAsync</c> — which looks up the reverse-map by the forward-map
-    /// token, then removes both — correctly clears both sides regardless of whether the
-    /// caller handed in a raw or a scoped id.
+    /// The reverse-map key must go through <c>ScopedSystemId.Compose</c>, not
+    /// <c>region + ":" + systemId.Value</c>. Hand-concatenation would double-prefix an
+    /// already-scoped input to <c>"nam:nam:abcdefg"</c> and break the round-trip through
+    /// <c>ClearLinkTokenAsync</c>, which looks up the reverse-map by the forward-map
+    /// token and expects to find the record it wrote.
     /// </summary>
     [Test]
     public async Task GetOrCreateLinkTokenAsync_AlreadyScopedInput_NoDoublePrefix_AndClearRoundTrips()
@@ -134,7 +132,7 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
         var resolved = await repo.ResolveSystemIdByLinkTokenAsync(issuedToken);
 
         await Assert.That(resolved).IsNotNull()
-            .Because("Bug C regression: a scoped-input token must resolve — pre-Slice-4 the double-prefixed reverse-map key would still resolve back but return the double-prefixed string, so this test only fires on the post-Slice-4 wire form.");
+            .Because("Bug C regression: a scoped-input token must resolve to the same single-prefixed id.");
         await Assert.That(resolved!.Value.Value).IsEqualTo("nam:abcdefg")
             .Because("The resolved id must be single-prefixed. Any double-prefix (e.g. \"nam:nam:abcdefg\") indicates the hand-concat pattern crept back in.");
 
@@ -142,9 +140,8 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
         await Assert.That(cleared).IsTrue()
             .Because("ClearLinkTokenAsync must succeed for the same scoped input that GetOrCreate accepted.");
 
-        // Post-clear, the reverse map must be empty for that token.
         var postClear = await repo.ResolveSystemIdByLinkTokenAsync(issuedToken);
         await Assert.That(postClear).IsNull()
-            .Because("Bug C regression: pre-Slice-4 the double-prefixed reverse-map key survived ClearLinkTokenAsync because the clear path used the raw key while the write used the double-prefixed one; post-migration they share the same Compose call so the clear actually reaches the record it wrote.");
+            .Because("Bug C regression: the clear path and the write path must use the same Compose call, otherwise a double-prefixed key survives ClearLinkTokenAsync because the two sides disagree on the key shape.");
     }
 }

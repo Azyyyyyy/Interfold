@@ -106,7 +106,7 @@ public static class ConfigurationServiceCollectionExtensions
 
         // Live-reloadable: avatar storage paths can be updated via appsettings.json.
         // ValidateOnStart still fires at the initial bind — reloads are eventual-consistency,
-        // not fail-fast (see the live-reload gotcha in the Slice 3 plan).
+        // not fail-fast.
         AddLiveReloadable<StorageConfiguration>(services, ApplyStorage)
             .ValidateDataAnnotations()
             .ValidateOnStart();
@@ -280,8 +280,7 @@ public static class ConfigurationServiceCollectionExtensions
         // OAuth client IDs are public values (they appear in OAuth redirect URLs); keep them
         // env-bound. The matching client secrets are env-bound as a fallback here, then
         // overwritten by AuthenticationSecretsPostConfigure when the corresponding
-        // internal.secrets row is present — preserving the pre-Slice-5 "env wins when the
-        // store row is absent" contract.
+        // internal.secrets row is present — env wins when the store row is absent.
         opts.DiscordOAuthClientId = config[OctoconEnvKeys.DiscordOAuthClientId];
         opts.DiscordOAuthClientSecret = config[OctoconEnvKeys.DiscordOAuthClientSecret];
         opts.GoogleOAuthClientId = config[OctoconEnvKeys.GoogleOAuthClientId];

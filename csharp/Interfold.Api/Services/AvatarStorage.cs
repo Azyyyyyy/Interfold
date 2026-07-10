@@ -9,8 +9,6 @@ public interface IAvatarStorage
 {
     /// <summary>
     /// Persist a system-level avatar and return the public URL as an <see cref="AvatarUrl"/>.
-    /// Round-2 strong-typing rescan: the wrapper existed all along and every caller was
-    /// doing <c>new AvatarUrl(url)</c> on the very next line.
     /// </summary>
     Task<AvatarUrl> SaveSystemAvatarAsync(SystemId systemId, Stream stream, CancellationToken cancellationToken = default);
 

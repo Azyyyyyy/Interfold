@@ -6,20 +6,17 @@ namespace Interfold.Api.UnitTests.Ids;
 /// <summary>
 /// Pins the <see cref="ScopedSystemId.RepresentsSameUserAs(SystemId)"/> and
 /// <see cref="ScopedSystemId.RepresentsSameUserAs(UsernameOrSystemId)"/> primitives that
-/// back the eight controller self-request guards (FriendRequestsController: Send / Cancel /
-/// Accept / Reject; FriendsController: Show / Delete / Trust / Untrust).
+/// back the eight controller self-request guards (FriendRequestsController: Send /
+/// Cancel / Accept / Reject; FriendsController: Show / Delete / Trust / Untrust).
 ///
 /// <para>
-/// The pre-Round-2 spelling was either <c>principal == id</c> (SystemId sites — a byte
-/// compare of the scoped composite against the raw route value via the implicit
-/// <see cref="ScopedSystemId"/>→<see cref="SystemId"/> widen) or
-/// <c>principal.Value == id.Value</c> (Send — same byte compare, cross-wrapper). Both
-/// silently missed the raw route shape (<c>/api/friends/{rawId}</c>), returning a
-/// generic downstream error instead of the crisp <c>cannot_*_self</c>. These tests pin
-/// the semantic-check invariants: same-region raw and same-region scoped both self-reject;
-/// cross-region scoped is treated as a different user (matches the "scoped composite is
-/// identity" contract on <see cref="ScopedSystemId"/>); blank / mismatched-raw / username
-/// / Discord shapes never falsely self-reject.
+/// A bare byte compare of the scoped composite against the raw route value silently
+/// misses the raw-id shape (<c>/api/friends/{rawId}</c>), returning a generic downstream
+/// error instead of the crisp <c>cannot_*_self</c>. These tests pin the semantic-check
+/// invariants: same-region raw and same-region scoped both self-reject; cross-region
+/// scoped is treated as a different user (matching the "scoped composite is identity"
+/// contract); blank / mismatched-raw / username / Discord shapes never falsely
+/// self-reject.
 /// </para>
 /// </summary>
 public sealed class ScopedSystemIdRepresentsSameUserAsTests
@@ -29,9 +26,9 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     // ---------------- SystemId overload: happy paths ----------------
 
     /// <summary>
-    /// The scoped-composite route shape (<c>/api/friends/nam:abcdefg</c>) is the pre-Round-2
-    /// only-case that the byte compare caught. RepresentsSameUserAs must still catch it to
-    /// keep byte-compat for clients that already send scoped ids.
+    /// Scoped-composite route shape (<c>/api/friends/nam:abcdefg</c>): the trivial
+    /// same-region same-raw-id case that a raw byte compare also catches. Preserved to
+    /// stay byte-compatible with clients that send scoped ids.
     /// </summary>
     [Test]
     public async Task SystemId_SameRegionScoped_IsSelf()
@@ -39,14 +36,13 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
         var candidate = new SystemId("nam:abcdefg");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsTrue()
-            .Because("A scoped candidate in the principal's region and with the principal's raw id is the same user — this is the case the pre-Round-2 byte compare already caught.");
+            .Because("A scoped candidate in the principal's region and with the principal's raw id is the same user.");
     }
 
     /// <summary>
-    /// The raw-id route shape (<c>/api/friends/abcdefg</c>) is the pre-Round-2 silent-miss.
-    /// The pre-Round-2 spelling would have compared <c>"nam:abcdefg" == "abcdefg"</c> → false
-    /// and fallen through to the downstream handler with a generic error. This test pins the
-    /// fix that promotes the guard to the semantic level.
+    /// Raw-id route shape (<c>/api/friends/abcdefg</c>): a raw byte compare would see
+    /// <c>"nam:abcdefg" == "abcdefg"</c> → false and fall through to the downstream
+    /// handler. The semantic-level self-check catches it up front.
     /// </summary>
     [Test]
     public async Task SystemId_RawId_MatchingPrincipalRawId_IsSelf()
@@ -54,7 +50,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
         var candidate = new SystemId("abcdefg");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsTrue()
-            .Because("A raw candidate whose value equals the principal's RawId represents the same user in the principal's region; the pre-Round-2 byte compare silently missed this shape.");
+            .Because("A raw candidate whose value equals the principal's RawId represents the same user in the principal's region.");
     }
 
     /// <summary>
@@ -105,9 +101,8 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     // ---------------- UsernameOrSystemId overload ----------------
 
     /// <summary>
-    /// The Send fast-path: a client sending their own scoped id as the route segment must
-    /// self-reject without a repository hop. Preserves the pre-Round-2 fast-path semantics
-    /// while replacing the fragile raw string compare.
+    /// The Send fast-path: a client sending their own scoped id as the route segment
+    /// must self-reject without a repository hop.
     /// </summary>
     [Test]
     public async Task UsernameOrSystemId_ScopedSelf_IsSelf()
@@ -115,14 +110,12 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
         var candidate = new UsernameOrSystemId("nam:abcdefg");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsTrue()
-            .Because("A scoped self-id sent as the route segment is the trivial fast-path the Send controller must catch; behaviour byte-compatible with the pre-Round-2 byte compare.");
+            .Because("A scoped self-id sent as the route segment is the trivial fast-path the Send controller must catch.");
     }
 
     /// <summary>
-    /// The pre-Round-2 miss on the Send path: a client sending their own raw id. Slice-7
-    /// documented this as intentional (downstream handler catches it via the resolved-id
-    /// self-check), but a controller-level catch produces the crisper cannot_send_self
-    /// error without a repository hop, and is a safe strict-improvement.
+    /// Raw-id self-send: catches it at the controller with the crisp cannot_send_self
+    /// error rather than delegating to the downstream resolved-id self-check.
     /// </summary>
     [Test]
     public async Task UsernameOrSystemId_RawSelf_IsSelf()
@@ -130,7 +123,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
         var candidate = new UsernameOrSystemId("abcdefg");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsTrue()
-            .Because("A bare raw-id route parses as LookupKind.Id and must delegate to the SystemId primitive's raw-id branch; this is a strict improvement over the pre-Round-2 fall-through-to-domain-handler behaviour.");
+            .Because("A bare raw-id route parses as LookupKind.Id and must delegate to the SystemId primitive's raw-id branch.");
     }
 
     /// <summary>

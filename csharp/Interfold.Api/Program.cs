@@ -61,10 +61,9 @@ builder.Services.AddInterfoldOptions();
 // ValidAudience and AddInterfoldAuthChallengeSchemes) read directly from builder.Configuration
 // for the four env-bound values they need, below.
 //
-// ASP0000: BuildServiceProvider inside application code duplicates singleton graphs — that's
-// the intended cost here (see the Slice 3 plan "Program.cs startup rebuild penalty" note).
-// The alternative — hand-maintained Bind*(IConfiguration) helpers — is exactly what this
-// slice retired to keep the options pipeline the single source of truth.
+// ASP0000: BuildServiceProvider inside application code duplicates singleton graphs — that
+// is the intended cost here. The alternative (hand-maintained Bind*(IConfiguration)
+// helpers) reintroduces the drift that the options pipeline exists to eliminate.
 //
 // The probe SP is built off a CLONE of builder.Services in which the framework's factory
 // IConfiguration registration ("services.AddSingleton(_ => appConfiguration)", intentionally

@@ -160,7 +160,7 @@ public sealed class LookupHandleTests
         using (Assert.Multiple())
         {
             await Assert.That(parsed).IsFalse()
-                .Because($"'{input}' has an unknown non-region prefix — callers must fall back to the opaque-bare-id path with the WHOLE input rather than silently stripping the unknown prefix (that was the pre-Slice-7 SplitDiscriminatorPrefix footgun).");
+                .Because($"'{input}' has an unknown non-region prefix — callers must fall back to the opaque-bare-id path with the WHOLE input rather than silently stripping an unknown prefix.");
             await Assert.That(handle).IsEqualTo(default(LookupHandle));
         }
     }

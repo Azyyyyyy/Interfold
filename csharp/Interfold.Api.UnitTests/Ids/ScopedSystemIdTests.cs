@@ -5,16 +5,11 @@ using Interfold.Contracts.Ids;
 namespace Interfold.Api.UnitTests.Ids;
 
 /// <summary>
-/// Pins the invariants that make <see cref="ScopedSystemId"/> a safe drop-in for the
-/// pre-Slice-4 hand-formatted <c>$"{region}:{id}"</c> concatenations: idempotency across
-/// scoped/raw inputs (so a repeated Compose call cannot double-prefix), byte-exact JSON
-/// wire compatibility with <c>SystemId</c>, and strict parsing at trust boundaries.
-///
-/// <para>
-/// Everything here is pure C# with no host / DI / IO — this is the fast test tier. Wire
-/// byte-freeze tests that need the full stack (JWT emission, EncryptionKey.DeriveKey,
-/// InProcessEventBus) live in Interfold.IntegrationTests.
-/// </para>
+/// Pins the invariants that make <see cref="ScopedSystemId"/> a safe stand-in for hand-
+/// formatted <c>$"{region}:{id}"</c> concatenations: idempotency across scoped/raw inputs
+/// (so a repeated Compose call cannot double-prefix), byte-exact JSON wire compatibility
+/// with <c>SystemId</c>, and strict parsing at trust boundaries. Pure C# with no host /
+/// DI / IO; wire byte-freeze tests that need the full stack live in the integration suite.
 /// </summary>
 public sealed class ScopedSystemIdTests
 {
@@ -42,10 +37,10 @@ public sealed class ScopedSystemIdTests
     }
 
     /// <summary>
-    /// Composing with an already-scoped input strips the existing prefix and re-applies the
-    /// argument's region. This is the load-bearing anti-double-prefix invariant — pre-Slice-4
-    /// InMemoryStorageKeys.ForSystem and ScyllaAccountRepository could produce
-    /// <c>"nam:nam:abcdefg"</c> if the caller passed a SystemId that already carried a prefix.
+    /// Composing with an already-scoped input strips the existing prefix and re-applies
+    /// the argument's region. Load-bearing anti-double-prefix invariant — without it a
+    /// caller that passes an already-prefixed SystemId ends up with
+    /// <c>"nam:nam:abcdefg"</c>.
     /// </summary>
     [Test]
     public async Task Compose_AlreadyScopedInput_IsIdempotent()

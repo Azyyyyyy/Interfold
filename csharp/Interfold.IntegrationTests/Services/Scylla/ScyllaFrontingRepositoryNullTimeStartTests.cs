@@ -40,9 +40,8 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
         var sessionProvider = factory.Services.GetRequiredService<IScyllaSessionProvider>();
         var frontingRepo = factory.Services.GetRequiredService<IFrontingRepository>();
 
-        // Step 2 of the strong-typing rescan retyped these interface members to take
-        // SystemId directly (NormalizeSystemId now returns SystemId too); the CQL bind
-        // below unwraps once via .Value at the storage boundary.
+        // Interface members take SystemId directly and NormalizeSystemId returns SystemId;
+        // the CQL bind below unwraps once via .Value at the storage boundary.
         var normalizedSystemId = keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = keyspaceResolver.ResolveRegionalKeyspace(systemId);
         var session = await sessionProvider.GetSessionAsync();

@@ -80,10 +80,10 @@ public sealed class SecretsPreBuildLoaderPoolingTests
     }
 
     /// <summary>
-    /// The specific shape the integration-test fixture uses (<c>SharedDbFixture</c> pins
-    /// <c>Maximum Pool Size=5</c>). Pin this shape here explicitly so the regression is visible
-    /// without having to re-run the whole integration suite: after the rewrite the loader must
-    /// carry ITS OWN ceiling, not the fixture's 5-slot value.
+    /// The specific shape the integration-test fixture uses (<c>SharedDbFixture</c>
+    /// pins <c>Maximum Pool Size=5</c>). Pinned here so the regression is visible
+    /// without re-running the whole integration suite: the loader must carry ITS OWN
+    /// ceiling, not the fixture's 5-slot value.
     /// </summary>
     [Test]
     public async Task WithDedicatedPoolIdentity_OverridesFixtureMaxPoolSize()

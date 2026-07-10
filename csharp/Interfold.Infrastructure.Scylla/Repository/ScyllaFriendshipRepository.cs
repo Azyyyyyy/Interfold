@@ -36,13 +36,11 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
     public async Task<SystemId?> ResolveUserIdAsync(UsernameOrSystemId userNameOrId, CancellationToken cancellationToken = default)
     {
-        // Slice 7: the resolve entrypoint dispatches on LookupHandle rather than pre-
-        // normalising via NormalizeSystemId. NormalizeSystemId only strips region tags
-        // (nam/eur/...), so a "discord:1234" input came through unchanged and then got
-        // silently mishandled by the pre-Slice-7 direct-user_id/username-fanout path.
-        // Passing the raw input straight into ResolveUserIdInScyllaAsync lets the LookupHandle
-        // switch inside pick the right registry column (or delegate to the account repo
-        // for the Discord branch).
+        // Pass the raw input into ResolveUserIdInScyllaAsync so its LookupHandle switch
+        // picks the right registry column (or delegates to the account repo for the
+        // Discord branch). NormalizeSystemId only strips region tags, so a "discord:1234"
+        // input would come through unchanged and be mishandled by a direct
+        // user_id/username-fanout path.
         return await DatabaseTransientRetry.ExecuteScyllaAsync<SystemId?>(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
@@ -484,12 +482,11 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
         var input = rawInput.Trim();
 
-        // Slice 7: LookupHandle picks the routing lane. Unparseable input (bare-prefix
-        // like "nam:", or unknown non-region prefix like "xxx:abcdefg") falls through to
-        // the same user_registry.user_id lookup as a bare id, using the WHOLE input as
-        // the query value — this matches the strict-rejection contract in
-        // LookupHandle.TryParse's xml-doc and mirrors ScyllaUserRegistryRegionContext's
-        // fallback branch.
+        // LookupHandle picks the routing lane. Unparseable input (bare-prefix like
+        // "nam:", or unknown non-region prefix like "xxx:abcdefg") falls through to the
+        // same user_registry.user_id lookup as a bare id, using the WHOLE input as the
+        // query value — mirrors LookupHandle.TryParse's strict-rejection contract and
+        // ScyllaUserRegistryRegionContext's fallback branch.
         if (!LookupHandle.TryParse(input, out var handle))
         {
             return await LookupByUserIdAsync(session, input);
@@ -500,15 +497,11 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             LookupKind.Username => await LookupByUsernameFanoutAsync(session, handle.RawId),
             // Discord dispatch delegates to the account repo's find-only lookup so an
             // unknown Discord id surfaces as null instead of spawning a phantom account
-            // (which is what the auto-provisioning FindOrCreateSystemIdAsync would do —
-            // post-Round-5 Finding 6 renamed the sole surviving create-on-miss surface).
-            // See the decision doc-comment on IAccountRepository.TryFindSystemIdByDiscordIdAsync.
+            // (see IAccountRepository.TryFindSystemIdByDiscordIdAsync).
             LookupKind.Discord => await _accounts.TryFindSystemIdByDiscordIdAsync(
                 new DiscordId(handle.RawId), cancellationToken),
             // Region / Id / (unreachable fallback) all target user_registry.user_id with
-            // the bare RawId. NormalizeSystemId would produce the same value for Region-
-            // shaped input, so this branch is byte-equivalent to the pre-Slice-7 direct
-            // lookup path for the common "resolve a scoped principal id" case.
+            // the bare RawId.
             _ => await LookupByUserIdAsync(session, handle.RawId),
         };
     }

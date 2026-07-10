@@ -132,15 +132,9 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         }
 
         var principalId = PrincipalId;
-        // Round-4 finding #1: promoted from the R2C8-era raw compare
-        //   `principalId.RawId == SystemIdNormalization.StripRegionPrefix(systemId)`
-        // to the ScopedSystemId.RepresentsSameUserAs primitive R2C8 introduced across
-        // FriendsController / FriendRequestsController. The old spelling stripped both
-        // sides to their raw ids and byte-compared, which falsely self-rejects
-        // cross-region requests where the viewer's `principalId = "eur:abcdefg"` asks
-        // for `"nam:abcdefg"` (different user, same raw id, distinct scoped composite).
-        // RepresentsSameUserAs compares scoped-to-scoped when both sides carry a region
-        // prefix, so the cross-region collision is no longer a self-hit.
+        // Semantic self-check. RepresentsSameUserAs compares scoped-to-scoped when both
+        // sides carry a region prefix, so a cross-region collision (same raw id, different
+        // region → different user) is correctly treated as a non-self request.
         if (principalId.RepresentsSameUserAs(systemId))
         {
             return new ErrorResponse(

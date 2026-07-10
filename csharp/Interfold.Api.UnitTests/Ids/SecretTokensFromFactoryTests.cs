@@ -3,46 +3,19 @@ using Interfold.Contracts.Ids;
 namespace Interfold.Api.UnitTests.Ids;
 
 /// <summary>
-/// Pins the <c>Jti.From(string?)</c> and <c>LinkToken.From(string?)</c> factories added in
-/// Step 7 of the strong-typing rescan, plus the <c>Jti.NewJti()</c> mint factory added in
-/// Round-2 Commit 4.
+/// Pins the <c>Jti.From(string?)</c>, <c>LinkToken.From(string?)</c>, and
+/// <c>Jti.NewJti()</c> factories. The <c>From</c> pair folds "null-or-blank → null,
+/// otherwise wrap" into a single total function so the caller's null-check runs on the
+/// typed nullable and the raw credential exists only inside the factory frame — closing
+/// the window where a raw string local across the guard/wrap boundary could be leaked
+/// by an incidental structured log. <c>NewJti</c> is the same story on the write side
+/// for <c>AuthController.IssueDeepLinkTokenAsync</c>.
 ///
 /// <para>
-/// Pre-Step-7, the two callers (<c>AuthController.RevokeToken</c> for Jti,
-/// <c>AuthLinkController.Callback</c> for LinkToken) shared the exact same anti-pattern:
-/// pull a possibly-null raw string out of a JWT claim or query/cookie fallback, null-check
-/// on the bare string local, then <c>new Jti(...)</c> / <c>new LinkToken(...)</c> on the
-/// very next line at the call site that needed the wrapper all along. That two-line
-/// window kept the raw credential alive as an interpolable <c>string</c> across the guard
-/// / error-return / wrap boundary — any incidental structured-log message or exception
-/// wrapper containing the local would leak the token verbatim, entirely defeating the
-/// point of the redacting wrapper.
-/// </para>
-///
-/// <para>
-/// The <c>From</c> factory closes that window by folding the "null-or-blank → null,
-/// otherwise wrap" step into a single total function. The caller's null check then runs
-/// on the typed nullable (<c>Jti?</c> / <c>LinkToken?</c>) and the raw string exists
-/// only inside the factory's argument-evaluation frame.
-/// </para>
-///
-/// <para>
-/// The <c>NewJti</c> mint factory (Round-2 Commit 4) is the same story on the write side:
-/// <c>AuthController.IssueDeepLinkTokenAsync</c> pre-Round-2 held a raw
-/// <c>Guid.NewGuid().ToString("N")</c> string as a local across the <c>CreateToken</c>
-/// and <c>RecordTokenAsync</c> call sites, each of which re-wrapped with
-/// <c>new Jti(jti)</c>. Any log line in between would leak the freshly-minted JTI
-/// verbatim. The three <c>JtiNewJti_*</c> tests below pin uniqueness, wire-format
-/// byte-identity with the pre-Round-2 raw shape, and redaction under interpolation.
-/// </para>
-///
-/// <para>
-/// This suite is deliberately small and targeted: the four-input matrix
-/// (null / empty / whitespace-only / valid) for each of the two <c>From</c> factories,
-/// exactly mirroring what the two Step-7 call sites can throw at them in production,
-/// plus a three-test set for <c>NewJti</c>. Broader wrapper-shape tests (JSON round-trip,
-/// redaction behaviour) belong with the wrapper itself; this file only pins the
-/// invariants the Step-7 / Commit-4 rewrites depend on.
+/// Deliberately small and targeted: the four-input matrix (null / empty /
+/// whitespace-only / valid) for each <c>From</c> factory plus a three-test set for
+/// <c>NewJti</c> (uniqueness, wire format, redaction). Broader wrapper-shape tests
+/// belong with the wrapper itself.
 /// </para>
 /// </summary>
 public sealed class SecretTokensFromFactoryTests
@@ -114,9 +87,8 @@ public sealed class SecretTokensFromFactoryTests
         // Positive path: a real link token (Guid-shaped, minted by GET /settings/link_token)
         // must round-trip through From → .Value verbatim so the Scylla / InMemory account
         // repository's ResolveSystemIdByLinkTokenAsync uses the same key that was written
-        // by the mint endpoint. Any From-side transformation would break the whole one-time-
-        // link handshake with the exact "invalid or expired" symptom Step 7 tries to prevent
-        // in the missing-input case.
+        // by the mint endpoint. Any From-side transformation would break the one-time-link
+        // handshake with the exact "invalid or expired" symptom this factory closes.
         const string valid = "97e6d3ab-cbfe-4a30-8f7e-6b2c8a3d9e1f";
 
         var result = LinkToken.From(valid);
@@ -133,12 +105,10 @@ public sealed class SecretTokensFromFactoryTests
     [Test]
     public async Task JtiFrom_WrappedValueRoundTripsThroughRedactedToString()
     {
-        // Belt-and-braces on the safety story Step 7 is enforcing: after From returns a
-        // wrapped Jti, an incidental $"{jti}" interpolation in a log statement between the
-        // From call and the RevokeTokenAsync call must go through the redacting ToString().
-        // If a future edit ever gives Jti a From that returns a struct with a plaintext-
-        // exposing ToString override, this test fails and re-opens the leak window the
-        // whole refactor was designed to close.
+        // Belt-and-braces on the safety story: after From returns a wrapped Jti, any
+        // incidental $"{jti}" interpolation between the From call and RevokeTokenAsync
+        // must go through the redacting ToString(). A regression that exposes plaintext
+        // in ToString reopens the leak window this factory closes.
         const string valid = "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature";
 
         var result = Jti.From(valid);
@@ -175,7 +145,7 @@ public sealed class SecretTokensFromFactoryTests
         }
     }
 
-    // ---------------- Round-2 Commit 4: Jti.NewJti() mint factory --------------------
+    // ---------------- Jti.NewJti() mint factory --------------------
 
     [Test]
     public async Task JtiNewJti_ProducesUniqueValueEachCall()
@@ -196,31 +166,28 @@ public sealed class SecretTokensFromFactoryTests
     [Test]
     public async Task JtiNewJti_ProducesThirtyTwoCharLowercaseHex()
     {
-        // Pins the wire format: 32 lowercase hex characters, no dashes. This matches the
-        // pre-Round-2 raw `Guid.NewGuid().ToString("N")` shape byte-for-byte, so any JWT
-        // issued before Round-2 still verifies against a JTI produced by NewJti() today
-        // (and vice versa), and the revocation-store row key is unchanged. Any drift here
-        // (uppercase, hyphens, base64, longer/shorter) would silently invalidate every
-        // pre-Round-2 issued token on the first NewJti() production issuance.
+        // Pins the wire format: 32 lowercase hex characters, no dashes. Matches the
+        // Guid.NewGuid().ToString("N") shape byte-for-byte so every issued JWT verifies
+        // against the same revocation-store row key. Any drift (uppercase, hyphens,
+        // base64, different length) would orphan the revocation store on first deploy.
         var jti = Jti.NewJti();
 
         using (Assert.Multiple())
         {
             await Assert.That(jti.Value.Length).IsEqualTo(32)
-                .Because("Guid.NewGuid().ToString(\"N\") yields exactly 32 characters — a change here would break byte-identity with every pre-Round-2 issued JTI and orphan the revocation store on the first issue after deploy.");
+                .Because("Guid.NewGuid().ToString(\"N\") yields exactly 32 characters — a change here would break byte-identity with every issued JTI and orphan the revocation store on the first issue after deploy.");
             await Assert.That(jti.Value).Matches(@"^[0-9a-f]{32}$")
-                .Because("Only lowercase hex; no dashes, no uppercase. Any drift would break byte-identity with the pre-Round-2 raw shape.");
+                .Because("Only lowercase hex; no dashes, no uppercase. Any drift would break byte-identity with the historical shape.");
         }
     }
 
     [Test]
     public async Task JtiNewJti_ValueRedactsUnderInterpolation()
     {
-        // Belt-and-braces on the safety story Round-2 Commit 4 is enforcing: after NewJti
-        // returns a wrapped Jti, an incidental $"{jti}" in a log statement (or in an
-        // exception message that captures the local) must go through the redacting
-        // ToString(). Without this, the AuthController mint-and-record window at
-        // IssueDeepLinkTokenAsync could leak the freshly-minted JTI into structured logs
+        // Belt-and-braces: after NewJti returns a wrapped Jti, any incidental $"{jti}"
+        // in a log statement (or an exception message that captures the local) must go
+        // through the redacting ToString(). Without this, the AuthController's
+        // mint-and-record window could leak the freshly-minted JTI into structured logs
         // before the token is even returned to the OAuth callback client.
         var jti = Jti.NewJti();
         var interpolated = $"jti = {jti}";

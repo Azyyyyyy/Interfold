@@ -44,8 +44,8 @@ public static partial class ServiceCollectionExtensions
         //   1. Auxiliary / sidecar nodes never send — always the no-op.
         //   2. Primary nodes promote to FirebaseFCMService ONLY when the
         //      fcm:service_account_json row is seeded. An empty / missing row means the
-        //      deployment hasn't wired Firebase and we keep behaving exactly as we did
-        //      before this refactor (Debug-level no-op logging).
+        //      deployment hasn't wired Firebase and we fall back to the Debug-level
+        //      no-op notifier.
         //
         // FcmConfiguration.ServiceAccountJson is populated by FcmSecretsPostConfigure from
         // the ISecretsSnapshot that SecretsPreBuildLoader primes pre-Build — by the time this

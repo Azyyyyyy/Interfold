@@ -104,27 +104,19 @@ public sealed class AuthController : OAuthControllerBase
         if (EnumWireExtensions.TryParseOAuthProvider(provider) is not { } oauthProvider)
             return UnsupportedProviderResponse(provider);
 
-        // Round-2 Commit 7: ExtractProviderIdentityAsync returns ProviderIdentity? so the
-        // dispatch below can property-pattern-match on the populated field. The pre-Round-2
-        // shape did `oauthProvider switch { Discord => new DiscordId(identity), ... }` -
-        // both switching on the provider enum AND rewrapping a raw string that had just
-        // been unwrapped inside ExtractProviderIdentityAsync. The union carries the typed
-        // identity through without the string round-trip.
+        // ExtractProviderIdentityAsync returns a ProviderIdentity? that the account repo
+        // dispatches on directly — no rewrap of a raw string that was just unwrapped
+        // inside the OAuth service.
         var identity = await ExtractProviderIdentityAsync(oauthProvider);
         if (identity is not { } typedIdentity)
         {
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
         }
 
-        // Post-Round-5 Finding 6: the pre-Round-5 3-branch pattern-match that dispatched
-        // to one of FindOrCreateSystemIdByDiscordIdAsync / FindSystemIdByEmailAsync /
-        // FindSystemIdByAppleIdAsync now lives inside IAccountRepository.FindOrCreateSystemIdAsync
-        // (which dispatches on the same ProviderIdentity shape). The reasons: (a) both
-        // callers (this + AuthLinkController.Callback) had the same 3-branch switch, (b)
-        // the "Find" prefix on the Email / Apple methods silently hid auto-provisioning
-        // semantics that only the Discord method's name reflected honestly. The
-        // consolidated method's name (FindOrCreateSystemIdAsync) honours the invariant
-        // for all three providers.
+        // FindOrCreateSystemIdAsync auto-provisions on miss for all three providers —
+        // the name honours the invariant explicitly, so callers see the create-on-miss
+        // semantics at the call site rather than having to trust a provider-specific
+        // method name.
         var resolvedSystemId = await _accounts.FindOrCreateSystemIdAsync(typedIdentity, HttpContext.RequestAborted);
 
         if (string.IsNullOrWhiteSpace(resolvedSystemId?.Value))
@@ -137,10 +129,9 @@ public sealed class AuthController : OAuthControllerBase
         var encryptionState = await _encryptionRepository.GetAsync(systemId, HttpContext.RequestAborted);
         if (encryptionState?.Salt == null)
         {
-            // Round-4 finding #3: mint via EncryptionSalt.NewRandom() so the raw base64
-            // string does not survive as a local (ToString() on EncryptionSalt redacts,
-            // ToString() on a bare string does not). Byte width lives inside the wrapper
-            // rather than being hard-coded here.
+            // Mint via EncryptionSalt.NewRandom() so the raw base64 string does not
+            // survive as a local (ToString() on EncryptionSalt redacts; on a bare string
+            // it would not). Byte width lives inside the wrapper rather than hard-coded here.
             await _encryptionRepository.UpsertAsync(systemId, false, null, EncryptionSalt.NewRandom(), HttpContext.RequestAborted);
         }
 
@@ -174,11 +165,10 @@ public sealed class AuthController : OAuthControllerBase
     private async Task<string> IssueDeepLinkTokenAsync(Interfold.Contracts.Ids.SystemId systemId)
     {
         var authConfig = AuthOptions.CurrentValue;
-        // Round-2 Commit 4: Jti.NewJti() mints + wraps in one call so the raw JTI string no
-        // longer lives as a bare local across the CreateToken and RecordTokenAsync sites,
-        // each of which re-wrapped with `new Jti(jti)` pre-Round-2. Any incidental log
-        // statement or exception-with-locals between mint and wrap would emit the
-        // unredacted JTI verbatim; the wrapper's ToString redacts.
+        // Jti.NewJti() mints + wraps in one call so the raw JTI string doesn't live as a
+        // bare local across the CreateToken and RecordTokenAsync sites. Any incidental
+        // log or exception-with-locals between mint and wrap would emit the unredacted
+        // JTI; the wrapper's ToString redacts.
         var jti = Interfold.Contracts.Ids.Jti.NewJti();
 
         // Set expiry to 100 years in the future. This is practically permanent

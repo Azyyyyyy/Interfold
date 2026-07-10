@@ -449,8 +449,6 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            // Round-2 Commit 6: direct call into ScyllaSharedQueries; the private wrapper
-            // that used to hop string->typed here was pure string-obsession scaffolding.
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, normalizedSystemId, viewerSystemId);
             EnsureAlterFieldUdtMapping(session, keyspace);
             var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
@@ -527,8 +525,6 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            // Round-2 Commit 6: direct call into ScyllaSharedQueries; the private wrapper
-            // that used to hop string->typed here was pure string-obsession scaffolding.
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, normalizedSystemId, viewerSystemId);
             EnsureAlterFieldUdtMapping(session, keyspace);
             var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);

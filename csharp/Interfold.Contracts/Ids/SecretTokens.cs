@@ -35,12 +35,9 @@ public readonly record struct LinkToken
     /// <summary>
     /// Wrap a nullable raw string, returning <c>null</c> for null / empty / whitespace so the
     /// caller's null check runs on the typed <see cref="LinkToken"/>? rather than on a bare
-    /// <c>string?</c> local. Step 7 of the strong-typing rescan added this so the immediate-
-    /// wrap-adjacent-to-null-check idiom is encoded once here rather than duplicated at every
-    /// call site (previously the pattern was
-    /// <c>var s = ...; if (IsNullOrWhiteSpace(s)) return 403; ... new LinkToken(s)</c>, where
-    /// any incidental log statement in the two-line window between guard and wrap could
-    /// leak the raw token). Total function \u2014 no throw path.
+    /// <c>string?</c> local. Keeps the raw token from lingering as a local across a guard/
+    /// wrap boundary where an incidental log statement could leak it. Total function — no
+    /// throw path.
     /// </summary>
     public static LinkToken? From(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : new LinkToken(value);
@@ -156,26 +153,17 @@ public readonly record struct Jti
     /// <summary>
     /// Wrap a nullable raw string, returning <c>null</c> for null / empty / whitespace so the
     /// caller's null check runs on the typed <see cref="Jti"/>? rather than on a bare
-    /// <c>string?</c> local. Step 7 of the strong-typing rescan added this for the
-    /// <c>AuthController.RevokeToken</c> JWT-claim extraction path, where the pre-Step-7
-    /// shape kept the raw JTI string alive as a local across the null-check / error-return
-    /// boundary; any incidental log statement in that window would leak the token id
-    /// verbatim through raw-string interpolation. Total function \u2014 no throw path.
+    /// <c>string?</c> local. Keeps the raw JTI from lingering across a guard/wrap boundary
+    /// where an incidental log statement could leak it. Total function — no throw path.
     /// </summary>
     public static Jti? From(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : new Jti(value);
 
     /// <summary>
-    /// Mint a fresh JWT ID as a wrapped <see cref="Jti"/>. Round-2 Commit 4 added this so
-    /// JWT-issue sites (currently <c>AuthController.IssueDeepLinkTokenAsync</c>) can produce
-    /// the typed value in one call instead of holding a raw
-    /// <c>Guid.NewGuid().ToString("N")</c> string as a local across the two or three
-    /// downstream call sites that each rewrap into <see cref="Jti"/> at use. Any incidental
-    /// log statement or exception-message-with-locals in that window would emit the
-    /// unredacted JTI verbatim; the wrapper's <see cref="ToString"/> redacts. Format is
-    /// 32-char lowercase hex, no dashes - byte-identical to the pre-Round-2 raw shape so
-    /// existing tokens verify, the revocation-store row key is unchanged, and no wire
-    /// format drifts. Total function - never returns <see langword="default"/>.
+    /// Mint a fresh JWT ID as a wrapped <see cref="Jti"/> in one call so JWT-issue sites
+    /// don't hold the raw <c>Guid.NewGuid().ToString("N")</c> as a bare local across
+    /// downstream sites that would each rewrap. Format is 32-char lowercase hex, no dashes.
+    /// Total function — never returns <see langword="default"/>.
     /// </summary>
     public static Jti NewJti() => new(Guid.NewGuid().ToString("N"));
 }

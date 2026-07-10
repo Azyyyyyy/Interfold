@@ -17,8 +17,8 @@ namespace Interfold.Api.UnitTests.ImportJobs;
 /// </summary>
 public sealed class ImportPkCommandHandlerDispatchTests
 {
-    // Slice 4: PrincipalId is now ScopedSystemId; ParseScoped enforces the wire-canonical
-    // form so the test fixture matches what the middleware constructs at ingress.
+    // PrincipalId is a ScopedSystemId; ParseScoped enforces the wire-canonical form so
+    // the test fixture matches what the middleware constructs at ingress.
     private static readonly Interfold.Contracts.Ids.ScopedSystemId SystemId
         = Interfold.Contracts.Ids.ScopedSystemId.ParseScoped("nam:sys-pk-dispatch-test");
 

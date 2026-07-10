@@ -48,23 +48,17 @@ public enum LookupKind
 /// returns <see langword="false"/> from <see cref="TryParse"/>. Callers with a real
 /// registry (Scylla: <c>user_registry.user_id</c>) are expected to treat "not parseable"
 /// as "opaque bare id" and query the registry with the <b>whole</b> input (not the
-/// after-colon slice) — the miss then surfaces as <c>friend_request:no_user</c> (422).
-/// This is a behaviour change from the pre-Slice-7 <c>SplitDiscriminatorPrefix</c> which
-/// silently stripped any prefix-with-colon.
+/// after-colon slice) — the miss surfaces as <c>friend_request:no_user</c> (422).
 /// </para>
 ///
 /// <para>
-/// <b>Backend asymmetry on the unparseable branch.</b> The "opaque round-trip → miss"
-/// chain above works on Scylla / Cassandra because those backends have a real
-/// <c>user_registry.user_id</c> lookup that produces the miss. The InMemory backend has
-/// no such intermediate lookup: round-tripping an unparseable input would flow the
-/// opaque id straight into the friend-request writer with no existence check, creating
-/// a phantom friend request. So the InMemory dispatch returns <see langword="null"/>
-/// directly for the unparseable branch instead of round-tripping — the observable
-/// outcome (422 <c>friend_request:no_user</c>) is the same across all three backends
-/// even though the InMemory path is shorter. See
-/// <c>InMemoryFriendshipRepository.ResolveUserIdAsync</c>'s rationale block for the
-/// full asymmetry and the cross-backend integration pin.
+/// <b>Backend asymmetry on the unparseable branch.</b> Scylla / Cassandra have a real
+/// <c>user_registry.user_id</c> lookup that produces the miss from an opaque round-trip.
+/// InMemory has no such intermediate lookup, so round-tripping would flow the opaque id
+/// straight into the friend-request writer and create a phantom request; the InMemory
+/// dispatch therefore returns <see langword="null"/> directly for the unparseable branch.
+/// Observable outcome (422 <c>friend_request:no_user</c>) is the same across all backends —
+/// see <c>InMemoryFriendshipRepository.ResolveUserIdAsync</c> for the pinning tests.
 /// </para>
 /// </summary>
 public readonly record struct LookupHandle

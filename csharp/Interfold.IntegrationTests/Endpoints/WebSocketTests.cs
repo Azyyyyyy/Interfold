@@ -20,10 +20,10 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     internal static string UniqueId(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
 
-    // Slice 4: events carry ScopedSystemId, so tests that publish directly onto the bus have
-    // to compose one from the raw test id. NAM is the only region the test bootstrapper
-    // seeds, so it's the honest default here — a scoped compose is idempotent, so callers
-    // that already pass "nam:..." (or another valid region prefix) keep the same wire bytes.
+    // Events carry ScopedSystemId, so tests that publish directly onto the bus compose
+    // one from the raw test id. NAM is the only region the test bootstrapper seeds;
+    // compose is idempotent, so callers that already pass "nam:..." (or another valid
+    // region prefix) keep the same wire bytes.
     internal static Interfold.Contracts.Ids.ScopedSystemId AsScopedSystemId(string rawSystemId)
         => Interfold.Contracts.Ids.ScopedSystemId.Compose(ScyllaKeyspace.Nam, rawSystemId);
 

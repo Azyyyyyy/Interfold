@@ -93,14 +93,10 @@ public static class SocketEventPumpRunner
         // Keep the loop alive across handler faults; if cancellation comes through
         // context.CancellationToken we still exit cleanly because SubscribeAsync's
         // enumerator observes it and MoveNextAsync simply returns false.
-        // Round-2 Commit 13 (canvas #24): SubscribeAsync takes ScopedSystemId?. Feed it the
-        // scoped composite that WebSocketHandler parsed from the JWT sub (see the scopedSub
-        // destructure in HandleAsync). Pre-R2C13 we passed a raw SystemId alongside the
-        // scoped composite and the bus normalised both sides through
-        // SystemIdNormalization.StripRegionPrefix on every publish tick; the scoped-to-
-        // scoped compare in InProcessEventBus.PublishAsync is byte-equivalent when both
-        // regions match and correctly rejects the cross-region false positive that the
-        // strip-then-compare shape used to deliver.
+        // SubscribeAsync takes ScopedSystemId?. Feed it the scoped composite that
+        // WebSocketHandler parsed from the JWT sub — the scoped-to-scoped compare in
+        // InProcessEventBus.PublishAsync is byte-equivalent when regions match and
+        // correctly rejects cross-region false positives (same raw id, different region).
         await foreach (var evt in eventBus.SubscribeAsync<TEvent>(context.JoinedScopedSystemId, context.CancellationToken).ConfigureAwait(false))
         {
             try

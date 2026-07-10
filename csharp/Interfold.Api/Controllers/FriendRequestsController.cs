@@ -61,12 +61,9 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     public async Task<Response> Send(UsernameOrSystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        // Round-2 Commit 8: RepresentsSameUserAs replaces the pre-Round-2
-        // `principal.Value == id.Value` byte compare that silently coupled
-        // ScopedSystemId.Value ("nam:abcdefg") to UsernameOrSystemId.Value (whatever the
-        // client sent as the route segment). The fast-path semantics are unchanged for
-        // the "client sent their own id" case; username / Discord shapes still fall
-        // through to SendFriendRequestCommandHandler's post-resolution self-guard.
+        // Semantic self-check via the UsernameOrSystemId overload — catches the "client
+        // sent their own id" fast-path case without a repository hop. Username / Discord
+        // shapes fall through to SendFriendRequestCommandHandler's post-resolution guard.
         if (principal.RepresentsSameUserAs(id))
         {
             return new ErrorResponse(
@@ -90,11 +87,8 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     public async Task<Response> Cancel(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        // Round-2 Commit 8: RepresentsSameUserAs replaces `principal == id` which — via
-        // the implicit ScopedSystemId→SystemId widen — was a byte compare of the scoped
-        // composite ("nam:abcdefg") against the raw route value ("abcdefg"). The raw
-        // shape silently missed the guard pre-Round-2; CancelFriendRequestCommandHandler
-        // has no downstream self-check, so a raw-id self-cancel would return the
+        // Semantic self-check — CancelFriendRequestCommandHandler has no downstream
+        // self-guard, so a bare byte compare would let a raw-id self-cancel return the
         // generic friend_request:not_requested error instead of cannot_cancel_self.
         if (principal.RepresentsSameUserAs(id))
         {
@@ -119,8 +113,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     public async Task<Response> Accept(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        // Round-2 Commit 8: see the Cancel handler above for the full rationale — same
-        // byte-compare-vs-semantic-check drift, same silent miss on the raw route shape.
+        // Semantic self-check — see Cancel handler for the same rationale.
         if (principal.RepresentsSameUserAs(id))
         {
             return new ErrorResponse(
@@ -144,7 +137,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     public async Task<Response> Reject(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        // Round-2 Commit 8: see the Cancel handler above for the full rationale.
+        // Semantic self-check — see Cancel handler for the same rationale.
         if (principal.RepresentsSameUserAs(id))
         {
             return new ErrorResponse(

@@ -6,9 +6,9 @@ using Interfold.IntegrationTests.TestServices;
 namespace Interfold.IntegrationTests.Friendships;
 
 /// <summary>
-/// End-to-end pins on the Slice 7 <see cref="Interfold.Contracts.Ids.LookupHandle"/>
-/// dispatch matrix, exercised through the <c>/api/friend-requests/{id}</c> route so the
-/// whole stack (controller → command handler → friendship repo → registry) is in play.
+/// End-to-end pins on the <see cref="Interfold.Contracts.Ids.LookupHandle"/> dispatch
+/// matrix, exercised through the <c>/api/friend-requests/{id}</c> route so the whole
+/// stack (controller → command handler → friendship repo → registry) is in play.
 ///
 /// <para>
 /// The tests run under all three fixtures via TUnit's <c>[ClassDataSource]</c>
@@ -86,10 +86,9 @@ public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : B
         var sender = UniqueId("s7-send-unk-a");
         await EnsureUserExistsAsync(client, sender);
 
-        // The pre-Slice-7 behaviour would have stripped the "xxx:" prefix and tried the
-        // after-colon slice as a bare id, which by coincidence would sometimes find a
-        // user. Slice 7 forbids that silent strip — an unknown prefix keeps its whole
-        // form and hits user_registry with no match → NoUser.
+        // An unknown prefix must NOT get silently stripped and re-tried as a bare id
+        // (which by coincidence would sometimes find a user). The whole input hits
+        // user_registry, misses, and returns NoUser.
         var (status, entityRef) = await SendFriendRequestWithEntityRefAsync(
             client, sender, "xxx:definitely-not-a-real-user");
 
@@ -115,7 +114,7 @@ public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : B
         {
             await Assert.That(status).IsEqualTo(HttpStatusCode.UnprocessableEntity);
             await Assert.That(entityRef).IsEqualTo("friend_request:no_user")
-                .Because("Username lookup that misses must NOT fall back to treating the literal 'username:...' as a system id (that was the pre-Slice-7 InMemory footgun).");
+                .Because("Username lookup that misses must NOT fall back to treating the literal 'username:...' as a system id.");
         }
     }
 
@@ -126,11 +125,10 @@ public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : B
         var sender = UniqueId("s7-send-discmiss-a");
         await EnsureUserExistsAsync(client, sender);
 
-        // The unique Discord id makes this fresh per run — if the friendship dispatch
-        // ever regressed to the auto-provisioning FindOrCreateSystemIdAsync (post-Round-5
-        // Finding 6 renamed the sole surviving OAuth-login create-on-miss surface), the
-        // account would be created and this test would flip to 204. NoUser here is the
-        // load-bearing pin on the TryFind delegation the Slice 7 refactor introduced.
+        // The unique Discord id makes this fresh per run. If the friendship dispatch
+        // ever regressed to the auto-provisioning FindOrCreateSystemIdAsync (the sole
+        // create-on-miss OAuth-login surface), the account would be created and this
+        // test would flip to 204. NoUser is the load-bearing pin on TryFind delegation.
         var uniqueDiscord = $"99999{DateTime.UtcNow.Ticks}";
         var (status, entityRef) = await SendFriendRequestWithEntityRefAsync(
             client, sender, $"discord:{uniqueDiscord}");

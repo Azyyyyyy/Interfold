@@ -3,32 +3,18 @@ using Interfold.Contracts.Ids;
 namespace Interfold.Api.UnitTests.Socket;
 
 /// <summary>
-/// Pins the redaction contract that <see cref="SocketToken"/> provides — the safety guarantee
-/// the whole of <c>WebSocketHandler.cs</c> now depends on after Step 1 of the strong-typing
-/// refactor.
+/// Pins the redaction contract that <see cref="SocketToken"/> provides — the safety
+/// guarantee <c>WebSocketHandler.cs</c> depends on. The handler threads the JWT token
+/// through six hops between query-string extraction and the final
+/// <c>Authorization: Bearer</c> header write; the wrapper's <c>ToString()</c> returns
+/// the redacted <c>"abcd…"</c> form so an <c>$"{token}"</c> interpolation is safe by
+/// default, and the raw value is only reachable via an explicit <c>.Value</c> unwrap.
 ///
 /// <para>
-/// Before Step 1, <c>WebSocketHandler.cs</c> threaded the raw <c>string</c> JWT token through
-/// six hops between the query-string extraction and the final <c>Authorization: Bearer</c>
-/// header write. Any accidental structured-log message or interpolated debug string in that
-/// span (or any future code added along the same call chain) would have leaked the credential
-/// verbatim into the logs. The wrapper's <c>ToString()</c> deliberately returns the redacted
-/// <c>"abcd…"</c> form so an <c>$"{token}"</c> interpolation is safe by default, and the raw
-/// value is only reachable via an explicit <c>.Value</c> unwrap.
-/// </para>
-///
-/// <para>
-/// This suite is the fast-tier safety net: if a future edit weakens <c>SocketToken.ToString()</c>
-/// (e.g. someone "helpfully" flips it to return <c>Value</c> for easier debugging), these
-/// tests break in sub-second unit runs rather than silently letting the socket handler's six
-/// carefully-typed hops start emitting JWTs into structured logs again.
-/// </para>
-///
-/// <para>
-/// Scope is deliberately narrow: only the contract that Step 1 relies on. The generic
-/// wrapper-shape tests (constructor null argument, JSON round-trip) live with the wrapper if
-/// and when a Contracts unit-test project is added; this file only pins what
-/// <c>WebSocketHandler.cs</c> assumes.
+/// Fast-tier safety net: if a future edit weakens
+/// <c>SocketToken.ToString()</c> (e.g. someone "helpfully" flips it to return
+/// <c>Value</c> for easier debugging), these tests break in sub-second unit runs rather
+/// than silently letting the socket handler start emitting JWTs into structured logs.
 /// </para>
 /// </summary>
 public sealed class SocketTokenRedactionTests
@@ -54,10 +40,10 @@ public sealed class SocketTokenRedactionTests
     [Test]
     public async Task InterpolatedInString_UsesRedactedForm_NotRawValue()
     {
-        // Concrete restatement of the smoking-gun log pattern the refactor closes: any code
-        // path that writes $"token = {token}" gets the redacted form, and the raw JWT never
-        // appears in the resulting string. A regression on ToString() would show up here as
-        // the interpolation switching back to the full token bytes.
+        // Concrete restatement of the log pattern the wrapper closes: any code path
+        // that writes $"token = {token}" gets the redacted form, and the raw JWT never
+        // appears in the resulting string. A regression on ToString() would show up
+        // here as the interpolation switching back to the full token bytes.
         var token = new SocketToken(SampleToken);
 
         var interpolated = $"socket token = {token}";

@@ -109,12 +109,10 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
 
             foreach (var friendId in unfriendedIds)
             {
-                // Slice 4: the friendship repos return bare (region-stripped) ids in their
-                // DeleteAll results — compose with the principal's region so the socket
-                // router filter sees a scoped TargetSystemId. Cross-region friendships would
-                // want the friend's own region here; that lookup is out of scope for the
-                // retype pass and matches the same "principal-region wins" behaviour the
-                // pre-Slice-4 hand-formatted concatenations produced.
+                // The friendship repos return bare (region-stripped) ids in their DeleteAll
+                // results — compose with the principal's region so the socket router filter
+                // sees a scoped TargetSystemId. Cross-region friendships would want the
+                // friend's own region here; a same-region compose is the current behaviour.
                 var friendTarget = Interfold.Contracts.Ids.ScopedSystemId.Compose(
                     command.PrincipalId.Region,
                     friendId);

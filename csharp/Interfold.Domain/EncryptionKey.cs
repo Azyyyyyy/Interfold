@@ -12,14 +12,9 @@ public class EncryptionKey
     /// KDF salt, and the deployment-wide pepper.
     ///
     /// <para>
-    /// Round-2 strong-typing rescan (Finding #12) promoted three of the four inputs and the
-    /// return value from raw <c>string</c> to their existing wrappers. Pre-Round-2 this one
-    /// signature was the funnel through which every strongly-typed value in the encryption
-    /// pipeline was stripped back to string, so the two handlers each shipped a
-    /// <c>.Value.Value.Value</c> unwrap at the call site and any future caller was one
-    /// autocomplete away from re-introducing the pattern. The pepper stays raw because no
-    /// wrapper exists for cryptographic deployment secrets today (creating one would only
-    /// force an unnecessary <c>.Value</c> at every use).
+    /// Wrapper types are used end-to-end so callers never have to unwrap to raw
+    /// <c>string</c>. The pepper stays raw because no wrapper exists for cryptographic
+    /// deployment secrets today.
     /// </para>
     /// </summary>
     public static EncryptionKeyMaterial DeriveKey(string pepper, SystemId systemId, RecoveryCode recoveryCode, EncryptionSalt salt)

@@ -5,43 +5,21 @@ namespace Interfold.Api.UnitTests.Socket;
 
 /// <summary>
 /// Unit tests for <see cref="WebSocketHandler.IsTokenSubjectAuthorizedForTopic"/> — the
-/// region-prefix-tolerant equality that gates a <c>phx_join</c> against the token's <c>sub</c>
-/// claim.
+/// region-prefix-tolerant equality that gates a <c>phx_join</c> against the token's
+/// <c>sub</c> claim. Every JWT reaching an Interfold controller must carry a scoped
+/// <c>{region}:{rawId}</c> sub, but socket topics on the wire stay in raw
+/// <c>system:{rawId}</c> form; without this tolerance the gate would 401 scoped-sub
+/// JWTs joining raw-topic channels that the middleware, <c>SystemTopic.IdMatches</c>,
+/// and <c>InProcessEventBus.PublishAsync</c>'s filter all accept.
 ///
 /// <para>
-/// Background: Slice 4 hardened <c>InterfoldPrincipalMiddleware</c> so every JWT that reaches
-/// an Interfold controller must carry a scoped <c>{region}:{rawId}</c> sub. Socket topics on
-/// the wire stay in raw <c>system:{rawId}</c> form. Before this helper existed, the join
-/// gate did a strict ordinal comparison and would 401 a scoped-sub JWT joining a raw-topic
-/// channel — even though the middleware + pump-side push routing (<c>SystemTopic.IdMatches</c>
-/// and <c>InProcessEventBus.PublishAsync</c>'s filter) already tolerated the split. That
-/// disagreement is the entire websocket-cluster failure surface: the loopback endpoint proxy
-/// forwards the socket JWT to the inner controller, which 401s under strict comparison and
-/// starves the pump of the events the test is waiting for.
-/// </para>
-///
-/// <para>
-/// Step 5 of the strong-typing rescan tightened the helper's contract to
-/// <see cref="ScopedSystemId"/> on the sub side and <see cref="SystemId"/> on the topic
-/// side. The historical "raw sub × raw topic" tolerance the pre-Step-5 helper encoded is
-/// now a rejection at <see cref="ScopedSystemId.TryParseScoped"/> (the caller in
-/// <c>IsSocketJoinTokenAuthorizedAsync</c> returns <c>InvalidSocketTokenSubject</c> and
-/// never reaches this helper); the rejection-matrix coverage moved upstream to
-/// <c>ScopedSystemIdTests.TryParseScoped_InvalidInputs_ReturnsFalse</c>, whose
-/// <c>[Arguments]</c> table pins every rejection shape the middleware also rejects
-/// (null / blank / bare id / empty region / bare prefix / unknown region tag / non-region
-/// discriminator prefix). That means the six "raw sub" or "malformed sub" cases the pre-
-/// Step-5 suite carried are now type-unreachable and have been deleted — a raw-string sub
-/// simply can't be constructed as a call argument any more.
-/// </para>
-///
-/// <para>
-/// What remains here is the actual comparison contract: scoped-sub vs raw/scoped topic
-/// tolerance (topics still arrive in either shape from clients), cross-region tolerance,
-/// same-shape identity rejection, and the two null guards. The suite pins the tolerance
-/// matrix so a future edit that drops the normalisation (regressing to raw string
-/// equality) breaks in the fast unit-test tier before it can hide again inside a 30-
-/// second WebSocket timeout.
+/// The helper's contract is typed <see cref="ScopedSystemId"/> on the sub side and
+/// <see cref="SystemId"/> on the topic side, so raw-string subs are type-unreachable
+/// here — <see cref="ScopedSystemId.TryParseScoped"/> rejection matrix coverage lives in
+/// <c>ScopedSystemIdTests</c>. What remains here is the actual comparison contract:
+/// scoped-sub vs raw/scoped topic tolerance, cross-region tolerance, same-shape identity
+/// rejection, and the null guards. Pins the tolerance matrix in the fast unit-test tier
+/// so a regression to strict raw-string equality doesn't hide inside a WebSocket timeout.
 /// </para>
 /// </summary>
 public sealed class IsTokenSubjectAuthorizedForTopicTests
@@ -52,9 +30,8 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     private const string RawId = "sys-abcdef0123456789";
 
     // ------------------------------------------------------------------------------------
-    // The tolerance matrix: scoped sub × raw/scoped topic. The pre-Step-5 raw-sub cells
-    // are gone (type-unreachable via ScopedSystemId?), so the 4-cell matrix collapses to
-    // these 2 rows.
+    // The tolerance matrix: scoped sub × raw/scoped topic. Raw-sub cells are type-
+    // unreachable via ScopedSystemId?, so the matrix collapses to these two rows.
     // ------------------------------------------------------------------------------------
 
     [Test]
@@ -66,7 +43,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
 
         await Assert.That(authorized).IsTrue()
-            .Because("Post-Slice-4 JWTs carry a scoped nam:sys-... sub while the socket topic stays raw — this is the exact shape that used to 401 the loopback endpoint proxy path and that Slice-4 fixed by strip-tolerant equality.");
+            .Because("JWTs carry a scoped nam:sys-... sub while the socket topic stays raw — this is the exact shape that would 401 the loopback endpoint proxy path without strip-tolerant equality.");
     }
 
     [Test]

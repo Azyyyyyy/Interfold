@@ -52,17 +52,6 @@ internal static class AvatarUrlQualifier
     /// single source of truth: <see cref="AvatarSource.Local"/> URLs get the server origin
     /// prepended, <see cref="AvatarSource.External"/> URLs are returned verbatim, and a
     /// null / blank input is passed through unchanged.
-    ///
-    /// <para>
-    /// Round-2 Commit 10 (canvas #10): the untyped
-    /// <c>QualifyAvatar(string? url, AvatarSource?, string, HostString)</c> and
-    /// <c>QualifyAvatar(string? url, AvatarSource?, string?)</c> overloads that this typed
-    /// overload used to delegate to have been deleted. Every consumer now routes through
-    /// the typed wrapper (Commit 2's <c>AvatarStorage</c> retype promoted every read model
-    /// and command payload to <see cref="AvatarUrl"/>?). Inlining the raw-string
-    /// discrimination into the typed body drops the wrap/unwrap round-trip and eliminates
-    /// the "which overload did the compiler pick?" footgun.
-    /// </para>
     /// </summary>
     internal static AvatarUrl? QualifyAvatar(AvatarUrl? url, AvatarSource? source, string scheme, HostString host)
     {

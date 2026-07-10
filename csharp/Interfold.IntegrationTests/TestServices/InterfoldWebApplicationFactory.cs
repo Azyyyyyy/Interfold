@@ -149,7 +149,7 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
         // populated (via AuthenticationSecretsPostConfigure), so we get the live signing
         // material (JwtAuthority, deep-link secret, etc.) that the API is using.
         // IConfiguration.Get<T>() would allocate a fresh binding that bypasses those
-        // patches — that's the drift Slice 3 closes here.
+        // patches.
         var authConfig = Services.GetRequiredService<IOptionsMonitor<AuthenticationConfiguration>>().CurrentValue;
 
         // ApplyAuthentication leaves the ES256 signing material at its default on purpose
@@ -168,15 +168,12 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
         var now = DateTimeOffset.UtcNow;
         var expiresAt = now.AddDays(1);
 
-        // Slice 4 hardened InterfoldPrincipalMiddleware to reject any JWT whose `sub`
-        // claim is not in scoped `{region}:{rawId}` form (see ScopedSystemId.TryParseScoped).
-        // Real production JWTs post-Slice-4 always carry a scoped sub because the account
-        // repositories mint ScopedSystemId values — the tests' historical convention of
-        // passing raw ids like "sys-foo-bar" would 401 at the middleware. Compose is
-        // idempotent (strips any existing region prefix before re-applying), so callers
+        // Every JWT reaching the middleware must carry a scoped `{region}:{rawId}` sub.
+        // Real production JWTs always do because the account repositories mint scoped
+        // ids; a raw id like "sys-foo-bar" would 401. Compose is idempotent, so callers
         // that already pass a scoped id like "nam:sys-foo-bar" get the same value out.
-        // Nam is the default region resolver used by ParseScyllaKeyspace for null/empty
-        // input, matching the assumption InProcess-tests carry when they don't set
+        // Nam is the default region ParseScyllaKeyspace resolves for null/empty input,
+        // matching the assumption InProcess tests carry when they don't set
         // OCTOCON_REGION explicitly.
         var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, systemId);
 

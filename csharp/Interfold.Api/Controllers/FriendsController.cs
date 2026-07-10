@@ -40,11 +40,9 @@ public sealed class FriendsController : InterfoldControllerBase
     public async Task<Response<FriendshipReadModel>> Show(SystemId id, CancellationToken ct)
     {
         var principal = PrincipalId;
-        // Round-2 Commit 8: RepresentsSameUserAs replaces `principal == id` which — via
-        // the implicit ScopedSystemId→SystemId widen — was a byte compare of the scoped
-        // composite against the raw route value. Pre-Round-2, `GET /api/friends/{rawId}`
-        // silently missed the guard and returned a bogus friendship_not_found instead of
-        // cannot_view_own_friendship.
+        // RepresentsSameUserAs is the semantic self-check; a bare `principal == id`
+        // byte compare would miss the raw route shape and let /api/friends/{rawId} slip
+        // past this guard.
         if (principal.RepresentsSameUserAs(id))
         {
             return new ErrorResponse(
@@ -74,7 +72,7 @@ public sealed class FriendsController : InterfoldControllerBase
     public async Task<Response> Delete(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        // Round-2 Commit 8: see the Show handler above for the full rationale.
+        // Semantic self-check — see Show handler for the same rationale.
         if (principal.RepresentsSameUserAs(id))
         {
             return new ErrorResponse(
@@ -111,8 +109,7 @@ public sealed class FriendsController : InterfoldControllerBase
         CancellationToken ct)
     {
         var principal = PrincipalId;
-        // Round-2 Commit 8: see the Show handler above for the full rationale — same
-        // byte-compare-vs-semantic-check drift, same silent miss on the raw route shape.
+        // Semantic self-check — see Show handler for the same rationale.
         if (principal.RepresentsSameUserAs(id))
         {
             return new ErrorResponse("Cannot trust self.", selfErrorCode, System.Net.HttpStatusCode.BadRequest);

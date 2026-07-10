@@ -26,12 +26,9 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         // VisibilityLevelExtensions.FromCodeOrPublic, so new alters are world-readable
         // until the owner tightens visibility explicitly.
         public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Public;
-        // Round-3 Commit 1 (canvas #2): retyped from Dictionary<string, string?> keyed on
-        // FieldId.Value to Dictionary<FieldId, string?>. The pre-Round-3 map used
-        // StringComparer.OrdinalIgnoreCase, but every writer produces field ids via
-        // Guid.NewGuid().ToString("N") (lowercase hex) and every reader threads through
-        // FieldId — no observed case-mismatch traffic. Record-struct equality on the
-        // wrapper is ordinal on the underlying string, so lookups stay byte-compatible.
+        // Keyed on FieldId (record-struct with ordinal equality on the underlying string).
+        // Every writer produces field ids via Guid.NewGuid().ToString("N") (lowercase hex)
+        // so ordinal is equivalent to the historic OrdinalIgnoreCase compare.
         public Dictionary<FieldId, string?> Fields { get; } = new();
         public bool Untracked { get; set; }
         public bool Archived { get; set; }
@@ -39,8 +36,6 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     }
 
     private readonly IRegionContext _regionContext;
-    // Round-3 Commit 1 (canvas #1): retyped from ConcurrentDictionary<string, ...> to
-    // <ScopedSystemId, ...> so the partition key is a typed wrapper end-to-end.
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<AlterId, AlterState>> _bySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, int> _nextIdBySystem = new();
     private readonly IFriendshipRepository? _friendships;
@@ -334,11 +329,6 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         return Task.FromResult(taken);
     }
 
-    // Round-3 Commit 1 (canvas #1): retyped systemKey from string to ScopedSystemId in step
-    // with _bySystem's new key type. Round-3 Commit 1 (canvas #2): fieldKey is now a
-    // FieldId built from the Guid rather than a raw hex string, so the AlterState.Fields
-    // Dictionary<FieldId, string?> lookup is a typed compare rather than a stringly-typed
-    // one.
     internal void RemoveFieldValuesForSystem(Guid fieldId, ScopedSystemId systemKey)
     {
         if (!_bySystem.TryGetValue(systemKey, out var store))
@@ -366,12 +356,8 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
-    // Post-Round-5 sanity check: body moved to
-    // InMemoryStorageKeys.ResolveFriendshipLevelAsync (the shared static that also serves
-    // the Tag and Fronting repos, since R4 finding #2 confirmed all three bodies were
-    // byte-identical after the Tag/Fronting normalisation fix). This one-liner preserves
-    // encapsulation of the nullable `_friendships` field and keeps the five call sites in
-    // this repo + Tag + Fronting unchanged.
+    // Delegates to the shared static that also serves the Tag and Fronting repos —
+    // see InMemoryStorageKeys.ResolveFriendshipLevelAsync for the self-check semantics.
     private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
         => InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
 

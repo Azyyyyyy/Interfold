@@ -9,15 +9,15 @@ using Microsoft.Extensions.Options;
 namespace Interfold.Api.UnitTests.Options;
 
 /// <summary>
-/// Locks the contract that Slice 5 introduced: <see cref="AuthenticationSecretsPostConfigure"/>
-/// reads the same seven auth rows the old <c>SecretsBootstrapService</c> patched, applies
-/// them into <see cref="AuthenticationConfiguration"/>, and the <c>[Required]</c> +
-/// <c>ValidateDataAnnotations</c> pipeline turns a missing mandatory row into a boot-time
-/// <see cref="OptionsValidationException"/> with the offending field named.
+/// Locks the <see cref="AuthenticationSecretsPostConfigure"/> contract: it reads the
+/// seven auth rows from the snapshot, applies them into
+/// <see cref="AuthenticationConfiguration"/>, and lets the <c>[Required]</c> +
+/// <c>ValidateDataAnnotations</c> pipeline turn a missing mandatory row into a
+/// boot-time <see cref="OptionsValidationException"/> with the offending field named.
 ///
 /// <para>
-/// Uses a <see cref="StubSecretsSnapshot"/> in place of the loader so these stay pure-C#
-/// tests — no host, no <see cref="ISecretsStore"/>, no DI hosting stack.
+/// Uses a <see cref="StubSecretsSnapshot"/> in place of the loader so these stay
+/// pure-C# tests — no host, no <see cref="ISecretsStore"/>, no DI hosting stack.
 /// </para>
 /// </summary>
 public sealed class AuthenticationSecretsPostConfigureTests

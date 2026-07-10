@@ -119,11 +119,11 @@ public sealed class ImportJobBackgroundService : BackgroundService
                     errorMessage: "Operation was running when the previous host shut down.",
                     cancellationToken).ConfigureAwait(false);
 
-                // Slice 4: repositories persist scoped ids on write, so any stale row we're
-                // sweeping should be parse-clean here. If it isn't (e.g. a pre-Slice-4 row
-                // that survived migration) we log and skip the client-visible event so a
-                // malformed id can't propagate into the topic name — the row is still marked
-                // failed above, so the slot frees regardless.
+                // Repositories persist scoped ids on write, so a stale row swept here
+                // should be parse-clean. If it isn't (a legacy row that survived migration)
+                // we log and skip the client-visible event so a malformed id can't
+                // propagate into the topic name — the row is still marked failed above,
+                // so the slot frees regardless.
                 if (Interfold.Contracts.Ids.ScopedSystemId.TryParseScoped(row.SystemId.Value, out var scopedSweepId))
                 {
                     await PublishFailureAsync(scopedSweepId, row.Kind, cancellationToken).ConfigureAwait(false);

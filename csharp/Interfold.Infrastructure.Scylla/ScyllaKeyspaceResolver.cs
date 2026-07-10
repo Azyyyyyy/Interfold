@@ -6,33 +6,18 @@ using Interfold.Domain.Abstractions;
 namespace Interfold.Infrastructure.Scylla;
 
 /// <summary>
-/// CQL-boundary resolver for regional and global keyspaces plus the region-strip normalisation
-/// applied to every system id before it reaches a bind slot.
+/// CQL-boundary resolver for regional and global keyspaces plus the region-strip
+/// normalisation applied to every system id before it reaches a bind slot. Both id-taking
+/// members take <see cref="SystemId"/> directly and <see cref="NormalizeSystemId"/>
+/// returns a <see cref="SystemId"/>, so every hop above the CQL bind stays typed and only
+/// the bind itself unwraps via <c>.Value</c>.
 ///
 /// <para>
-/// Step 2 of the strong-typing rescan retyped this interface so both id-taking members carry
-/// <see cref="SystemId"/> directly (instead of raw <see cref="string"/>) and
-/// <see cref="NormalizeSystemId"/> returns a <see cref="SystemId"/> too. Before this change,
-/// callers split into two competing idioms:
-/// <list type="bullet">
-///   <item>Friendship / SettingsField used a <c>NormalizeTyped</c> extension that wrapped the
-///     string result back into <see cref="SystemId"/> and threaded the typed value through the
-///     rest of the operation, unwrapping via <c>.Value</c> at each CQL bind.</item>
-///   <item>Journal / Tag / Poll / Fronting / Alter / ImportOperation kept a
-///     <c>string normalizedSystemId</c> local and passed the bare string to ~18 CQL binds per
-///     file, meaning any intermediate helper hop lost the type entirely.</item>
-/// </list>
-/// Retyping the interface itself makes the typed path the default; the CQL bind boundary is
-/// still an unwrap (<c>normalizedSystemId.Value</c>) but every hop above the bind stays
-/// <see cref="SystemId"/>-shaped.
-/// </para>
-///
-/// <para>
-/// The two members that still return / expose <see cref="string"/> —
-/// <see cref="DefaultKeyspace"/>, <see cref="ResolveGlobalKeyspace"/>, and the return of
-/// <see cref="ResolveRegionalKeyspace"/> — are the CQL wire boundary: keyspace names are
-/// interpolated verbatim into CQL text via <c>$"{keyspace}.table"</c> and cannot be typed
-/// further without introducing a wrapper whose only use is <c>.ToString()</c> at every site.
+/// The keyspace-name members (<see cref="DefaultKeyspace"/>,
+/// <see cref="ResolveGlobalKeyspace"/>, and the return of
+/// <see cref="ResolveRegionalKeyspace"/>) stay <see cref="string"/> because keyspace
+/// names are interpolated verbatim into CQL text via <c>$"{keyspace}.table"</c>; wrapping
+/// them would only introduce a type whose sole use is <c>.ToString()</c> at every site.
 /// </para>
 /// </summary>
 public interface IScyllaKeyspaceResolver
@@ -74,15 +59,10 @@ public sealed class ScyllaKeyspaceResolver : IScyllaKeyspaceResolver
         if (string.IsNullOrWhiteSpace(systemId.Value))
             return DefaultKeyspace;
 
-        // Slice 4: JWT-derived principals arrive scoped (nam:sys-abc) while public-route
-        // bindings stay raw (sys-abc). The pre-fix TryParseScoped fast path routed scoped
-        // ids straight to the prefix region and raw ids through user_registry — the same
-        // principal could be written in nam.* and read from eur.* when the registry row
-        // was absent or carried a different home region. Canonicalise to the stripped raw
-        // id and resolve through IRegionContext so both wire forms share one keyspace.
-        //
-        // NormalizeSystemId now returns SystemId, so we can hand the typed value straight to
-        // IRegionContext's SystemId overload without a string round-trip.
+        // JWT-derived principals arrive scoped (nam:sys-abc) while public-route bindings
+        // stay raw (sys-abc). Canonicalise to the stripped raw id and resolve through
+        // IRegionContext so both wire forms share one keyspace — otherwise the same
+        // principal could be written to nam.* and read from eur.*.
         return _regionContext.ResolveUserRegion(NormalizeSystemId(systemId)).ToWireValue();
     }
 

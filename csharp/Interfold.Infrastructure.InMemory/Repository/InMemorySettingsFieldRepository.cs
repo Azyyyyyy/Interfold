@@ -13,10 +13,6 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
 {
     private readonly IRegionContext _regionContext;
     private readonly IServiceProvider _serviceProvider;
-    // Round-3 Commit 1 (canvas #1): retyped from ConcurrentDictionary<string, ...> to
-    // <ScopedSystemId, ...>. The pre-Round-3 StringComparer.Ordinal is now the implicit
-    // record-struct equality of ScopedSystemId (which is byte-compare on Value) — no
-    // behavioural drift.
     private readonly ConcurrentDictionary<ScopedSystemId, List<SettingsFieldReadModel>> _bySystem = new();
 
     public InMemorySettingsFieldRepository(IRegionContext regionContext, IServiceProvider serviceProvider)

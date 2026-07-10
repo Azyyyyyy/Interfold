@@ -473,8 +473,6 @@ public sealed class ScyllaTagRepository : ITagRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            // Round-2 Commit 6: direct call into ScyllaSharedQueries; the private wrapper
-            // that used to hop string->typed here was pure string-obsession scaffolding.
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, normalizedSystemId, viewerSystemId);
             var hydrationConcurrency = _options.HydrationMaxConcurrency;
 
@@ -578,8 +576,6 @@ public sealed class ScyllaTagRepository : ITagRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            // Round-2 Commit 6: direct call into ScyllaSharedQueries; the private wrapper
-            // that used to hop string->typed here was pure string-obsession scaffolding.
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, normalizedSystemId, viewerSystemId);
             var hydrationConcurrency = _options.HydrationMaxConcurrency;
 

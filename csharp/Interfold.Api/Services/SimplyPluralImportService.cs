@@ -84,11 +84,9 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     {
         _logger.LogInformation("Starting Simply Plural import for system {SystemId}", systemId);
 
-        // Round-2 Commit 5: recovery code + derived key stay typed end-to-end through the
-        // import. The bare-string local that used to hold the derived key across the whole
-        // ImportAsync body (with a `!string.IsNullOrWhiteSpace(encryptionKey)` gate 40+ lines
-        // later at :128) becomes a typed `EncryptionKeyMaterial?` pattern-matched at the
-        // gate. Removes every `.Value` unwrap between the wrapper and the AES/GCM boundary.
+        // Recovery code and derived key stay typed end-to-end through the import: the
+        // "no derived key" case is a null EncryptionKeyMaterial? rather than an empty
+        // string, pattern-matched at the gate below.
         EncryptionKeyMaterial? encryptionKey = null;
         if (recoveryKey is { } providedRecoveryKey && !string.IsNullOrWhiteSpace(providedRecoveryKey.Value))
         {
@@ -724,9 +722,8 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     }
 
     // Mirrors client encryptData: real AES-256-GCM with random IV, ciphertext and tag stored separately.
-    // Round-2 Commit 5: base64Key is typed as EncryptionKeyMaterial end-to-end from the SP import
-    // pipeline. The single `.Value` unwrap here is at the crypto-primitive boundary, where the
-    // base64-string form is the API contract of Convert.FromBase64String.
+    // The single `.Value` unwrap on base64Key is at the crypto-primitive boundary, where
+    // the base64-string form is the API contract of Convert.FromBase64String.
     private static string? TryEncryptForClient(string plaintext, EncryptionKeyMaterial base64Key)
     {
         try
@@ -753,13 +750,10 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         }
     }
     
-    // Round-2 Commit 5: signature is typed on both sides. `recoveryCode` arrives from
-    // ImportAsync as the RecoveryCode already unwrapped from a nullable at the outer guard;
-    // the tuple's second slot is now `EncryptionKeyMaterial?` so the caller assigns straight
-    // into a typed nullable local (formerly `string? encryptionKey = null;`) rather than
-    // through the empty-string sentinel + IsNullOrWhiteSpace gate that used to encode the
-    // "no derived key" case. The Commit-3 bridge (`new RecoveryCode(recoveryCode)` inline
-    // wrap + `.Value` unwrap at return) is removed - the whole chain speaks wrappers now.
+    // Typed on both sides: recoveryCode arrives from ImportAsync unwrapped from a nullable
+    // at the outer guard, and the tuple's second slot is EncryptionKeyMaterial? so the
+    // caller assigns straight into a typed nullable local rather than encoding "no derived
+    // key" through an empty-string sentinel + IsNullOrWhiteSpace gate.
     private async Task<(SpImportResult Result, EncryptionKeyMaterial? DerivedKey)> ValidateEncryptionKeyAsync(SystemId systemId, RecoveryCode recoveryCode, CancellationToken ct)
     {
         var state = await _encryptionStateRepository.GetAsync(systemId, ct);

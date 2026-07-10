@@ -40,17 +40,8 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
     /// <see cref="ProviderIdentity"/> union whose populated field carries the typed
     /// identity (Discord snowflake / email / Apple sub). Returns <c>null</c> when no
     /// identity could be extracted (missing code, missing fallback, or failed exchange).
-    ///
-    /// <para>
-    /// Round-2 Commit 7 promoted the return from <c>string?</c> to
-    /// <c>ProviderIdentity?</c>. The three OAuth exchange services already return typed
-    /// nullables (<c>DiscordId?</c> / <c>Email?</c> / <c>AppleId?</c>); the pre-Round-2
-    /// shape immediately unwrapped them back to <c>string?</c>, forcing every caller
-    /// (<c>AuthController.Callback</c>, <c>AuthLinkController.Callback</c>,
-    /// <c>AuthLinkController.RedirectWithSocketEventAsync</c>) to switch on the provider
-    /// enum and rewrap the string in the exact identity type that was in hand two frames
-    /// up. The union carries the typed identity through without the round-trip.
-    /// </para>
+    /// The union carries the typed identity end-to-end so callers never have to switch on
+    /// the provider enum and rewrap a raw string.
     /// </summary>
     protected async Task<ProviderIdentity?> ExtractProviderIdentityAsync(OAuthProvider provider)
     {

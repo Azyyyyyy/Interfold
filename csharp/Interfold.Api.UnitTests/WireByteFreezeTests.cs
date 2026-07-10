@@ -13,18 +13,18 @@ using Interfold.Infrastructure.Coordination;
 namespace Interfold.Api.UnitTests;
 
 /// <summary>
-/// Slice 4 golden-byte guardrail. Each fact below pins one wire boundary that a stray
-/// <see cref="ScopedSystemId"/>.<c>RawId</c> swap (or any regression that de-scopes an id
-/// before it hits persistence, a JWT, an event bus filter, or a socket topic) would
-/// silently corrupt. If any of these fail, do not "adjust the expected value" — treat it
-/// as a real wire-format break and audit the diff for the offending site.
+/// Golden-byte guardrail on the scoped-id wire boundaries. Each fact below pins one
+/// wire boundary that a stray <see cref="ScopedSystemId"/>.<c>RawId</c> swap (or any
+/// regression that de-scopes an id before it hits persistence, a JWT, an event bus
+/// filter, or a socket topic) would silently corrupt. If any of these fail, do NOT
+/// "adjust the expected value" — treat it as a real wire-format break and audit the
+/// diff for the offending site.
 /// </summary>
 public sealed class WireByteFreezeTests
 {
-    // Slice 4's canonical shape: "nam:abcdefg" is the byte-form every wire boundary emits
-    // for a NAM-region principal. Any test in this file that constructs an id uses this
-    // as the reference so a search for the literal points every reviewer at the same
-    // spot.
+    // Canonical shape: "nam:abcdefg" is the byte-form every wire boundary emits for a
+    // NAM-region principal. Every test in this file constructs its id from these two
+    // constants so a search for the literal points every reviewer at the same spot.
     private const string CanonicalScoped = "nam:abcdefg";
     private const string CanonicalRaw = "abcdefg";
 
@@ -44,13 +44,11 @@ public sealed class WireByteFreezeTests
     [Test]
     public async Task DeriveKey_IsDeterministic_AndScopeSensitive()
     {
-        // Round-2 Commit 3: DeriveKey speaks wrappers end-to-end. The wire-form freeze is
-        // now enforced by the wrapper types themselves at the call boundary — a caller who
-        // constructs `new SystemId(CanonicalRaw)` still gets a different derived key than
+        // DeriveKey speaks wrappers end-to-end. The wire-form freeze is enforced by the
+        // wrapper types at the call boundary — a caller who constructs
+        // `new SystemId(CanonicalRaw)` gets a different derived key than
         // `new SystemId(CanonicalScoped)`, which is exactly the scoped-vs-raw sensitivity
-        // this test pins. Equality on the returned EncryptionKeyMaterial uses the record-
-        // struct value equality (ordinal string comparison on .Value), so IsEqualTo /
-        // IsNotEqualTo behave identically to the old string comparisons.
+        // this test pins.
         const string pepper = "test-pepper";
         var recoveryCode = new RecoveryCode("test-code");
         var salt = new EncryptionSalt(Convert.ToBase64String(Encoding.UTF8.GetBytes("known-salt-16b!!")));
@@ -118,26 +116,13 @@ public sealed class WireByteFreezeTests
     // ---------------- 4. InProcessEventBus — idempotent routing --------------------
 
     /// <summary>
-    /// Post-Round-2 Commit 13 (canvas #24): the bus's <c>Subscription.TargetSystemId</c>
-    /// is <see cref="ScopedSystemId"/>? and the publisher-side
-    /// <see cref="ITargetedClusterEvent.TargetSystemId"/> is <see cref="ScopedSystemId"/> —
-    /// the filter compares scoped-to-scoped by record-struct equality. This test pins
-    /// that a scoped-to-scoped match delivers, which is the load-bearing single-region
-    /// happy path exercised by every WebSocket push in the codebase (the socket-join
-    /// composition in <c>WebSocketHandler</c> parses the scoped composite from the JWT
-    /// sub and threads it into <c>SocketPushContext.JoinedScopedSystemId</c>, so the
-    /// subscriber-side scoped is always well-formed).
-    ///
-    /// <para>
-    /// The pre-Round-2 shape of this test asserted that a subscriber joined on the raw
-    /// <see cref="SystemId"/> still received scoped-target events via
-    /// <c>SystemIdNormalization.StripRegionPrefix</c> tolerance on both sides of the
-    /// compare. That tolerance is gone by design: the interface no longer accepts a raw
-    /// <see cref="SystemId"/> subscription target, so the raw-vs-scoped drift can't
-    /// happen. The subscriber's raw <see cref="SystemId"/> is now composed to a scoped
-    /// composite one layer up (in <c>IsSocketJoinTokenAuthorizedAsync</c>) and the bus
-    /// only ever sees the scoped shape.
-    /// </para>
+    /// The bus's <c>Subscription.TargetSystemId</c> is <see cref="ScopedSystemId"/>? and
+    /// the publisher-side <see cref="ITargetedClusterEvent.TargetSystemId"/> is
+    /// <see cref="ScopedSystemId"/>; the filter compares scoped-to-scoped by
+    /// record-struct equality. This test pins the scoped-to-scoped match — the
+    /// load-bearing single-region happy path every WebSocket push takes. The subscriber
+    /// is always well-formed because <c>WebSocketHandler</c> composes the scoped
+    /// composite from the JWT sub before it reaches the bus.
     /// </summary>
     [Test]
     public async Task InProcessEventBus_ScopedToScopedMatchDelivers()
@@ -164,13 +149,10 @@ public sealed class WireByteFreezeTests
     }
 
     /// <summary>
-    /// Round-2 Commit 13 (canvas #24) regression pin: a subscriber joined on one region's
-    /// scoped composite must NOT receive events published under a different region's
-    /// scoped composite even when the raw id is identical across regions. The pre-Round-2
-    /// shape of this filter used <c>SystemIdNormalization.StripRegionPrefix</c> on both
-    /// sides and would have delivered this cross-region false positive because both
-    /// sides normalise down to the same raw id — a real correctness bug the canvas
-    /// finding #24 identified as the reason to retype.
+    /// Cross-region regression pin: a subscriber joined on one region's scoped composite
+    /// must NOT receive events published under a different region's scoped composite,
+    /// even when the raw id is identical. A strip-then-compare shape would deliver this
+    /// false positive because both sides normalise to the same raw id.
     /// </summary>
     [Test]
     public async Task InProcessEventBus_CrossRegionScopedTargetsDoNotBleedAcross()
@@ -194,7 +176,7 @@ public sealed class WireByteFreezeTests
         // and return false without ever surfacing the eur-target event to the nam sub.
         var moved = await enumerator.MoveNextAsync();
         await Assert.That(moved).IsFalse()
-            .Because("A NAM-scoped subscriber must not receive an EUR-scoped publish even when the raw ids match — the pre-Round-2 strip-then-compare shape would have delivered this cross-region false positive.");
+            .Because("A NAM-scoped subscriber must not receive an EUR-scoped publish even when the raw ids match — a strip-then-compare shape would deliver this cross-region false positive.");
 
         await enumerator.DisposeAsync();
     }
@@ -216,7 +198,7 @@ public sealed class WireByteFreezeTests
         var roundTripped = JsonSerializer.Deserialize<ScopedSystemId>(json);
 
         await Assert.That(json).IsEqualTo($"\"{CanonicalScoped}\"")
-            .Because("The converter must emit Value verbatim so the wire bytes match the pre-Slice-4 SystemId serialisation.");
+            .Because("The converter must emit Value verbatim so the wire bytes match the plain SystemId serialisation.");
         await Assert.That(roundTripped.Value).IsEqualTo(CanonicalScoped)
             .Because("A round-trip must preserve Value exactly; a divergence here means the converter reserialised through RawId or an object shape.");
     }

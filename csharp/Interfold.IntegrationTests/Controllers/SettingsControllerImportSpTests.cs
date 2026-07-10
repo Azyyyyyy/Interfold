@@ -146,14 +146,12 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
         // routes publish SimplyPluralImportFailedEvent, which is the load-bearing
         // invariant: the client never gets stuck on Importing after a worker pickup.
         //
-        // Slice 4 wire-shape drift: SimplyPluralImportFailedEvent.TargetSystemId is a
-        // ScopedSystemId whose .Value is the scoped form ("nam:<raw>") produced by the
-        // JWT-derived principal path, while `principal` above is the bare 24-char raw id
-        // this test minted. Comparing .Value would ordinal-mismatch on the region prefix
-        // and drop every event on the floor — the enumerator drains to completion and
-        // `observed` stays null, surfacing as "The background worker must publish..."
-        // even though the worker did publish. Compare .RawId (the bare, prefix-stripped
-        // form) instead — that's the shape that matches what `principal` holds.
+        // SimplyPluralImportFailedEvent.TargetSystemId is a ScopedSystemId whose .Value
+        // is the scoped form ("nam:<raw>") produced by the JWT-derived principal path,
+        // while `principal` above is the bare 24-char raw id this test minted. Comparing
+        // .Value would ordinal-mismatch on the region prefix and drop every event on the
+        // floor. Compare .RawId (the prefix-stripped form) instead so the shape matches
+        // what `principal` holds.
         SimplyPluralImportFailedEvent? observed = null;
         while (await enumerator.MoveNextAsync())
         {

@@ -26,10 +26,6 @@ public sealed class InMemoryPollRepository : IPollRepository
     }
 
     private readonly IRegionContext _regionContext;
-    // Round-3 Commit 1 (canvas #1): retyped from ConcurrentDictionary<string, ...> to
-    // <ScopedSystemId, ...> so the partition key spends zero time as a raw string local.
-    // ScopedSystemId is a readonly record struct — ordinal equality on Value gives the
-    // byte-identical lookup semantics of the pre-Round-3 string-typed key.
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<PollId, PollState>> _bySystem = new();
 
     public InMemoryPollRepository(IRegionContext regionContext)

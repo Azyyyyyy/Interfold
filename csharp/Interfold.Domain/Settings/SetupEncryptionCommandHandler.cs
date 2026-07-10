@@ -67,10 +67,6 @@ public sealed class SetupEncryptionCommandHandler : ICommandHandler<SetupEncrypt
         }
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
-        // Round-2 Commit 3: DeriveKey / DeriveChecksum now speak the wrappers end-to-end,
-        // so the previous `.Value` / `.Value.Value.Value` unwrap ladder collapses. The two
-        // `new KeyChecksum(...)` / `new EncryptionKeyMaterial(...)` re-wraps at the persist
-        // and result-construction call sites disappear for the same reason.
         var key = EncryptionKey.DeriveKey(pepper, command.PrincipalId, command.Payload.RecoveryCode, salt);
         var checksum = EncryptionKey.DeriveChecksum(key);
 

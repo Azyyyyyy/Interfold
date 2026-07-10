@@ -10,18 +10,11 @@ namespace Interfold.Api.Helpers;
 public static class RecoveryCodeResolver
 {
     /// <summary>
-    /// Decrypt a compact JWE recovery-code ciphertext and return the plaintext wrapped in a
-    /// <see cref="RecoveryCode"/> whose <see cref="RecoveryCode.ToString"/> redacts.
-    ///
-    /// <para>
-    /// Step 6 of the strong-typing rescan promoted the <c>out</c> from <c>string</c> to the
-    /// wrapper: pre-Step-6, any incidental log statement between this method returning and
-    /// the controller's <c>new RecoveryCode(...)</c> wrap would emit the plaintext recovery
-    /// code verbatim through the raw-string interpolation path. Wrapping inside the
-    /// resolver means the plaintext exists as a bare <c>string</c> only inside the private
-    /// <see cref="TryDecryptJwe"/> body (which has no logging or interpolation surface) and
-    /// every external observation goes through the redacted <c>ToString</c>.
-    /// </para>
+    /// Decrypt a compact JWE recovery-code ciphertext and return the plaintext wrapped in
+    /// a <see cref="RecoveryCode"/> whose <see cref="RecoveryCode.ToString"/> redacts.
+    /// Wrapping inside the resolver keeps the plaintext as a bare <c>string</c> only
+    /// inside <see cref="TryDecryptJwe"/> (no logging or interpolation surface); every
+    /// external observation goes through the redacted <c>ToString</c>.
     /// </summary>
     public static bool TryResolve(string candidate, string privateKeyPem, out RecoveryCode recoveryCode, out ErrorCode errorCode)
     {

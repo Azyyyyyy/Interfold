@@ -23,10 +23,10 @@ namespace Interfold.Api.Controllers.Base;
 public abstract class InterfoldControllerBase : ControllerBase
 {
     /// <summary>
-    /// The authenticated principal for the current request, exposed as a
-    /// <see cref="ScopedSystemId"/> (Slice 4). The middleware guarantees the value is
-    /// present and scoped — any endpoint reaching this getter has already passed the
-    /// JWT-sub validation. <see cref="ScopedSystemId"/> widens implicitly to
+    /// The authenticated principal for the current request as a
+    /// <see cref="ScopedSystemId"/>. The middleware guarantees the value is present and
+    /// scoped — any endpoint reaching this getter has already passed the JWT-sub
+    /// validation. <see cref="ScopedSystemId"/> widens implicitly to
     /// <see cref="SystemId"/> at every persistence / repository call site, so this
     /// getter's byte value flows unchanged to Postgres idempotency and Scylla PKs.
     /// </summary>
@@ -84,31 +84,10 @@ public abstract class InterfoldControllerBase : ControllerBase
 
     /// <summary>
     /// Source-aware avatar qualification: prepends the server origin only when the avatar
-    /// is locally hosted (<see cref="AvatarSource.Local"/>). External URLs are passed
-    /// through verbatim, and a null / blank input is returned unchanged.
-    ///
-    /// <para>
-    /// Round-2 Commit 10 (canvas #10): the untyped
-    /// <c>QualifyAvatar(string? url, AvatarSource?)</c> sibling has been deleted. Every
-    /// consumer (FriendsController, FriendRequestsController, AltersController,
-    /// PublicSystemsController) now reads from typed read models — <c>BareAlter.AvatarUrl</c>,
-    /// <c>FriendshipReadModel.Friend.AvatarUrl</c>, <c>AccountPublicProfileReadModel.AvatarUrl</c>
-    /// are all <see cref="AvatarUrl"/>? post-Commit-2, and the socket handlers dispatch
-    /// through <c>AvatarUrlQualifier.QualifyAvatar</c> directly with the typed argument. The
-    /// deletion removes the "which overload did the compiler pick?" footgun where an
-    /// untyped raw-string source could silently bind to the string overload and return the
-    /// wrong wrapper shape when the caller later assigned the result.
-    /// </para>
-    ///
-    /// <para>
-    /// Post-Round-5 dead-code sweep: the sibling <c>QualifyUrl(string?)</c> helper that
-    /// used to accompany this method has been deleted — grep-verified zero non-declaration
-    /// references. It was the string-only escape hatch left over from before the R2C2
-    /// <see cref="AvatarUrl"/> retype; every avatar caller now flows through this typed
-    /// overload, and no non-avatar caller ever adopted it. Non-avatar callers who need
-    /// origin qualification without an <see cref="AvatarSource"/> discriminator can call
+    /// is locally hosted (<see cref="AvatarSource.Local"/>). External URLs pass through
+    /// verbatim; a null / blank input returns unchanged. Non-avatar callers that need
+    /// origin qualification without the <see cref="AvatarSource"/> discriminator can call
     /// <c>AvatarUrlQualifier.Qualify(string?, string, HostString)</c> directly.
-    /// </para>
     /// </summary>
     protected AvatarUrl? QualifyAvatar(AvatarUrl? url, AvatarSource? source)
         => AvatarUrlQualifier.QualifyAvatar(url, source, Request.Scheme, Request.Host);
@@ -126,21 +105,10 @@ public abstract class InterfoldControllerBase : ControllerBase
     /// error codes on the response).
     ///
     /// <para>
-    /// Post-Round-5 sanity check (Finding 7): consolidates the byte-identical 59-line
-    /// helpers that lived on both <c>AltersController</c> and <c>SettingsController</c>
-    /// (the two controllers that accept avatar uploads: alter avatars and system-owner
-    /// avatars respectively). The duplicated shape predates Round 1 entirely — nothing
-    /// about strong-typing unlocked this consolidation, so this is the honest "not
-    /// typing-unlocked but explicitly requested" cleanup the Round-5 sanity check
-    /// flagged. Both controllers now share this single implementation, so a future
-    /// tweak to multipart parsing (e.g. a size cap, a MIME allow-list, an
-    /// <c>Ampersand.NetworkOnlyRequestBody</c> substitution during test setup) needs
-    /// to land exactly once instead of drifting between the two sites.
-    /// </para>
-    ///
-    /// <para>
-    /// Called from <c>AltersController.UploadAvatar</c> and
-    /// <c>SettingsController.UploadAvatar</c>. Both callers pass
+    /// Shared by <c>AltersController.UploadAvatar</c> and
+    /// <c>SettingsController.UploadAvatar</c> so a future tweak to multipart parsing
+    /// (a size cap, a MIME allow-list, an <c>Ampersand.NetworkOnlyRequestBody</c>
+    /// substitution during test setup) lands exactly once. Both callers pass
     /// <see cref="HttpContext.RequestAborted"/> as <paramref name="ct"/>.
     /// </para>
     /// </summary>

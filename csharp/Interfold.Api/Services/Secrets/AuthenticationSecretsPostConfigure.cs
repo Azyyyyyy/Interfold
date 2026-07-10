@@ -19,8 +19,7 @@ namespace Interfold.Api.Services.Secrets;
 /// <see cref="AuthenticationConfiguration.Rsa256PrivateKey"/> only pass when this class has
 /// filled them from the snapshot. If any mandatory row is missing at the store,
 /// <c>.ValidateOnStart()</c> throws a boot-time <see cref="OptionsValidationException"/>
-/// with the offending field named — replacing the ad-hoc <c>InvalidOperationException</c>
-/// the pre-Slice-5 <c>SecretsBootstrapService</c> used to raise for the encryption pepper.
+/// with the offending field named.
 /// </para>
 ///
 /// <para>

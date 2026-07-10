@@ -7,26 +7,22 @@ namespace Interfold.Contracts.Ids;
 
 /// <summary>
 /// A <see cref="SystemId"/> guaranteed to be in the scoped <c>{region}:{rawId}</c> wire form.
-/// This is the compile-time enforcement layer for the invariant that pre-Slice-4 code only
-/// ambiently maintained: every persistence-adapter partition key, every
-/// <c>InProcessEventBus</c> routing key, every JWT <c>sub</c>, and every Postgres
+/// Compile-time enforcement of the invariant that every persistence-adapter partition key,
+/// every <c>InProcessEventBus</c> routing key, every JWT <c>sub</c>, and every Postgres
 /// idempotency PK sees a scoped composite (never a raw or double-prefixed id).
 ///
 /// <para>
-/// <b>Idempotent by construction.</b> Both
-/// <see cref="Compose(ScyllaKeyspace, string)"/> and
-/// <see cref="Compose(ScyllaKeyspace, SystemId)"/> strip any existing region prefix from the
-/// input before re-applying the resolved region, so passing in an already-scoped string
-/// produces the exact same <see cref="Value"/> as passing in the bare id. The
-/// <c>"nam:nam:abcdefg"</c> footgun the pre-Slice-4 hand-formatted concatenations produce is
-/// impossible to construct through this type.
+/// <b>Idempotent by construction.</b> Both <see cref="Compose(ScyllaKeyspace, string)"/> and
+/// <see cref="Compose(ScyllaKeyspace, SystemId)"/> strip any existing region prefix before
+/// re-applying the resolved region, so passing in an already-scoped string produces the
+/// exact same <see cref="Value"/> as passing in the bare id — the <c>"nam:nam:abcdefg"</c>
+/// double-prefix footgun is impossible to construct through this type.
 /// </para>
 ///
 /// <para>
 /// <b>Wire compatibility.</b> <see cref="Value"/> is byte-identical to the scoped-form string
-/// the pre-Slice-4 codebase emitted, and the JSON converter writes it verbatim (matches
-/// <c>SystemIdJsonConverter</c>). Existing rows keyed by <c>PrincipalId.Value</c> in Postgres
-/// / Scylla / InMemory remain readable without migration.
+/// every persistence layer already keys on, and the JSON converter writes it verbatim
+/// (matches <c>SystemIdJsonConverter</c>).
 /// </para>
 ///
 /// <para>
@@ -157,8 +153,7 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
         }
 
         // Canonicalise the prefix casing on the way out — the ScyllaKeyspace wire values are
-        // always lowercase, and the six read-side call sites (SystemTopic, ScyllaKeyspaceResolver,
-        // ScyllaUserRegistryRegionContext) all compare against the lowercase form.
+        // always lowercase and every read-side caller compares against the lowercase form.
         result = new ScopedSystemId($"{region.ToWireValue()}:{raw}", raw, region);
         return true;
     }
@@ -167,31 +162,26 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
     public SystemId AsSystemId() => new(Value);
 
     /// <summary>
-    /// Semantic "does <paramref name="candidate"/> refer to the same user as this principal?"
-    /// This is the correct primitive for controllers guarding against self-request /
-    /// self-friendship / self-trust. The obvious <c>principal == candidate</c> spelling
-    /// (via the implicit <see cref="ScopedSystemId"/>→<see cref="SystemId"/> widen) is a
-    /// byte compare of the scoped composite against whatever the client sent in the route
-    /// segment: it catches the trivial <c>"nam:abcdefg"</c> shape but silently misses the
-    /// raw (<c>"abcdefg"</c>) shape because the strings differ. This method canonicalises
-    /// <paramref name="candidate"/> before comparing so raw and same-region-scoped inputs
-    /// both self-reject.
+    /// Semantic "does <paramref name="candidate"/> refer to the same user as this principal?" —
+    /// the correct primitive for controllers guarding against self-request / self-friendship /
+    /// self-trust. A bare byte compare (<c>principal == candidate</c> via the implicit widen)
+    /// catches the scoped <c>"nam:abcdefg"</c> shape but silently misses the raw
+    /// <c>"abcdefg"</c> shape; this method canonicalises <paramref name="candidate"/> so raw
+    /// and same-region-scoped inputs both self-reject.
     ///
     /// <para>
     /// <b>Cross-region shapes.</b> If <paramref name="candidate"/> carries its own region
     /// prefix (e.g. <c>"eur:abcdefg"</c>) it is compared byte-for-byte against the scoped
     /// composite — a cross-region id that happens to share this raw id is treated as a
-    /// different user, matching the "scoped composite is identity" contract in the type-level
-    /// xml-doc above.
+    /// different user, matching the "scoped composite is identity" contract above.
     /// </para>
     ///
     /// <para>
     /// <b>Not to be confused with</b> <see cref="Compose(ScyllaKeyspace, SystemId)"/> which
     /// unconditionally re-applies this region — that shape is right for the
     /// <c>FriendshipIdNormalization.CanonicalizeForPrincipal</c> callers that WANT
-    /// principal-region coercion, and wrong for the controller self-check where we do not
-    /// want the client's <c>eur:abcdefg</c> route to coerce into <c>nam:abcdefg</c> and
-    /// falsely self-reject.
+    /// principal-region coercion, and wrong for the controller self-check where we must not
+    /// coerce the client's <c>eur:abcdefg</c> into <c>nam:abcdefg</c> and falsely self-reject.
     /// </para>
     /// </summary>
     public bool RepresentsSameUserAs(SystemId candidate)
@@ -211,9 +201,8 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
             return string.Equals(Value, scopedCandidate.Value, StringComparison.Ordinal);
         }
 
-        // Bare / raw shape → treat as living in this principal's region. The pre-Round-2
-        // byte-level `principal == candidate` spelling silently missed this case; every
-        // /api/friends/{rawId} and /api/friend-requests/{rawId}/{action} route hit here.
+        // Bare / raw shape → treat as living in this principal's region. Every
+        // /api/friends/{rawId} and /api/friend-requests/{rawId}/{action} route hits here.
         return string.Equals(RawId, candidate.Value, StringComparison.Ordinal);
     }
 
@@ -225,11 +214,9 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
     /// Discord shapes always return <see langword="false"/> — those require a registry
     /// lookup to resolve to a concrete system id, so the fast-path can't decide self here
     /// and the downstream handler's post-resolution self-check takes over (see
-    /// <c>SendFriendRequestCommandHandler</c>'s resolved-id self-guard). This preserves
-    /// the Slice-7 fast-path semantics — the controller returns the crisp
-    /// <c>cannot_send_self</c> error for the trivial "client sends their own id" case
-    /// without a repository hop — while replacing the fragile raw string compare that
-    /// silently coupled the two wrapper types' internal <c>.Value</c> shapes.
+    /// <c>SendFriendRequestCommandHandler</c>'s resolved-id self-guard). The fast-path
+    /// keeps the crisp <c>cannot_send_self</c> error for the trivial "client sends their
+    /// own id" case without a repository hop.
     /// </summary>
     public bool RepresentsSameUserAs(UsernameOrSystemId candidate)
     {
@@ -264,14 +251,12 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
     }
 
     /// <summary>
-    /// Implicit widen to <see cref="SystemId"/>. Every persistence adapter, event constructor,
-    /// and repository entry point downstream of the middleware still declares
-    /// <see cref="SystemId"/> parameters (the "unmarked scoped composite" shape) — Slice 4
-    /// tightens the type at ingress (<c>CommandEnvelope.PrincipalId</c>,
-    /// <c>ITargetedClusterEvent.TargetSystemId</c>) without forcing the downstream signatures
-    /// to churn. The widen is byte-identical (<see cref="Value"/> is what
-    /// <see cref="SystemId.Value"/> returns for a principal today), so it does not alter any
-    /// wire representation.
+    /// Implicit widen to <see cref="SystemId"/>. Persistence adapters, event constructors, and
+    /// repository entry points still declare <see cref="SystemId"/> parameters (the "unmarked
+    /// scoped composite" shape); the type is tightened at ingress
+    /// (<c>CommandEnvelope.PrincipalId</c>, <c>ITargetedClusterEvent.TargetSystemId</c>)
+    /// without forcing every downstream signature to change. The widen is byte-identical, so
+    /// it does not alter any wire representation.
     /// </summary>
     public static implicit operator SystemId(ScopedSystemId scoped) => scoped.AsSystemId();
 
@@ -295,13 +280,12 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
     /// Strip a leading <c>{region}:</c> prefix if present. The strip fires only when the
     /// substring before the first colon is a recognised region tag; every other input
     /// (blank, no colon, colon-at-start, non-region prefix like <c>"username:"</c>) is
-    /// returned unchanged. Refusing to strip unknown prefixes preserves the strict
-    /// routing contract in <see cref="LookupHandle.TryParse"/> — post-Slice-7 the
-    /// discriminator prefixes (<c>username:</c> / <c>discord:</c> / <c>id:</c>) are the
-    /// domain of <c>LookupHandle</c>, and this method's job is unchanged: strip a region
-    /// tag or leave the input alone. A bare prefix like <c>"nam:"</c> deliberately returns
-    /// empty so <see cref="Compose(ScyllaKeyspace, string)"/> surfaces the caller-bug via
-    /// its blank-raw guard rather than emitting a malformed <c>"nam:nam:"</c>.
+    /// returned unchanged. The discriminator prefixes (<c>username:</c> / <c>discord:</c> /
+    /// <c>id:</c>) belong to <see cref="LookupHandle"/> — refusing to strip them here keeps
+    /// the two parsers' responsibilities separate. A bare prefix like <c>"nam:"</c>
+    /// deliberately returns empty so <see cref="Compose(ScyllaKeyspace, string)"/> surfaces
+    /// the caller-bug via its blank-raw guard rather than emitting a malformed
+    /// <c>"nam:nam:"</c>.
     /// </summary>
     internal static string StripLeadingRegionPrefix(string maybeScoped)
     {

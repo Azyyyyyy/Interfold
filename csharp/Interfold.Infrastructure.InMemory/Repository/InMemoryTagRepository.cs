@@ -24,12 +24,9 @@ public sealed class InMemoryTagRepository : ITagRepository
 
     private readonly IRegionContext _regionContext;
     private readonly IFriendshipRepository? _friendships;
-    // Round-3 Commit 1 (canvas #1): retyped from ConcurrentDictionary<string, ...> to
-    // <ScopedSystemId, ...> so the partition key is a typed wrapper end-to-end.
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<TagId, TagState>> _bySystem = new();
-    // Round-3 Commit 1 (canvas #3): keyed on the (ScopedSystemId, TagId) tuple instead of
-    // a hand-concatenated "{systemKey}:{tagId}" string. ValueTuple gives structural
-    // equality for free and the previous stringly-typed composite is gone.
+    // Keyed on the (ScopedSystemId, TagId) tuple rather than a hand-concatenated
+    // "{systemKey}:{tagId}" string — ValueTuple gives structural equality for free.
     private readonly ConcurrentDictionary<(ScopedSystemId System, TagId TagId), ConcurrentDictionary<BareAlter, bool>> _alterMemberships = new();
 
     public InMemoryTagRepository(IRegionContext regionContext)
@@ -269,12 +266,8 @@ public sealed class InMemoryTagRepository : ITagRepository
 
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
-    // Post-Round-5 sanity check: body moved to
-    // InMemoryStorageKeys.ResolveFriendshipLevelAsync (the shared static that also serves
-    // the Alter and Fronting repos). Round-4 finding #2 aligned this repo's body with
-    // Alter's reference implementation — that alignment is what unblocked the three-way
-    // collapse. The R4 attribution (StripRegionPrefix self-check vs the pre-R4 byte
-    // compare) now lives on the shared static's XML doc.
+    // Delegates to the shared static that also serves the Alter and Fronting repos —
+    // see InMemoryStorageKeys.ResolveFriendshipLevelAsync for the self-check semantics.
     private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
         => InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
 }

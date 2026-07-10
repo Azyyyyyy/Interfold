@@ -34,14 +34,13 @@ public interface IAccountRepository
     /// friendship <c>Kind.Discord</c> resolve branch) rather than spawn a phantom account.
     /// </summary>
     /// <remarks>
-    /// This is the only surviving identity-specific find method post-Round-5. Its Email /
-    /// Apple siblings never had a caller — the OAuth-login flow always goes through
-    /// <see cref="FindOrCreateSystemIdAsync"/> which auto-provisions on miss, and the
-    /// friendship resolve branch only supports the Discord shape. Kept as a distinct
-    /// method (rather than adding an "auto-provision?" flag to the consolidated
-    /// <see cref="FindOrCreateSystemIdAsync"/>) so the intent is legible at the call
-    /// site and the InMemory repo can dispatch to a truly read-only branch that never
-    /// touches the encryption-salt bootstrap path.
+    /// The Discord shape is the only identity-specific find method — the OAuth-login flow
+    /// always goes through <see cref="FindOrCreateSystemIdAsync"/> which auto-provisions
+    /// on miss, and the friendship resolve branch only supports the Discord shape. Kept
+    /// distinct from <see cref="FindOrCreateSystemIdAsync"/> (rather than adding an
+    /// "auto-provision?" flag) so the intent is legible at the call site and the InMemory
+    /// repo can dispatch to a truly read-only branch that never touches the
+    /// encryption-salt bootstrap path.
     /// </remarks>
     Task<SystemId?> TryFindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default);
 
@@ -51,20 +50,6 @@ public interface IAccountRepository
     /// fresh encryption salt) if none exists. Callers that must not auto-provision on
     /// miss (e.g. the friendship resolver's Discord branch) should call
     /// <see cref="TryFindSystemIdByDiscordIdAsync"/> instead.
-    ///
-    /// <para>
-    /// Post-Round-5 sanity check (Finding 6): consolidates the pre-Round-5 fan-out of
-    /// <c>FindOrCreateSystemIdByDiscordIdAsync</c> / <c>FindSystemIdByEmailAsync</c> /
-    /// <c>FindSystemIdByAppleIdAsync</c> onto the <see cref="ProviderIdentity"/>
-    /// discriminated union that Round-2 Commit 7 introduced. The prior spelling had two
-    /// coupled footguns: the fan-out mirrored the same 3-branch pattern match in every
-    /// caller (AuthController.Callback + AuthLinkController.Callback), and the "Find"
-    /// prefix on the Email / Apple methods silently hid the auto-provisioning semantics
-    /// — only the Discord method's name (with its explicit "FindOrCreate") reflected
-    /// the create-on-miss behaviour truthfully. The consolidated name honours the
-    /// invariant for all three providers and both callers now collapse to a single
-    /// non-dispatching call.
-    /// </para>
     ///
     /// <para>
     /// Returns <see langword="null"/> when <paramref name="identity"/> carries no
@@ -85,13 +70,6 @@ public interface IAccountRepository
     /// <see cref="AccountLinkResult.UserNotFound"/>, or
     /// <see cref="AccountLinkResult.AlreadyLinked"/> per the underlying repository's
     /// contract.
-    ///
-    /// <para>
-    /// Post-Round-5 sanity check (Finding 6): consolidates the pre-Round-5 fan-out of
-    /// <c>LinkDiscordToUserAsync</c> / <c>LinkEmailToUserAsync</c> /
-    /// <c>LinkAppleToUserAsync</c> onto <see cref="ProviderIdentity"/>. See
-    /// <see cref="FindOrCreateSystemIdAsync"/> for the same rationale.
-    /// </para>
     /// </summary>
     Task<AccountLinkResult> LinkIdentityToUserAsync(SystemId systemId, ProviderIdentity identity, CancellationToken cancellationToken = default);
 
