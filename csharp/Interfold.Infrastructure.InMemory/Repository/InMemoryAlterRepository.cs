@@ -366,26 +366,14 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
-    private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(viewerSystemId?.Value))
-        {
-            return null;
-        }
-
-        if (SystemIdNormalization.StripRegionPrefix(systemId) ==
-            SystemIdNormalization.StripRegionPrefix(viewerSystemId.Value))
-        {
-            return FriendshipLevel.TrustedFriend;
-        }
-
-        if (_friendships is null)
-        {
-            return null;
-        }
-
-        return await _friendships.GetFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
-    }
+    // Post-Round-5 sanity check: body moved to
+    // InMemoryStorageKeys.ResolveFriendshipLevelAsync (the shared static that also serves
+    // the Tag and Fronting repos, since R4 finding #2 confirmed all three bodies were
+    // byte-identical after the Tag/Fronting normalisation fix). This one-liner preserves
+    // encapsulation of the nullable `_friendships` field and keeps the five call sites in
+    // this repo + Tag + Fronting unchanged.
+    private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
+        => InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
 
     private IReadOnlyList<AlterPublicFieldReadModel> ResolveGuardedFields(
         AlterState alter,

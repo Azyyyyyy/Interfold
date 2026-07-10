@@ -314,32 +314,12 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
-    // Round-4 finding #2: matches the correct reference implementation in
-    // InMemoryAlterRepository.ResolveFriendshipLevelAsync and the Scylla shared query
-    // (R2C6 consolidated the Scylla side onto ScyllaSharedQueries.ResolveFriendshipLevelAsync
-    // which does the equivalent normalization). Pre-Round-4 spelling did
-    // `systemId == viewerSystemId` — byte compare on .Value — so a scoped-vs-raw drift
-    // between owner and viewer would silently miss the self-branch and degrade the
-    // owner's front visibility of their own system in the InMemory port. StripRegionPrefix
-    // on both sides makes this consistent with Alter and Scylla.
-    private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(viewerSystemId?.Value))
-        {
-            return null;
-        }
-
-        if (SystemIdNormalization.StripRegionPrefix(systemId) ==
-            SystemIdNormalization.StripRegionPrefix(viewerSystemId.Value))
-        {
-            return FriendshipLevel.TrustedFriend;
-        }
-
-        if (_friendships is null)
-        {
-            return null;
-        }
-
-        return await _friendships.GetFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
-    }
+    // Post-Round-5 sanity check: body moved to
+    // InMemoryStorageKeys.ResolveFriendshipLevelAsync (the shared static that also serves
+    // the Alter and Tag repos). Round-4 finding #2 aligned this repo's body with Alter's
+    // reference implementation — that alignment is what unblocked the three-way collapse.
+    // The R4 attribution (StripRegionPrefix self-check vs the pre-R4 byte compare) now
+    // lives on the shared static's XML doc.
+    private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
+        => InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
 }
