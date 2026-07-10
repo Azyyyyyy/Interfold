@@ -314,6 +314,14 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
+    // Round-4 finding #2: matches the correct reference implementation in
+    // InMemoryAlterRepository.ResolveFriendshipLevelAsync and the Scylla shared query
+    // (R2C6 consolidated the Scylla side onto ScyllaSharedQueries.ResolveFriendshipLevelAsync
+    // which does the equivalent normalization). Pre-Round-4 spelling did
+    // `systemId == viewerSystemId` — byte compare on .Value — so a scoped-vs-raw drift
+    // between owner and viewer would silently miss the self-branch and degrade the
+    // owner's front visibility of their own system in the InMemory port. StripRegionPrefix
+    // on both sides makes this consistent with Alter and Scylla.
     private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(viewerSystemId?.Value))
@@ -321,7 +329,8 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
             return null;
         }
 
-        if (systemId == viewerSystemId)
+        if (SystemIdNormalization.StripRegionPrefix(systemId) ==
+            SystemIdNormalization.StripRegionPrefix(viewerSystemId.Value))
         {
             return FriendshipLevel.TrustedFriend;
         }

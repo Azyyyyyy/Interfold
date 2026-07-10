@@ -269,6 +269,15 @@ public sealed class InMemoryTagRepository : ITagRepository
 
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
+    // Round-4 finding #2: matches the correct reference implementation in
+    // InMemoryAlterRepository.ResolveFriendshipLevelAsync and the Scylla shared query
+    // (ScyllaSharedQueries.ResolveFriendshipLevelAsync consolidated by R2C6). Pre-Round-4
+    // spelling did `systemId == viewerSystemId` which is byte-compare on .Value — a
+    // viewer arriving as `"nam:abcdefg"` against an owner arriving as `"abcdefg"` (the
+    // same drift R3C1 fixed for account lookups) would miss the self-branch and fall
+    // through to a friendship lookup, degrading Tag visibility for the owner viewing
+    // their own tags in the InMemory port. StripRegionPrefix on both sides makes this
+    // self-check identical to Alter/Scylla.
     private async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(viewerSystemId?.Value))
@@ -276,7 +285,8 @@ public sealed class InMemoryTagRepository : ITagRepository
             return null;
         }
 
-        if (systemId == viewerSystemId)
+        if (SystemIdNormalization.StripRegionPrefix(systemId) ==
+            SystemIdNormalization.StripRegionPrefix(viewerSystemId.Value))
         {
             return FriendshipLevel.TrustedFriend;
         }

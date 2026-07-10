@@ -487,8 +487,10 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         if (_encryptionStates is null)
             return;
 
-        var saltBytes = RandomNumberGenerator.GetBytes(32);
-        var salt = Convert.ToBase64String(saltBytes);
-        _ = _encryptionStates.UpsertAsync(scoped.AsSystemId(), false, null, new EncryptionSalt(salt), CancellationToken.None);
+        // Round-4 finding #3: mint via EncryptionSalt.NewRandom() so the raw base64 salt
+        // spends zero time as a bare local (ToString() on EncryptionSalt redacts, ToString()
+        // on a string does not). Consolidates the "how many bytes of salt" decision into
+        // the wrapper.
+        _ = _encryptionStates.UpsertAsync(scoped.AsSystemId(), false, null, EncryptionSalt.NewRandom(), CancellationToken.None);
     }
 }

@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
@@ -135,11 +134,11 @@ public sealed class AuthController : OAuthControllerBase
         var encryptionState = await _encryptionRepository.GetAsync(systemId, HttpContext.RequestAborted);
         if (encryptionState?.Salt == null)
         {
-            // Generate per-user salt (32 random bytes, Base64-encoded)
-            var saltBytes = RandomNumberGenerator.GetBytes(32);
-            var salt = Convert.ToBase64String(saltBytes);
-
-            await _encryptionRepository.UpsertAsync(systemId, false, null, new EncryptionSalt(salt), HttpContext.RequestAborted);
+            // Round-4 finding #3: mint via EncryptionSalt.NewRandom() so the raw base64
+            // string does not survive as a local (ToString() on EncryptionSalt redacts,
+            // ToString() on a bare string does not). Byte width lives inside the wrapper
+            // rather than being hard-coded here.
+            await _encryptionRepository.UpsertAsync(systemId, false, null, EncryptionSalt.NewRandom(), HttpContext.RequestAborted);
         }
 
         var token = await IssueDeepLinkTokenAsync(systemId);

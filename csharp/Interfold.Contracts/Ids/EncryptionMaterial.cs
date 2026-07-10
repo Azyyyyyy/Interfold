@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -56,6 +57,15 @@ public readonly record struct KeyChecksum
 /// </summary>
 public readonly record struct EncryptionSalt
 {
+    /// <summary>
+    /// Width of a freshly-minted salt in raw bytes before base64 encoding. Centralised here
+    /// so <see cref="NewRandom"/> is the single source of truth for the "how many bytes of
+    /// salt do we mint" decision; every caller that previously hand-rolled the mint locally
+    /// (AuthController.SetupEncryption, InMemoryAccountRepository.EnsureEncryptionSaltForSystem)
+    /// baked the same 32 into their own body.
+    /// </summary>
+    private const int RandomByteWidth = 32;
+
     public string Value { get; }
 
     public EncryptionSalt(string value)
@@ -67,4 +77,16 @@ public readonly record struct EncryptionSalt
 
     /// <summary>Null-preserving wrap for DB/state reads.</summary>
     public static EncryptionSalt? FromNullable(string? value) => value is null ? null : new EncryptionSalt(value);
+
+    /// <summary>
+    /// Mint a fresh cryptographically-random salt (32 bytes → base64) and wrap it in one
+    /// call. Round-4 finding #3 consolidation: replaces the two-line
+    ///   <c>var saltBytes = RandomNumberGenerator.GetBytes(32); var salt = Convert.ToBase64String(saltBytes);</c>
+    /// idiom that used to live at the two mint sites (AuthController.SetupEncryption,
+    /// InMemoryAccountRepository.EnsureEncryptionSaltForSystem). Same shape as R2C4's
+    /// <see cref="Jti.NewJti"/> — the raw base64 string spends zero time as a bare local,
+    /// which matters because <see cref="ToString"/> redacts and the local would not.
+    /// </summary>
+    public static EncryptionSalt NewRandom()
+        => new(Convert.ToBase64String(RandomNumberGenerator.GetBytes(RandomByteWidth)));
 }
