@@ -36,12 +36,23 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
     protected abstract string CallbackRoutePrefix { get; }
 
     /// <summary>
-    /// Resolves the provider identity for the current callback request. Returns the raw
-    /// string because the identity kind depends on <paramref name="provider"/> (Discord
-    /// snowflake / email / Apple sub) and the query/form fallbacks are untyped; callers
-    /// that know the provider wrap it in the matching identity struct.
+    /// Resolves the provider identity for the current callback request as a
+    /// <see cref="ProviderIdentity"/> union whose populated field carries the typed
+    /// identity (Discord snowflake / email / Apple sub). Returns <c>null</c> when no
+    /// identity could be extracted (missing code, missing fallback, or failed exchange).
+    ///
+    /// <para>
+    /// Round-2 Commit 7 promoted the return from <c>string?</c> to
+    /// <c>ProviderIdentity?</c>. The three OAuth exchange services already return typed
+    /// nullables (<c>DiscordId?</c> / <c>Email?</c> / <c>AppleId?</c>); the pre-Round-2
+    /// shape immediately unwrapped them back to <c>string?</c>, forcing every caller
+    /// (<c>AuthController.Callback</c>, <c>AuthLinkController.Callback</c>,
+    /// <c>AuthLinkController.RedirectWithSocketEventAsync</c>) to switch on the provider
+    /// enum and rewrap the string in the exact identity type that was in hand two frames
+    /// up. The union carries the typed identity through without the round-trip.
+    /// </para>
     /// </summary>
-    protected async Task<string?> ExtractProviderIdentityAsync(OAuthProvider provider)
+    protected async Task<ProviderIdentity?> ExtractProviderIdentityAsync(OAuthProvider provider)
     {
         switch (provider)
         {
@@ -52,10 +63,15 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
                 {
                     var redirectUri = BuildCallbackBaseUri(provider);
                     var discordId = await DiscordOAuth.ExchangeCodeForDiscordIdAsync(code, redirectUri, HttpContext.RequestAborted);
-                    return discordId?.Value;
+                    return discordId is { } id && !string.IsNullOrWhiteSpace(id.Value)
+                        ? ProviderIdentity.FromDiscord(id)
+                        : null;
                 }
 
-                return await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.DiscordIdFallback, OAuthQueryKeys.Id);
+                var fallback = await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.DiscordIdFallback, OAuthQueryKeys.Id);
+                return string.IsNullOrWhiteSpace(fallback)
+                    ? null
+                    : ProviderIdentity.FromDiscord(new DiscordId(fallback));
             }
 
             case OAuthProvider.Google:
@@ -63,13 +79,23 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
                 var code = await GetValueAsync(OAuthQueryKeys.Code);
                 if (string.IsNullOrWhiteSpace(code))
                 {
-                    return await GetValueAsync(OAuthQueryKeys.Email);
+                    var directEmail = await GetValueAsync(OAuthQueryKeys.Email);
+                    return string.IsNullOrWhiteSpace(directEmail)
+                        ? null
+                        : ProviderIdentity.FromGoogle(new Email(directEmail));
                 }
 
                 var redirectUri = BuildCallbackBaseUri(provider);
                 var email = await GoogleOAuth.ExchangeCodeForEmailAsync(code, redirectUri, HttpContext.RequestAborted);
+                if (email is { } exchangedEmail && !string.IsNullOrWhiteSpace(exchangedEmail.Value))
+                {
+                    return ProviderIdentity.FromGoogle(exchangedEmail);
+                }
 
-                return email?.Value ?? await GetValueAsync(OAuthQueryKeys.Email);
+                var fallbackEmail = await GetValueAsync(OAuthQueryKeys.Email);
+                return string.IsNullOrWhiteSpace(fallbackEmail)
+                    ? null
+                    : ProviderIdentity.FromGoogle(new Email(fallbackEmail));
             }
 
             case OAuthProvider.Apple:
@@ -81,7 +107,7 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
                     var appleId = await AppleOAuth.ExchangeCodeForAppleIdAsync(code, redirectUri, HttpContext.RequestAborted);
                     if (appleId is { } exchangedAppleId && !string.IsNullOrWhiteSpace(exchangedAppleId.Value))
                     {
-                        return exchangedAppleId.Value;
+                        return ProviderIdentity.FromApple(exchangedAppleId);
                     }
                 }
 
@@ -89,10 +115,13 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
                 var sub = AppleOAuth.ExtractSubFromJwt(idToken);
                 if (sub is { } tokenSub && !string.IsNullOrWhiteSpace(tokenSub.Value))
                 {
-                    return tokenSub.Value;
+                    return ProviderIdentity.FromApple(tokenSub);
                 }
 
-                return await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.AppleIdFallback, OAuthQueryKeys.Id, OAuthQueryKeys.Sub);
+                var fallback = await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.AppleIdFallback, OAuthQueryKeys.Id, OAuthQueryKeys.Sub);
+                return string.IsNullOrWhiteSpace(fallback)
+                    ? null
+                    : ProviderIdentity.FromApple(new AppleId(fallback));
             }
 
             default:

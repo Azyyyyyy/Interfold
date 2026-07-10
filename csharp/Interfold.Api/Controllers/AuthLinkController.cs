@@ -110,17 +110,23 @@ public sealed class AuthLinkController : OAuthControllerBase
         var redirectUri = Request.Cookies[RedirectUriCookieName];
         Response.Cookies.Delete(RedirectUriCookieName);
 
+        // Round-2 Commit 7: ExtractProviderIdentityAsync returns ProviderIdentity? and
+        // dispatch is a property-pattern match on the populated field. Pre-Round-2 this
+        // switch (and the RedirectWithSocketEventAsync switch below) each independently
+        // rewrapped the same raw string, three times over the callback lifetime; the
+        // union carries the typed identity through once and dispatch happens off the
+        // typed shape rather than the enum + side-band string.
         var identity = await ExtractProviderIdentityAsync(oauthProvider);
-        if (string.IsNullOrWhiteSpace(identity))
+        if (identity is not { } typedIdentity)
         {
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
         }
 
-        var result = oauthProvider switch
+        var result = typedIdentity switch
         {
-            OAuthProvider.Discord => await _accounts.LinkDiscordToUserAsync(systemId, new DiscordId(identity), HttpContext.RequestAborted),
-            OAuthProvider.Google => await _accounts.LinkEmailToUserAsync(systemId, new Email(identity), HttpContext.RequestAborted),
-            OAuthProvider.Apple => await _accounts.LinkAppleToUserAsync(systemId, new AppleId(identity), HttpContext.RequestAborted),
+            { Discord: { } discordId } => await _accounts.LinkDiscordToUserAsync(systemId, discordId, HttpContext.RequestAborted),
+            { Google: { } email } => await _accounts.LinkEmailToUserAsync(systemId, email, HttpContext.RequestAborted),
+            { Apple: { } appleId } => await _accounts.LinkAppleToUserAsync(systemId, appleId, HttpContext.RequestAborted),
             _ => AccountLinkResult.UserNotFound
         };
 
@@ -128,7 +134,7 @@ public sealed class AuthLinkController : OAuthControllerBase
 
         return result switch
         {
-            AccountLinkResult.Success => await RedirectWithSocketEventAsync(systemId, oauthProvider, identity, redirectUri),
+            AccountLinkResult.Success => await RedirectWithSocketEventAsync(systemId, typedIdentity, redirectUri),
             AccountLinkResult.AlreadyLinked => StatusCode(StatusCodes.Status403Forbidden, new ErrorMessageResponse(
                 oauthProvider switch
                 {
@@ -149,23 +155,26 @@ public sealed class AuthLinkController : OAuthControllerBase
         };
     }
 
-    private async Task<IActionResult> RedirectWithSocketEventAsync(Interfold.Contracts.Ids.ScopedSystemId systemId, OAuthProvider provider, string identity, string? redirectUri)
+    private async Task<IActionResult> RedirectWithSocketEventAsync(Interfold.Contracts.Ids.ScopedSystemId systemId, Interfold.Contracts.Ids.ProviderIdentity identity, string? redirectUri)
     {
-        switch (provider)
+        // Round-2 Commit 7: dispatch on the ProviderIdentity union rather than the
+        // OAuthProvider enum + string side-band. Each PublishAsync call keeps its concrete
+        // event type so subscriber routing continues to dispatch by TEvent as before.
+        switch (identity)
         {
-            case OAuthProvider.Discord:
+            case { Discord: { } discordId }:
                 await _eventBus.PublishAsync(
-                    new SettingsDiscordAccountLinkedEvent(systemId, new DiscordId(identity)),
+                    new SettingsDiscordAccountLinkedEvent(systemId, discordId),
                     HttpContext.RequestAborted);
                 break;
-            case OAuthProvider.Google:
+            case { Google: { } email }:
                 await _eventBus.PublishAsync(
-                    new SettingsGoogleAccountLinkedEvent(systemId, new Email(identity)),
+                    new SettingsGoogleAccountLinkedEvent(systemId, email),
                     HttpContext.RequestAborted);
                 break;
-            case OAuthProvider.Apple:
+            case { Apple: { } appleId }:
                 await _eventBus.PublishAsync(
-                    new SettingsAppleAccountLinkedEvent(systemId, new AppleId(identity)),
+                    new SettingsAppleAccountLinkedEvent(systemId, appleId),
                     HttpContext.RequestAborted);
                 break;
         }

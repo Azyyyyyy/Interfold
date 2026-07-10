@@ -105,17 +105,23 @@ public sealed class AuthController : OAuthControllerBase
         if (EnumWireExtensions.TryParseOAuthProvider(provider) is not { } oauthProvider)
             return UnsupportedProviderResponse(provider);
 
+        // Round-2 Commit 7: ExtractProviderIdentityAsync returns ProviderIdentity? so the
+        // dispatch below can property-pattern-match on the populated field. The pre-Round-2
+        // shape did `oauthProvider switch { Discord => new DiscordId(identity), ... }` -
+        // both switching on the provider enum AND rewrapping a raw string that had just
+        // been unwrapped inside ExtractProviderIdentityAsync. The union carries the typed
+        // identity through without the string round-trip.
         var identity = await ExtractProviderIdentityAsync(oauthProvider);
-        if (string.IsNullOrWhiteSpace(identity))
+        if (identity is not { } typedIdentity)
         {
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
         }
 
-        var resolvedSystemId = oauthProvider switch
+        var resolvedSystemId = typedIdentity switch
         {
-            OAuthProvider.Discord => await _accounts.FindOrCreateSystemIdByDiscordIdAsync(new DiscordId(identity), HttpContext.RequestAborted),
-            OAuthProvider.Google => await _accounts.FindSystemIdByEmailAsync(new Email(identity), HttpContext.RequestAborted),
-            OAuthProvider.Apple => await _accounts.FindSystemIdByAppleIdAsync(new AppleId(identity), HttpContext.RequestAborted),
+            { Discord: { } discordId } => await _accounts.FindOrCreateSystemIdByDiscordIdAsync(discordId, HttpContext.RequestAborted),
+            { Google: { } email } => await _accounts.FindSystemIdByEmailAsync(email, HttpContext.RequestAborted),
+            { Apple: { } appleId } => await _accounts.FindSystemIdByAppleIdAsync(appleId, HttpContext.RequestAborted),
             _ => null
         };
 
