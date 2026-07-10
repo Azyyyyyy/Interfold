@@ -218,7 +218,7 @@ public sealed class SettingsController : InterfoldControllerBase
             PrincipalId: PrincipalId,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetupEncryptionCommand(new RecoveryCode(recoveryCode))
+            Payload: new SetupEncryptionCommand(recoveryCode)
         );
 
         var execution = await _setupEncryptionHandler.HandleAsync(envelope, ct);
@@ -240,7 +240,7 @@ public sealed class SettingsController : InterfoldControllerBase
             PrincipalId: PrincipalId,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new RecoverEncryptionCommand(new RecoveryCode(recoveryCode))
+            Payload: new RecoverEncryptionCommand(recoveryCode)
         );
 
         var execution = await _recoverEncryptionHandler.HandleAsync(envelope, ct);
@@ -470,11 +470,21 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("import-sp")]
     public async Task<Response<ImportDispatchResponse>> ImportSp([FromBody] SettingsImportRequest req, CancellationToken ct)
     {
-        string? recoveryCode = null;
+        // Step 6: recoveryCode is now RecoveryCode? end-to-end. The nested-if shape replaces
+        // the pre-Step-6 combined `&& !TryResolve(... out recoveryCode ...)` short-circuit
+        // because the resolver's out is now a non-nullable RecoveryCode — we can't write it
+        // directly into the nullable outer local. Splitting the guard also makes the
+        // "code supplied but blank" case a clean no-op (nothing to decrypt, nothing to
+        // return an error for), matching the pre-Step-6 behaviour.
+        RecoveryCode? recoveryCode = null;
         if (req.RecoveryCode is { } suppliedRecoveryCode
-            && !string.IsNullOrWhiteSpace(suppliedRecoveryCode.Value)
-            && !TryResolveRecoveryCode(suppliedRecoveryCode.Value, out recoveryCode, out var decryptionErrorCode))
-            return new ErrorResponse("Failed to decrypt recovery code.", decryptionErrorCode, System.Net.HttpStatusCode.BadRequest);
+            && !string.IsNullOrWhiteSpace(suppliedRecoveryCode.Value))
+        {
+            if (!TryResolveRecoveryCode(suppliedRecoveryCode.Value, out var resolved, out var decryptionErrorCode))
+                return new ErrorResponse("Failed to decrypt recovery code.", decryptionErrorCode, System.Net.HttpStatusCode.BadRequest);
+
+            recoveryCode = resolved;
+        }
 
         var envelope = new CommandEnvelope<ImportSpCommand>(
             OperationIds.SettingsImportSp,
@@ -482,7 +492,7 @@ public sealed class SettingsController : InterfoldControllerBase
             PrincipalId: PrincipalId,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new ImportSpCommand(req.Token, recoveryCode is null ? null : new RecoveryCode(recoveryCode))
+            Payload: new ImportSpCommand(req.Token, recoveryCode)
         );
 
         return CommandAccepted(
@@ -749,6 +759,6 @@ public sealed class SettingsController : InterfoldControllerBase
         return new AvatarUploadPayload(null, emptyFilePart);
     }
 
-    private bool TryResolveRecoveryCode(string candidate, out string recoveryCode, out ErrorCode errorCode)
+    private bool TryResolveRecoveryCode(string candidate, out RecoveryCode recoveryCode, out ErrorCode errorCode)
         => Helpers.RecoveryCodeResolver.TryResolve(candidate, _authenticationConfiguration.CurrentValue.Rsa256PrivateKey, out recoveryCode, out errorCode);
 }

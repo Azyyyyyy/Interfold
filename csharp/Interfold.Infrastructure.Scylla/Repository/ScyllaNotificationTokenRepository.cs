@@ -34,10 +34,10 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
             var batch = new BatchStatement();
             batch.Add(new SimpleStatement(
                 $"INSERT INTO {ScyllaGlobalKeyspace.Name}.notification_tokens (user_id, push_token, inserted_at, updated_at) VALUES (?, ?, ?, ?)",
-                normalizedSystemId, token.Value, now.UtcDateTime, now.UtcDateTime));
+                normalizedSystemId.Value, token.Value, now.UtcDateTime, now.UtcDateTime));
             batch.Add(new SimpleStatement(
                 $"INSERT INTO {ScyllaGlobalKeyspace.Name}.notification_tokens_by_push_token (push_token, user_id) VALUES (?, ?)",
-                token.Value, normalizedSystemId));
+                token.Value, normalizedSystemId.Value));
 
             await session.ExecuteAsync(batch);
             return true;
@@ -93,7 +93,7 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
 
             var friendRows = await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT friend_id FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ?",
-                normalizedSystemId));
+                normalizedSystemId.Value));
 
             var friendIds = friendRows.Select(r => r.GetValue<string>("friend_id"))
                 .Where(id => !string.IsNullOrWhiteSpace(id))

@@ -38,7 +38,6 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
     private sealed class FixedRegionContext(ScyllaKeyspace region) : IRegionContext
     {
         public ScyllaKeyspace CurrentRegion { get; } = region;
-        public ScyllaKeyspace ResolveUserRegion(string systemId) => CurrentRegion;
         public ScyllaKeyspace ResolveUserRegion(SystemId systemId) => CurrentRegion;
     }
 

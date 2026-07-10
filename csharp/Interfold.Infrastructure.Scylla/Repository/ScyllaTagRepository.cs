@@ -58,7 +58,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             {
                 var parentCheck = new SimpleStatement(
                     $"SELECT id FROM {keyspace}.tags WHERE user_id = ? AND id = ? LIMIT 1",
-                    normalizedSystemId,
+                    normalizedSystemId.Value,
                     parentTagId
                 );
 
@@ -71,7 +71,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             var insert = new SimpleStatement(
                 $"INSERT INTO {keyspace}.tags (user_id, id, parent_tag_id, name, description, color, security_level, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, toTimestamp(now()))",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 tagGuid,
                 parentTagId,
                 command.Name,
@@ -105,7 +105,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             var query = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.tags WHERE user_id = ? AND id = ? LIMIT 1",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 tagGuid
             );
 
@@ -170,7 +170,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             }
 
             setClauses.Add("updated_at = toTimestamp(now())");
-            values.Add(normalizedSystemId);
+            values.Add(normalizedSystemId.Value);
             values.Add(tagGuid);
 
             var update = new SimpleStatement(
@@ -205,25 +205,25 @@ public sealed class ScyllaTagRepository : ITagRepository
             var deleteBatch = new BatchStatement();
             deleteBatch.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.tags WHERE user_id = ? AND id = ?",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 tagGuid
             ));
             deleteBatch.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ?",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 tagGuid
             ));
 
             // Clean up alter_tags_by_alter: find all alters with this tag and remove reverse entries
             var tagAlters = await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT alter_id FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ?",
-                normalizedSystemId, tagGuid));
+                normalizedSystemId.Value, tagGuid));
             foreach (var tagAlterRow in tagAlters)
             {
                 var aid = tagAlterRow.GetValue<short>("alter_id");
                 deleteBatch.Add(new SimpleStatement(
                     $"DELETE FROM {keyspace}.alter_tags_by_alter WHERE user_id = ? AND alter_id = ? AND tag_id = ?",
-                    normalizedSystemId, aid, tagGuid));
+                    normalizedSystemId.Value, aid, tagGuid));
             }
 
             await session.ExecuteAsync(deleteBatch);
@@ -259,13 +259,13 @@ public sealed class ScyllaTagRepository : ITagRepository
             var insert = new BatchStatement();
             insert.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.alter_tags (user_id, tag_id, alter_id, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 tagGuid,
                 alterId.ToStorageShort()
             ));
             insert.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.alter_tags_by_alter (user_id, alter_id, tag_id, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 alterId.ToStorageShort(),
                 tagGuid
             ));
@@ -295,7 +295,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             var edgeExistsQuery = new SimpleStatement(
                 $"SELECT alter_id FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ? AND alter_id = ? LIMIT 1",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 tagGuid,
                 alterId.ToStorageShort()
             );
@@ -309,13 +309,13 @@ public sealed class ScyllaTagRepository : ITagRepository
             var delete = new BatchStatement();
             delete.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ? AND alter_id = ?",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 tagGuid,
                 alterId.ToStorageShort()
             ));
             delete.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.alter_tags_by_alter WHERE user_id = ? AND alter_id = ? AND tag_id = ?",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 alterId.ToStorageShort(),
                 tagGuid
             ));
@@ -344,7 +344,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             var query = new SimpleStatement(
                 $"SELECT parent_tag_id FROM {keyspace}.tags WHERE user_id = ? AND id = ? LIMIT 1",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 tagGuid
             );
 
@@ -381,7 +381,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             var update = new SimpleStatement(
                 $"UPDATE {keyspace}.tags SET parent_tag_id = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                 parentTagGuid,
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 tagGuid
             );
             await session.ExecuteAsync(update);
@@ -416,7 +416,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             var update = new SimpleStatement(
                 $"UPDATE {keyspace}.tags SET parent_tag_id = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                 null,
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 tagGuid
             );
             await session.ExecuteAsync(update);
@@ -473,7 +473,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var friendshipLevel = await ResolveFriendshipLevelAsync(session, normalizedSystemId, viewerSystemId);
+            var friendshipLevel = await ResolveFriendshipLevelAsync(session, normalizedSystemId.Value, viewerSystemId);
             var hydrationConcurrency = _options.HydrationMaxConcurrency;
 
             var query = new SimpleStatement(
@@ -535,7 +535,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             var query = new SimpleStatement(
                 $"SELECT id, name, color, description, parent_tag_id, inserted_at, updated_at, security_level, user_id FROM {keyspace}.tags WHERE user_id = ? AND id = ? LIMIT 1",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 tagGuid
             );
 
@@ -576,12 +576,12 @@ public sealed class ScyllaTagRepository : ITagRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var friendshipLevel = await ResolveFriendshipLevelAsync(session, normalizedSystemId, viewerSystemId);
+            var friendshipLevel = await ResolveFriendshipLevelAsync(session, normalizedSystemId.Value, viewerSystemId);
             var hydrationConcurrency = _options.HydrationMaxConcurrency;
 
             var query = new SimpleStatement(
                 $"SELECT id, name, color, description, parent_tag_id, inserted_at, updated_at, security_level, user_id FROM {keyspace}.tags WHERE user_id = ? AND id = ? LIMIT 1",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 tagGuid
             );
 
@@ -621,11 +621,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         }, _options, cancellationToken);
     }
 
-    private static async Task<IReadOnlyList<AlterId>> GetAlterIdsAsync(ISession session, string keyspace, string normalizedSystemId, Guid tagId)
+    private static async Task<IReadOnlyList<AlterId>> GetAlterIdsAsync(ISession session, string keyspace, SystemId normalizedSystemId, Guid tagId)
     {
         var query = new SimpleStatement(
             $"SELECT alter_id FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ?",
-            normalizedSystemId,
+            normalizedSystemId.Value,
             tagId
         );
 
@@ -636,7 +636,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     private static async Task<IReadOnlyList<AlterId>> GetGuardedAlterIdsAsync(
         ISession session,
         string keyspace,
-        string normalizedSystemId,
+        SystemId normalizedSystemId,
         Guid tagId,
         FriendshipLevel? friendshipLevel)
     {
@@ -648,7 +648,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
         var query = new SimpleStatement(
             $"SELECT id, security_level FROM {keyspace}.alters WHERE user_id = ?",
-            normalizedSystemId);
+            normalizedSystemId.Value);
 
         var rows = await session.ExecuteAsync(query);
         var visible = rows

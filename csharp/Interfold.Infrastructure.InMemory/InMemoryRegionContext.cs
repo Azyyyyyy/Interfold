@@ -16,11 +16,14 @@ public sealed class InMemoryRegionContext : IRegionContext
         CurrentRegion = currentRegion;
     }
 
-    public ScyllaKeyspace ResolveUserRegion(SystemId systemId) => ResolveUserRegion(systemId.Value);
-
-    public ScyllaKeyspace ResolveUserRegion(string systemId)
+    public ScyllaKeyspace ResolveUserRegion(SystemId systemId)
     {
-        if (string.IsNullOrWhiteSpace(systemId))
+        // default(SystemId) surfaces Value == null; the ordinary constructor rejects null,
+        // but the struct default is still reachable (uninitialised field, GetValueOrDefault
+        // on a nullable, etc.). Treat null / empty / whitespace uniformly and fall back to
+        // the constructor-supplied CurrentRegion — the ScyllaKeyspaceResolver default path
+        // depends on this and would throw otherwise.
+        if (string.IsNullOrWhiteSpace(systemId.Value))
         {
             return CurrentRegion;
         }
@@ -38,9 +41,8 @@ public sealed class InMemoryRegionContext : IRegionContext
         // of the caller's chosen wire form. Mirrors ScyllaUserRegistryRegionContext's
         // tolerance (see RegionContextCachingTests.ResolveUserRegion_StripsLegacyPrefix_
         // BeforeCacheLookup for the equivalent invariant on the persistent backend).
-        var normalized = SystemIdNormalization.StripRegionPrefix(systemId);
+        var normalized = SystemIdNormalization.StripRegionPrefix(systemId.Value);
         var index = Math.Abs(normalized.GetHashCode(StringComparison.Ordinal)) % Regions.Length;
         return Regions[index];
     }
-
 }

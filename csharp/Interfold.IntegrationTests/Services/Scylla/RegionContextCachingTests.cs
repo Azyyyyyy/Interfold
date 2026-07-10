@@ -1,6 +1,7 @@
 ﻿using Cassandra;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Infrastructure.Scylla;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -32,7 +33,7 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
     {
         // ThrowingSessionProvider will throw; the catch block should return CurrentRegion.
         var ctx = BuildContext("eur");
-        var result = ctx.ResolveUserRegion("user-123");
+        var result = ctx.ResolveUserRegion(new SystemId("user-123"));
         await Assert.That(result).IsEqualTo(ScyllaKeyspace.Eur);
     }
 
@@ -43,7 +44,7 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
         ctx.RegisterRegion("user-abc", ScyllaKeyspace.Eur);
 
         // ThrowingSessionProvider must NOT be called; cache is warm.
-        var result = ctx.ResolveUserRegion("user-abc");
+        var result = ctx.ResolveUserRegion(new SystemId("user-abc"));
         await Assert.That(result).IsEqualTo(ScyllaKeyspace.Eur);
     }
 
@@ -55,11 +56,11 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
 
         // The prefixed form should resolve via the same stripped key.
         ctx.RegisterRegion("eas:user-xyz", ScyllaKeyspace.Sam);
-        var result = ctx.ResolveUserRegion("eas:user-xyz");
+        var result = ctx.ResolveUserRegion(new SystemId("eas:user-xyz"));
         await Assert.That(result).IsEqualTo(ScyllaKeyspace.Sam);
 
         // Plain key lookup after prefix strip should also be cache-warm.
-        var result2 = ctx.ResolveUserRegion("eas:user-xyz");
+        var result2 = ctx.ResolveUserRegion(new SystemId("eas:user-xyz"));
         await Assert.That(result2).IsEqualTo(ScyllaKeyspace.Sam);
     }
 
@@ -71,7 +72,7 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
 
         // Fallback should still apply because nothing was cached ("user-1" resolution hits
         // the throwing session and falls back to the default region).
-        var result = ctx.ResolveUserRegion("user-1");
+        var result = ctx.ResolveUserRegion(new SystemId("user-1"));
         await Assert.That(result).IsEqualTo(ScyllaKeyspace.Nam);
     }
 
@@ -95,8 +96,8 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
         var ctx = BuildContext("nam");
         ctx.RegisterRegion("abcdefg", ScyllaKeyspace.Eur);
 
-        var fromBare    = ctx.ResolveUserRegion("abcdefg");
-        var fromIdPrefix = ctx.ResolveUserRegion("id:abcdefg");
+        var fromBare    = ctx.ResolveUserRegion(new SystemId("abcdefg"));
+        var fromIdPrefix = ctx.ResolveUserRegion(new SystemId("id:abcdefg"));
 
         using (Assert.Multiple())
         {
@@ -120,9 +121,9 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
 
         using (Assert.Multiple())
         {
-            await Assert.That(ctx.ResolveUserRegion("abcdefg")).IsEqualTo(ScyllaKeyspace.Eur)
+            await Assert.That(ctx.ResolveUserRegion(new SystemId("abcdefg"))).IsEqualTo(ScyllaKeyspace.Eur)
                 .Because("The bare id must remain cached under its own key even after a username handle with the same after-colon shape was registered.");
-            await Assert.That(ctx.ResolveUserRegion("username:abcdefg")).IsEqualTo(ScyllaKeyspace.Sam)
+            await Assert.That(ctx.ResolveUserRegion(new SystemId("username:abcdefg"))).IsEqualTo(ScyllaKeyspace.Sam)
                 .Because("Username handles must round-trip through their prefixed cache key so username 'abcdefg' doesn't alias the bare id 'abcdefg'.");
         }
     }
@@ -141,8 +142,8 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
 
         using (Assert.Multiple())
         {
-            await Assert.That(ctx.ResolveUserRegion("1234")).IsEqualTo(ScyllaKeyspace.Eur);
-            await Assert.That(ctx.ResolveUserRegion("discord:1234")).IsEqualTo(ScyllaKeyspace.Sam);
+            await Assert.That(ctx.ResolveUserRegion(new SystemId("1234"))).IsEqualTo(ScyllaKeyspace.Eur);
+            await Assert.That(ctx.ResolveUserRegion(new SystemId("discord:1234"))).IsEqualTo(ScyllaKeyspace.Sam);
         }
     }
 
@@ -156,7 +157,7 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
         var ctx = BuildContext("nam");
         ctx.RegisterRegion("xxx:abcdefg", ScyllaKeyspace.Sam);
 
-        var result = ctx.ResolveUserRegion("xxx:abcdefg");
+        var result = ctx.ResolveUserRegion(new SystemId("xxx:abcdefg"));
         await Assert.That(result).IsEqualTo(ScyllaKeyspace.Sam)
             .Because("Unknown non-region prefix must NOT be silently stripped — the whole input is both the cache key and the eventual user_id query value.");
     }
@@ -171,7 +172,7 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
         var ctx = BuildContext("nam");
         ctx.RegisterRegion("abcdefg", ScyllaKeyspace.Ocn);
 
-        var result = ctx.ResolveUserRegion("id:abcdefg");
+        var result = ctx.ResolveUserRegion(new SystemId("id:abcdefg"));
         await Assert.That(result).IsEqualTo(ScyllaKeyspace.Ocn);
     }
 }

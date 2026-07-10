@@ -33,7 +33,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             EnsureFieldUdtMapping(session, keyspace);
 
@@ -70,7 +70,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync<FieldId?>(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             EnsureFieldUdtMapping(session, keyspace);
 
@@ -104,7 +104,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             }
 
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             EnsureFieldUdtMapping(session, keyspace);
 
@@ -166,7 +166,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             }
 
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             EnsureFieldUdtMapping(session, keyspace);
 
@@ -206,7 +206,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             }
 
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             EnsureFieldUdtMapping(session, keyspace);
 

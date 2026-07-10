@@ -185,7 +185,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         }
 
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNewSystemId = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(newSystemId), newSystemId).Value;
+        var scopedNewSystemId = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId).Value;
         _discordBySystem[newSystemId] = discordId.Value;
         _systemByDiscord[discordId.Value] = scopedNewSystemId;
 
@@ -206,7 +206,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         }
 
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNewSystemId = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(newSystemId), newSystemId).Value;
+        var scopedNewSystemId = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId).Value;
         _emailBySystem[newSystemId] = email.Value;
         _systemByEmail[email.Value] = scopedNewSystemId;
 
@@ -227,7 +227,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         }
 
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNewSystemId = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(newSystemId), newSystemId).Value;
+        var scopedNewSystemId = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId).Value;
         _appleBySystem[newSystemId] = appleId.Value;
         _systemByApple[appleId.Value] = scopedNewSystemId;
 

@@ -21,6 +21,15 @@ namespace Interfold.Api.UnitTests.Infrastructure;
 /// </para>
 ///
 /// <para>
+/// Step 3 of the strong-typing rescan removed the <c>ResolveUserRegion(string)</c>
+/// overload from <see cref="Interfold.Domain.Abstractions.IRegionContext"/>. Every call
+/// site here now wraps its raw input in a <see cref="SystemId"/> at the boundary,
+/// mirroring how production ingress (JWT middleware, route binding) constructs the
+/// wrapper at trust points. The strip-before-hash invariant this suite pins is unchanged;
+/// only the call shape moved.
+/// </para>
+///
+/// <para>
 /// This suite pins the region-strip-before-hash invariant so a future refactor that peels
 /// the normalisation back breaks in the fast unit-test tier, not inside a full-suite
 /// integration run where the 404 looks like a controller bug rather than a resolver one.
@@ -47,8 +56,8 @@ public sealed class InMemoryRegionContextTests
     {
         var ctx = new InMemoryRegionContext();
 
-        var scoped = ctx.ResolveUserRegion($"nam:{RawId}");
-        var raw = ctx.ResolveUserRegion(RawId);
+        var scoped = ctx.ResolveUserRegion(new SystemId($"nam:{RawId}"));
+        var raw = ctx.ResolveUserRegion(new SystemId(RawId));
 
         await Assert.That(scoped).IsEqualTo(raw)
             .Because("A scoped nam:{rawId} JWT-derived principal and a raw {rawId} route-bound principal must land in the same region — otherwise InMemoryStorageKeys.ForSystem yields two different partition keys for the same user and public reads 404 with system_not_found (the entire post-Slice-4 avatar/fronting/visibility cluster failure).");
@@ -63,8 +72,8 @@ public sealed class InMemoryRegionContextTests
         // suffix. StripRegionPrefix removes both prefixes symmetrically, so the hash sees
         // the same string in both cases. This pins that the resolver does NOT gate on the
         // region prefix (it's purely a canonicalisation of the id, not a region filter).
-        var namScoped = ctx.ResolveUserRegion($"nam:{RawId}");
-        var eurScoped = ctx.ResolveUserRegion($"eur:{RawId}");
+        var namScoped = ctx.ResolveUserRegion(new SystemId($"nam:{RawId}"));
+        var eurScoped = ctx.ResolveUserRegion(new SystemId($"eur:{RawId}"));
 
         await Assert.That(namScoped).IsEqualTo(eurScoped)
             .Because("The region prefix is stripped, not gated on — a caller that happens to hold the id under a different region wire tag (rare but possible across the seven canonical regions) must not partition into a different physical bucket.");
@@ -92,7 +101,7 @@ public sealed class InMemoryRegionContextTests
         var observed = new HashSet<ScyllaKeyspace>();
         for (var i = 0; i < 50; i++)
         {
-            observed.Add(ctx.ResolveUserRegion($"sys-discriminator-{i:D4}"));
+            observed.Add(ctx.ResolveUserRegion(new SystemId($"sys-discriminator-{i:D4}")));
         }
 
         await Assert.That(observed.Count).IsGreaterThan(1)
@@ -104,17 +113,26 @@ public sealed class InMemoryRegionContextTests
     // short-circuited to CurrentRegion for null / empty / whitespace, and downstream
     // callers (particularly Scylla's ScyllaKeyspaceResolver.ResolveRegionalKeyspace) rely
     // on that default rather than throwing.
+    //
+    // Post-Step 3, the ordinary SystemId ctor rejects null with ArgumentNullException, so
+    // the "null Value" branch is only reachable via default(SystemId) (uninitialised
+    // struct, nullable GetValueOrDefault, etc.). Empty and whitespace remain constructible
+    // via the ordinary ctor — SystemId doesn't enforce a non-blank invariant, only
+    // non-null. All three shapes are pinned so a refactor to a single guard clause can't
+    // silently drop one branch.
     // ------------------------------------------------------------------------------------
 
     [Test]
-    public async Task NullInput_FallsBackToCurrentRegion()
+    public async Task DefaultSystemId_FallsBackToCurrentRegion()
     {
         var ctx = new InMemoryRegionContext(currentRegion: ScyllaKeyspace.Eur);
 
-        var region = ctx.ResolveUserRegion(systemId: (string)null!);
+        // default(SystemId) surfaces Value == null — the one shape that would otherwise
+        // NullReferenceException inside SystemIdNormalization.StripRegionPrefix.
+        var region = ctx.ResolveUserRegion(default);
 
         await Assert.That(region).IsEqualTo(ScyllaKeyspace.Eur)
-            .Because("Null id must fall through to the constructor-supplied CurrentRegion — the ScyllaKeyspaceResolver default path depends on this and would throw otherwise.");
+            .Because("default(SystemId).Value is null — this branch must fall through to the constructor-supplied CurrentRegion. The ScyllaKeyspaceResolver default-keyspace path depends on it and would NRE otherwise.");
     }
 
     [Test]
@@ -122,10 +140,10 @@ public sealed class InMemoryRegionContextTests
     {
         var ctx = new InMemoryRegionContext(currentRegion: ScyllaKeyspace.Sam);
 
-        var region = ctx.ResolveUserRegion(string.Empty);
+        var region = ctx.ResolveUserRegion(new SystemId(string.Empty));
 
         await Assert.That(region).IsEqualTo(ScyllaKeyspace.Sam)
-            .Because("Empty id is the second IsNullOrWhiteSpace shape — pin all three (null, empty, whitespace) so a refactor to a single guard clause can't silently drop one branch.");
+            .Because("Empty id is the second IsNullOrWhiteSpace shape — pin all three (null-via-default, empty, whitespace) so a refactor to a single guard clause can't silently drop one branch.");
     }
 
     [Test]
@@ -133,29 +151,16 @@ public sealed class InMemoryRegionContextTests
     {
         var ctx = new InMemoryRegionContext(currentRegion: ScyllaKeyspace.Sas);
 
-        var region = ctx.ResolveUserRegion("   ");
+        var region = ctx.ResolveUserRegion(new SystemId("   "));
 
         await Assert.That(region).IsEqualTo(ScyllaKeyspace.Sas)
             .Because("Whitespace-only id completes the IsNullOrWhiteSpace matrix.");
     }
 
-    // ------------------------------------------------------------------------------------
-    // The two overloads (string and SystemId) share the same implementation via delegation
-    // (SystemId overload calls the string one with .Value). Pin that delegation so a future
-    // "specialise the typed path" refactor keeps both surfaces in lockstep — otherwise a
-    // caller holding a SystemId and a caller holding its .Value could diverge.
-    // ------------------------------------------------------------------------------------
-
-    [Test]
-    public async Task TypedOverload_AgreesWithStringOverload()
-    {
-        var ctx = new InMemoryRegionContext();
-        var typed = new SystemId($"nam:{RawId}");
-
-        var fromTyped = ctx.ResolveUserRegion(typed);
-        var fromString = ctx.ResolveUserRegion(typed.Value);
-
-        await Assert.That(fromTyped).IsEqualTo(fromString)
-            .Because("The SystemId overload delegates to the string one — parity must hold so a caller that promotes a raw string to a typed SystemId at some ingress boundary doesn't accidentally hop to a different partition.");
-    }
+    // Note: the historical `TypedOverload_AgreesWithStringOverload` parity test is gone —
+    // Step 3 removed the string overload from IRegionContext, so the two-surface parity it
+    // guarded no longer exists to test. The invariant it stood in for (a raw string and
+    // its SystemId wrapper resolve to the same region) is now type-enforced: there is
+    // exactly one overload and it accepts only SystemId, so a caller CAN'T route through
+    // two different code paths.
 }

@@ -29,8 +29,8 @@ internal static class ScyllaSharedQueries
             return null;
         }
 
-        var normalizedViewerSystemId = keyspaceResolver.NormalizeTyped(viewerSystemId.Value);
-        if (keyspaceResolver.NormalizeTyped(ownerSystemId) == normalizedViewerSystemId)
+        var normalizedViewerSystemId = keyspaceResolver.NormalizeSystemId(viewerSystemId.Value);
+        if (keyspaceResolver.NormalizeSystemId(ownerSystemId) == normalizedViewerSystemId)
         {
             return FriendshipLevel.TrustedFriend;
         }

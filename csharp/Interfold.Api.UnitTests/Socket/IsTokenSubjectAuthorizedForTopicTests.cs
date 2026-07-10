@@ -1,4 +1,5 @@
 using Interfold.Api.Socket;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Socket;
 
@@ -20,9 +21,27 @@ namespace Interfold.Api.UnitTests.Socket;
 /// </para>
 ///
 /// <para>
-/// This suite pins the tolerance matrix so a future edit that drops the normalisation
-/// (regressing to raw string equality) breaks in the fast unit-test tier before it can hide
-/// again inside a 30-second WebSocket timeout.
+/// Step 5 of the strong-typing rescan tightened the helper's contract to
+/// <see cref="ScopedSystemId"/> on the sub side and <see cref="SystemId"/> on the topic
+/// side. The historical "raw sub × raw topic" tolerance the pre-Step-5 helper encoded is
+/// now a rejection at <see cref="ScopedSystemId.TryParseScoped"/> (the caller in
+/// <c>IsSocketJoinTokenAuthorizedAsync</c> returns <c>InvalidSocketTokenSubject</c> and
+/// never reaches this helper); the rejection-matrix coverage moved upstream to
+/// <c>ScopedSystemIdTests.TryParseScoped_InvalidInputs_ReturnsFalse</c>, whose
+/// <c>[Arguments]</c> table pins every rejection shape the middleware also rejects
+/// (null / blank / bare id / empty region / bare prefix / unknown region tag / non-region
+/// discriminator prefix). That means the six "raw sub" or "malformed sub" cases the pre-
+/// Step-5 suite carried are now type-unreachable and have been deleted — a raw-string sub
+/// simply can't be constructed as a call argument any more.
+/// </para>
+///
+/// <para>
+/// What remains here is the actual comparison contract: scoped-sub vs raw/scoped topic
+/// tolerance (topics still arrive in either shape from clients), cross-region tolerance,
+/// same-shape identity rejection, and the two null guards. The suite pins the tolerance
+/// matrix so a future edit that drops the normalisation (regressing to raw string
+/// equality) breaks in the fast unit-test tier before it can hide again inside a 30-
+/// second WebSocket timeout.
 /// </para>
 /// </summary>
 public sealed class IsTokenSubjectAuthorizedForTopicTests
@@ -33,140 +52,117 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     private const string RawId = "sys-abcdef0123456789";
 
     // ------------------------------------------------------------------------------------
-    // The tolerance matrix: raw/scoped sub × raw/scoped topic must all accept when the raw
-    // ids match. These four cells are the whole point of the helper.
+    // The tolerance matrix: scoped sub × raw/scoped topic. The pre-Step-5 raw-sub cells
+    // are gone (type-unreachable via ScopedSystemId?), so the 4-cell matrix collapses to
+    // these 2 rows.
     // ------------------------------------------------------------------------------------
-
-    [Test]
-    public async Task RawSub_RawTopic_SameId_IsAuthorized()
-    {
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(RawId, RawId);
-        await Assert.That(authorized).IsTrue()
-            .Because("Raw sub against raw topic id must remain the baseline pass — this shape is what the join gate saw pre-Slice-4 and it must still work.");
-    }
 
     [Test]
     public async Task ScopedSub_RawTopic_SameRawId_IsAuthorized()
     {
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic($"nam:{RawId}", RawId);
-        await Assert.That(authorized).IsTrue()
-            .Because("Post-Slice-4 JWTs carry a scoped nam:sys-... sub while the socket topic stays raw — this is the exact shape that used to 401 the loopback endpoint proxy path.");
-    }
+        var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
+        var topic = new SystemId(RawId);
 
-    [Test]
-    public async Task RawSub_ScopedTopic_SameRawId_IsAuthorized()
-    {
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(RawId, $"nam:{RawId}");
+        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
+
         await Assert.That(authorized).IsTrue()
-            .Because("Mirror of the scoped-sub case — the gate must be symmetric so a legacy raw-sub client hitting a scoped topic (or a future scoped-topic client) doesn't 401.");
+            .Because("Post-Slice-4 JWTs carry a scoped nam:sys-... sub while the socket topic stays raw — this is the exact shape that used to 401 the loopback endpoint proxy path and that Slice-4 fixed by strip-tolerant equality.");
     }
 
     [Test]
     public async Task ScopedSub_ScopedTopic_SameRawId_IsAuthorized()
     {
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic($"nam:{RawId}", $"nam:{RawId}");
+        var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
+        var topic = new SystemId($"nam:{RawId}");
+
+        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
+
         await Assert.That(authorized).IsTrue()
-            .Because("Scoped-on-both-sides is the wire shape once every client is post-Slice-4 — must pass without special casing.");
+            .Because("Scoped-on-both-sides is the wire shape once every client sends fully-qualified topics — the topic-side StripRegionPrefix collapses onto RawId and equality holds.");
     }
 
     // ------------------------------------------------------------------------------------
-    // Cross-region: the helper strips ANY known region prefix on either side, so the same
-    // raw id under different regions still authorises. This matches SystemTopic.IdMatches
-    // and InProcessEventBus.PublishAsync — no region gate lives here.
+    // Cross-region: the topic-side strip peels ANY known region prefix, so the same raw id
+    // under different regions still authorises. This matches SystemTopic.IdMatches and
+    // InProcessEventBus.PublishAsync — no region gate lives here.
     // ------------------------------------------------------------------------------------
 
     [Test]
     public async Task ScopedSub_DifferentRegionOnTopic_SameRawId_IsAuthorized()
     {
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic($"nam:{RawId}", $"eur:{RawId}");
+        var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
+        var topic = new SystemId($"eur:{RawId}");
+
+        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
+
         await Assert.That(authorized).IsTrue()
-            .Because("Region is stripped from both sides. Enforcing region equality is not this helper's job — that's what the region-context lookup / persistence layer decides.");
+            .Because("Region is stripped from the topic side (sub side already carries an authoritative RawId). Enforcing region equality is not this helper's job — that's what the region-context lookup / persistence layer decides.");
     }
 
     // ------------------------------------------------------------------------------------
-    // The negative cases: different raw ids must fail, regardless of prefix combination.
-    // These pin the "still actually checking identity" contract so the tolerance can't
-    // decay into "always true".
+    // The negative cases: different raw ids must fail, regardless of the topic's prefix
+    // shape. These pin the "still actually checking identity" contract so the tolerance
+    // can't decay into "always true".
     // ------------------------------------------------------------------------------------
-
-    [Test]
-    public async Task RawSub_RawTopic_DifferentIds_IsRejected()
-    {
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(RawId, "sys-someone-else");
-        await Assert.That(authorized).IsFalse()
-            .Because("Raw != raw with different ids must still fail — the tolerance is a region strip, not a wildcard.");
-    }
 
     [Test]
     public async Task ScopedSub_RawTopic_DifferentRawIds_IsRejected()
     {
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic($"nam:{RawId}", "sys-someone-else");
+        var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
+        var topic = new SystemId("sys-someone-else");
+
+        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
+
         await Assert.That(authorized).IsFalse()
-            .Because("Stripping nam: from the sub must not collapse into equality with an unrelated raw topic id.");
+            .Because("Sub's RawId and topic's stripped RawId must actually match — the strip on either side is a canonicalisation, not a wildcard.");
     }
 
     [Test]
     public async Task ScopedSub_ScopedTopic_DifferentRawIds_IsRejected()
     {
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic($"nam:{RawId}", "nam:sys-someone-else");
+        var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
+        var topic = new SystemId("nam:sys-someone-else");
+
+        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
+
         await Assert.That(authorized).IsFalse()
-            .Because("Same region prefix on both sides must not mask a raw-id mismatch.");
+            .Because("Same region prefix on the topic side must not mask a raw-id mismatch.");
     }
 
     // ------------------------------------------------------------------------------------
-    // StripRegionPrefix is conservative: only recognised region tags (nam/eur/sam/sas/eas/
-    // ocn/gdpr) are stripped. An unrecognised prefix stays in place, which means a
-    // "foo:bar" sub is compared verbatim to the topic. Pin this so an accidental widening
-    // of the strip (e.g. "strip anything before the first colon") is caught here.
+    // Defence-in-depth: null inputs on either side return false rather than throwing. The
+    // upstream caller in IsSocketJoinTokenAuthorizedAsync already returns
+    // InvalidSocketTokenSubject on a null-scoped-sub (TryParseScoped failed) and never
+    // enters this helper with a null topic (SystemTopic.TryParse-fail branch passes null
+    // and the caller returns UnauthorizedTopic without invoking us). But keeping the
+    // guards means unit tests / any future non-socket caller doesn't need to hand-craft a
+    // "non-null" precondition.
+    //
+    // Note: the pre-Step-5 sub-side null/empty/whitespace/unknown-prefix rejection tests
+    // are gone — those inputs can't be constructed as a ScopedSystemId in the first place.
+    // See ScopedSystemIdTests.TryParseScoped_InvalidInputs_ReturnsFalse for the moved-
+    // upstream rejection matrix.
     // ------------------------------------------------------------------------------------
 
     [Test]
-    public async Task UnknownRegionPrefix_OnSub_IsNotStripped_And_MismatchRejected()
+    public async Task NullScopedSub_IsRejected()
     {
-        // "foo" is not a recognised region tag, so the sub stays "foo:sys-..." verbatim.
-        // The topic is the bare raw id — they don't match under ordinal comparison.
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic($"foo:{RawId}", RawId);
-        await Assert.That(authorized).IsFalse()
-            .Because("An unknown prefix like 'foo:' must not be stripped — StripRegionPrefix only recognises the seven canonical region tags, and widening that would let arbitrary discriminator prefixes silently pass the gate.");
-    }
+        var topic = new SystemId(RawId);
 
-    // ------------------------------------------------------------------------------------
-    // Defence-in-depth: null / empty inputs return false rather than throwing. The
-    // upstream caller in IsSocketJoinTokenAuthorizedAsync already checks for a missing sub
-    // and returns InvalidSocketTokenSubject, but the helper being robust to null on its
-    // own means unit tests that hit it in isolation don't need to hand-craft a "non-null"
-    // guard on every call.
-    // ------------------------------------------------------------------------------------
+        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(tokenSubject: null, requestedSystemId: topic);
 
-    [Test]
-    public async Task NullTokenSubject_IsRejected()
-    {
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(tokenSubject: null, requestedSystemId: RawId);
         await Assert.That(authorized).IsFalse()
-            .Because("Null sub can never authorise — the upstream gate treats this as InvalidSocketTokenSubject, and the helper must not accidentally normalise-away into equality with a whitespace requested id.");
-    }
-
-    [Test]
-    public async Task EmptyTokenSubject_IsRejected()
-    {
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(tokenSubject: string.Empty, requestedSystemId: RawId);
-        await Assert.That(authorized).IsFalse()
-            .Because("Empty sub is semantically equivalent to null here — reject rather than fall through to a false positive after strip.");
-    }
-
-    [Test]
-    public async Task WhitespaceTokenSubject_IsRejected()
-    {
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(tokenSubject: "   ", requestedSystemId: RawId);
-        await Assert.That(authorized).IsFalse()
-            .Because("Whitespace-only sub is the third IsNullOrWhiteSpace shape — pin all three so a refactor to a single guard clause can't drop one.");
+            .Because("Null scoped-sub can never authorise — the upstream gate treats a failed TryParseScoped as InvalidSocketTokenSubject and returns before we're called, and the defence-in-depth null guard here is what backs that upstream contract for any future caller.");
     }
 
     [Test]
     public async Task NullRequestedSystemId_IsRejected()
     {
-        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(tokenSubject: RawId, requestedSystemId: null);
+        var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
+
+        var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(tokenSubject: scopedSub, requestedSystemId: null);
+
         await Assert.That(authorized).IsFalse()
-            .Because("A null requested id (non-system topic, or SystemTopic.TryParse returning false) must not authorise — mirror the sub-side guard.");
+            .Because("A null requested id (non-system topic, or SystemTopic.TryParse returning false) must not authorise — mirror the sub-side null guard.");
     }
 }

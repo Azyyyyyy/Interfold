@@ -46,7 +46,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             // Read old username to maintain lookup table
             var oldRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT username FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId))).FirstOrDefault();
+                normalizedSystemId.Value))).FirstOrDefault();
             var oldUsername = oldRow?.GetValue<string?>("username");
 
             var batch = new BatchStatement();
@@ -58,11 +58,11 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 // Scylla previously only issued UPDATE, leaving ShowAlter to 404 system_not_found.
                 batch.Add(new SimpleStatement(
                     $"INSERT INTO {keyspace}.users (id, username, inserted_at, updated_at) VALUES (?, ?, toTimestamp(now()), toTimestamp(now()))",
-                    normalizedSystemId,
+                    normalizedSystemId.Value,
                     username.Value));
                 batch.Add(new SimpleStatement(
                     $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry (user_id, username, region, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
-                    normalizedSystemId,
+                    normalizedSystemId.Value,
                     username.Value,
                     keyspace));
             }
@@ -70,10 +70,10 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             {
                 batch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.users SET username = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                    username.Value, normalizedSystemId));
+                    username.Value, normalizedSystemId.Value));
                 batch.Add(new SimpleStatement(
                     $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET username = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
-                    username.Value, normalizedSystemId));
+                    username.Value, normalizedSystemId.Value));
             }
 
             // Remove old lookup entry
@@ -90,10 +90,10 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             {
                 batch.Add(new SimpleStatement(
                     $"INSERT INTO {keyspace}.users_by_username (username, user_id) VALUES (?, ?)",
-                    username.Value, normalizedSystemId));
+                    username.Value, normalizedSystemId.Value));
                 batch.Add(new SimpleStatement(
                     $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry_by_username (username, user_id, region) VALUES (?, ?, ?)",
-                    username.Value, normalizedSystemId, keyspace));
+                    username.Value, normalizedSystemId.Value, keyspace));
             }
 
             await session.ExecuteAsync(batch);
@@ -112,7 +112,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             var statement = new SimpleStatement(
                 $"UPDATE {keyspace}.users SET description = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 description,
-                normalizedSystemId
+                normalizedSystemId.Value
             );
 
             await session.ExecuteAsync(statement);
@@ -132,7 +132,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 $"UPDATE {keyspace}.users SET avatar_url = ?, avatar_source = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 avatarUrl.Value,
                 source.ToCode(),
-                normalizedSystemId
+                normalizedSystemId.Value
             );
 
             await session.ExecuteAsync(statement);
@@ -153,7 +153,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 $"UPDATE {keyspace}.users SET avatar_url = ?, avatar_source = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 null,
                 null,
-                normalizedSystemId
+                normalizedSystemId.Value
             );
 
             await session.ExecuteAsync(statement);
@@ -167,7 +167,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
         // Compose is idempotent on already-scoped inputs; the extra safety net is why we're
         // routing every partition-key composition through it in Slice 4.
-        var scopedSystemId = ScopedSystemId.Compose(keyspace, normalizedSystemId).Value;
+        var scopedSystemId = ScopedSystemId.Compose(keyspace, normalizedSystemId.Value).Value;
         var systemKey = scopedSystemId;
         var now = DateTimeOffset.UtcNow;
 
@@ -198,7 +198,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var systemKey = ScopedSystemId.Compose(keyspace, normalizedSystemId).Value;
+        var systemKey = ScopedSystemId.Compose(keyspace, normalizedSystemId.Value).Value;
         var now = DateTimeOffset.UtcNow;
 
         lock (_linkTokenLock)
@@ -253,7 +253,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var systemKey = ScopedSystemId.Compose(keyspace, normalizedSystemId).Value;
+        var systemKey = ScopedSystemId.Compose(keyspace, normalizedSystemId.Value).Value;
 
         lock (_linkTokenLock)
         {
@@ -307,7 +307,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             // Fetch identity fields to clean up lookup tables
             var userRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT id, discord_id, email, username, apple_id, google_id FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId))).FirstOrDefault();
+                normalizedSystemId.Value))).FirstOrDefault();
 
             if (userRow is null)
             {
@@ -315,8 +315,8 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             }
             
             var deleteBatch = new BatchStatement();
-            deleteBatch.Add(new SimpleStatement($"DELETE FROM {keyspace}.users WHERE id = ?", normalizedSystemId));
-            deleteBatch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE user_id = ?", normalizedSystemId));
+            deleteBatch.Add(new SimpleStatement($"DELETE FROM {keyspace}.users WHERE id = ?", normalizedSystemId.Value));
+            deleteBatch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE user_id = ?", normalizedSystemId.Value));
 
             // Clean up denormalized identity lookup tables
             var identityColumns = new[] { "discord_id", "email", "username", "apple_id", "google_id" };
@@ -346,7 +346,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             var profileQuery = new SimpleStatement(
                 $"SELECT username, avatar_url, avatar_source, description, discord_id, email, apple_id FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId
+                normalizedSystemId.Value
             );
 
             var profile = (await session.ExecuteAsync(profileQuery)).FirstOrDefault();
@@ -356,7 +356,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             }
 
             return new AccountPublicProfileReadModel(
-                new SystemId(normalizedSystemId),
+                normalizedSystemId,
                 profile.GetValue<string?>("username") is { } username ? new Username(username) : null,
                 profile.GetValue<string?>("description"),
                 AvatarUrl.FromNullable(profile.GetValue<string?>("avatar_url")),
@@ -389,9 +389,9 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             if (row is not null)
             {
-                var userId = NormalizeRegistryUserId(row.GetValue<string>("user_id"));
+                var userId = NormalizeRegistryUserId(new SystemId(row.GetValue<string>("user_id")));
                 var region = row.GetValue<string?>("region") ?? _keyspaceResolver.DefaultKeyspace;
-                return ScopedSystemId.Compose(region, userId).AsSystemId();
+                return ScopedSystemId.Compose(region, userId.Value).AsSystemId();
             }
 
             return null;
@@ -458,13 +458,20 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    private string NormalizeRegistryUserId(string userId)
+    // The three-step fixed-point loop exists because SystemIdNormalization.StripRegionPrefix
+    // strips at most one leading region tag per call; a legacy row that somehow carried a
+    // double-prefixed value ("nam:nam:abcdefg") would otherwise slip through with the outer
+    // prefix intact. The bounded loop keeps the guard cheap without introducing a while-true
+    // whose termination depends on the input length. Retyped SystemId→SystemId in Step 2 so
+    // callers no longer round-trip through string; the fixed-point compare is now the record
+    // struct's ordinal equality on the underlying value.
+    private SystemId NormalizeRegistryUserId(SystemId userId)
     {
         var normalized = userId;
         for (var i = 0; i < 3; i++)
         {
             var next = _keyspaceResolver.NormalizeSystemId(normalized);
-            if (string.Equals(next, normalized, StringComparison.Ordinal))
+            if (next == normalized)
             {
                 break;
             }
@@ -492,7 +499,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             if (owner is { } typedOwner && !string.IsNullOrWhiteSpace(typedOwner.Value))
             {
                 var normalizedOwner = NormalizeRegistryUserId(_keyspaceResolver.NormalizeSystemId(typedOwner));
-                if (!string.Equals(normalizedOwner, normalizedSystemId, StringComparison.Ordinal))
+                if (normalizedOwner != normalizedSystemId)
                 {
                     return AccountLinkResult.UserExists;
                 }
@@ -500,7 +507,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             var userRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT id, {columnName} FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId))).FirstOrDefault();
+                normalizedSystemId.Value))).FirstOrDefault();
 
             if (userRow is null)
             {
@@ -517,20 +524,20 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             linkBatch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 value,
-                normalizedSystemId));
+                normalizedSystemId.Value));
             linkBatch.Add(new SimpleStatement(
                 $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
                 value,
-                normalizedSystemId));
+                normalizedSystemId.Value));
             // Maintain denormalized lookup tables
             linkBatch.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.users_by_{columnName} ({columnName}, user_id) VALUES (?, ?)",
                 value,
-                normalizedSystemId));
+                normalizedSystemId.Value));
             linkBatch.Add(new SimpleStatement(
                 $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry_by_{columnName} ({columnName}, user_id, region) VALUES (?, ?, ?)",
                 value,
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 keyspace));
             await session.ExecuteAsync(linkBatch);
 
@@ -549,18 +556,18 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             // Read old value to delete from lookup tables
             var oldRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT {columnName} FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId))).FirstOrDefault();
+                normalizedSystemId.Value))).FirstOrDefault();
             var oldValue = oldRow?.GetValue<string?>(columnName);
 
             var unlinkBatch = new BatchStatement();
             unlinkBatch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 null,
-                normalizedSystemId));
+                normalizedSystemId.Value));
             unlinkBatch.Add(new SimpleStatement(
                 $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
                 null,
-                normalizedSystemId));
+                normalizedSystemId.Value));
 
             // Remove from denormalized lookup tables if old value existed
             if (!string.IsNullOrWhiteSpace(oldValue))

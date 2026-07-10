@@ -47,7 +47,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
             var query = new SimpleStatement(
                 $"SELECT alter_id FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ? LIMIT 1",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 alterId.ToStorageShort()
             );
 
@@ -74,7 +74,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var startBatch = new BatchStatement();
             startBatch.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.current_fronts (user_id, alter_id, id, comment, time_start, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 alterId.ToStorageShort(),
                 frontGuid,
                 comment,
@@ -84,7 +84,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             ));
             startBatch.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.fronts (user_id, id, alter_id, comment, time_start, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 frontGuid,
                 alterId.ToStorageShort(),
                 comment,
@@ -95,7 +95,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             // Maintain fronts_by_alter denormalized table
             startBatch.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.fronts_by_alter (user_id, alter_id, id, comment, time_start, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 alterId.ToStorageShort(),
                 frontGuid,
                 comment,
@@ -117,7 +117,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
-            var current = await GetCurrentFrontRowAsync(session, keyspace, new SystemId(normalizedSystemId), alterId);
+            var current = await GetCurrentFrontRowAsync(session, keyspace, normalizedSystemId, alterId);
             if (current is null)
             {
                 return false;
@@ -126,7 +126,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             // Prefetch primary_front to include it in batch
             var primaryRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT primary_front FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId))).FirstOrDefault();
+                normalizedSystemId.Value))).FirstOrDefault();
             var primaryAlterId = AlterId.FromStorageInt(primaryRow?.GetValue<int?>("primary_front"));
 
             var endBatch = new BatchStatement();
@@ -134,32 +134,32 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 $"UPDATE {keyspace}.fronts SET time_end = ?, updated_at = ? WHERE user_id = ? AND id = ? AND time_start = ?",
                 endedAt,
                 endedAt,
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 current.FrontId,
                 current.StartedAt));
             endBatch.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ?",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 alterId.ToStorageShort()));
             // Maintain fronts_by_alter (update time_end)
             endBatch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.fronts_by_alter SET time_end = ?, updated_at = ? WHERE user_id = ? AND alter_id = ? AND id = ? AND time_start = ?",
-                endedAt, endedAt, normalizedSystemId, alterId.ToStorageShort(), current.FrontId, current.StartedAt));
+                endedAt, endedAt, normalizedSystemId.Value, alterId.ToStorageShort(), current.FrontId, current.StartedAt));
             // Insert into fronts_by_time (only on close)
             endBatch.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.fronts_by_time (user_id, time_start, time_end, id, alter_id, comment, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                normalizedSystemId, current.StartedAt, endedAt, current.FrontId, alterId.ToStorageShort(), current.Comment, endedAt, endedAt));
+                normalizedSystemId.Value, current.StartedAt, endedAt, current.FrontId, alterId.ToStorageShort(), current.Comment, endedAt, endedAt));
             // Insert into fronts_by_end_time (only on close)
             endBatch.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.fronts_by_end_time (user_id, time_end, time_start, id, alter_id, comment, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                normalizedSystemId, endedAt, current.StartedAt, current.FrontId, alterId.ToStorageShort(), current.Comment, endedAt, endedAt));
+                normalizedSystemId.Value, endedAt, current.StartedAt, current.FrontId, alterId.ToStorageShort(), current.Comment, endedAt, endedAt));
             
             // Batch the conditional UPDATE into the same batch if needed
             if (primaryAlterId == alterId)
             {
                 endBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.users SET primary_front = null, updated_at = toTimestamp(now()) WHERE id = ?",
-                    normalizedSystemId));
+                    normalizedSystemId.Value));
             }
             
             await session.ExecuteAsync(endBatch);
@@ -180,7 +180,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             {
                 var frontingRow = (await session.ExecuteAsync(new SimpleStatement(
                     $"SELECT alter_id FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ? LIMIT 1",
-                    normalizedSystemId,
+                    normalizedSystemId.Value,
                     id.ToStorageShort()))).FirstOrDefault();
                 if (frontingRow is null)
                 {
@@ -190,14 +190,14 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 await session.ExecuteAsync(new SimpleStatement(
                     $"UPDATE {keyspace}.users SET primary_front = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                     id.ToStorageInt(),
-                    normalizedSystemId));
+                    normalizedSystemId.Value));
 
                 return true;
             }
 
             await session.ExecuteAsync(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET primary_front = null, updated_at = toTimestamp(now()) WHERE id = ?",
-                normalizedSystemId));
+                normalizedSystemId.Value));
 
             return true;
         }, _options, cancellationToken, _logger);
@@ -217,17 +217,17 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             // Parallelize the independent SELECT queries
             var primaryTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT primary_front FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId
+                normalizedSystemId.Value
             ));
             
             var activeTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT alter_id, id, comment, time_start FROM {keyspace}.current_fronts WHERE user_id = ?",
-                normalizedSystemId
+                normalizedSystemId.Value
             ));
             
             var altersTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT id, name, avatar_url, avatar_source, description, color, fields, pronouns, pinned FROM {keyspace}.alters WHERE user_id = ?",
-                normalizedSystemId));
+                normalizedSystemId.Value));
 
             await Task.WhenAll(primaryTask, activeTask, altersTask);
 
@@ -263,7 +263,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                         row.GetValue<string?>("comment"),
                         timeStart,
                         null,
-                        new SystemId(normalizedSystemId));
+                        normalizedSystemId);
 
                     if (!alterById.TryGetValue(alterId, out var alter))
                     {
@@ -292,7 +292,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var friendshipLevel = await ResolveFriendshipLevelAsync(session, normalizedSystemId, viewerSystemId);
+            var friendshipLevel = await ResolveFriendshipLevelAsync(session, normalizedSystemId.Value, viewerSystemId);
 
             var all = await ListActiveAsync(systemId, cancellationToken);
             if (all.Count == 0)
@@ -302,7 +302,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
             var securityRows = await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT id, security_level FROM {keyspace}.alters WHERE user_id = ?",
-                normalizedSystemId));
+                normalizedSystemId.Value));
 
             var visibilityByAlterId = securityRows.ToDictionary(
                 row => new AlterId(row.GetValue<short>("id")),
@@ -330,7 +330,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
             var historyQuery = new SimpleStatement(
                 $"SELECT id, alter_id, comment, time_start, time_end FROM {keyspace}.fronts_by_time WHERE user_id = ? AND time_start >= ? AND time_start <= ?",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 startInclusive,
                 endInclusive
             );
@@ -343,7 +343,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                     row.GetValue<string?>("comment"),
                     row.GetValue<DateTimeOffset>("time_start"),
                     row.GetValue<DateTimeOffset?>("time_end"),
-                    new SystemId(normalizedSystemId)))
+                    normalizedSystemId))
                 .Where(x => x.TimeEnd != null)
                 .ToList();
 
@@ -368,7 +368,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             // Identify the alter for this specific front record
             var frontRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT alter_id FROM {keyspace}.fronts WHERE user_id = ? AND id = ? LIMIT 1 ALLOW FILTERING",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 frontGuid))).FirstOrDefault();
 
             if (frontRow is null)
@@ -382,15 +382,15 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             // Parallelize the three remaining targeted lookups
             var currentTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT id, alter_id, comment, time_start FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ? LIMIT 1",
-                normalizedSystemId, alterId));
+                normalizedSystemId.Value, alterId));
 
             var alterTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT id, name, avatar_url, avatar_source, description, color, fields, pronouns, pinned FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
-                normalizedSystemId, alterId));
+                normalizedSystemId.Value, alterId));
 
             var primaryTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT primary_front FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId));
+                normalizedSystemId.Value));
 
             await Task.WhenAll(currentTask, alterTask, primaryTask);
 
@@ -426,7 +426,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 currentRow.GetValue<string?>("comment"),
                 timeStart,
                 null,
-                new SystemId(normalizedSystemId));
+                normalizedSystemId);
 
             return new FrontActiveReadModel(alter, front, primaryAlterId == AlterId.FromStorageShort(alterId));
         }, _options, cancellationToken, _logger);
@@ -442,7 +442,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
             var row = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT id, alter_id, comment, time_start, time_end FROM {keyspace}.fronts WHERE user_id = ? AND id = ? LIMIT 1 ALLOW FILTERING",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 Guid.Parse(frontId.Value)))).FirstOrDefault();
 
             if (row is null)
@@ -454,7 +454,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 row.GetValue<string?>("comment"),
                 row.GetValue<DateTimeOffset>("time_start"),
                 row.GetValue<DateTimeOffset?>("time_end"),
-                new SystemId(normalizedSystemId));
+                normalizedSystemId);
         }, _options, cancellationToken, _logger);
     }
 
@@ -471,7 +471,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
-            var current = await GetActiveFrontReferenceByFrontIdAsync(session, keyspace, new SystemId(normalizedSystemId), frontGuid);
+            var current = await GetActiveFrontReferenceByFrontIdAsync(session, keyspace, normalizedSystemId, frontGuid);
             if (current is null)
             {
                 return false;
@@ -479,7 +479,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
             var primaryRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT primary_front FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId))).FirstOrDefault();
+                normalizedSystemId.Value))).FirstOrDefault();
             var primaryAlterId = AlterId.FromStorageInt(primaryRow?.GetValue<int?>("primary_front"));
 
             var endedAt = DateTimeOffset.UtcNow;
@@ -489,31 +489,31 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 $"UPDATE {keyspace}.fronts SET time_end = ?, updated_at = ? WHERE user_id = ? AND id = ? AND time_start = ?",
                 endedAt,
                 endedAt,
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 current.FrontId,
                 current.StartedAt));
             endBatch.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ?",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 current.AlterId));
             // Maintain fronts_by_alter (update time_end)
             endBatch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.fronts_by_alter SET time_end = ?, updated_at = ? WHERE user_id = ? AND alter_id = ? AND id = ? AND time_start = ?",
-                endedAt, endedAt, normalizedSystemId, current.AlterId, current.FrontId, current.StartedAt));
+                endedAt, endedAt, normalizedSystemId.Value, current.AlterId, current.FrontId, current.StartedAt));
             // Insert into fronts_by_time (only on close)
             endBatch.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.fronts_by_time (user_id, time_start, time_end, id, alter_id, comment, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                normalizedSystemId, current.StartedAt, endedAt, current.FrontId, current.AlterId, current.Comment, endedAt, endedAt));
+                normalizedSystemId.Value, current.StartedAt, endedAt, current.FrontId, current.AlterId, current.Comment, endedAt, endedAt));
             // Insert into fronts_by_end_time (only on close)
             endBatch.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.fronts_by_end_time (user_id, time_end, time_start, id, alter_id, comment, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                normalizedSystemId, endedAt, current.StartedAt, current.FrontId, current.AlterId, current.Comment, endedAt, endedAt));
+                normalizedSystemId.Value, endedAt, current.StartedAt, current.FrontId, current.AlterId, current.Comment, endedAt, endedAt));
 
             if (primaryAlterId == AlterId.FromStorageShort(current.AlterId))
             {
                 endBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.users SET primary_front = null, updated_at = toTimestamp(now()) WHERE id = ?",
-                    normalizedSystemId));
+                    normalizedSystemId.Value));
             }
 
             await session.ExecuteAsync(endBatch);
@@ -531,7 +531,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
             var row = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT alter_id, time_start, time_end FROM {keyspace}.fronts WHERE user_id = ? AND id = ? LIMIT 1 ALLOW FILTERING",
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 Guid.Parse(frontId.Value)))).FirstOrDefault();
 
             if (row is null)
@@ -543,10 +543,10 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var frontGuid = Guid.Parse(frontId.Value);
 
             // Prefetch current front and primary info to batch operations
-            var currentRow = await GetCurrentFrontRowAsync(session, keyspace, new SystemId(normalizedSystemId), alterId);
+            var currentRow = await GetCurrentFrontRowAsync(session, keyspace, normalizedSystemId, alterId);
             var primaryRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT primary_front FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId))).FirstOrDefault();
+                normalizedSystemId.Value))).FirstOrDefault();
             var primaryAlterId = AlterId.FromStorageInt(primaryRow?.GetValue<int?>("primary_front"));
 
             // Build batch for all delete/update operations
@@ -557,33 +557,33 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             {
                 deleteBatch.Add(new SimpleStatement(
                     $"DELETE FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ?",
-                    normalizedSystemId, alterId.ToStorageShort()));
+                    normalizedSystemId.Value, alterId.ToStorageShort()));
                 
                 if (primaryAlterId == alterId)
                 {
                     deleteBatch.Add(new SimpleStatement(
                         $"UPDATE {keyspace}.users SET primary_front = null, updated_at = toTimestamp(now()) WHERE id = ?",
-                        normalizedSystemId));
+                        normalizedSystemId.Value));
                 }
             }
 
             // Delete from base fronts table
             deleteBatch.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.fronts WHERE user_id = ? AND id = ? AND time_start = ?",
-                normalizedSystemId, frontGuid, timeStart));
+                normalizedSystemId.Value, frontGuid, timeStart));
             // Delete from fronts_by_alter
             deleteBatch.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.fronts_by_alter WHERE user_id = ? AND alter_id = ? AND id = ? AND time_start = ?",
-                normalizedSystemId, alterId.ToStorageShort(), frontGuid, timeStart));
+                normalizedSystemId.Value, alterId.ToStorageShort(), frontGuid, timeStart));
             // Delete from fronts_by_time and fronts_by_end_time (only present if front was closed)
             if (timeEnd.HasValue)
             {
                 deleteBatch.Add(new SimpleStatement(
                     $"DELETE FROM {keyspace}.fronts_by_time WHERE user_id = ? AND time_start = ? AND time_end = ? AND id = ?",
-                    normalizedSystemId, timeStart, timeEnd.Value, frontGuid));
+                    normalizedSystemId.Value, timeStart, timeEnd.Value, frontGuid));
                 deleteBatch.Add(new SimpleStatement(
                     $"DELETE FROM {keyspace}.fronts_by_end_time WHERE user_id = ? AND time_end = ? AND time_start = ? AND id = ?",
-                    normalizedSystemId, timeEnd.Value, timeStart, frontGuid));
+                    normalizedSystemId.Value, timeEnd.Value, timeStart, frontGuid));
             }
             
             await session.ExecuteAsync(deleteBatch);
@@ -605,7 +605,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
-            var current = await GetActiveFrontReferenceByFrontIdAsync(session, keyspace, new SystemId(normalizedSystemId), frontGuid);
+            var current = await GetActiveFrontReferenceByFrontIdAsync(session, keyspace, normalizedSystemId, frontGuid);
             if (current is null)
                 return false;
 
@@ -613,19 +613,19 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             commentBatch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.current_fronts SET comment = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND alter_id = ?",
                 comment,
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 current.AlterId
             ));
             commentBatch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.fronts SET comment = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ? AND time_start = ?",
                 comment,
-                normalizedSystemId,
+                normalizedSystemId.Value,
                 current.FrontId,
                 current.StartedAt));
             // Maintain fronts_by_alter comment
             commentBatch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.fronts_by_alter SET comment = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND alter_id = ? AND id = ? AND time_start = ?",
-                comment, normalizedSystemId, current.AlterId, current.FrontId, current.StartedAt));
+                comment, normalizedSystemId.Value, current.AlterId, current.FrontId, current.StartedAt));
             await session.ExecuteAsync(commentBatch);
             return true;
         }, _options, cancellationToken, _logger);

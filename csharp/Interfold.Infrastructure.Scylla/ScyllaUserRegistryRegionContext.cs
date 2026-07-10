@@ -49,9 +49,13 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         _currentRegion = new Lazy<ScyllaKeyspace>(() => _options.ScyllaKeyspace);
     }
 
-    public ScyllaKeyspace ResolveUserRegion(SystemId systemId) => ResolveUserRegion(systemId.Value);
+    public ScyllaKeyspace ResolveUserRegion(SystemId systemId) => ResolveUserRegionCore(systemId.Value);
 
-    public ScyllaKeyspace ResolveUserRegion(string systemId)
+    // Private string-typed core so the internal helpers (HandleForLookup, LookupAsync,
+    // StoreInCache, TryParseRegion) and the still-string-typed public sibling APIs
+    // (ResolveUserRegionAsync, RegisterRegion) can all share one implementation while the
+    // interface surface presents only the typed SystemId overload post-Step 3.
+    private ScyllaKeyspace ResolveUserRegionCore(string systemId)
     {
         if (string.IsNullOrWhiteSpace(systemId))
             return CurrentRegion;

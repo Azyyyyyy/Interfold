@@ -41,10 +41,18 @@ public static async Task HandleUserSocketAsync(HttpContext context)
         return;
     }
 
-    var token = context.Request.Query[SocketQueryKeys.Token].ToString();
-    logger.LogInformation("Token from query string length: {TokenLength}", token?.Length ?? 0);
-    
-    if (string.IsNullOrWhiteSpace(token))
+    // Wrap the raw query-string value in SocketToken at the boundary. Every hop from here
+    // through the socket-join and endpoint-proxy paths carries the typed wrapper so an
+    // accidental $"{token}" interpolation (structured log, debug string) goes through
+    // SocketToken.ToString() and gets redacted instead of leaking the JWT. The wrapper is
+    // unwrapped via .Value in exactly three sites: the two IsNullOrWhiteSpace guards below
+    // (guards, not logs — no leak risk), the framework's JwtSecurityTokenHandler string-only
+    // API in IsSocketJoinTokenAuthorizedAsync, and the final Authorization: Bearer header
+    // write in HandleEndpointProxyAsync which needs the raw value on the wire.
+    var token = new SocketToken(context.Request.Query[SocketQueryKeys.Token].ToString());
+    logger.LogInformation("Token from query string length: {TokenLength}", token.Value.Length);
+
+    if (string.IsNullOrWhiteSpace(token.Value))
     {
         logger.LogWarning("Missing or empty token in query string");
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -150,7 +158,12 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 || TryParseLooseVersion(joinPayload.ProtocolVersion, out protocolVersion);
 
             var isSystemTopic = SystemTopic.TryParse(topic, out var requestedTopic);
-            var requestedSystemId = isSystemTopic ? requestedTopic.Id.Value : string.Empty;
+            // SystemId? mirrors the joinedSystemId idiom on line 71 — null means "no
+            // system topic on this join" and gates the downstream sub-vs-topic comparison
+            // via the helper's IsNullOrWhiteSpace guard. Pre-Step-4 this was a raw string
+            // that laundered through .Value → string.Empty → new SystemId(...) at the
+            // rate-limit site three lines below; the round-trip is gone.
+            SystemId? requestedSystemId = isSystemTopic ? requestedTopic.Id : null;
             var (tokenAuthorized, tokenAuthFailureReason) = await IsSocketJoinTokenAuthorizedAsync(
                 context,
                 token,
@@ -171,10 +184,10 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                         sendGate);
             }
             else if (isSystemTopic
-                && string.Equals(payloadToken.Value, token, StringComparison.Ordinal)
+                && payloadToken == token
                 && tokenAuthorized)
             {
-                if (!rateLimiter.Allow(new SystemId(requestedSystemId)))
+                if (!rateLimiter.Allow(requestedTopic.Id))
                 {
                     await SendPhoenixReplyAsync(
                         socket,
@@ -376,7 +389,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
 static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     HttpContext websocketContext,
     JsonElement? payload,
-    string socketToken,
+    SocketToken socketToken,
     SystemId? joinedSystemId)
 {
     if (payload is null || payload.Value.ValueKind != JsonValueKind.Object)
@@ -461,7 +474,11 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     // origin, not the loopback dial target — anything reading `Request.Host` for URL
     // qualification (`QualifyAvatar`, OAuth callbacks) would otherwise emit unreachable URLs.
     request.Headers.Host = websocketContext.Request.Host.Value;
-    request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {socketToken}");
+    // Wire-format unwrap: this is the single site in the file (paired with the JWT
+    // framework calls in IsSocketJoinTokenAuthorizedAsync) where SocketToken.Value is
+    // exposed. Interpolating the wrapper itself would emit the redacted `abcd…` form and
+    // authentication would fail — the actual JWT must go on the wire verbatim.
+    request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {socketToken.Value}");
     request.Headers.TryAddWithoutValidation("Accept", "application/json");
 
     if (joinedSystemId is { } principal && !string.IsNullOrWhiteSpace(principal.Value))
@@ -546,32 +563,55 @@ internal static string ResolveLoopbackBaseUri(ICollection<string>? addresses)
 /// bare id, and the pump-side push routing already tolerates the scoped/raw split via
 /// <c>SystemTopic.IdMatches</c> and via the publisher-side filter in
 /// <c>InProcessEventBus.PublishAsync</c> (see that method's lines 80-96 for the mirror
-/// rationale). This helper is the third and previously-missing comparison site that has to
-/// agree on what "same principal" means — without it, a scoped-sub JWT joining a raw-topic
-/// channel 401s at the socket layer even though the middleware + pump would both accept it.
+/// rationale). This helper is the third comparison site that has to agree on what "same
+/// principal" means — without it, a scoped-sub JWT joining a raw-topic channel 401s at
+/// the socket layer even though the middleware + pump would both accept it.
 /// </para>
 /// <para>
-/// Marked <c>internal</c> so the unit test project can drive the four token/topic prefix
-/// shapes directly rather than having to spin up a full <c>WebApplicationFactory</c>.
+/// Step 5 of the strong-typing rescan closes the middleware/socket divergence at the type
+/// level: the <c>ScopedSystemId?</c> first parameter can only be produced by
+/// <see cref="ScopedSystemId.TryParseScoped"/>, which is the identical parse call
+/// <c>InterfoldPrincipalMiddleware.ResolvePrincipalId</c> performs on the HTTP path.
+/// A raw, unscoped, or unknown-region-prefix sub simply cannot be passed here — the
+/// caller in <c>IsSocketJoinTokenAuthorizedAsync</c> returns <c>InvalidSocketTokenSubject</c>
+/// on the parse-fail branch, mirroring the middleware's 401. That means the historical
+/// "raw sub × raw topic" tolerance the helper used to encode is now a
+/// <see cref="ScopedSystemIdTests.TryParseScoped"/> rejection instead — the rejection
+/// matrix moved upstream to where it can be enforced by construction.
+/// </para>
+/// <para>
+/// Sub-side normalisation reads <see cref="ScopedSystemId.RawId"/> directly (the bare id
+/// pre-stripped by <see cref="ScopedSystemId.TryParseScoped"/>). Topic-side normalisation
+/// keeps <see cref="SystemIdNormalization.StripRegionPrefix"/> because <c>SystemTopic.TryParse</c>
+/// wraps whatever the client put after <c>system:</c> into a bare <c>SystemId</c>, which
+/// can still arrive raw <b>or</b> scoped depending on the client.
+/// </para>
+/// <para>
+/// Marked <c>internal</c> so the unit test project can drive the scoped-sub × raw/scoped-
+/// topic matrix directly rather than having to spin up a full <c>WebApplicationFactory</c>.
 /// </para>
 /// </summary>
-internal static bool IsTokenSubjectAuthorizedForTopic(string? tokenSubject, string? requestedSystemId)
+internal static bool IsTokenSubjectAuthorizedForTopic(
+    ScopedSystemId? tokenSubject,
+    SystemId? requestedSystemId)
 {
-    if (string.IsNullOrWhiteSpace(tokenSubject) || string.IsNullOrWhiteSpace(requestedSystemId))
+    if (tokenSubject is null
+        || requestedSystemId is null
+        || string.IsNullOrWhiteSpace(requestedSystemId.Value.Value))
     {
         return false;
     }
 
     return string.Equals(
-        SystemIdNormalization.StripRegionPrefix(tokenSubject),
-        SystemIdNormalization.StripRegionPrefix(requestedSystemId),
+        tokenSubject.Value.RawId,
+        SystemIdNormalization.StripRegionPrefix(requestedSystemId.Value.Value),
         StringComparison.Ordinal);
 }
 
 static async Task<(bool IsAuthorized, ErrorCode? FailureReason)> IsSocketJoinTokenAuthorizedAsync(
     HttpContext context,
-    string token,
-    string requestedSystemId,
+    SocketToken token,
+    SystemId? requestedSystemId,
     CancellationToken cancellationToken)
 {
     var authConfig = context.RequestServices
@@ -580,16 +620,21 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason)> IsSocketJoinTok
     var logger = context.RequestServices.GetRequiredService<ILoggerFactory>()
         .CreateLogger("WebSocketTokenAuth");
 
-    if (string.IsNullOrWhiteSpace(token))
+    if (string.IsNullOrWhiteSpace(token.Value))
     {
         logger.LogWarning("Token is empty or whitespace");
         return (false, ErrorCodes.SocketReasons.MissingSocketToken);
     }
 
     logger.LogInformation("Validating token. RequestedSystemId: {SystemId}", requestedSystemId);
-    
+
+    // The three .Value unwraps below are the JWT framework survival points:
+    // JwtSecurityTokenHandler.CanReadToken, ValidateToken, and the SignatureValidator
+    // callback are all typed as `string` by Microsoft.IdentityModel and can't take the
+    // wrapper. Everything else in this method — logging, comparisons, error return —
+    // uses the redacted-by-default typed value.
     var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
-    if (!handler.CanReadToken(token))
+    if (!handler.CanReadToken(token.Value))
     {
         logger.LogWarning("Handler cannot read token");
         return (false, ErrorCodes.SocketReasons.InvalidSocketToken);
@@ -608,27 +653,38 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason)> IsSocketJoinTok
         ClockSkew = TimeSpan.FromMinutes(1),
         ValidateIssuerSigningKey = false,
         RequireSignedTokens = true,
-        SignatureValidator = (socketToken, validationParameters) =>
-            ValidateJwtTokenSignatureForSocket(socketToken, validationParameters, authConfig),
+        // Framework hands the raw string back to us via this callback; forward straight to
+        // the ES256 verifier. Renamed from `socketToken` so this local can't be confused
+        // with the outer typed `token` — the framework's string leg is deliberately narrow.
+        SignatureValidator = (frameworkRawToken, validationParameters) =>
+            ValidateJwtTokenSignatureForSocket(frameworkRawToken, validationParameters, authConfig),
         NameClaimType = JwtClaimNames.Sub
     };
 
     try
     {
         logger.LogInformation("Starting token validation");
-        var principal = handler.ValidateToken(token, parameters, out _);
-        var tokenSystemId = principal.FindFirstValue(JwtClaimNames.Sub);
-        
+        var principal = handler.ValidateToken(token.Value, parameters, out _);
+        var tokenSub = principal.FindFirstValue(JwtClaimNames.Sub);
+
         logger.LogInformation("Token validated. TokenSystemId: {TokenSub}, RequestedSystemId: {RequestedSub}",
-            tokenSystemId, requestedSystemId);
-            
-        if (string.IsNullOrWhiteSpace(tokenSystemId))
+            tokenSub, requestedSystemId);
+
+        // Mirror InterfoldPrincipalMiddleware.ResolvePrincipalId: the HTTP path 401s on any
+        // JWT whose sub is not in scoped {region}:{rawId} shape (see the middleware's xml-doc
+        // for the Slice-4 rationale). Post-Step-5, the socket path applies the identical
+        // parse so a legacy or hand-crafted unscoped-sub token can't authorise a socket join
+        // it would fail on any subsequent HTTP call. TryParseScoped rejects null, blank,
+        // no-colon, bare-colon, and unknown-region-prefix inputs — the exact rejection
+        // matrix the middleware uses. Downstream the helper is typed as ScopedSystemId?, so
+        // "you must parse the sub first" is enforced by the compiler, not by convention.
+        if (!ScopedSystemId.TryParseScoped(tokenSub, out var scopedSub))
         {
-            logger.LogWarning("Token subject (sub) claim is missing or empty");
+            logger.LogWarning("Token subject (sub) claim is missing, unscoped, or has an unknown region prefix");
             return (false, ErrorCodes.SocketReasons.InvalidSocketTokenSubject);
         }
 
-        if (!IsTokenSubjectAuthorizedForTopic(tokenSystemId, requestedSystemId))
+        if (!IsTokenSubjectAuthorizedForTopic(scopedSub, requestedSystemId))
         {
             logger.LogWarning("Token subject does not match requested system ID");
             return (false, ErrorCodes.SocketReasons.UnauthorizedTopic);

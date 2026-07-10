@@ -59,8 +59,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
                 return null;
             }
 
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
-            var normalizedViewerSystemId = _keyspaceResolver.NormalizeTyped(viewerSystemId.Value);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedViewerSystemId = _keyspaceResolver.NormalizeSystemId(viewerSystemId.Value);
 
             if (normalizedSystemId == normalizedViewerSystemId)
             {
@@ -83,7 +83,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var profileHydrationConcurrency = _options.HydrationMaxConcurrency;
 
             var query = new SimpleStatement(
@@ -120,8 +120,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
-            var normalizedFriendSystemId = _keyspaceResolver.NormalizeTyped(friendSystemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedFriendSystemId = _keyspaceResolver.NormalizeSystemId(friendSystemId);
 
             var query = new SimpleStatement(
                 $"SELECT friend_id, level, since FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
@@ -151,8 +151,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
-            var normalizedFriendId = _keyspaceResolver.NormalizeTyped(friendSystemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedFriendId = _keyspaceResolver.NormalizeSystemId(friendSystemId);
 
             var exists = await ExistsFriendshipAsync(session, normalizedSystemId, normalizedFriendId);
             if (!exists)
@@ -188,8 +188,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
-            var normalizedFriendSystemId = _keyspaceResolver.NormalizeTyped(friendSystemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedFriendSystemId = _keyspaceResolver.NormalizeSystemId(friendSystemId);
 
             var exists = await ExistsFriendshipAsync(session, normalizedSystemId, normalizedFriendSystemId);
             if (!exists)
@@ -219,7 +219,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var profileHydrationConcurrency = _options.HydrationMaxConcurrency;
 
             var incomingTask = session.ExecuteAsync(new SimpleStatement(
@@ -268,8 +268,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
-            var normalizedTargetSystemId = _keyspaceResolver.NormalizeTyped(targetSystemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedTargetSystemId = _keyspaceResolver.NormalizeSystemId(targetSystemId);
 
             var resolvedTargetUserId = await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId.Value, cancellationToken);
             if (resolvedTargetUserId is null)
@@ -304,8 +304,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
-            var normalizedSourceSystemId = _keyspaceResolver.NormalizeTyped(sourceSystemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedSourceSystemId = _keyspaceResolver.NormalizeSystemId(sourceSystemId);
 
             var resolvedSourceUserId = await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId.Value, cancellationToken);
             if (resolvedSourceUserId is null)
@@ -334,8 +334,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
-            var normalizedSourceSystemId = _keyspaceResolver.NormalizeTyped(sourceSystemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedSourceSystemId = _keyspaceResolver.NormalizeSystemId(sourceSystemId);
 
             var resolvedSourceUserId = await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId.Value, cancellationToken);
             if (resolvedSourceUserId is null)
@@ -364,8 +364,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
-            var normalizedTargetSystemId = _keyspaceResolver.NormalizeTyped(targetSystemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var normalizedTargetSystemId = _keyspaceResolver.NormalizeSystemId(targetSystemId);
 
             var resolvedTargetUserId = await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId.Value, cancellationToken);
             if (resolvedTargetUserId is null)
@@ -394,7 +394,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeTyped(systemId);
+            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
 
             // Find all friendships for this user
             var friendsTask = session.ExecuteAsync(new SimpleStatement(

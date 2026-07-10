@@ -83,13 +83,18 @@ public sealed class AuthController : OAuthControllerBase
     [HttpPost("revoke")]
     public async Task<IActionResult> RevokeToken()
     {
-        var jti = User.FindFirst(JwtClaimNames.Jti)?.Value;
-        if (string.IsNullOrWhiteSpace(jti))
+        // Step 7 cleanup: Jti.From wraps the possibly-null JWT claim in one call so the
+        // null check operates on the typed Jti?, not on a bare string local. Pre-Step-7
+        // the raw jti string stayed alive across the null-check / error-return boundary
+        // and any incidental log statement in that window would leak the token id
+        // verbatim through raw-string interpolation.
+        var jti = Jti.From(User.FindFirst(JwtClaimNames.Jti)?.Value);
+        if (jti is null)
         {
             return BadRequest(new ErrorResponse("Token is missing JTI claim.", ErrorCodes.InvalidToken));
         }
 
-        await _tokenRevocation.RevokeTokenAsync(new Interfold.Contracts.Ids.Jti(jti), HttpContext.RequestAborted);
+        await _tokenRevocation.RevokeTokenAsync(jti.Value, HttpContext.RequestAborted);
 
         Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthRevokeToken.Value;
         return NoContent();

@@ -75,13 +75,19 @@ public sealed class AuthLinkController : OAuthControllerBase
         if (EnumWireExtensions.TryParseOAuthProvider(provider) is not { } oauthProvider)
             return UnsupportedProviderResponse(provider);
 
-        var linkToken = await GetValueAsync(OAuthQueryKeys.LinkToken) ?? Request.Cookies[LinkTokenCookieName];
-        if (string.IsNullOrWhiteSpace(linkToken))
+        // Step 7 cleanup: LinkToken.From wraps the query-or-cookie fallback in one call so
+        // the null check operates on the typed LinkToken?, not on a bare string local. The
+        // null-coalescing chain preserves its shape (query first, cookie second, .From
+        // consumes the possibly-null result). Pre-Step-7 the raw link-token string stayed
+        // alive across the null-check / error-return boundary; a redirect-log or exception-
+        // message-containing-locals in that window would leak the token verbatim.
+        var linkToken = LinkToken.From(await GetValueAsync(OAuthQueryKeys.LinkToken) ?? Request.Cookies[LinkTokenCookieName]);
+        if (linkToken is null)
         {
             return StatusCode(StatusCodes.Status403Forbidden, "This link token is invalid or has expired.");
         }
 
-        var resolvedSystemId = await _accounts.ResolveSystemIdByLinkTokenAsync(new Interfold.Contracts.Ids.LinkToken(linkToken), HttpContext.RequestAborted);
+        var resolvedSystemId = await _accounts.ResolveSystemIdByLinkTokenAsync(linkToken.Value, HttpContext.RequestAborted);
         if (string.IsNullOrWhiteSpace(resolvedSystemId?.Value))
         {
             Response.Cookies.Delete(LinkTokenCookieName);

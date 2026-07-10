@@ -31,6 +31,19 @@ public readonly record struct LinkToken
     }
 
     public override string ToString() => SecretRedaction.Redact(Value);
+
+    /// <summary>
+    /// Wrap a nullable raw string, returning <c>null</c> for null / empty / whitespace so the
+    /// caller's null check runs on the typed <see cref="LinkToken"/>? rather than on a bare
+    /// <c>string?</c> local. Step 7 of the strong-typing rescan added this so the immediate-
+    /// wrap-adjacent-to-null-check idiom is encoded once here rather than duplicated at every
+    /// call site (previously the pattern was
+    /// <c>var s = ...; if (IsNullOrWhiteSpace(s)) return 403; ... new LinkToken(s)</c>, where
+    /// any incidental log statement in the two-line window between guard and wrap could
+    /// leak the raw token). Total function \u2014 no throw path.
+    /// </summary>
+    public static LinkToken? From(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : new LinkToken(value);
 }
 
 internal sealed class LinkTokenJsonConverter : JsonConverter<LinkToken>
@@ -139,6 +152,18 @@ public readonly record struct Jti
     }
 
     public override string ToString() => SecretRedaction.Redact(Value);
+
+    /// <summary>
+    /// Wrap a nullable raw string, returning <c>null</c> for null / empty / whitespace so the
+    /// caller's null check runs on the typed <see cref="Jti"/>? rather than on a bare
+    /// <c>string?</c> local. Step 7 of the strong-typing rescan added this for the
+    /// <c>AuthController.RevokeToken</c> JWT-claim extraction path, where the pre-Step-7
+    /// shape kept the raw JTI string alive as a local across the null-check / error-return
+    /// boundary; any incidental log statement in that window would leak the token id
+    /// verbatim through raw-string interpolation. Total function \u2014 no throw path.
+    /// </summary>
+    public static Jti? From(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : new Jti(value);
 }
 
 internal sealed class JtiJsonConverter : JsonConverter<Jti>

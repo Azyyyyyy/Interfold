@@ -31,14 +31,18 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
         // Mint a unique principal — this becomes the system id throughout the test. The
         // synthetic prefix makes leaked rows easy to spot if a future regression drops
         // the cleanup. CreateAlterAsync also ensures the system + users row exist.
-        var systemId = $"sys-null-ts-{Guid.NewGuid():N}"[..32];
-        var alterIdInt = await CreateAlterAsync(client, systemId, "synthetic-alter");
+        var rawSystemId = $"sys-null-ts-{Guid.NewGuid():N}"[..32];
+        var systemId = new Interfold.Contracts.Ids.SystemId(rawSystemId);
+        var alterIdInt = await CreateAlterAsync(client, rawSystemId, "synthetic-alter");
         var alterId = (short)alterIdInt;
 
         var keyspaceResolver = factory.Services.GetRequiredService<IScyllaKeyspaceResolver>();
         var sessionProvider = factory.Services.GetRequiredService<IScyllaSessionProvider>();
         var frontingRepo = factory.Services.GetRequiredService<IFrontingRepository>();
 
+        // Step 2 of the strong-typing rescan retyped these interface members to take
+        // SystemId directly (NormalizeSystemId now returns SystemId too); the CQL bind
+        // below unwraps once via .Value at the storage boundary.
         var normalizedSystemId = keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = keyspaceResolver.ResolveRegionalKeyspace(systemId);
         var session = await sessionProvider.GetSessionAsync();
@@ -52,7 +56,7 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
         // the Step 3 fix.
         await session.ExecuteAsync(new SimpleStatement(
             $"INSERT INTO {keyspace}.current_fronts (user_id, alter_id, id, comment, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            normalizedSystemId,
+            normalizedSystemId.Value,
             alterId,
             frontGuid,
             "synthetic-corrupt-row",
@@ -60,14 +64,14 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
             insertedAt));
 
         var endedAt = DateTimeOffset.UtcNow;
-        var endResult = await frontingRepo.EndAsync(new Interfold.Contracts.Ids.SystemId(systemId), new Interfold.Contracts.Ids.AlterId(alterIdInt), endedAt);
+        var endResult = await frontingRepo.EndAsync(systemId, new Interfold.Contracts.Ids.AlterId(alterIdInt), endedAt);
 
         // Pull every fronts_by_time row for this synthetic user. With the fix in place
         // GetCurrentFrontRowAsync returns null on the null time_start and EndAsync bails
         // out before touching fronts_by_time at all, so the result set must be empty.
         var historyRows = (await session.ExecuteAsync(new SimpleStatement(
             $"SELECT time_start FROM {keyspace}.fronts_by_time WHERE user_id = ?",
-            normalizedSystemId))).ToList();
+            normalizedSystemId.Value))).ToList();
 
         using (Assert.Multiple())
         {
