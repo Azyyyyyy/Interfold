@@ -94,12 +94,21 @@ public abstract class InterfoldControllerBase : ControllerBase
     /// <summary>
     /// Source-aware avatar qualification: prepends the server origin only when the avatar
     /// is locally hosted (<see cref="AvatarSource.Local"/>). External URLs are passed
-    /// through verbatim, and a null source (no avatar set) is returned unchanged.
+    /// through verbatim, and a null / blank input is returned unchanged.
+    ///
+    /// <para>
+    /// Round-2 Commit 10 (canvas #10): the untyped
+    /// <c>QualifyAvatar(string? url, AvatarSource?)</c> sibling has been deleted. Every
+    /// consumer (FriendsController, FriendRequestsController, AltersController,
+    /// PublicSystemsController) now reads from typed read models — <c>BareAlter.AvatarUrl</c>,
+    /// <c>FriendshipReadModel.Friend.AvatarUrl</c>, <c>AccountPublicProfileReadModel.AvatarUrl</c>
+    /// are all <see cref="AvatarUrl"/>? post-Commit-2, and the socket handlers dispatch
+    /// through <c>AvatarUrlQualifier.QualifyAvatar</c> directly with the typed argument. The
+    /// deletion removes the "which overload did the compiler pick?" footgun where an
+    /// untyped raw-string source could silently bind to the string overload and return the
+    /// wrong wrapper shape when the caller later assigned the result.
+    /// </para>
     /// </summary>
-    protected string? QualifyAvatar(string? url, AvatarSource? source)
-        => AvatarUrlQualifier.QualifyAvatar(url, source, Request.Scheme, Request.Host);
-
-    /// <summary>Typed overload of <see cref="QualifyAvatar(string?, AvatarSource?)"/>.</summary>
     protected AvatarUrl? QualifyAvatar(AvatarUrl? url, AvatarSource? source)
         => AvatarUrlQualifier.QualifyAvatar(url, source, Request.Scheme, Request.Host);
 

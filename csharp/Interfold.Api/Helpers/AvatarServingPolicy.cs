@@ -32,7 +32,7 @@ namespace Interfold.Api.Helpers;
 ///       path-only → serve. The API is the canonical origin for the bytes; the
 ///       <c>RequestPath</c> derives from the <c>AvatarPublicBase</c> (or the
 ///       <c>defaultPublicBase</c> fallback when blank) so the URLs returned by
-///       <see cref="AvatarUrlQualifier.QualifyAvatar(string?, Interfold.Contracts.Enums.AvatarSource?, string, Microsoft.AspNetCore.Http.HostString)"/>
+///       <see cref="AvatarUrlQualifier.QualifyAvatar(Interfold.Contracts.Ids.AvatarUrl?, Interfold.Contracts.Enums.AvatarSource?, string, Microsoft.AspNetCore.Http.HostString)"/>
 ///       line up exactly with what
 ///       <see cref="Microsoft.AspNetCore.Builder.StaticFileExtensions.UseStaticFiles(Microsoft.AspNetCore.Builder.IApplicationBuilder, Microsoft.AspNetCore.Builder.StaticFileOptions)"/>
 ///       matches.
