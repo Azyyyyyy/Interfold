@@ -13,7 +13,12 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 
 public sealed class ScyllaAccountRepository : IAccountRepository
 {
-    private readonly record struct LinkTokenEntry(string ScopedSystemId, DateTimeOffset ExpiresAt);
+    // Round-2 Commit 9 (canvas #18): retyped the value field from `string ScopedSystemId`
+    // to the typed `ScopedSystemId Scoped`. The InMemory sibling already carried the typed
+    // shape — this closes the last string-leak in the two link-token entry types so the
+    // reverse-map read at ResolveSystemIdByLinkTokenAsync can hand back a wrapper without
+    // re-wrapping the raw string through `new SystemId(entry.ScopedSystemId)`.
+    private readonly record struct LinkTokenEntry(ScopedSystemId Scoped, DateTimeOffset ExpiresAt);
 
     private static readonly TimeSpan LinkTokenTtl = TimeSpan.FromMinutes(5);
     private readonly object _linkTokenLock = new();
@@ -166,9 +171,12 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
         // Compose is idempotent on already-scoped inputs; the extra safety net is why we're
-        // routing every partition-key composition through it in Slice 4.
-        var scopedSystemId = ScopedSystemId.Compose(keyspace, normalizedSystemId.Value).Value;
-        var systemKey = scopedSystemId;
+        // routing every partition-key composition through it in Slice 4. Round-2 Commit 9:
+        // hold the typed ScopedSystemId locally so the new LinkTokenEntry(...) constructor
+        // hits its typed slot without a string round-trip; the string systemKey is retained
+        // here only because _linkTokenBySystem is still string-keyed until Commit 12.
+        var scoped = ScopedSystemId.Compose(keyspace, normalizedSystemId.Value);
+        var systemKey = scoped.Value;
         var now = DateTimeOffset.UtcNow;
 
         lock (_linkTokenLock)
@@ -188,7 +196,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             var token = Guid.NewGuid().ToString();
             _linkTokenBySystem[systemKey] = token;
-            _systemByLinkToken[token] = new LinkTokenEntry(scopedSystemId, now.Add(LinkTokenTtl));
+            _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkTokenTtl));
 
             return Task.FromResult(new LinkToken(token));
         }
@@ -232,7 +240,10 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         {
             if (_systemByLinkToken.TryGetValue(linkToken.Value, out var entry) && entry.ExpiresAt > now)
             {
-                return Task.FromResult<SystemId?>(new SystemId(entry.ScopedSystemId));
+                // Round-2 Commit 9: entry.Scoped is now the typed wrapper — AsSystemId
+                // widens to the IAccountRepository SystemId? contract without the
+                // pre-Round-2 raw `new SystemId(entry.ScopedSystemId)` re-wrap.
+                return Task.FromResult<SystemId?>(entry.Scoped.AsSystemId());
             }
 
             _systemByLinkToken.TryRemove(linkToken.Value, out _);

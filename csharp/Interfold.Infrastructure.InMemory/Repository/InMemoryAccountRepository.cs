@@ -184,13 +184,17 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(new SystemId(scopedSystemId));
         }
 
+        // Round-2 Commit 9: hold the ScopedSystemId typed locally so EnsureEncryptionSaltForSystem
+        // (which now takes ScopedSystemId per canvas #21) receives the wrapper directly, and the
+        // return can widen through AsSystemId without the pre-Round-2 raw `.Value` → `new SystemId(...)`
+        // round-trip. The _systemByDiscord dict is still string-valued until Commit 12.
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNewSystemId = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId).Value;
+        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
         _discordBySystem[newSystemId] = discordId.Value;
-        _systemByDiscord[discordId.Value] = scopedNewSystemId;
+        _systemByDiscord[discordId.Value] = scopedNew.Value;
 
-        EnsureEncryptionSaltForSystem(scopedNewSystemId);
-        return Task.FromResult<SystemId?>(new SystemId(scopedNewSystemId));
+        EnsureEncryptionSaltForSystem(scopedNew);
+        return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
     }
 
     public Task<SystemId?> FindSystemIdByEmailAsync(Email email, CancellationToken cancellationToken = default)
@@ -205,13 +209,14 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(new SystemId(scopedSystemId));
         }
 
+        // Round-2 Commit 9: see FindOrCreateSystemIdByDiscordIdAsync above for rationale.
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNewSystemId = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId).Value;
+        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
         _emailBySystem[newSystemId] = email.Value;
-        _systemByEmail[email.Value] = scopedNewSystemId;
+        _systemByEmail[email.Value] = scopedNew.Value;
 
-        EnsureEncryptionSaltForSystem(scopedNewSystemId);
-        return Task.FromResult<SystemId?>(new SystemId(scopedNewSystemId));
+        EnsureEncryptionSaltForSystem(scopedNew);
+        return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
     }
 
     public Task<SystemId?> FindSystemIdByAppleIdAsync(AppleId appleId, CancellationToken cancellationToken = default)
@@ -226,13 +231,14 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(new SystemId(scopedSystemId));
         }
 
+        // Round-2 Commit 9: see FindOrCreateSystemIdByDiscordIdAsync above for rationale.
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNewSystemId = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId).Value;
+        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
         _appleBySystem[newSystemId] = appleId.Value;
-        _systemByApple[appleId.Value] = scopedNewSystemId;
+        _systemByApple[appleId.Value] = scopedNew.Value;
 
-        EnsureEncryptionSaltForSystem(scopedNewSystemId);
-        return Task.FromResult<SystemId?>(new SystemId(scopedNewSystemId));
+        EnsureEncryptionSaltForSystem(scopedNew);
+        return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
     }
 
     public Task<AccountLinkResult> LinkDiscordToUserAsync(SystemId systemId, DiscordId discordId, CancellationToken cancellationToken = default)
@@ -407,13 +413,26 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return AccountLinkResult.Success;
     }
 
-    private void EnsureEncryptionSaltForSystem(string scopedSystemId)
+    /// <summary>
+    /// Seed a per-system encryption salt at first-touch by the FindOrCreate paths.
+    ///
+    /// <para>
+    /// Round-2 Commit 9 (canvas #21): retyped the parameter from <c>string
+    /// scopedSystemId</c> to <see cref="ScopedSystemId"/>. Pre-Round-2 the three call
+    /// sites all owned a typed <see cref="ScopedSystemId"/> local and had to unwrap it
+    /// to <c>.Value</c> at the boundary, only for this method to re-wrap it via
+    /// <c>new SystemId(scopedSystemId)</c> for the <see cref="IEncryptionStateRepository.UpsertAsync"/>
+    /// call. The wrapper eliminates that string round-trip and pins the "the caller
+    /// already resolved this to a scoped composite" invariant at the type level.
+    /// </para>
+    /// </summary>
+    private void EnsureEncryptionSaltForSystem(ScopedSystemId scoped)
     {
         if (_encryptionStates is null)
             return;
 
         var saltBytes = RandomNumberGenerator.GetBytes(32);
         var salt = Convert.ToBase64String(saltBytes);
-        _ = _encryptionStates.UpsertAsync(new SystemId(scopedSystemId), false, null, new EncryptionSalt(salt), CancellationToken.None);
+        _ = _encryptionStates.UpsertAsync(scoped.AsSystemId(), false, null, new EncryptionSalt(salt), CancellationToken.None);
     }
 }
