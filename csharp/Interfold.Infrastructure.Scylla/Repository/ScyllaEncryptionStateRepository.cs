@@ -32,9 +32,15 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
+            // Bind SystemId.Value (the raw string), not the SystemId struct itself. The Cassandra
+            // C# driver's params-object[] path has no serializer for SystemId; passing the struct
+            // relies on Object.ToString() being called by the driver's fallback path, which today
+            // happens to equal SystemId.Value but is not contractually guaranteed. Sibling repos
+            // (ScyllaNotificationTokenRepository:37, ScyllaSharedQueries:40) already use .Value —
+            // this call site (and its two UPSERT siblings below) was drift.
             var query = new SimpleStatement(
                 $"SELECT encryption_initialized, encryption_key_checksum, salt FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId
+                normalizedSystemId.Value
             );
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
@@ -62,7 +68,7 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
                     $"UPDATE {keyspace}.users SET encryption_initialized = ?, encryption_key_checksum = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                     initialized,
                     keyChecksum?.Value,
-                    normalizedSystemId
+                    normalizedSystemId.Value
                 );
             }
             else
@@ -72,7 +78,7 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
                     initialized,
                     keyChecksum?.Value,
                     newSalt.Value,
-                    normalizedSystemId
+                    normalizedSystemId.Value
                 );
             }
 
