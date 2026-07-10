@@ -44,10 +44,23 @@ public interface IClusterEventBus
     /// Events whose type does not implement <see cref="ITargetedClusterEvent"/> bypass filtering
     /// and are delivered to all subscribers regardless of their scoping value.
     /// </para>
+    /// <para>
+    /// Round-2 Commit 13 (canvas #24): promoted from <c>SystemId?</c> to <see cref="ScopedSystemId"/>?
+    /// so the subscription-side and publisher-side representations are the same shape at
+    /// compile time. The publisher-side <see cref="ITargetedClusterEvent.TargetSystemId"/> is
+    /// already <see cref="ScopedSystemId"/> (post-Slice-4), so a raw <see cref="SystemId"/>
+    /// subscription target had to be normalised at every publish tick through
+    /// <c>SystemIdNormalization.StripRegionPrefix</c> to avoid a scoped-vs-raw mismatch. The
+    /// asymmetry was documented and load-bearing but was a real bug vector: any subscriber
+    /// that ever supplied a scoped <see cref="SystemId"/> (e.g. via
+    /// <see cref="ScopedSystemId.AsSystemId"/>) without stripping would silently miss every
+    /// delivery. Making both sides speak the scoped composite closes the vector by
+    /// construction.
+    /// </para>
     /// The stream completes when <paramref name="ct"/> is cancelled.
     /// </summary>
     IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(
-        SystemId? targetSystemId,
+        ScopedSystemId? targetSystemId,
         CancellationToken ct = default)
         where TEvent : class;
 }

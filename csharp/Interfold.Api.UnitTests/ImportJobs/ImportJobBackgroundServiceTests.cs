@@ -273,7 +273,8 @@ public sealed class ImportJobBackgroundServiceTests
             return ValueTask.CompletedTask;
         }
 
-        public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(Interfold.Contracts.Ids.SystemId? targetSystemId, CancellationToken ct = default)
+        // Round-2 Commit 13 (canvas #24): SubscribeAsync now takes ScopedSystemId?.
+        public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(Interfold.Contracts.Ids.ScopedSystemId? targetSystemId, CancellationToken ct = default)
             where TEvent : class => EmptyAsync<TEvent>();
 
         private static async IAsyncEnumerable<T> EmptyAsync<T>()

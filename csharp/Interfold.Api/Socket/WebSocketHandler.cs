@@ -164,7 +164,13 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             // that laundered through .Value → string.Empty → new SystemId(...) at the
             // rate-limit site three lines below; the round-trip is gone.
             SystemId? requestedSystemId = isSystemTopic ? requestedTopic.Id : null;
-            var (tokenAuthorized, tokenAuthFailureReason) = await IsSocketJoinTokenAuthorizedAsync(
+            // Round-2 Commit 13 (canvas #24): the third tuple element (`scopedSub`) is the
+            // parsed ScopedSystemId? extracted from the JWT sub inside the helper. Feeding
+            // it into SocketPushContext.JoinedScopedSystemId means the socket event pump
+            // subscribes with the scoped composite instead of the raw topic id, matching
+            // the wire shape of every ITargetedClusterEvent.TargetSystemId and letting the
+            // bus PublishAsync filter compare scoped-to-scoped directly.
+            var (tokenAuthorized, tokenAuthFailureReason, scopedSub) = await IsSocketJoinTokenAuthorizedAsync(
                 context,
                 token,
                 requestedSystemId,
@@ -217,9 +223,16 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 // becomes a no-op rather than spinning a second pump / second SocketPushContext.
                 if (Interlocked.CompareExchange(ref pumpStarted, 1, 0) == 0)
                 {
+                    // Round-2 Commit 13 (canvas #24): scopedSub is the ScopedSystemId? parsed
+                    // from the JWT sub inside IsSocketJoinTokenAuthorizedAsync (see the
+                    // three-tuple destructure at line 167 for the wire-in). Threaded through
+                    // SocketPushContext into every SocketEventPumpRunner subscription so the
+                    // bus PublishAsync filter compares scoped-to-scoped and no runtime
+                    // StripRegionPrefix normalisation is needed on either side.
                     var socketPushContext = new SocketPushContext(
                         socket,
                         joinedSystemId.Value,
+                        scopedSub,
                         joinedTopics,
                         topicJoinReference,
                         topicReplyAsArrayFrame,
@@ -608,7 +621,13 @@ internal static bool IsTokenSubjectAuthorizedForTopic(
         StringComparison.Ordinal);
 }
 
-static async Task<(bool IsAuthorized, ErrorCode? FailureReason)> IsSocketJoinTokenAuthorizedAsync(
+// Round-2 Commit 13 (canvas #24): return tuple gained the parsed ScopedSystemId? so the
+// caller in HandleAsync can feed it into SocketPushContext.JoinedScopedSystemId without
+// re-parsing the JWT. The parse already happened inside this method at the TryParseScoped
+// gate, so returning it is free — pre-Round-2 the caller re-derived a raw SystemId from
+// the topic string and let InProcessEventBus.PublishAsync normalise the scoped/raw drift
+// on every publish tick. Now the scoped sub is the single source of truth end-to-end.
+static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? TokenSubject)> IsSocketJoinTokenAuthorizedAsync(
     HttpContext context,
     SocketToken token,
     SystemId? requestedSystemId,
@@ -623,7 +642,7 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason)> IsSocketJoinTok
     if (string.IsNullOrWhiteSpace(token.Value))
     {
         logger.LogWarning("Token is empty or whitespace");
-        return (false, ErrorCodes.SocketReasons.MissingSocketToken);
+        return (false, ErrorCodes.SocketReasons.MissingSocketToken, null);
     }
 
     logger.LogInformation("Validating token. RequestedSystemId: {SystemId}", requestedSystemId);
@@ -637,7 +656,7 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason)> IsSocketJoinTok
     if (!handler.CanReadToken(token.Value))
     {
         logger.LogWarning("Handler cannot read token");
-        return (false, ErrorCodes.SocketReasons.InvalidSocketToken);
+        return (false, ErrorCodes.SocketReasons.InvalidSocketToken, null);
     }
 
     logger.LogInformation("Token is readable. Verification key count: {KeyCount}", 
@@ -681,13 +700,13 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason)> IsSocketJoinTok
         if (!ScopedSystemId.TryParseScoped(tokenSub, out var scopedSub))
         {
             logger.LogWarning("Token subject (sub) claim is missing, unscoped, or has an unknown region prefix");
-            return (false, ErrorCodes.SocketReasons.InvalidSocketTokenSubject);
+            return (false, ErrorCodes.SocketReasons.InvalidSocketTokenSubject, null);
         }
 
         if (!IsTokenSubjectAuthorizedForTopic(scopedSub, requestedSystemId))
         {
             logger.LogWarning("Token subject does not match requested system ID");
-            return (false, ErrorCodes.SocketReasons.UnauthorizedTopic);
+            return (false, ErrorCodes.SocketReasons.UnauthorizedTopic, null);
         }
 
             // Round-2 Commit 4: Jti.From wraps the possibly-null JWT claim so the null-check
@@ -705,17 +724,17 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason)> IsSocketJoinTok
                 if (!isTokenValid)
                 {
                     logger.LogWarning("Token has been revoked. JTI: {Jti}", typedJti);
-                    return (false, ErrorCodes.SocketReasons.TokenRevoked);
+                    return (false, ErrorCodes.SocketReasons.TokenRevoked, null);
                 }
             }
 
             logger.LogInformation("Token authorization successful");
-            return (true, null);
+            return (true, null, scopedSub);
     }
     catch (Exception ex)
     {
         logger.LogWarning(ex, "WebSocket token validation failed: {ExceptionMessage}", ex.Message);
-        return (false, ErrorCodes.SocketReasons.InvalidSocketToken);
+        return (false, ErrorCodes.SocketReasons.InvalidSocketToken, null);
     }
 }
 

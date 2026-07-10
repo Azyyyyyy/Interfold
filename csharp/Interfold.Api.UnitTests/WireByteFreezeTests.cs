@@ -118,38 +118,83 @@ public sealed class WireByteFreezeTests
     // ---------------- 4. InProcessEventBus — idempotent routing --------------------
 
     /// <summary>
-    /// The whole point of Slice 4 for the event bus is that a subscriber joined on the
-    /// raw form still receives events published with the scoped form (and vice versa).
-    /// Before Slice 4 this was a silent-drop hazard: <c>SystemId != SystemId</c> compared
-    /// raw-vs-scoped strings byte-for-byte and dropped every non-matching pair. Now the
-    /// filter normalises through <c>SystemIdNormalization.StripRegionPrefix</c> so the
-    /// scoped/raw diagonal always routes.
+    /// Post-Round-2 Commit 13 (canvas #24): the bus's <c>Subscription.TargetSystemId</c>
+    /// is <see cref="ScopedSystemId"/>? and the publisher-side
+    /// <see cref="ITargetedClusterEvent.TargetSystemId"/> is <see cref="ScopedSystemId"/> —
+    /// the filter compares scoped-to-scoped by record-struct equality. This test pins
+    /// that a scoped-to-scoped match delivers, which is the load-bearing single-region
+    /// happy path exercised by every WebSocket push in the codebase (the socket-join
+    /// composition in <c>WebSocketHandler</c> parses the scoped composite from the JWT
+    /// sub and threads it into <c>SocketPushContext.JoinedScopedSystemId</c>, so the
+    /// subscriber-side scoped is always well-formed).
+    ///
+    /// <para>
+    /// The pre-Round-2 shape of this test asserted that a subscriber joined on the raw
+    /// <see cref="SystemId"/> still received scoped-target events via
+    /// <c>SystemIdNormalization.StripRegionPrefix</c> tolerance on both sides of the
+    /// compare. That tolerance is gone by design: the interface no longer accepts a raw
+    /// <see cref="SystemId"/> subscription target, so the raw-vs-scoped drift can't
+    /// happen. The subscriber's raw <see cref="SystemId"/> is now composed to a scoped
+    /// composite one layer up (in <c>IsSocketJoinTokenAuthorizedAsync</c>) and the bus
+    /// only ever sees the scoped shape.
+    /// </para>
     /// </summary>
     [Test]
-    public async Task InProcessEventBus_RoutesScopedAndRawInterchangeably()
+    public async Task InProcessEventBus_ScopedToScopedMatchDelivers()
     {
         using var bus = new InProcessEventBus();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
-        // Subscriber joined on the raw form — mirrors the WebSocket topic Id which is
-        // captured from the topic string ("system:sys-xxx"), i.e. without the region
-        // prefix.
+        var scopedTarget = ScopedSystemId.Compose(ScyllaKeyspace.Nam, CanonicalRaw);
         var subscriber = bus.SubscribeAsync<AlterCreatedEvent>(
-            targetSystemId: new SystemId(CanonicalRaw),
+            targetSystemId: scopedTarget,
             ct: cts.Token);
 
         var enumerator = subscriber.GetAsyncEnumerator(cts.Token);
 
-        // Publisher emits with the scoped composite — mirrors every post-Slice-4
-        // publisher that composes off command.PrincipalId.Region + raw id.
-        var scopedTarget = ScopedSystemId.Compose(ScyllaKeyspace.Nam, CanonicalRaw);
         await bus.PublishAsync(new AlterCreatedEvent(scopedTarget, new AlterId(42)), cts.Token);
 
         var moved = await enumerator.MoveNextAsync();
         await Assert.That(moved).IsTrue()
-            .Because("The scoped publish must reach a subscriber joined on the raw id — otherwise the bus silently drops every event whose publisher and subscriber disagree on the prefix, which is the Slice 4 regression this filter guards against.");
+            .Because("A scoped-to-scoped compare must deliver — this is the single-region happy path every socket push takes, so a false-negative here would silently break every WebSocket push in the codebase.");
         await Assert.That(enumerator.Current.TargetSystemId.Value).IsEqualTo(CanonicalScoped)
-            .Because("The delivered event must carry the scoped composite verbatim — the filter is region-tolerant on match, not lossy on payload.");
+            .Because("The delivered event must carry the scoped composite verbatim — the filter is match-only, not lossy on payload.");
+
+        await enumerator.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Round-2 Commit 13 (canvas #24) regression pin: a subscriber joined on one region's
+    /// scoped composite must NOT receive events published under a different region's
+    /// scoped composite even when the raw id is identical across regions. The pre-Round-2
+    /// shape of this filter used <c>SystemIdNormalization.StripRegionPrefix</c> on both
+    /// sides and would have delivered this cross-region false positive because both
+    /// sides normalise down to the same raw id — a real correctness bug the canvas
+    /// finding #24 identified as the reason to retype.
+    /// </summary>
+    [Test]
+    public async Task InProcessEventBus_CrossRegionScopedTargetsDoNotBleedAcross()
+    {
+        using var bus = new InProcessEventBus();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        var namScoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, CanonicalRaw);
+        var eurScoped = ScopedSystemId.Compose(ScyllaKeyspace.Eur, CanonicalRaw);
+
+        var subscriber = bus.SubscribeAsync<AlterCreatedEvent>(
+            targetSystemId: namScoped,
+            ct: cts.Token);
+
+        var enumerator = subscriber.GetAsyncEnumerator(cts.Token);
+
+        await bus.PublishAsync(new AlterCreatedEvent(eurScoped, new AlterId(42)), cts.Token);
+
+        // The cross-region publish must NOT wake this subscriber. Wait until the cts
+        // fires (i.e. no delivery in 2 s); MoveNextAsync will observe the cancellation
+        // and return false without ever surfacing the eur-target event to the nam sub.
+        var moved = await enumerator.MoveNextAsync();
+        await Assert.That(moved).IsFalse()
+            .Because("A NAM-scoped subscriber must not receive an EUR-scoped publish even when the raw ids match — the pre-Round-2 strip-then-compare shape would have delivered this cross-region false positive.");
 
         await enumerator.DisposeAsync();
     }
