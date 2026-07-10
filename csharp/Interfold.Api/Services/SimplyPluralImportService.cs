@@ -848,17 +848,19 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 if (download.Kind == AvatarKind.System)
                 {
                     var localUrl = await _avatarStorage.SaveSystemAvatarAsync(download.SystemId, stream, cancellationToken);
-                    await _accountRepository.UpdateAvatarAsync(download.SystemId, new AvatarUrl(localUrl), AvatarSource.Local, cancellationToken);
+                    await _accountRepository.UpdateAvatarAsync(download.SystemId, localUrl, AvatarSource.Local, cancellationToken);
                 }
                 else
                 {
+                    // localUrl is AvatarUrl (non-null); implicit widening to AvatarUrl? at the
+                    // command payload boundary preserves the "avatar was captured locally" signal.
                     var localUrl = await _avatarStorage.SaveAlterAvatarAsync(download.SystemId, download.AlterId!.Value, stream, cancellationToken);
 
                     await _alterRepository.UpdateAsync(systemId, new UpdateAlterCommand(
                         AlterId: download.AlterId!.Value,
                         Name: null,
                         Description: null,
-                        AvatarUrl: AvatarUrl.FromNullable(localUrl),
+                        AvatarUrl: localUrl,
                         AvatarSource: AvatarSource.Local,
                         Color: null,
                         Pronouns: null,

@@ -282,7 +282,7 @@ public sealed class SettingsController : InterfoldControllerBase
             return new ErrorResponse("No avatar file provided.", ErrorCodes.AvatarFileRequired, System.Net.HttpStatusCode.BadRequest);
         }
 
-        string avatarUrl;
+        AvatarUrl avatarUrl;
         try
         {
             await using (avatarStream)
@@ -313,7 +313,7 @@ public sealed class SettingsController : InterfoldControllerBase
             PrincipalId: principal,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UploadAvatarCommand(new AvatarUrl(avatarUrl), AvatarSource.Local)
+            Payload: new UploadAvatarCommand(avatarUrl, AvatarSource.Local)
         );
 
         var result = CommandNoContent(await _uploadAvatarHandler.HandleAsync(envelope, ct));
@@ -329,7 +329,7 @@ public sealed class SettingsController : InterfoldControllerBase
         {
             try
             {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl?.Value, ct);
+                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
             }
             catch
             {
@@ -389,7 +389,7 @@ public sealed class SettingsController : InterfoldControllerBase
         {
             try
             {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl?.Value, ct);
+                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
             }
             catch
             {
@@ -421,7 +421,7 @@ public sealed class SettingsController : InterfoldControllerBase
         {
             try
             {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl?.Value, ct);
+                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
             }
             catch
             {

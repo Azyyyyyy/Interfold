@@ -158,7 +158,7 @@ public sealed class AltersController : InterfoldControllerBase
             return new ErrorResponse("No avatar file provided.", ErrorCodes.AvatarFileRequired, System.Net.HttpStatusCode.BadRequest);
         }
 
-        string avatarUrl;
+        AvatarUrl avatarUrl;
         try
         {
             await using (avatarStream)
@@ -188,7 +188,7 @@ public sealed class AltersController : InterfoldControllerBase
             AlterId: alterId,
             Name: null,
             Description: null,
-            AvatarUrl: new AvatarUrl(avatarUrl),
+            AvatarUrl: avatarUrl,
             AvatarSource: AvatarSource.Local,
             Color: null,
             Pronouns: null,
@@ -223,7 +223,7 @@ public sealed class AltersController : InterfoldControllerBase
         {
             try
             {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl?.Value, ct);
+                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
             }
             catch
             {
@@ -301,7 +301,7 @@ public sealed class AltersController : InterfoldControllerBase
         {
             try
             {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl?.Value, ct);
+                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
             }
             catch
             {
@@ -414,7 +414,7 @@ public sealed class AltersController : InterfoldControllerBase
         {
             try
             {
-                 await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl?.Value, ct);
+                 await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
             }
             catch
             {

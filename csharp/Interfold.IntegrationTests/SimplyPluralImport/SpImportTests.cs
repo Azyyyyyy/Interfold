@@ -1178,13 +1178,13 @@ public sealed class SpImportTests : BaseEndpointTest
 
     private sealed class NullAvatarStorage : IAvatarStorage
     {
-        public Task<string> SaveSystemAvatarAsync(Interfold.Contracts.Ids.SystemId systemId, Stream stream, CancellationToken cancellationToken = default)
-            => Task.FromResult(string.Empty);
+        public Task<Interfold.Contracts.Ids.AvatarUrl> SaveSystemAvatarAsync(Interfold.Contracts.Ids.SystemId systemId, Stream stream, CancellationToken cancellationToken = default)
+            => Task.FromResult(new Interfold.Contracts.Ids.AvatarUrl(string.Empty));
 
-        public Task<string> SaveAlterAvatarAsync(Interfold.Contracts.Ids.SystemId systemId, Interfold.Contracts.Ids.AlterId alterId, Stream stream, CancellationToken cancellationToken = default)
-            => Task.FromResult(string.Empty);
+        public Task<Interfold.Contracts.Ids.AvatarUrl> SaveAlterAvatarAsync(Interfold.Contracts.Ids.SystemId systemId, Interfold.Contracts.Ids.AlterId alterId, Stream stream, CancellationToken cancellationToken = default)
+            => Task.FromResult(new Interfold.Contracts.Ids.AvatarUrl(string.Empty));
 
-        public Task<bool> DeleteByUrlAsync(string? avatarUrl, CancellationToken cancellationToken = default)
+        public Task<bool> DeleteByUrlAsync(Interfold.Contracts.Ids.AvatarUrl? avatarUrl, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
     }
 

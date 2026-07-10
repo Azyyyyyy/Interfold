@@ -130,17 +130,17 @@ internal readonly record struct SpDumpOptions(ImportToken Token, RecoveryCode? R
 // Minimal temp avatar storage used by the dump utility
 internal sealed class TempAvatarStorage : IAvatarStorage
 {
-	public Task<string> SaveSystemAvatarAsync(SystemId systemId, Stream stream, CancellationToken cancellationToken = default)
+	public Task<AvatarUrl> SaveSystemAvatarAsync(SystemId systemId, Stream stream, CancellationToken cancellationToken = default)
 	{
-		return Task.FromResult("");
+		return Task.FromResult(new AvatarUrl(""));
 	}
 
-	public Task<string> SaveAlterAvatarAsync(SystemId systemId, AlterId alterId, Stream stream, CancellationToken cancellationToken = default)
+	public Task<AvatarUrl> SaveAlterAvatarAsync(SystemId systemId, AlterId alterId, Stream stream, CancellationToken cancellationToken = default)
 	{
-		return Task.FromResult("");
+		return Task.FromResult(new AvatarUrl(""));
 	}
 
-	public Task<bool> DeleteByUrlAsync(string? avatarUrl, CancellationToken cancellationToken = default)
+	public Task<bool> DeleteByUrlAsync(AvatarUrl? avatarUrl, CancellationToken cancellationToken = default)
 	{
 		// no-op for the utility
 		return Task.FromResult(false);
