@@ -44,19 +44,26 @@ public sealed class WireByteFreezeTests
     [Test]
     public async Task DeriveKey_IsDeterministic_AndScopeSensitive()
     {
+        // Round-2 Commit 3: DeriveKey speaks wrappers end-to-end. The wire-form freeze is
+        // now enforced by the wrapper types themselves at the call boundary — a caller who
+        // constructs `new SystemId(CanonicalRaw)` still gets a different derived key than
+        // `new SystemId(CanonicalScoped)`, which is exactly the scoped-vs-raw sensitivity
+        // this test pins. Equality on the returned EncryptionKeyMaterial uses the record-
+        // struct value equality (ordinal string comparison on .Value), so IsEqualTo /
+        // IsNotEqualTo behave identically to the old string comparisons.
         const string pepper = "test-pepper";
-        const string recoveryCode = "test-code";
-        var salt = Convert.ToBase64String(Encoding.UTF8.GetBytes("known-salt-16b!!"));
+        var recoveryCode = new RecoveryCode("test-code");
+        var salt = new EncryptionSalt(Convert.ToBase64String(Encoding.UTF8.GetBytes("known-salt-16b!!")));
 
-        var first = EncryptionKey.DeriveKey(pepper, CanonicalScoped, recoveryCode, salt);
-        var second = EncryptionKey.DeriveKey(pepper, CanonicalScoped, recoveryCode, salt);
-        var rawOnly = EncryptionKey.DeriveKey(pepper, CanonicalRaw, recoveryCode, salt);
+        var first = EncryptionKey.DeriveKey(pepper, new SystemId(CanonicalScoped), recoveryCode, salt);
+        var second = EncryptionKey.DeriveKey(pepper, new SystemId(CanonicalScoped), recoveryCode, salt);
+        var rawOnly = EncryptionKey.DeriveKey(pepper, new SystemId(CanonicalRaw), recoveryCode, salt);
 
         await Assert.That(first).IsEqualTo(second)
             .Because("DeriveKey must be deterministic — a diff between two calls with identical inputs means Argon2 params or salt handling drifted.");
         await Assert.That(first).IsNotEqualTo(rawOnly)
             .Because("Dropping the region prefix from the systemId argument must change the derived key — otherwise a caller could silently swap scoped for raw and orphan the recovery flow.");
-        await Assert.That(Convert.FromBase64String(first).Length).IsEqualTo(32)
+        await Assert.That(Convert.FromBase64String(first.Value).Length).IsEqualTo(32)
             .Because("Argon2id hash_len is pinned at 32 in EncryptionKey.DeriveKey.");
     }
 

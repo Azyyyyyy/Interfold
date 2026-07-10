@@ -755,12 +755,17 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "Encryption is not initialized for this system."), string.Empty);
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
-        var key = EncryptionKey.DeriveKey(pepper, systemId.Value, recoveryCode, salt.Value);
+        // Round-2 Commit 3 bridge: DeriveKey / DeriveChecksum now speak wrappers. RecoveryCode
+        // is bridge-wrapped inline here because ValidateEncryptionKeyAsync itself still takes
+        // `string recoveryCode` — Commit 5 (Finding #3) retypes the SP service parameter and
+        // then removes this bridge. The tuple's `string DerivedKey` shape stays for the same
+        // reason: Commit 5 flips it to `EncryptionKeyMaterial` end-to-end.
+        var key = EncryptionKey.DeriveKey(pepper, systemId, new RecoveryCode(recoveryCode), salt);
         var checksum = EncryptionKey.DeriveChecksum(key);
-        if (!string.Equals(checksum, keyChecksum.Value, StringComparison.Ordinal))
+        if (checksum != keyChecksum)
             return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "The provided encryption key is invalid."), string.Empty);
 
-        return (new SpImportResult(true, 0), key);
+        return (new SpImportResult(true, 0), key.Value);
     }
 
     /// <summary>

@@ -67,14 +67,18 @@ public sealed class SetupEncryptionCommandHandler : ICommandHandler<SetupEncrypt
         }
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
-        var key = EncryptionKey.DeriveKey(pepper, command.PrincipalId.Value, command.Payload.RecoveryCode.Value, salt.Value);
+        // Round-2 Commit 3: DeriveKey / DeriveChecksum now speak the wrappers end-to-end,
+        // so the previous `.Value` / `.Value.Value.Value` unwrap ladder collapses. The two
+        // `new KeyChecksum(...)` / `new EncryptionKeyMaterial(...)` re-wraps at the persist
+        // and result-construction call sites disappear for the same reason.
+        var key = EncryptionKey.DeriveKey(pepper, command.PrincipalId, command.Payload.RecoveryCode, salt);
         var checksum = EncryptionKey.DeriveChecksum(key);
 
-        var persisted = await _repository.UpsertAsync(command.PrincipalId, true, new KeyChecksum(checksum), null, cancellationToken);
+        var persisted = await _repository.UpsertAsync(command.PrincipalId, true, checksum, null, cancellationToken);
         if (!persisted)
             return RejectInvariant(command, EntityRefs.SettingsEncryptionSetupFailed);
 
-        var result = new EncryptionCommandResult(command.PrincipalId, EncryptionAction.EncryptionSetup, new EncryptionKeyMaterial(key), Replay: false);
+        var result = new EncryptionCommandResult(command.PrincipalId, EncryptionAction.EncryptionSetup, key, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
 
         await _idempotencyStore.SaveAsync(
