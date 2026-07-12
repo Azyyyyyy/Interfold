@@ -45,7 +45,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 
             var result = fields
                 .Select((field, index) => new SettingsFieldReadModel(
-                    new FieldId(field.Id.ToString("N")),
+                    new(field.Id.ToString("N")),
                     field.Name,
                     FieldTypeExtensions.FromCode(field.Type),
                     VisibilityLevelExtensions.FromCodeOrPrivate(field.SecurityLevel),
@@ -84,7 +84,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 fields,
                 normalizedSystemId));
 
-            return new FieldId(fieldId.ToString("N"));
+            return new(fieldId.ToString("N"));
         }, _options, cancellationToken);
     }
 
@@ -98,7 +98,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(fieldId.Value, out var fieldGuid))
+            if (!TryParseUuid(fieldId, out var fieldGuid))
             {
                 return false;
             }
@@ -160,7 +160,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(fieldId.Value, out var fieldGuid))
+            if (!TryParseUuid(fieldId, out var fieldGuid))
             {
                 return false;
             }
@@ -200,7 +200,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(fieldId.Value, out var fieldGuid))
+            if (!TryParseUuid(fieldId, out var fieldGuid))
             {
                 return false;
             }

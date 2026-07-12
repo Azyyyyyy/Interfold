@@ -49,7 +49,7 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         _currentRegion = new Lazy<ScyllaKeyspace>(() => _options.ScyllaKeyspace);
     }
 
-    public ScyllaKeyspace ResolveUserRegion(SystemId systemId) => ResolveUserRegionCore(systemId.Value);
+    public ScyllaKeyspace ResolveUserRegion(SystemId systemId) => ResolveUserRegionCore(systemId);
 
     // Private string-typed core so the internal helpers (HandleForLookup, LookupAsync,
     // StoreInCache, TryParseRegion) and the still-string-typed public sibling APIs

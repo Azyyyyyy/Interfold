@@ -87,7 +87,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             {
                 // Slot was already taken. Read the existing operation id and return it so
                 // the caller short-circuits without dispatching a second worker run.
-                var existingId = new ImportOperationId(claimRow!.GetValue<TimeUuid>("operation_id").ToGuid());
+                ImportOperationId existingId = new(claimRow!.GetValue<TimeUuid>("operation_id").ToGuid());
                 _logger.LogInformation(
                     "[import-ops] Collapsed duplicate dispatch for system={SystemId} kind={Kind} onto operation_id={OperationId}.",
                     normalizedSystemId, kindWire, existingId);
@@ -106,7 +106,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
                 now.UtcDateTime, idempotencyKey.Value);
             await session.ExecuteAsync(historyInsert);
 
-            return new ImportOperationClaim(new ImportOperationId(newOperationId.ToGuid()), IsNew: true);
+            return new ImportOperationClaim(new(newOperationId.ToGuid()), IsNew: true);
         }, _options, cancellationToken, _logger);
     }
 
@@ -302,8 +302,8 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             : null;
 
         return new ImportOperationSnapshot(
-            new SystemId(row.GetValue<string>("system_id")),
-            new ImportOperationId(row.GetValue<TimeUuid>("operation_id").ToGuid()),
+            new(row.GetValue<string>("system_id")),
+            new(row.GetValue<TimeUuid>("operation_id").ToGuid()),
             kind,
             status,
             startedAt,
@@ -311,6 +311,6 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             row.GetValue<int?>("alter_count"),
             ImportErrorCodeExtensions.TryParse(row.GetValue<string?>("error_code")),
             row.GetValue<string>("error_message"),
-            new IdempotencyKey(row.GetValue<string>("idempotency_key")));
+            new(row.GetValue<string>("idempotency_key")));
     }
 }

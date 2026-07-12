@@ -43,7 +43,7 @@ public sealed class ScyllaPollRepository : IPollRepository
 
             var rows = await session.ExecuteAsync(query);
             // VERIFIED: 2026-03-17 Elixir polls.ex get_polls() has no explicit sort → database order (ascending). Matches C# OrderBy.
-            return rows.Select(ToReadModel).OrderBy(p => p.Id.Value, StringComparer.Ordinal).ToList();
+            return rows.Select(ToReadModel).OrderBy(p => (string)p.Id, StringComparer.Ordinal).ToList();
         }, _options, cancellationToken);
     }
 
@@ -54,7 +54,7 @@ public sealed class ScyllaPollRepository : IPollRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            if (!TryParseUuid(pollId.Value, out var pollGuid)) return null;
+            if (!TryParseUuid(pollId, out var pollGuid)) return null;
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, title, description, type, data, time_end, inserted_at, updated_at FROM {keyspace}.polls WHERE user_id = ? AND id = ? LIMIT 1",
@@ -89,7 +89,7 @@ public sealed class ScyllaPollRepository : IPollRepository
             );
 
             await session.ExecuteAsync(insert);
-            return new PollId(pollGuid.ToString("N"));
+            return new(pollGuid.ToString("N"));
         }, _options, cancellationToken);
     }
 
@@ -97,7 +97,7 @@ public sealed class ScyllaPollRepository : IPollRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(pollId.Value, out var pollGuid))
+            if (!TryParseUuid(pollId, out var pollGuid))
             {
                 return false;
             }
@@ -121,7 +121,7 @@ public sealed class ScyllaPollRepository : IPollRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(command.Id.Value, out var pollGuid))
+            if (!TryParseUuid(command.Id, out var pollGuid))
             {
                 return false;
             }
@@ -185,7 +185,7 @@ public sealed class ScyllaPollRepository : IPollRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(pollId.Value, out var pollGuid))
+            if (!TryParseUuid(pollId, out var pollGuid))
             {
                 return false;
             }
@@ -253,8 +253,8 @@ public sealed class ScyllaPollRepository : IPollRepository
 
     private static PollReadModel ToReadModel(Row row)
         => new(
-            new PollId(row.GetValue<Guid>("id").ToString("N")),
-            new SystemId(row.GetValue<string>("user_id")),
+            new(row.GetValue<Guid>("id").ToString("N")),
+            new(row.GetValue<string>("user_id")),
             row.GetValue<string>("title"),
             row.GetValue<string?>("description"),
             ToPollType(row.GetValue<short>("type")),

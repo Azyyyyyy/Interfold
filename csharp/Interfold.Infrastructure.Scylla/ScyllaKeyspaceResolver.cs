@@ -7,12 +7,23 @@ namespace Interfold.Infrastructure.Scylla;
 
 /// <summary>
 /// CQL-boundary resolver for regional and global keyspaces plus the region-strip
-/// normalisation applied to every system id before it reaches a bind slot.
-/// <see cref="NormalizeSystemId"/> returns the underlying primitive <see cref="string"/>
-/// so bind sites can pass the result directly to <c>SimpleStatement</c> — the DataStax
-/// driver cannot serialize the <see cref="SystemId"/> wrapper struct, so unwrapping here
-/// (rather than at each call site) prevents drift from re-introducing the "Unknown
-/// Cassandra target type" runtime exception.
+/// normalisation applied to every system id before it reaches a bind slot. The
+/// primitive <see cref="string"/> return on <see cref="NormalizeSystemId"/> is the
+/// compile-time firewall: bind sites receive the raw string directly, so the
+/// <see cref="SystemId"/> wrapper struct cannot slip into a <c>SimpleStatement</c>
+/// arg list and re-introduce the "Unknown Cassandra target type" runtime exception
+/// the DataStax driver throws for unknown CLR types.
+///
+/// <para>
+/// Inside this file the widen from <see cref="SystemId"/> to <see cref="string"/> uses
+/// the implicit conversion operator on <see cref="SystemId"/> rather than an explicit
+/// <c>.Value</c> read; the guarantee is identical because every receiving parameter
+/// and this method's return are statically typed <see cref="string"/>, so the CLR
+/// still narrows to the raw primitive at the sink. Reintroducing the wrapper struct
+/// at a bind arg (e.g. by widening <c>NormalizeSystemId</c>'s return to
+/// <see cref="SystemId"/>) would compile at the call site but fail at bind time —
+/// keep the string return type to preserve the type-level guarantee.
+/// </para>
 /// </summary>
 public interface IScyllaKeyspaceResolver
 {
@@ -28,7 +39,9 @@ public interface IScyllaKeyspaceResolver
 
     /// <summary>
     /// Region-strip a <see cref="SystemId"/> and return the raw underlying <see cref="string"/>
-    /// suitable for direct CQL bind.
+    /// suitable for direct CQL bind. The return type is deliberately the primitive rather
+    /// than another <see cref="SystemId"/> so callers cannot accidentally route the wrapper
+    /// struct into a <c>SimpleStatement</c> bind slot.
     /// </summary>
     string NormalizeSystemId(SystemId systemId);
 }
@@ -48,18 +61,18 @@ public sealed class ScyllaKeyspaceResolver : IScyllaKeyspaceResolver
 
     public string ResolveRegionalKeyspace(SystemId systemId)
     {
-        if (string.IsNullOrWhiteSpace(systemId.Value))
+        if (string.IsNullOrWhiteSpace(systemId))
             return DefaultKeyspace;
 
         // JWT-derived principals arrive scoped (nam:sys-abc) while public-route bindings
         // stay raw (sys-abc). Canonicalise to the stripped raw id and resolve through
         // IRegionContext so both wire forms share one keyspace — otherwise the same
         // principal could be written to nam.* and read from eur.*.
-        return _regionContext.ResolveUserRegion(new SystemId(NormalizeSystemId(systemId))).ToWireValue();
+        return _regionContext.ResolveUserRegion(new(NormalizeSystemId(systemId))).ToWireValue();
     }
 
     public string ResolveGlobalKeyspace() => ScyllaGlobalKeyspace.Name;
 
     public string NormalizeSystemId(SystemId systemId)
-        => SystemIdNormalization.StripRegionPrefix(systemId.Value);
+        => SystemIdNormalization.StripRegionPrefix(systemId);
 }

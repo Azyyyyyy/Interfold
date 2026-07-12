@@ -118,7 +118,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             }
 
             // Insert new lookup entry
-            if (!string.IsNullOrWhiteSpace(username.Value))
+            if (!string.IsNullOrWhiteSpace(username))
             {
                 batch.Add(new SimpleStatement(
                     $"INSERT INTO {keyspace}.users_by_username (username, user_id) VALUES (?, ?)",
@@ -217,7 +217,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 _systemByLinkToken.TryRemove(existingToken, out _);
             }
 
-            var token = new LinkToken(Guid.NewGuid().ToString());
+            LinkToken token = new(Guid.NewGuid().ToString());
             _linkTokenBySystem[scoped] = token;
             _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkTokenTtl));
 
@@ -301,7 +301,10 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     // Every public IAccountRepository entry point below dispatches to an internal helper
     // with a typed ProviderColumn instead of a hand-spelled column literal. The unwrap-
     // to-.Value stays at the entry-point boundary — the internal helpers work with the
-    // raw provider-value string because it flows straight into a CQL bind parameter.
+    // raw provider-value string because it flows straight into a CQL bind parameter,
+    // and the bind arg position is typed `object?` where the wrapper's implicit widen
+    // does not fire through boxing. DiscordId/Email/AppleId are Cat B PII wrappers with
+    // no implicit widen at all, so `.Value` is the only unwrap available on this path.
 
     public Task<SystemId?> TryFindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
         => TryFindSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken);
@@ -397,7 +400,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             }
 
             return new AccountPublicProfileReadModel(
-                new SystemId(normalizedSystemId),
+                new(normalizedSystemId),
                 profile.GetValue<string?>("username") is { } username ? new Username(username) : null,
                 profile.GetValue<string?>("description"),
                 AvatarUrl.FromNullable(profile.GetValue<string?>("avatar_url")),
@@ -432,7 +435,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             if (row is not null)
             {
-                var userId = NormalizeRegistryUserId(new SystemId(row.GetValue<string>("user_id")));
+                var userId = NormalizeRegistryUserId(new(row.GetValue<string>("user_id")));
                 var region = row.GetValue<string?>("region") ?? _keyspaceResolver.DefaultKeyspace;
                 return ScopedSystemId.Compose(region, userId).AsSystemId();
             }
@@ -444,7 +447,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     private async Task<SystemId?> FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn column, string value, CancellationToken cancellationToken)
     {
         var existing = await TryFindSystemIdByRegistryColumnAsync(column, value, cancellationToken);
-        if (existing is { } typedExisting && !string.IsNullOrWhiteSpace(typedExisting.Value))
+        if (existing is { } typedExisting && !string.IsNullOrWhiteSpace(typedExisting))
         {
             return typedExisting;
         }
@@ -510,7 +513,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         var normalized = _keyspaceResolver.NormalizeSystemId(userId);
         for (var i = 0; i < 2; i++)
         {
-            var next = _keyspaceResolver.NormalizeSystemId(new SystemId(normalized));
+            var next = _keyspaceResolver.NormalizeSystemId(new(normalized));
             if (next == normalized)
             {
                 break;
@@ -537,7 +540,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
             var owner = await TryFindSystemIdByRegistryColumnAsync(column, value, cancellationToken);
-            if (owner is { } typedOwner && !string.IsNullOrWhiteSpace(typedOwner.Value))
+            if (owner is { } typedOwner && !string.IsNullOrWhiteSpace(typedOwner))
             {
                 var normalizedOwner = NormalizeRegistryUserId(typedOwner);
                 if (normalizedOwner != normalizedSystemId)

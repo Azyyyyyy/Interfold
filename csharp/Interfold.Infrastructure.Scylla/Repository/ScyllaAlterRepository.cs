@@ -69,7 +69,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             );
 
             await session.ExecuteAsync(insert);
-            return new AlterId(next);
+            return new(next);
         }, _options, cancellationToken, _logger);
     }
 
@@ -155,7 +155,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
                 foreach (var f in command.Fields)
                 {
-                    merged[f.Id.Value] = f.Value;
+                    merged[f.Id] = f.Value;
                 }
 
                 var udts = merged
@@ -419,7 +419,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var rows = await session.ExecuteAsync(query);
             return rows
                 .Select(row => new AlterReadModel(
-                    new AlterId(row.GetValue<short>("id")),
+                    new(row.GetValue<short>("id")),
                     row.GetValue<string>("name"),
                     row.GetValue<string?>("description"),
                     AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
@@ -434,7 +434,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     row.GetValue<bool?>("archived"),
                     row.GetValue<bool?>("pinned")
                 ))
-                .OrderBy(x => x.Id.Value)
+                .OrderBy(x => (int)x.Id)
                 .ToArray();
         }, _options, cancellationToken, _logger);
     }
@@ -449,7 +449,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new SystemId(normalizedSystemId), viewerSystemId);
+            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
             EnsureAlterFieldUdtMapping(session, keyspace);
             var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
 
@@ -462,7 +462,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             return rows
                 .Where(row => VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level")).CanBeViewedBy(friendshipLevel))
                 .Select(row => new BareAlter(
-                    new AlterId(row.GetValue<short>("id")),
+                    new(row.GetValue<short>("id")),
                     row.GetValue<string>("name"),
                     AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
                     AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
@@ -470,7 +470,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     row.GetValue<string?>("pronouns"),
                     row.GetValue<string?>("description"),
                     ResolveGuardedFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions)))
-                .OrderBy(x => x.Id.Value)
+                .OrderBy(x => (int)x.Id)
                 .ToArray();
         }, _options, cancellationToken, _logger);
     }
@@ -496,7 +496,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             return row is null
                 ? null
                 : new AlterReadModel(
-                    new AlterId(row.GetValue<short>("id")),
+                    new(row.GetValue<short>("id")),
                     row.GetValue<string>("name"),
                     row.GetValue<string?>("description"),
                     AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
@@ -525,7 +525,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new SystemId(normalizedSystemId), viewerSystemId);
+            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
             EnsureAlterFieldUdtMapping(session, keyspace);
             var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
 
@@ -548,7 +548,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             }
 
             return new BareAlter(
-                new AlterId(row.GetValue<short>("id")),
+                new(row.GetValue<short>("id")),
                 row.GetValue<string>("name"),
                 AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
                 AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
@@ -625,8 +625,8 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         }
 
         return definitions
-            .Where(def => valuesByFieldId.ContainsKey(def.Id.Value))
-            .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, valuesByFieldId[def.Id.Value]))
+            .Where(def => valuesByFieldId.ContainsKey(def.Id))
+            .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, valuesByFieldId[def.Id]))
             .ToArray();
     }
 

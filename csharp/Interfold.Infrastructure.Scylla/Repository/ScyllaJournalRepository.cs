@@ -46,7 +46,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             );
 
             await session.ExecuteAsync(insert);
-            return new EntryId(entryId.ToString("N"));
+            return new(entryId.ToString("N"));
         }, _options, cancellationToken);
     }
 
@@ -54,7 +54,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId.Value, out var entryGuid))
+            if (!TryParseUuid(entryId, out var entryGuid))
             {
                 return false;
             }
@@ -78,7 +78,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(command.EntryId.Value, out var entryGuid))
+            if (!TryParseUuid(command.EntryId, out var entryGuid))
             {
                 return false;
             }
@@ -139,7 +139,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId.Value, out var entryGuid))
+            if (!TryParseUuid(entryId, out var entryGuid))
             {
                 return false;
             }
@@ -173,7 +173,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId.Value, out var entryGuid))
+            if (!TryParseUuid(entryId, out var entryGuid))
             {
                 return false;
             }
@@ -202,7 +202,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId.Value, out var entryGuid))
+            if (!TryParseUuid(entryId, out var entryGuid))
             {
                 return false;
             }
@@ -231,7 +231,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId.Value, out var entryGuid))
+            if (!TryParseUuid(entryId, out var entryGuid))
             {
                 return false;
             }
@@ -260,7 +260,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId.Value, out var entryGuid))
+            if (!TryParseUuid(entryId, out var entryGuid))
             {
                 return false;
             }
@@ -335,7 +335,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             batch.Add(insert);
             batch.Add(insertLookup);
             await session.ExecuteAsync(batch);
-            return new EntryId(entryId.ToString("N"));
+            return new(entryId.ToString("N"));
         }, _options, cancellationToken);
     }
 
@@ -343,7 +343,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId.Value, out var entryGuid))
+            if (!TryParseUuid(entryId, out var entryGuid))
             {
                 return null;
             }
@@ -361,7 +361,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             return row is null
                 ? null
-                : new AlterJournalRef(new EntryId(row.GetValue<Guid>("id").ToString("N")), new AlterId(row.GetValue<short>("alter_id")));
+                : new AlterJournalRef(new(row.GetValue<Guid>("id").ToString("N")), new(row.GetValue<short>("alter_id")));
         }, _options, cancellationToken);
     }
 
@@ -370,7 +370,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var reference = await GetAlterRefAsync(systemId, command.EntryId, cancellationToken);
-            if (reference is null || !TryParseUuid(reference.EntryId.Value, out var entryGuid))
+            if (reference is null || !TryParseUuid(reference.EntryId, out var entryGuid))
             {
                 return false;
             }
@@ -427,7 +427,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var reference = await GetAlterRefAsync(systemId, entryId, cancellationToken);
-            if (reference is null || !TryParseUuid(reference.EntryId.Value, out var entryGuid))
+            if (reference is null || !TryParseUuid(reference.EntryId, out var entryGuid))
             {
                 return false;
             }
@@ -460,7 +460,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var reference = await GetAlterRefAsync(systemId, entryId, cancellationToken);
-            if (reference is null || !TryParseUuid(reference.EntryId.Value, out var entryGuid))
+            if (reference is null || !TryParseUuid(reference.EntryId, out var entryGuid))
             {
                 return false;
             }
@@ -487,7 +487,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var reference = await GetAlterRefAsync(systemId, entryId, cancellationToken);
-            if (reference is null || !TryParseUuid(reference.EntryId.Value, out var entryGuid))
+            if (reference is null || !TryParseUuid(reference.EntryId, out var entryGuid))
             {
                 return false;
             }
@@ -526,9 +526,9 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var rows = await session.ExecuteAsync(query);
             return rows
                 .Select(row => new AlterJournalReadModel(
-                    new EntryId(row.GetValue<Guid>("id").ToString("N")),
-                    new SystemId(row.GetValue<string>("user_id")),
-                    new AlterId(row.GetValue<short>("alter_id")),
+                    new(row.GetValue<Guid>("id").ToString("N")),
+                    new(row.GetValue<string>("user_id")),
+                    new(row.GetValue<short>("alter_id")),
                     row.GetValue<string>("title"),
                     row.GetValue<string?>("content"),
                     HexColor.FromNullable(row.GetValue<string?>("color")),
@@ -545,7 +545,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId.Value, out var entryGuid))
+            if (!TryParseUuid(entryId, out var entryGuid))
             {
                 return null;
             }
@@ -564,9 +564,9 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             return row is null
                 ? null
                 : new AlterJournalReadModel(
-                    new EntryId(row.GetValue<Guid>("id").ToString("N")),
-                    new SystemId(row.GetValue<string>("user_id")),
-                    new AlterId(row.GetValue<short>("alter_id")),
+                    new(row.GetValue<Guid>("id").ToString("N")),
+                    new(row.GetValue<string>("user_id")),
+                    new(row.GetValue<short>("alter_id")),
                     row.GetValue<string>("title"),
                     row.GetValue<string?>("content"),
                     HexColor.FromNullable(row.GetValue<string?>("color")),
@@ -604,8 +604,8 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 var alterIds = alterRows.Select(r => new AlterId(r.GetValue<short>("alter_id"))).ToArray();
 
                 result.Add(new JournalReadModel(
-                    new EntryId(id.ToString("N")),
-                    new SystemId(row.GetValue<string>("user_id")),
+                    new(id.ToString("N")),
+                    new(row.GetValue<string>("user_id")),
                     row.GetValue<string>("title"),
                     row.GetValue<string?>("content"),
                     HexColor.FromNullable(row.GetValue<string?>("color")),
@@ -617,7 +617,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             }
 
             return (IReadOnlyList<JournalReadModel>)result
-                .OrderByDescending(e => e.Id.Value, StringComparer.Ordinal)
+                .OrderByDescending(e => (string)e.Id, StringComparer.Ordinal)
                 .ToArray();
         }, _options, cancellationToken);
     }
@@ -626,7 +626,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId.Value, out var entryGuid))
+            if (!TryParseUuid(entryId, out var entryGuid))
             {
                 return null;
             }
@@ -654,8 +654,8 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 .ToArray();
 
             return new JournalReadModel(
-                new EntryId(entryRow.GetValue<Guid>("id").ToString("N")),
-                new SystemId(entryRow.GetValue<string>("user_id")),
+                new(entryRow.GetValue<Guid>("id").ToString("N")),
+                new(entryRow.GetValue<string>("user_id")),
                 entryRow.GetValue<string>("title"),
                 entryRow.GetValue<string?>("content"),
                 HexColor.FromNullable(entryRow.GetValue<string?>("color")),

@@ -32,12 +32,15 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
-            // Bind SystemId.Value (the raw string), not the SystemId struct itself. The Cassandra
-            // C# driver's params-object[] path has no serializer for SystemId; passing the struct
+            // Bind the raw string (either NormalizeSystemId's return, or Cat B `.Value` where
+            // no widen exists), not the wrapper struct itself. The Cassandra C# driver's
+            // params-object[] path has no serializer for the wrapper types; passing the struct
             // relies on Object.ToString() being called by the driver's fallback path, which today
-            // happens to equal SystemId.Value but is not contractually guaranteed. Sibling repos
-            // (ScyllaNotificationTokenRepository:37, ScyllaSharedQueries:40) already use .Value —
-            // this call site (and its two UPSERT siblings below) was drift.
+            // happens to equal the raw value but is not contractually guaranteed. For Cat A
+            // wrappers the implicit widen would produce the same string, but bind arg positions
+            // are typed `object?` and user-defined conversions do NOT fire through boxing — so
+            // the wrapper struct still leaks in. That's why every bind site funnels through the
+            // NormalizeSystemId(-> string) return or an explicit `.Value` on Cat B wrappers.
             var query = new SimpleStatement(
                 $"SELECT encryption_initialized, encryption_key_checksum, salt FROM {keyspace}.users WHERE id = ? LIMIT 1",
                 normalizedSystemId

@@ -116,7 +116,7 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
                         .Distinct(StringComparer.Ordinal)
                         .Select(t => new PushToken(t))
                         .ToArray();
-                    return new FriendNotificationTokens(new SystemId(friendId), tokens);
+                    return new FriendNotificationTokens(new(friendId), tokens);
                 },
                 cancellationToken);
 
