@@ -273,12 +273,12 @@ public abstract class InterfoldControllerBase : ControllerBase
         
         return conflict.Code switch
         {
-            // ResolutionHint doubles as the client-visible error code; ToWireValue keeps the
+            // ResolutionHint doubles as the client-visible error code; ToWire keeps the
             // exact legacy strings ("no_retry" / "manual_merge_required") on the wire.
             ConflictCode.ConflictDuplicate => new ErrorResponse(
-                "A duplicate conflict occurred.", new ErrorCode(conflict.ResolutionHint.ToWireValue()), HttpStatusCode.Conflict, conflict.EntityRef.Value),
+                "A duplicate conflict occurred.", new ErrorCode(conflict.ResolutionHint.ToWire()), HttpStatusCode.Conflict, conflict.EntityRef.Value),
             ConflictCode.ConflictInvariant => new ErrorResponse(
-                "The request could not be processed due to a conflict.", new ErrorCode(conflict.ResolutionHint.ToWireValue()),
+                "The request could not be processed due to a conflict.", new ErrorCode(conflict.ResolutionHint.ToWire()),
                 HttpStatusCode.UnprocessableEntity, conflict.EntityRef.Value),
             _ => new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, HttpStatusCode.InternalServerError, conflict.EntityRef.Value)
         };

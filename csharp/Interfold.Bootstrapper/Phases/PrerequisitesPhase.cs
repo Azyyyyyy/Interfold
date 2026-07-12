@@ -32,9 +32,10 @@ internal static partial class PrerequisitesPhase
     /// the on-disk JSON before <c>ConfigPhase</c> has validated it.
     /// </summary>
     internal static int ResolveScyllaNodeCount(string? databaseMode)
-        // TryParseDatabaseMode returns null for unknown/malformed values; falling back to
+        // TryParseWire returns false for null/empty/whitespace/unknown; falling back to
         // Single preserves the historical "anything else sizes for one node" behaviour.
-        => ResolveScyllaNodeCount(EnumWireExtensions.TryParseDatabaseMode(databaseMode) ?? DatabaseMode.Single);
+        => ResolveScyllaNodeCount(
+            databaseMode.TryParseWire<DatabaseMode>(out var mode) ? mode : DatabaseMode.Single);
 
     /// <summary>
     /// Typed overload used once <see cref="Configuration.BootstrapConfig.DatabaseMode"/> has been

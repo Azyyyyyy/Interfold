@@ -189,7 +189,7 @@ internal static class PublishPhase
             // match InterfoldAppHost.Configure's AddParameter calls (scylla-keyspace,
             // oauth-callback-base-url, jwt-authority, jwt-audience, cors-allowed-origins) and
             // Aspire upper-snake-cases each into the matching .env key.
-            ["SCYLLA_KEYSPACE"] = config.ScyllaKeyspace.ToWireValue(),
+            ["SCYLLA_KEYSPACE"] = config.ScyllaKeyspace.ToWire(),
             ["OAUTH_CALLBACK_BASE_URL"] = config.ApiRuntime.CallbackBaseUrl,
             ["JWT_AUTHORITY"] = config.ApiRuntime.JwtAuthority,
             ["JWT_AUDIENCE"] = config.ApiRuntime.JwtAudience,
@@ -205,7 +205,7 @@ internal static class PublishPhase
             // InterfoldAppHost.Configure's AddParameter calls (node-group,
             // avatar-storage-root, …) and Aspire upper-snake-cases each into the
             // matching .env key.
-            ["NODE_GROUP"] = config.Cluster.NodeGroup.ToWireValue(),
+            ["NODE_GROUP"] = config.Cluster.NodeGroup.ToWire(),
             ["AVATAR_STORAGE_ROOT"] = config.Storage.AvatarStorageRoot ?? string.Empty,
             ["AVATAR_PUBLIC_BASE"] = config.Storage.AvatarPublicBase ?? string.Empty,
             ["OTLP_ENDPOINT"] = config.Observability.OtlpEndpoint ?? string.Empty,
@@ -257,8 +257,8 @@ internal static class PublishPhase
         // The region list mirrors InterfoldAppHost.Configure(), derived from the ScyllaKeyspace
         // enum so it can't drift from the typed region vocabulary.
         string[] scyllaRegions = config.DatabaseMode == DatabaseMode.Multi
-            ? Enum.GetValues<ScyllaKeyspace>().Select(EnumWireExtensions.ToWireValue).ToArray()
-            : [ScyllaKeyspace.Nam.ToWireValue()];
+            ? Enum.GetValues<ScyllaKeyspace>().Select(k => k.ToWire()).ToArray()
+            : [ScyllaKeyspace.Nam.ToWire()];
         foreach (var region in scyllaRegions)
         {
             var nodeName = ComposeServices.ToScyllaNodeName(region, multiNode: scyllaRegions.Length > 1);
@@ -503,7 +503,7 @@ internal static class PublishPhase
             // non-empty (the .env rewrite in BuildEnvReplacements above writes the same five
             // keys onto the matching SCYLLA_KEYSPACE / OAUTH_CALLBACK_BASE_URL / ... entries
             // Aspire emits unfilled in publish mode).
-            [AppHostParameterKeys.ScyllaKeyspace] = config.ScyllaKeyspace.ToWireValue(),
+            [AppHostParameterKeys.ScyllaKeyspace] = config.ScyllaKeyspace.ToWire(),
             [AppHostParameterKeys.OAuthCallbackBaseUrl] = config.ApiRuntime.CallbackBaseUrl,
             [AppHostParameterKeys.JwtAuthority] = config.ApiRuntime.JwtAuthority,
             [AppHostParameterKeys.JwtAudience] = config.ApiRuntime.JwtAudience,
@@ -515,7 +515,7 @@ internal static class PublishPhase
             // fire. Parameter names match InterfoldAppHost.Configure's AddParameter
             // calls; injecting them through IConfiguration here lets the AppHost graph
             // (and any future code path that reads Parameters:*) pick them up.
-            [AppHostParameterKeys.NodeGroup] = config.Cluster.NodeGroup.ToWireValue(),
+            [AppHostParameterKeys.NodeGroup] = config.Cluster.NodeGroup.ToWire(),
             [AppHostParameterKeys.AvatarStorageRoot] = config.Storage.AvatarStorageRoot ?? string.Empty,
             [AppHostParameterKeys.AvatarPublicBase] = config.Storage.AvatarPublicBase ?? string.Empty,
             [AppHostParameterKeys.OtlpEndpoint] = config.Observability.OtlpEndpoint ?? string.Empty,

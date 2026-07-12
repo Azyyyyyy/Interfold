@@ -7,14 +7,19 @@ namespace Interfold.Contracts.Enums;
 /// The client platform identifiers used by the firebase-config endpoint's
 /// <c>?platform=</c> query value and the socket join payload's <c>platform</c> member.
 /// Wire spellings are the lowercase names ("android" / "ios" / "web"); unknown values are
-/// handled by callers via <see cref="EnumWireExtensions.TryParseClientPlatform"/> so the
-/// legacy invalid-platform responses are preserved.
+/// handled by callers via <see cref="EnumWire{TEnum}.TryParse"/> so the legacy
+/// invalid-platform responses are preserved.
 /// </summary>
-[JsonConverter(typeof(LowerCaseEnumJsonConverter<ClientPlatform>))]
+[JsonConverter(typeof(JsonStringEnumConverter<ClientPlatform>))]
 public enum ClientPlatform
 {
+    [JsonStringEnumMemberName("android")]
     Android,
+
+    [JsonStringEnumMemberName("ios")]
     Ios,
+
+    [JsonStringEnumMemberName("web")]
     Web,
 }
 
@@ -28,14 +33,15 @@ public sealed class TolerantClientPlatformJsonConverter : JsonConverter<ClientPl
 {
     public override ClientPlatform? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         => reader.TokenType == JsonTokenType.String
-            ? EnumWireExtensions.TryParseClientPlatform(reader.GetString())
-            : null;
+            && reader.GetString().TryParseWire<ClientPlatform>(out var platform)
+                ? platform
+                : null;
 
     public override void Write(Utf8JsonWriter writer, ClientPlatform? value, JsonSerializerOptions options)
     {
         if (value is { } platform)
         {
-            writer.WriteStringValue(platform.ToWireValue());
+            writer.WriteStringValue(platform.ToWire());
         }
         else
         {

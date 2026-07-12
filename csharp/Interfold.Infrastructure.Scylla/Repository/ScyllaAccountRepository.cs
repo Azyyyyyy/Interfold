@@ -163,7 +163,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             var statement = new SimpleStatement(
                 $"UPDATE {keyspace}.users SET avatar_url = ?, avatar_source = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 avatarUrl.Value,
-                source.ToCode(),
+                (short)source,
                 normalizedSystemId
             );
 
@@ -404,7 +404,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 profile.GetValue<string?>("username") is { } username ? new Username(username) : null,
                 profile.GetValue<string?>("description"),
                 AvatarUrl.FromNullable(profile.GetValue<string?>("avatar_url")),
-                AvatarSourceExtensions.TryFromCode(profile.GetValue<short?>("avatar_source")),
+                profile.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
                 profile.GetValue<string?>("discord_id") is { } discordId ? new DiscordId(discordId) : null,
                 profile.GetValue<string?>("email") is { } email ? new Email(email) : null,
                 profile.GetValue<string?>("apple_id") is { } appleId ? new AppleId(appleId) : null);

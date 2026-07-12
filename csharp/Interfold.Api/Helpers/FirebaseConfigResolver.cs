@@ -50,7 +50,15 @@ public static class FirebaseConfigResolver
     {
         // The query value stays a raw string so an unknown platform produces the legacy
         // invalid_platform 400 body rather than a model-binding failure.
-        switch (EnumWireExtensions.TryParseClientPlatform(platform))
+        if (!platform.TryParseWire<ClientPlatform>(out var parsed))
+        {
+            return (null, new ErrorResponse(
+                "Invalid platform. Expected one of: android, ios, web.",
+                ErrorCodes.InvalidPlatform,
+                HttpStatusCode.BadRequest));
+        }
+
+        switch (parsed)
         {
             case ClientPlatform.Android:
                 var android = configuration.Android;
@@ -74,10 +82,8 @@ public static class FirebaseConfigResolver
                     web.MessagingSenderId, web.AppId, web.VapidKey), null);
 
             default:
-                return (null, new ErrorResponse(
-                    "Invalid platform. Expected one of: android, ios, web.",
-                    ErrorCodes.InvalidPlatform,
-                    HttpStatusCode.BadRequest));
+                throw new InvalidOperationException(
+                    $"Unhandled {nameof(ClientPlatform)} value '{parsed}' after wire parse.");
         }
     }
 

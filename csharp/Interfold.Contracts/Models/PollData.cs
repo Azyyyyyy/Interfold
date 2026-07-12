@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 
 namespace Interfold.Contracts.Models;
@@ -69,12 +70,19 @@ public sealed record PollDataResponse(
 /// a response would make the client's whole poll-list deserialization throw, so producers
 /// must drop unparseable votes rather than pass them through.
 /// </summary>
-[JsonConverter(typeof(Enums.LowerCaseEnumJsonConverter<VoteValue>))]
+[JsonConverter(typeof(JsonStringEnumConverter<VoteValue>))]
 public enum VoteValue
 {
+    [JsonStringEnumMemberName("yes")]
     Yes,
+
+    [JsonStringEnumMemberName("no")]
     No,
+
+    [JsonStringEnumMemberName("abstain")]
     Abstain,
+
+    [JsonStringEnumMemberName("veto")]
     Veto,
 }
 
@@ -104,14 +112,7 @@ public static class PollDataJson
             return null;
         }
 
-        return raw.Trim().ToLowerInvariant() switch
-        {
-            "yes" => VoteValue.Yes,
-            "no" => VoteValue.No,
-            "abstain" => VoteValue.Abstain,
-            "veto" => VoteValue.Veto,
-            _ => null,
-        };
+        return raw.TryParseWire<VoteValue>(out var vote) ? vote : null;
     }
 
     public static JsonElement ToJsonElement<T>(T data)

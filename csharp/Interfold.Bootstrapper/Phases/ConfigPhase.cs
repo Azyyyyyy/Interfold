@@ -240,21 +240,21 @@ internal static class ConfigPhase
                                                     () => c.Ports.Scylla = PromptInt("Scylla/Cassandra host port", c.Ports.Scylla, 1, 65535))),
 
             Group("Database",
-                ("Database mode",                   () => c.DatabaseMode.ToWireValue(),
-                                                    () => c.DatabaseMode = EnumWireExtensions.TryParseDatabaseMode(console.Prompt(
+                ("Database mode",                   () => c.DatabaseMode.ToWire(),
+                                                    () => c.DatabaseMode = console.Prompt(
                                                         new TextPrompt<string>("Database mode:")
-                                                            .DefaultValue(c.DatabaseMode.ToWireValue())
-                                                            .AddChoices(ValidDatabaseModes))) ?? c.DatabaseMode),
+                                                            .DefaultValue(c.DatabaseMode.ToWire())
+                                                            .AddChoices(ValidDatabaseModes)).TryParseWire<DatabaseMode>(out var mode) ? mode : c.DatabaseMode),
                 ("Postgres application DB name",    () => c.PostgresDatabase,
                                                     () => c.PostgresDatabase = PromptStr("Postgres application DB name", c.PostgresDatabase)),
                 ("Cluster name",                    () => c.ClusterName,
                                                     () => c.ClusterName = PromptStr("Cluster name (Scylla/Cassandra)", c.ClusterName)),
                 // Scylla keyspace == per-instance region identity; AddChoices enforces the
                 // seven valid values upfront (Validate does the same non-interactively).
-                ("Scylla keyspace (region)",        () => c.ScyllaKeyspace.ToWireValue(),
+                ("Scylla keyspace (region)",        () => c.ScyllaKeyspace.ToWire(),
                                                     () => c.ScyllaKeyspace = EnumWireExtensions.ParseScyllaKeyspace(console.Prompt(
                                                         new TextPrompt<string>("Scylla keyspace (region):")
-                                                            .DefaultValue(c.ScyllaKeyspace.ToWireValue())
+                                                            .DefaultValue(c.ScyllaKeyspace.ToWire())
                                                             .AddChoices(ValidScyllaKeyspaces))))),
 
             // Derivable rows (callback URL, JWT authority, CORS) call ResolveDerivedDefaults
@@ -279,10 +279,10 @@ internal static class ConfigPhase
 
             // Cluster (NodeGroup) + Observability (OTLP) merged — both too small alone.
             Group("Cluster & telemetry",
-                ("Cluster node group",              () => c.Cluster.NodeGroup.ToWireValue(),
+                ("Cluster node group",              () => c.Cluster.NodeGroup.ToWire(),
                                                     () => c.Cluster.NodeGroup = EnumWireExtensions.ParseNodeGroup(console.Prompt(
                                                         new TextPrompt<string>("Cluster node group:")
-                                                            .DefaultValue(c.Cluster.NodeGroup.ToWireValue())
+                                                            .DefaultValue(c.Cluster.NodeGroup.ToWire())
                                                             .AddChoices(ValidNodeGroups)))),
                 // Blank disables OTLP; ShowOrEmpty makes the unset state visible.
                 ("OTLP endpoint",                   () => ShowOrEmpty(c.Observability.OtlpEndpoint),
@@ -755,7 +755,7 @@ internal static class ConfigPhase
     /// </summary>
     internal static readonly string[] ValidScyllaKeyspaces = Enum
         .GetValues<ScyllaKeyspace>()
-        .Select(k => k.ToWireValue())
+        .Select(k => k.ToWire())
         .ToArray();
 
     /// <summary>
@@ -764,7 +764,7 @@ internal static class ConfigPhase
     /// </summary>
     internal static readonly string[] ValidNodeGroups = Enum
         .GetValues<NodeGroup>()
-        .Select(g => g.ToWireValue())
+        .Select(g => g.ToWire())
         .ToArray();
 
     /// <summary>
@@ -773,7 +773,7 @@ internal static class ConfigPhase
     /// </summary>
     internal static readonly string[] ValidDatabaseModes = Enum
         .GetValues<DatabaseMode>()
-        .Select(m => m.ToWireValue())
+        .Select(m => m.ToWire())
         .ToArray();
 
     /// <summary>
@@ -940,8 +940,8 @@ internal static class ConfigPhase
         }
 
         // config.databaseMode is now a strongly-typed enum; unknown wire values are rejected at
-        // JSON deserialization time by LowerCaseEnumJsonConverter<DatabaseMode>, so an invalid
-        // string never survives long enough to reach this validator.
+        // JSON deserialization time by JsonStringEnumConverter (with the DatabaseMode member-name
+        // attributes), so an invalid string never survives long enough to reach this validator.
 
         // Flows into the API connection string AND `CREATE DATABASE "<name>"`. Postgres-safe
         // identifier keeps both call sites quoting-free within the 63-byte NAMEDATALEN budget.
@@ -974,7 +974,8 @@ internal static class ConfigPhase
         }
 
         // config.scyllaKeyspace is now a strongly-typed enum; unknown wire values are rejected at
-        // JSON deserialization time by LowerCaseEnumJsonConverter<ScyllaKeyspace>.
+        // JSON deserialization time by JsonStringEnumConverter (with the ScyllaKeyspace
+        // member-name attributes).
 
         // Derive first so the per-field validators below see the post-derivation values —
         // JSON-load callers get the same end result as the interactive form.
@@ -1004,7 +1005,8 @@ internal static class ConfigPhase
         }
 
         // config.cluster.nodeGroup is now a strongly-typed enum; unknown wire values are rejected
-        // at JSON deserialization time by LowerCaseEnumJsonConverter<NodeGroup>.
+        // at JSON deserialization time by JsonStringEnumConverter (with the NodeGroup member-name
+        // attributes).
 
         // Both optional; AvatarStorageRoot lives inside the API container so we don't try
         // to verify the path exists on the bootstrapper host.

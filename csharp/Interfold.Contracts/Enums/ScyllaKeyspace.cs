@@ -14,14 +14,27 @@ namespace Interfold.Contracts.Enums;
 /// These strings also appear verbatim as CQL keyspace names and as the region prefix on
 /// externally-shared system IDs (e.g. <c>nam:abc1234</c>), so the wire mapping must never drift.
 /// </remarks>
-[JsonConverter(typeof(LowerCaseEnumJsonConverter<ScyllaKeyspace>))]
+[JsonConverter(typeof(JsonStringEnumConverter<ScyllaKeyspace>))]
 public enum ScyllaKeyspace
 {
+    [JsonStringEnumMemberName("nam")]
     Nam,
+
+    [JsonStringEnumMemberName("eur")]
     Eur,
+
+    [JsonStringEnumMemberName("sam")]
     Sam,
+
+    [JsonStringEnumMemberName("sas")]
     Sas,
+
+    [JsonStringEnumMemberName("eas")]
     Eas,
+
+    [JsonStringEnumMemberName("ocn")]
     Ocn,
+
+    [JsonStringEnumMemberName("gdpr")]
     Gdpr,
 }

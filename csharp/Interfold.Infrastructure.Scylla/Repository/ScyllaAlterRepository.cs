@@ -126,7 +126,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             {
                 // avatar_url + avatar_source must move together; the domain handler
                 // rejects the half-set case so we can write both unconditionally here.
-                var sourceShort = (command.AvatarSource ?? Interfold.Contracts.Enums.AvatarSource.Local).ToCode();
+                var sourceShort = (short)(command.AvatarSource ?? Interfold.Contracts.Enums.AvatarSource.Local);
                 batch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alters SET avatar_url = ?, avatar_source = ?, updated_at = ? WHERE user_id = ? AND id = ?",
                     avatarUrl.Value,
@@ -138,7 +138,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             }
             UpdateIfNotNull(batch, keyspace, command, "color", command.Color?.Value, normalizedSystemId, updatedAt);
             UpdateIfNotNull(batch, keyspace, command, "pronouns", command.Pronouns, normalizedSystemId, updatedAt);
-            UpdateIfNotNull(batch, keyspace, command, "security_level", command.SecurityLevel is null ? null : command.SecurityLevel.Value.ToCode(), normalizedSystemId, updatedAt);
+            UpdateIfNotNull(batch, keyspace, command, "security_level", (short?)command.SecurityLevel, normalizedSystemId, updatedAt);
 
             if (command.Fields is not null)
             {
@@ -423,10 +423,10 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     row.GetValue<string>("name"),
                     row.GetValue<string?>("description"),
                     AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
+                    row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
                     HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("pronouns"),
-                    VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level")),
+                    row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public),
                     ResolveFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
                     row.GetValue<string?>("proxy_name"),
                     row.GetValue<string?>("alias"),
@@ -460,12 +460,12 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             var rows = await session.ExecuteAsync(query);
             return rows
-                .Where(row => VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level")).CanBeViewedBy(friendshipLevel))
+                .Where(row => row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public).CanBeViewedBy(friendshipLevel))
                 .Select(row => new BareAlter(
                     new(row.GetValue<short>("id")),
                     row.GetValue<string>("name"),
                     AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
+                    row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
                     HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("pronouns"),
                     row.GetValue<string?>("description"),
@@ -500,10 +500,10 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     row.GetValue<string>("name"),
                     row.GetValue<string?>("description"),
                     AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
+                    row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
                     HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("pronouns"),
-                    VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level")),
+                    row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public),
                     ResolveFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
                     row.GetValue<string?>("proxy_name"),
                     row.GetValue<string?>("alias"),
@@ -541,7 +541,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 return null;
             }
 
-            var securityLevel = VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level"));
+            var securityLevel = row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public);
             if (!securityLevel.CanBeViewedBy(friendshipLevel))
             {
                 return null;
@@ -551,7 +551,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 new(row.GetValue<short>("id")),
                 row.GetValue<string>("name"),
                 AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
+                row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
                 HexColor.FromNullable(row.GetValue<string?>("color")),
                 row.GetValue<string?>("pronouns"),
                 row.GetValue<string?>("description"),

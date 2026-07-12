@@ -47,7 +47,7 @@ public sealed class AuthController : OAuthControllerBase
     [HttpGet("{provider}")]
     public async Task<IActionResult> Begin([FromRoute] string provider)
     {
-        if (EnumWireExtensions.TryParseOAuthProvider(provider) is not { } oauthProvider)
+        if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
             return UnsupportedProviderResponse(provider);
 
         StoreRedirectUriCookie(RedirectUriCookieName);
@@ -101,7 +101,7 @@ public sealed class AuthController : OAuthControllerBase
 
     private async Task<IActionResult> Callback(string provider)
     {
-        if (EnumWireExtensions.TryParseOAuthProvider(provider) is not { } oauthProvider)
+        if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
             return UnsupportedProviderResponse(provider);
 
         // ExtractProviderIdentityAsync returns a ProviderIdentity? that the account repo

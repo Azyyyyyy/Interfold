@@ -1,5 +1,4 @@
 using System.Text.Json.Serialization;
-using Interfold.Contracts.Enums;
 
 namespace Interfold.Contracts.Models.ImportOperations;
 
@@ -9,13 +8,14 @@ namespace Interfold.Contracts.Models.ImportOperations;
 /// already in flight and this dispatch collapsed onto it). Wire form is the lowercase enum
 /// name so the pre-enum client contract stays byte-identical.
 /// </summary>
-[JsonConverter(typeof(LowerCaseEnumJsonConverter<ImportOperationDispatchStatus>))]
+[JsonConverter(typeof(JsonStringEnumConverter<ImportOperationDispatchStatus>))]
 public enum ImportOperationDispatchStatus
 {
     /// <summary>
     /// This dispatch claimed the per-system slot. A background worker will pick up the
     /// job; the HTTP caller can subscribe to the completion WebSocket frame.
     /// </summary>
+    [JsonStringEnumMemberName("queued")]
     Queued,
 
     /// <summary>
@@ -23,5 +23,6 @@ public enum ImportOperationDispatchStatus
     /// caller gets the in-flight operation id back and MUST NOT enqueue a second worker
     /// run — the existing job's completion frame answers both callers.
     /// </summary>
+    [JsonStringEnumMemberName("running")]
     Running,
 }

@@ -23,8 +23,8 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         public string? ProxyName { get; set; }
         public string Name { get; set; } = string.Empty;
         // Match Scylla read semantics: rows without security_level resolve to Public via
-        // VisibilityLevelExtensions.FromCodeOrPublic, so new alters are world-readable
-        // until the owner tightens visibility explicitly.
+        // code.FromCode(VisibilityLevel.Public), so new alters are world-readable until
+        // the owner tightens visibility explicitly.
         public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Public;
         // Keyed on FieldId (Guid-backed record-struct → value-based equality on Guid).
         public Dictionary<FieldId, string?> Fields { get; } = new();

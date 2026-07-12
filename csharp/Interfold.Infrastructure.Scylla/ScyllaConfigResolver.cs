@@ -96,7 +96,7 @@ public sealed class ScyllaConfigResolver : IScyllaConfigResolver
         // OCTOCON_SCYLLA_KEYSPACE flows env -> ApplyPersistence -> PersistenceConfiguration
         // -> IOptions<PersistenceConfiguration>. The wire value here is the same string
         // the migration service and IRegionContext consumers use as a keyspace identifier.
-        return _persistence.ScyllaKeyspace.ToWireValue();
+        return _persistence.ScyllaKeyspace.ToWire();
     }
 
     public async Task<int> GetPortAsync(CancellationToken ct = default)

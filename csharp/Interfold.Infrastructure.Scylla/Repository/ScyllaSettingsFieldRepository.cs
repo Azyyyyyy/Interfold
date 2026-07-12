@@ -47,8 +47,8 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 .Select((field, index) => new SettingsFieldReadModel(
                     new(field.Id),
                     field.Name,
-                    FieldTypeExtensions.FromCode(field.Type),
-                    VisibilityLevelExtensions.FromCodeOrPrivate(field.SecurityLevel),
+                    field.Type.FromCode(FieldType.Text),
+                    field.SecurityLevel.FromCode(VisibilityLevel.Private),
                     field.Locked,
                     index,
                     field.InsertedAt?.UtcDateTime))
@@ -124,7 +124,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 
                 if (securityLevel is not null)
                 {
-                    fields[i].SecurityLevel = securityLevel.Value.ToCode();
+                    fields[i].SecurityLevel = (short)securityLevel.Value;
                 }
 
                 if (locked is not null)
@@ -258,9 +258,9 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         {
             Id = id,
             Name = name,
-            Type = type.ToCode(),
+            Type = (short)type,
             Locked = locked,
-            SecurityLevel = securityLevel.ToCode(),
+            SecurityLevel = (short)securityLevel,
             InsertedAt = insertedAtOffset,
             UpdatedAt = insertedAtOffset
         };

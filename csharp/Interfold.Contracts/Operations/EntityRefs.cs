@@ -160,5 +160,5 @@ public static class EntityRefs
     /// <see cref="SettingsAction"/> routed through the helper.
     /// </summary>
     public static EntityRef SettingsActionFailed(SettingsAction action)
-        => new($"settings:{action.ToWireValue()}_failed");
+        => new($"settings:{action.ToWire()}_failed");
 }

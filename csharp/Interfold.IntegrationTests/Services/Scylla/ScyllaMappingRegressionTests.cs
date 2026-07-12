@@ -1,6 +1,5 @@
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
-using Interfold.Infrastructure.Scylla.Repository;
 
 namespace Interfold.IntegrationTests.Services.Scylla;
 
@@ -31,15 +30,15 @@ public sealed class ScyllaMappingRegressionTests : BaseEndpointTest
     {
         using (Assert.Multiple())
         {
-            await Assert.That(ScyllaPollRepository.ToPollCode(PollType.Vote)).IsEqualTo((short)0);
-            await Assert.That(ScyllaPollRepository.ToPollCode(PollType.Choice)).IsEqualTo((short)1);
-            await Assert.That(ScyllaPollRepository.ToPollCode(PollType.Approval)).IsEqualTo((short)2);
+            await Assert.That((short)PollType.Vote).IsEqualTo((short)0);
+            await Assert.That((short)PollType.Choice).IsEqualTo((short)1);
+            await Assert.That((short)PollType.Approval).IsEqualTo((short)2);
 
-            await Assert.That(ScyllaPollRepository.ToPollType(0)).IsEqualTo(PollType.Vote);
-            await Assert.That(ScyllaPollRepository.ToPollType(1)).IsEqualTo(PollType.Choice);
-            await Assert.That(ScyllaPollRepository.ToPollType(2)).IsEqualTo(PollType.Approval);
-            await Assert.That(ScyllaPollRepository.ToPollType(short.MinValue)).IsEqualTo(PollType.Vote);
-            await Assert.That(ScyllaPollRepository.ToPollType(short.MaxValue)).IsEqualTo(PollType.Vote);
+            await Assert.That(((short)0).FromCode(PollType.Vote)).IsEqualTo(PollType.Vote);
+            await Assert.That(((short)1).FromCode(PollType.Vote)).IsEqualTo(PollType.Choice);
+            await Assert.That(((short)2).FromCode(PollType.Vote)).IsEqualTo(PollType.Approval);
+            await Assert.That(short.MinValue.FromCode(PollType.Vote)).IsEqualTo(PollType.Vote);
+            await Assert.That(short.MaxValue.FromCode(PollType.Vote)).IsEqualTo(PollType.Vote);
         }
     }
 
@@ -48,10 +47,10 @@ public sealed class ScyllaMappingRegressionTests : BaseEndpointTest
     {
         using (Assert.Multiple())
         {
-            await Assert.That(FriendshipLevelExtensions.FromCode(0)).IsEqualTo(FriendshipLevel.Friend);
-            await Assert.That(FriendshipLevelExtensions.FromCode(1)).IsEqualTo(FriendshipLevel.TrustedFriend);
-            await Assert.That(FriendshipLevelExtensions.FromCode(short.MinValue)).IsEqualTo(FriendshipLevel.Friend);
-            await Assert.That(FriendshipLevelExtensions.FromCode(short.MaxValue)).IsEqualTo(FriendshipLevel.Friend);
+            await Assert.That(((short)0).FromCode(FriendshipLevel.Friend)).IsEqualTo(FriendshipLevel.Friend);
+            await Assert.That(((short)1).FromCode(FriendshipLevel.Friend)).IsEqualTo(FriendshipLevel.TrustedFriend);
+            await Assert.That(short.MinValue.FromCode(FriendshipLevel.Friend)).IsEqualTo(FriendshipLevel.Friend);
+            await Assert.That(short.MaxValue.FromCode(FriendshipLevel.Friend)).IsEqualTo(FriendshipLevel.Friend);
         }
     }
 

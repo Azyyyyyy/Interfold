@@ -15,7 +15,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
     // Derived from the ScyllaKeyspace enum so the region list can't drift from the typed
     // vocabulary the resolution APIs use.
     private static readonly string[] CanonicalRegions =
-        Enum.GetValues<ScyllaKeyspace>().Select(EnumWireExtensions.ToWireValue).ToArray();
+        Enum.GetValues<ScyllaKeyspace>().Select(k => k.ToWire()).ToArray();
 
     private readonly IScyllaSessionProvider _sessionProvider;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
@@ -72,7 +72,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
                 normalizedViewerSystemId);
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
-            return row is null ? null : (FriendshipLevel?)FriendshipLevelExtensions.FromCode(row.GetValue<short>("level"));
+            return row is null ? null : (FriendshipLevel?)row.GetValue<short>("level").FromCode(FriendshipLevel.Friend);
         }, _options, cancellationToken);
     }
 
@@ -95,7 +95,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
                 async row =>
                 {
                     SystemId friendId = new(row.GetValue<string>("friend_id"));
-                    var level = FriendshipLevelExtensions.FromCode(row.GetValue<short>("level"));
+                    var level = row.GetValue<short>("level").FromCode(FriendshipLevel.Friend);
                     var since = row.GetValue<DateTimeOffset?>("since") ?? DateTimeOffset.UtcNow;
 
                     var profileTask = GetFriendProfileAsync(session, friendId);
@@ -133,7 +133,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             }
 
             var since = row.GetValue<DateTimeOffset?>("since") ?? DateTimeOffset.UtcNow;
-            var level = FriendshipLevelExtensions.FromCode(row.GetValue<short>("level"));
+            var level = row.GetValue<short>("level").FromCode(FriendshipLevel.Friend);
             var profile = await GetFriendProfileAsync(session, new(normalizedFriendSystemId));
             var fronting = await GetFrontingAsync(session, new(normalizedFriendSystemId), new(normalizedSystemId));
 
@@ -198,12 +198,12 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var batch = new BatchStatement();
             batch.Add(new SimpleStatement(
                 $"UPDATE {ScyllaGlobalKeyspace.Name}.friendships SET level = ? WHERE user_id = ? AND friend_id = ?",
-                (trusted ? FriendshipLevel.TrustedFriend : FriendshipLevel.Friend).ToCode(),
+                (short)(trusted ? FriendshipLevel.TrustedFriend : FriendshipLevel.Friend),
                 normalizedSystemId,
                 normalizedFriendSystemId));
             batch.Add(new SimpleStatement(
                 $"UPDATE {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id SET level = ? WHERE friend_id = ? AND user_id = ?",
-                (trusted ? FriendshipLevel.TrustedFriend : FriendshipLevel.Friend).ToCode(),
+                (short)(trusted ? FriendshipLevel.TrustedFriend : FriendshipLevel.Friend),
                 normalizedFriendSystemId,
                 normalizedSystemId));
             await session.ExecuteAsync(batch);
@@ -600,7 +600,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
     private static async Task LinkFriendsAndClearRequestsAsync(ISession session, string systemId, string otherSystemId)
     {
-        var friendLevel = FriendshipLevel.Friend.ToCode();
+        var friendLevel = (short)FriendshipLevel.Friend;
         var batch = new BatchStatement();
         batch.Add(new SimpleStatement(
             $"INSERT INTO {ScyllaGlobalKeyspace.Name}.friendships (user_id, friend_id, level, since, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()), toTimestamp(now()))",
@@ -639,7 +639,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             return new FriendProfileReadModel(friendSystemId, null, null, null, null, null);
         }
 
-        var region = typedRegion.ToWireValue();
+        var region = typedRegion.ToWire();
         var profileQuery = new SimpleStatement(
             $"SELECT username, avatar_url, avatar_source, description, discord_id FROM {region}.users WHERE id = ? LIMIT 1",
             friendSystemId.Value);
@@ -650,7 +650,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             friendSystemId,
             profileRow?.GetValue<string?>("username") is { } username ? new Username(username) : null,
             AvatarUrl.FromNullable(profileRow?.GetValue<string?>("avatar_url")),
-            AvatarSourceExtensions.TryFromCode(profileRow?.GetValue<short?>("avatar_source")),
+            profileRow is not null && profileRow.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var profileAvatarSrc) ? profileAvatarSrc : null,
             profileRow?.GetValue<string?>("description"),
             profileRow?.GetValue<string?>("discord_id") is { } discordId ? new DiscordId(discordId) : null);
     }
@@ -663,7 +663,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             return [];
         }
 
-        var regionalKeyspace = typedRegion.ToWireValue();
+        var regionalKeyspace = typedRegion.ToWire();
 
         // Friendship level from the friend's perspective (they control their own alter visibility)
         var levelTask = session.ExecuteAsync(new SimpleStatement(
@@ -683,7 +683,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         await Task.WhenAll(levelTask, activeTask, primaryTask, altersTask);
 
         var levelRow = (await levelTask).FirstOrDefault();
-        FriendshipLevel? friendshipLevel = levelRow is null ? null : FriendshipLevelExtensions.FromCode(levelRow.GetValue<short>("level"));
+        FriendshipLevel? friendshipLevel = levelRow is null ? null : levelRow.GetValue<short>("level").FromCode(FriendshipLevel.Friend);
         var activeRows = await activeTask;
         var primaryRow = (await primaryTask).FirstOrDefault();
         var primaryAlterId = AlterId.FromStorageInt(primaryRow?.GetValue<int?>("primary_front"));
@@ -696,7 +696,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
                 row => (
                     Name: row.GetValue<string?>("name"),
                     AvatarUrl: AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    AvatarSource: AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
+                    AvatarSource: row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : (AvatarSource?)null,
                     Pronouns: row.GetValue<string?>("pronouns"),
                     Color: HexColor.FromNullable(row.GetValue<string?>("color")),
                     Description: row.GetValue<string?>("description"),
@@ -731,7 +731,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
     }
 
     private static bool CanViewAlter(FriendshipLevel? friendshipLevel, short? securityLevel)
-        => VisibilityLevelExtensions.FromCodeOrPublic(securityLevel).CanBeViewedBy(friendshipLevel);
+        => securityLevel.FromCode(VisibilityLevel.Public).CanBeViewedBy(friendshipLevel);
 
     // Returns null when the registry row is absent or carries an unknown region value —
     // callers treat both as "profile unavailable" rather than guessing a keyspace.

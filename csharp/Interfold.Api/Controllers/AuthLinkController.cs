@@ -47,7 +47,7 @@ public sealed class AuthLinkController : OAuthControllerBase
     [HttpGet("{provider}")]
     public async Task<IActionResult> Begin([FromRoute] string provider)
     {
-        if (EnumWireExtensions.TryParseOAuthProvider(provider) is not { } oauthProvider)
+        if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
             return UnsupportedProviderResponse(provider);
 
         StoreQueryCookie(LinkTokenCookieName, OAuthQueryKeys.LinkToken);
@@ -72,7 +72,7 @@ public sealed class AuthLinkController : OAuthControllerBase
 
     private async Task<IActionResult> Callback(string provider)
     {
-        if (EnumWireExtensions.TryParseOAuthProvider(provider) is not { } oauthProvider)
+        if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
             return UnsupportedProviderResponse(provider);
 
         // Step 7 cleanup: LinkToken.From wraps the query-or-cookie fallback in one call so

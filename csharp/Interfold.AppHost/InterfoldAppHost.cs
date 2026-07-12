@@ -315,7 +315,7 @@ public static class InterfoldAppHost
         // onto the API container as OCTOCON_* env vars. Empty defaults are intentional — Validate
         // refuses to emit a bootstrap without them, and a non-empty operator-supplied value always
         // wins over the bootstrapper's derived default.
-        var scyllaKeyspace = builder.AddParameter(ParamName(AppHostParameterKeys.ScyllaKeyspace), ScyllaKeyspace.Nam.ToWireValue(), publishValueAsDefault: true);
+        var scyllaKeyspace = builder.AddParameter(ParamName(AppHostParameterKeys.ScyllaKeyspace), ScyllaKeyspace.Nam.ToWire(), publishValueAsDefault: true);
         var oauthCallbackBaseUrl = builder.AddParameter(ParamName(AppHostParameterKeys.OAuthCallbackBaseUrl), "", publishValueAsDefault: true);
         var jwtAuthority = builder.AddParameter(ParamName(AppHostParameterKeys.JwtAuthority), "", publishValueAsDefault: true);
         var jwtAudience = builder.AddParameter(ParamName(AppHostParameterKeys.JwtAudience), "octocon", publishValueAsDefault: true);
@@ -505,7 +505,7 @@ public static class InterfoldAppHost
 
             foreach (var region in scyllaRegions)
             {
-                var regionWire = region.ToWireValue();
+                var regionWire = region.ToWire();
                 var name = ComposeServices.ToScyllaNodeName(region, multiNode: isMultiScyllaNode);
                 var seeds = previousNode is null
                     ? $"--seeds={name}"
@@ -624,7 +624,7 @@ public static class InterfoldAppHost
                 .WithEnvironment(ContainerEnvNames.CassandraRpcAddress, "0.0.0.0")
                 .WithEnvironment(ContainerEnvNames.CassandraEndpointSnitch, "GossipingPropertyFileSnitch")
                 .WithEnvironment(ContainerEnvNames.CassandraNumTokens, "16")
-                .WithEnvironment(ContainerEnvNames.CassandraDc, ScyllaKeyspace.Nam.ToWireValue())
+                .WithEnvironment(ContainerEnvNames.CassandraDc, ScyllaKeyspace.Nam.ToWire())
                 .WithEnvironment(ContainerEnvNames.CassandraRack, "rack1")
                 .WithEnvironment(ContainerEnvNames.MaxHeapSize, "512M")
                 .WithEnvironment(ContainerEnvNames.HeapNewSize, "256M")

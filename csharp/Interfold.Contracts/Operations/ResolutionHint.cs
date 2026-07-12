@@ -1,5 +1,4 @@
 using System.Text.Json.Serialization;
-using Interfold.Contracts.Enums;
 
 namespace Interfold.Contracts.Operations;
 
@@ -9,12 +8,14 @@ namespace Interfold.Contracts.Operations;
 /// <c>ErrorResponse</c> code (<c>"no_retry"</c> / <c>"manual_merge_required"</c>), so the
 /// wire spellings below are frozen.
 /// </summary>
-[JsonConverter(typeof(LowerCaseEnumJsonConverter<ResolutionHint>))]
+[JsonConverter(typeof(JsonStringEnumConverter<ResolutionHint>))]
 public enum ResolutionHint
 {
     /// <summary>Duplicate command with a different payload — replaying will never succeed.</summary>
+    [JsonStringEnumMemberName("no_retry")]
     NoRetry,
 
     /// <summary>An invariant was violated; the caller must reconcile state before retrying.</summary>
+    [JsonStringEnumMemberName("manual_merge_required")]
     ManualMergeRequired,
 }

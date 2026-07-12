@@ -9,46 +9,30 @@ namespace Interfold.Contracts.Enums;
 ///
 /// <para>
 /// The Scylla schema stores this as a <c>smallint</c>: <c>0 → vote</c>, <c>1 → choice</c>,
-/// <c>2 → approval</c>. See <see cref="PollTypeExtensions"/> for the mapping.
+/// <c>2 → approval</c>. Callers cast <c>(short)value</c> outbound and use
+/// <c>EnumCode&lt;PollType&gt;.FromCode(code, PollType.Vote)</c> inbound; unknown codes fall
+/// back to <c>Vote</c> to match the historical row-mapping behaviour.
 /// </para>
 /// </summary>
-[JsonConverter(typeof(LowerCaseEnumJsonConverter<PollType>))]
-public enum PollType
+[JsonConverter(typeof(JsonStringEnumConverter<PollType>))]
+public enum PollType : short
 {
+    [JsonStringEnumMemberName("vote")]
     Vote = 0,
+
+    [JsonStringEnumMemberName("choice")]
     Choice = 1,
+
+    [JsonStringEnumMemberName("approval")]
     Approval = 2,
 }
 
 public static class PollTypeExtensions
 {
-    public static string ToWireValue(this PollType type) => type switch
-    {
-        PollType.Vote => "vote",
-        PollType.Choice => "choice",
-        PollType.Approval => "approval",
-        _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
-    };
-
     /// <summary>
-    /// Best-effort parse. Unknown values fall back to <see cref="PollType.Vote"/>, matching
-    /// the Scylla mapping which returns "vote" for any code outside the 0-2 range.
+    /// Best-effort case-insensitive parse. Unknown values fall back to <see cref="PollType.Vote"/>,
+    /// matching the Scylla mapping which returns "vote" for any code outside the 0-2 range.
     /// </summary>
-    public static PollType ParseWireValueOrVote(string? value) => value switch
-    {
-        "vote" => PollType.Vote,
-        "choice" => PollType.Choice,
-        "approval" => PollType.Approval,
-        _ => PollType.Vote,
-    };
-
-    public static PollType FromCode(short code) => code switch
-    {
-        0 => PollType.Vote,
-        1 => PollType.Choice,
-        2 => PollType.Approval,
-        _ => PollType.Vote,
-    };
-
-    public static short ToCode(this PollType type) => (short)type;
+    public static PollType ParseWireValueOrVote(string? value)
+        => value.TryParseWire<PollType>(out var type) ? type : PollType.Vote;
 }

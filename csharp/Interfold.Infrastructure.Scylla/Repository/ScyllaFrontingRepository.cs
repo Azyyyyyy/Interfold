@@ -245,7 +245,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                     new(row.GetValue<short>("id")),
                     row.GetValue<string>("name"),
                     AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    AvatarSourceExtensions.TryFromCode(row.GetValue<short?>("avatar_source")),
+                    row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
                     HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("pronouns"),
                     row.GetValue<string?>("description"),
@@ -306,7 +306,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
             var visibilityByAlterId = securityRows.ToDictionary(
                 row => new AlterId(row.GetValue<short>("id")),
-                row => VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level")));
+                row => row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public));
 
             var filtered = all
                 .Where(front => visibilityByAlterId.TryGetValue(front.Alter.Id, out var level) && level.CanBeViewedBy(friendshipLevel))
@@ -409,7 +409,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                     new(alterRow.GetValue<short>("id")),
                     alterRow.GetValue<string>("name"),
                     AvatarUrl.FromNullable(alterRow.GetValue<string?>("avatar_url")),
-                    AvatarSourceExtensions.TryFromCode(alterRow.GetValue<short?>("avatar_source")),
+                    alterRow.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
                     HexColor.FromNullable(alterRow.GetValue<string?>("color")),
                     alterRow.GetValue<string?>("pronouns"),
                     alterRow.GetValue<string?>("description"),

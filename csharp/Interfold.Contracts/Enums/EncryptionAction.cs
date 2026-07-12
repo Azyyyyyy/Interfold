@@ -7,9 +7,12 @@ namespace Interfold.Contracts.Enums;
 /// idempotency outcome payloads and HTTP response bodies; wire spellings
 /// ("encryption_setup" / "encryption_recovered") are frozen.
 /// </summary>
-[JsonConverter(typeof(LowerCaseEnumJsonConverter<EncryptionAction>))]
+[JsonConverter(typeof(JsonStringEnumConverter<EncryptionAction>))]
 public enum EncryptionAction
 {
+    [JsonStringEnumMemberName("encryption_setup")]
     EncryptionSetup,
+
+    [JsonStringEnumMemberName("encryption_recovered")]
     EncryptionRecovered,
 }

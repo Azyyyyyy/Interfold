@@ -76,7 +76,7 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
             throw new ArgumentException("Cannot compose a ScopedSystemId from a blank id.", nameof(maybeScoped));
         }
 
-        var regionWire = region.ToWireValue();
+        var regionWire = region.ToWire();
         return new ScopedSystemId($"{regionWire}:{raw}", raw, region);
     }
 
@@ -154,7 +154,7 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
 
         // Canonicalise the prefix casing on the way out — the ScyllaKeyspace wire values are
         // always lowercase and every read-side caller compares against the lowercase form.
-        result = new ScopedSystemId($"{region.ToWireValue()}:{raw}", raw, region);
+        result = new ScopedSystemId($"{region.ToWire()}:{raw}", raw, region);
         return true;
     }
 

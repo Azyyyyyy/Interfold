@@ -39,7 +39,7 @@ public sealed partial class ScyllaMigrationService(
     // that the resolution APIs (IRegionContext) hand around.
     private static readonly string[] RegionalKeyspaces =
         Enum.GetValues<Contracts.Enums.ScyllaKeyspace>()
-            .Select(Contracts.Enums.EnumWireExtensions.ToWireValue)
+            .Select(Contracts.Enums.EnumWire<Contracts.Enums.ScyllaKeyspace>.ToWire)
             .ToArray();
 
     // Singleton keyspaces created once during bootstrap from 000_create_singleton_keyspaces.cql.

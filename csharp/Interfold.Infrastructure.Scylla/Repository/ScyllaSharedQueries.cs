@@ -41,7 +41,7 @@ internal static class ScyllaSharedQueries
             normalizedViewerSystemId);
 
         var row = (await session.ExecuteAsync(query)).FirstOrDefault();
-        return row is null ? null : FriendshipLevelExtensions.FromCode(row.GetValue<short>("level"));
+        return row is null ? null : row.GetValue<short>("level").FromCode(FriendshipLevel.Friend);
     }
 
     /// <summary>

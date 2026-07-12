@@ -122,7 +122,7 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
 
     protected string BuildCallbackBaseUri(OAuthProvider provider)
     {
-        var providerKey = provider.ToWireValue();
+        var providerKey = provider.ToWire();
         var authConfig = AuthOptions.CurrentValue;
         var baseUrl = authConfig.CallbackBaseUrl ?? $"{Request.Scheme}://{Request.Host}";
         return $"{baseUrl}/{CallbackRoutePrefix}/{providerKey}/callback";

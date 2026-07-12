@@ -83,7 +83,7 @@ public sealed class ScyllaPollRepository : IPollRepository
                 pollGuid,
                 command.Title,
                 command.Description,
-                ToPollCode(command.Type),
+                (short)command.Type,
                 "{}",
                 command.TimeEnd,
                 command.InsertedAtUtc
@@ -206,10 +206,6 @@ public sealed class ScyllaPollRepository : IPollRepository
         return rows.Any();
     }
 
-    internal static short ToPollCode(PollType type) => type.ToCode();
-
-    internal static PollType ToPollType(short code) => PollTypeExtensions.FromCode(code);
-
     // The data blob's confirmed shape (see PollDataJson) keeps per-alter votes in the
     // top-level `responses` array as {"alter_id":<int>,...} entries; deleting an alter
     // filters those entries while leaving every other member untouched.
@@ -241,7 +237,7 @@ public sealed class ScyllaPollRepository : IPollRepository
             new(row.GetValue<string>("user_id")),
             row.GetValue<string>("title"),
             row.GetValue<string?>("description"),
-            ToPollType(row.GetValue<short>("type")),
+            row.GetValue<short>("type").FromCode(PollType.Vote),
             JsonSerializer.Deserialize<JsonElement>(row.GetValue<string?>("data") ?? "{}"),
             row.GetValue<DateTime?>("time_end"),
             row.GetValue<DateTime>("inserted_at"),

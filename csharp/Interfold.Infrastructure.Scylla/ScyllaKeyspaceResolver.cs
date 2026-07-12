@@ -57,7 +57,7 @@ public sealed class ScyllaKeyspaceResolver : IScyllaKeyspaceResolver
 
     // IRegionContext's resolution APIs are typed ScyllaKeyspace; this resolver is the CQL
     // boundary, so it unwraps to the lowercase keyspace name exactly once here.
-    public string DefaultKeyspace => _regionContext.CurrentRegion.ToWireValue();
+    public string DefaultKeyspace => _regionContext.CurrentRegion.ToWire();
 
     public string ResolveRegionalKeyspace(SystemId systemId)
     {
@@ -68,7 +68,7 @@ public sealed class ScyllaKeyspaceResolver : IScyllaKeyspaceResolver
         // stay raw (sys-abc). Canonicalise to the stripped raw id and resolve through
         // IRegionContext so both wire forms share one keyspace — otherwise the same
         // principal could be written to nam.* and read from eur.*.
-        return _regionContext.ResolveUserRegion(new(NormalizeSystemId(systemId))).ToWireValue();
+        return _regionContext.ResolveUserRegion(new(NormalizeSystemId(systemId))).ToWire();
     }
 
     public string ResolveGlobalKeyspace() => ScyllaGlobalKeyspace.Name;

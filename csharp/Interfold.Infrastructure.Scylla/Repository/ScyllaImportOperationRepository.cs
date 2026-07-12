@@ -1,5 +1,6 @@
 using Cassandra;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.ImportOperations;
 using Interfold.Domain.Abstractions.Repository;
@@ -67,7 +68,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var now = DateTimeOffset.UtcNow;
             var newOperationId = TimeUuid.NewId();
-            var kindWire = kind.ToWireValue();
+            var kindWire = kind.ToWire();
 
             // LWT INSERT IF NOT EXISTS — Paxos round, but per-system contention is by
             // definition single-digit and we accept the latency cost (a few hundred ms
@@ -102,7 +103,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
                 "(system_id, operation_id, kind, status, started_at, idempotency_key) " +
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 normalizedSystemId, newOperationId, kindWire,
-                ImportOperationStatus.Queued.ToWireValue(),
+                ImportOperationStatus.Queued.ToWire(),
                 now.UtcDateTime, idempotencyKey.Value);
             await session.ExecuteAsync(historyInsert);
 
@@ -127,9 +128,9 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             var update = new SimpleStatement(
                 $"UPDATE {keyspace}.import_operations SET status = ? " +
                 "WHERE system_id = ? AND operation_id = ? IF status = ?",
-                ImportOperationStatus.Running.ToWireValue(),
+                ImportOperationStatus.Running.ToWire(),
                 normalizedSystemId, (TimeUuid)operationId.Value,
-                ImportOperationStatus.Queued.ToWireValue());
+                ImportOperationStatus.Queued.ToWire());
             await session.ExecuteAsync(update);
             return true;
         }, _options, cancellationToken, _logger);
@@ -153,11 +154,11 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.import_operations SET status = ?, finished_at = ?, alter_count = ? " +
                 "WHERE system_id = ? AND operation_id = ?",
-                ImportOperationStatus.Succeeded.ToWireValue(), now.UtcDateTime, alterCount,
+                ImportOperationStatus.Succeeded.ToWire(), now.UtcDateTime, alterCount,
                 normalizedSystemId, (TimeUuid)operationId.Value));
             await session.ExecuteAsync(batch);
 
-            await ReleaseSlot(session, keyspace, normalizedSystemId, kind.ToWireValue(), (TimeUuid)operationId.Value);
+            await ReleaseSlot(session, keyspace, normalizedSystemId, kind.ToWire(), (TimeUuid)operationId.Value);
             return true;
         }, _options, cancellationToken, _logger);
     }
@@ -180,11 +181,11 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             var update = new SimpleStatement(
                 $"UPDATE {keyspace}.import_operations SET status = ?, finished_at = ?, error_code = ?, error_message = ? " +
                 "WHERE system_id = ? AND operation_id = ?",
-                ImportOperationStatus.Failed.ToWireValue(), now.UtcDateTime, errorCode.ToWireValue(), errorMessage,
+                ImportOperationStatus.Failed.ToWire(), now.UtcDateTime, errorCode.ToWireValue(), errorMessage,
                 normalizedSystemId, (TimeUuid)operationId.Value);
             await session.ExecuteAsync(update);
 
-            await ReleaseSlot(session, keyspace, normalizedSystemId, kind.ToWireValue(), (TimeUuid)operationId.Value);
+            await ReleaseSlot(session, keyspace, normalizedSystemId, kind.ToWire(), (TimeUuid)operationId.Value);
             return true;
         }, _options, cancellationToken, _logger);
     }
@@ -225,7 +226,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
 
             var query = new SimpleStatement(
                 $"SELECT operation_id FROM {keyspace}.active_import_by_system WHERE system_id = ? AND kind = ?",
-                normalizedSystemId, kind.ToWireValue());
+                normalizedSystemId, kind.ToWire());
 
             var rows = await session.ExecuteAsync(query);
             var row = rows.FirstOrDefault();
@@ -252,7 +253,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
                 $"alter_count, error_code, error_message, idempotency_key " +
                 $"FROM {keyspace}.import_operations " +
                 "WHERE status = ? AND started_at < ? ALLOW FILTERING",
-                ImportOperationStatus.Running.ToWireValue(), cutoff.UtcDateTime);
+                ImportOperationStatus.Running.ToWire(), cutoff.UtcDateTime);
 
             var rows = await session.ExecuteAsync(query);
             var list = new List<ImportOperationSnapshot>();
@@ -284,12 +285,12 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
     private static ImportOperationSnapshot MapRow(Row row)
     {
         var statusText = row.GetValue<string>("status");
-        var status = ImportOperationStatusExtensions.TryParseWireValue(statusText, out var parsed)
+        var status = statusText.TryParseWire<ImportOperationStatus>(out var parsed)
             ? parsed
             : ImportOperationStatus.Queued;
 
         var kindText = row.GetValue<string>("kind");
-        var kind = ImportOperationKindExtensions.TryParseWireValue(kindText, out var parsedKind)
+        var kind = kindText.TryParseWire<ImportOperationKind>(out var parsedKind)
             ? parsedKind
             : throw new InvalidOperationException(
                 $"[import-ops] Encountered unknown kind '{kindText}' in import_operations row. " +

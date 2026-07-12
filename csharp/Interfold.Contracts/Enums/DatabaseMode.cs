@@ -15,10 +15,15 @@ namespace Interfold.Contracts.Enums;
 ///   <item><see cref="Cassandra"/> — one Cassandra 5 node, no Scylla.</item>
 /// </list>
 /// </remarks>
-[JsonConverter(typeof(LowerCaseEnumJsonConverter<DatabaseMode>))]
+[JsonConverter(typeof(JsonStringEnumConverter<DatabaseMode>))]
 public enum DatabaseMode
 {
+    [JsonStringEnumMemberName("single")]
     Single,
+
+    [JsonStringEnumMemberName("multi")]
     Multi,
+
+    [JsonStringEnumMemberName("cassandra")]
     Cassandra,
 }

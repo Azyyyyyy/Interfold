@@ -1,3 +1,5 @@
+using Interfold.Contracts.Enums;
+
 namespace Interfold.Contracts.Configuration;
 
 /// <summary>
@@ -80,5 +82,5 @@ public static class ComposeServices
         => multiNode ? $"scylla-{regionWireValue}" : ScyllaSingle;
 
     public static string ToScyllaNodeName(Enums.ScyllaKeyspace keyspace, bool multiNode)
-        => ToScyllaNodeName(Enums.EnumWireExtensions.ToWireValue(keyspace), multiNode);
+        => ToScyllaNodeName(keyspace.ToWire(), multiNode);
 }

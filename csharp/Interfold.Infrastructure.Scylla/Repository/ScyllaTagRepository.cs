@@ -146,7 +146,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             if (command.SecurityLevel is not null)
             {
                 setClauses.Add("security_level = ?");
-                values.Add(command.SecurityLevel.Value.ToCode());
+                values.Add((short)command.SecurityLevel.Value);
             }
 
             if (setClauses.Count == 0)
@@ -409,7 +409,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                     alterIds,
                     row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
                     row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
-                    VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level")),
+                    row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public),
                     new(row.GetValue<string>("user_id"))));
             }
 
@@ -443,7 +443,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             foreach (var row in rows)
             {
-                var visibility = VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level"));
+                var visibility = row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public);
                 if (!visibility.CanBeViewedBy(friendshipLevel))
                 {
                     continue;
@@ -507,7 +507,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 alterIds,
                 row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
                 row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
-                VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level")),
+                row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public),
                 new(row.GetValue<string>("user_id")));
         }, _options, cancellationToken);
     }
@@ -538,7 +538,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 return null;
             }
 
-            var visibility = VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level"));
+            var visibility = row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public);
             if (!visibility.CanBeViewedBy(friendshipLevel))
             {
                 return null;
@@ -602,7 +602,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             .Select(row => new
             {
                 AlterId = new AlterId(row.GetValue<short>("id")),
-                Visibility = VisibilityLevelExtensions.FromCodeOrPublic(row.GetValue<short?>("security_level"))
+                Visibility = row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public)
             })
             .Where(x => alterIds.Contains(x.AlterId) && x.Visibility.CanBeViewedBy(friendshipLevel))
             .Select(x => x.AlterId)
