@@ -50,7 +50,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
     {
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new List<SettingsFieldReadModel>());
-        FieldId fieldId = new(Guid.NewGuid().ToString("N"));
+        FieldId fieldId = new(Guid.NewGuid());
 
         lock (store)
         {
@@ -94,11 +94,6 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
 
     public Task<bool> DeleteAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default)
     {
-        if (!TryParseUuid(fieldId, out var fieldGuid))
-        {
-            return Task.FromResult(false);
-        }
-
         var systemKey = GetSystemKey(systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store))
             return Task.FromResult(false);
@@ -121,7 +116,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
             var alterRepo = _serviceProvider?.GetService<IAlterRepository>();
             if (alterRepo is InMemoryAlterRepository regional)
             {
-                regional.RemoveFieldValuesForSystem(systemId, fieldGuid);
+                regional.RemoveFieldValuesForSystem(systemId, fieldId.Value);
             }
         }
         catch
@@ -165,14 +160,4 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
     }
 
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-
-    internal static bool TryParseUuid(string value, out Guid guid)
-    {
-        if (Guid.TryParseExact(value, "N", out guid))
-        {
-            return true;
-        }
-
-        return Guid.TryParse(value, out guid);
-    }
 }

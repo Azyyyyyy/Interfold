@@ -45,7 +45,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 
             var result = fields
                 .Select((field, index) => new SettingsFieldReadModel(
-                    new(field.Id.ToString("N")),
+                    new(field.Id),
                     field.Name,
                     FieldTypeExtensions.FromCode(field.Type),
                     VisibilityLevelExtensions.FromCodeOrPrivate(field.SecurityLevel),
@@ -84,7 +84,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 fields,
                 normalizedSystemId));
 
-            return new(fieldId.ToString("N"));
+            return new(fieldId);
         }, _options, cancellationToken);
     }
 
@@ -98,11 +98,6 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(fieldId, out var fieldGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -117,7 +112,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             var updated = false;
             for (var i = 0; i < fields.Count; i++)
             {
-                if (fields[i].Id != fieldGuid)
+                if (fields[i].Id != fieldId.Value)
                 {
                     continue;
                 }
@@ -160,11 +155,6 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(fieldId, out var fieldGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -176,7 +166,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 return false;
             }
 
-            var removed = fields.RemoveAll(f => f.Id == fieldGuid) > 0;
+            var removed = fields.RemoveAll(f => f.Id == fieldId.Value) > 0;
             if (!removed)
             {
                 return false;
@@ -184,7 +174,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 
             // Remove the field values from all alters before deleting the field itself
             // We want to ensure that the field values are removed to ensure no leakage of deleted field data
-            var batch = await RemoveFieldValuesFromAltersAsync(session, keyspace, normalizedSystemId, fieldGuid);
+            var batch = await RemoveFieldValuesFromAltersAsync(session, keyspace, normalizedSystemId, fieldId.Value);
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 fields,
@@ -200,11 +190,6 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(fieldId, out var fieldGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -216,7 +201,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 return false;
             }
 
-            var currentIndex = fields.FindIndex(f => f.Id == fieldGuid);
+            var currentIndex = fields.FindIndex(f => f.Id == fieldId.Value);
             if (currentIndex < 0)
             {
                 return false;
@@ -340,16 +325,6 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         }
 
         return batch;
-    }
-
-    internal static bool TryParseUuid(string value, out Guid guid)
-    {
-        if (Guid.TryParseExact(value, "N", out guid))
-        {
-            return true;
-        }
-
-        return Guid.TryParse(value, out guid);
     }
 
     // The Cassandra C# driver's UDT serializer routes `timestamp` columns through

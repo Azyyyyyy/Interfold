@@ -49,10 +49,10 @@ public sealed class InMemoryTagRepository : ITagRepository
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<TagId, TagState>());
 
-        if (!string.IsNullOrWhiteSpace(command.ParentTagId?.Value) && !store.ContainsKey(command.ParentTagId.Value))
+        if (command.ParentTagId is { } parent && parent.Value != Guid.Empty && !store.ContainsKey(parent))
             return Task.FromResult<TagId?>(null);
 
-        TagId id = new(Guid.NewGuid().ToString("N"));
+        TagId id = new(Guid.NewGuid());
         store[id] = new TagState(id, command.ParentTagId, command.Name, command.InsertedAtUtc, DateTime.UtcNow);
         return Task.FromResult<TagId?>(id);
     }
@@ -151,8 +151,10 @@ public sealed class InMemoryTagRepository : ITagRepository
            if (!_bySystem.TryGetValue(systemKey, out var store))
                return Task.FromResult<IReadOnlyList<TagReadModel>>(Array.Empty<TagReadModel>());
 
+           // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
+           // to the historic string-backed TagId — Guid.CompareTo bytewise reorders differently.
            var rows = store.Values
-               .OrderBy(x => (string)x.TagId, StringComparer.Ordinal)
+               .OrderBy(x => x.TagId.Value.ToString("N"), StringComparer.Ordinal)
                .Select(x => new TagReadModel(
                    x.TagId,
                    x.Name,
@@ -181,7 +183,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
            var rows = store.Values
                .Where(x => x.SecurityLevel.CanBeViewedBy(friendshipLevel))
-               .OrderBy(x => (string)x.TagId, StringComparer.Ordinal)
+               .OrderBy(x => x.TagId.Value.ToString("N"), StringComparer.Ordinal)
                .Select(x => new TagPublicReadModel(
                    x.TagId,
                    x.Name,

@@ -57,11 +57,11 @@ public sealed class CreateTagCommandHandler : ICommandHandler<CreateTagCommand, 
                 return CommandExecutionResult<TagCommandResult>.Success(replay with { Replay = true });
         }
 
-        if (!string.IsNullOrWhiteSpace(command.Payload.ParentTagId?.Value))
+        if (command.Payload.ParentTagId is { } parentTagId && parentTagId.Value != Guid.Empty)
         {
             var parentExists = await _tagRepository.ExistsAsync(
                 command.PrincipalId,
-                command.Payload.ParentTagId.Value,
+                parentTagId,
                 cancellationToken
             );
 

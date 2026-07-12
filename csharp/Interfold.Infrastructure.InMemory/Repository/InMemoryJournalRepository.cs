@@ -52,7 +52,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     {
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<EntryId, EntryState>());
-        EntryId id = new(Guid.NewGuid().ToString("N"));
+        EntryId id = new(Guid.NewGuid());
         var now = DateTime.UtcNow;
 
         store[id] = new EntryState
@@ -157,7 +157,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     {
         var systemKey = GetSystemKey(systemId);
         var store = _alterEntriesBySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<EntryId, AlterEntryState>());
-        EntryId entryId = new(Guid.NewGuid().ToString("N"));
+        EntryId entryId = new(Guid.NewGuid());
         var now = DateTime.UtcNow;
 
         store[entryId] = new AlterEntryState
@@ -296,8 +296,10 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         if (!_bySystem.TryGetValue(systemKey, out var store))
             return Task.FromResult<IReadOnlyList<JournalReadModel>>(Array.Empty<JournalReadModel>());
 
+        // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
+        // to the historic string-backed EntryId — Guid.CompareTo bytewise reorders differently.
         var entries = store.Values
-            .OrderByDescending(e => (string)e.EntryId, StringComparer.Ordinal)
+            .OrderByDescending(e => e.EntryId.Value.ToString("N"), StringComparer.Ordinal)
             .Select(e =>
             {
                 var (pinned, locked) = GetGlobalState(systemId, e.EntryId);

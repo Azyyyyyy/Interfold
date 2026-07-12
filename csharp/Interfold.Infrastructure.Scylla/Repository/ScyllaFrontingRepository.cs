@@ -105,7 +105,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             ));
             // Note: fronts_by_time and fronts_by_end_time are only populated when a front is closed
             await session.ExecuteAsync(startBatch);
-            return new(frontGuid.ToString("N"));
+            return new(frontGuid);
         }, _options, cancellationToken, _logger);
     }
 
@@ -254,7 +254,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             return (IReadOnlyList<FrontActiveReadModel>)rows
                 .Select(row =>
                 {
-                    FrontId frontId = new(row.GetValue<Guid>("id").ToString("N"));
+                    FrontId frontId = new(row.GetValue<Guid>("id"));
                     AlterId alterId = new(row.GetValue<short>("alter_id"));
                     var timeStart = row.GetValue<DateTimeOffset?>("time_start") ?? DateTimeOffset.UtcNow;
                     var front = new FrontHistoryReadModel(
@@ -338,7 +338,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var historicalRows = await session.ExecuteAsync(historyQuery);
             var historical = historicalRows
                 .Select(row => new FrontHistoryReadModel(
-                    new(row.GetValue<Guid>("id").ToString("N")),
+                    new(row.GetValue<Guid>("id")),
                     new(row.GetValue<short>("alter_id")),
                     row.GetValue<string?>("comment"),
                     row.GetValue<DateTimeOffset>("time_start"),
@@ -356,9 +356,6 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
     public async Task<FrontActiveReadModel?> GetActiveByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default)
     {
-        if (!Guid.TryParse(frontId, out var frontGuid))
-            return null;
-
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
@@ -369,7 +366,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var frontRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT alter_id FROM {keyspace}.fronts WHERE user_id = ? AND id = ? LIMIT 1 ALLOW FILTERING",
                 normalizedSystemId,
-                frontGuid))).FirstOrDefault();
+                frontId.Value))).FirstOrDefault();
 
             if (frontRow is null)
                 return null;
@@ -395,7 +392,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             await Task.WhenAll(currentTask, alterTask, primaryTask);
 
             var currentRow = (await currentTask).FirstOrDefault();
-            if (currentRow is null || currentRow.GetValue<Guid>("id") != frontGuid)
+            if (currentRow is null || currentRow.GetValue<Guid>("id") != frontId.Value)
                 return null;
 
             var alterRow = (await alterTask).FirstOrDefault();
@@ -421,7 +418,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
             var timeStart = currentRow.GetValue<DateTimeOffset?>("time_start") ?? DateTimeOffset.UtcNow;
             var front = new FrontHistoryReadModel(
-                new(frontGuid.ToString("N")),
+                new(frontId.Value),
                 new(alterId),
                 currentRow.GetValue<string?>("comment"),
                 timeStart,
@@ -443,13 +440,13 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var row = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT id, alter_id, comment, time_start, time_end FROM {keyspace}.fronts WHERE user_id = ? AND id = ? LIMIT 1 ALLOW FILTERING",
                 normalizedSystemId,
-                Guid.Parse(frontId)))).FirstOrDefault();
+                frontId.Value))).FirstOrDefault();
 
             if (row is null)
                 return null;
 
             return new FrontHistoryReadModel(
-                new(row.GetValue<Guid>("id").ToString("N")),
+                new(row.GetValue<Guid>("id")),
                 new(row.GetValue<short>("alter_id")),
                 row.GetValue<string?>("comment"),
                 row.GetValue<DateTimeOffset>("time_start"),
@@ -462,16 +459,11 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!Guid.TryParse(frontId, out var frontGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
-            var current = await GetActiveFrontReferenceByFrontIdAsync(session, keyspace, normalizedSystemId, frontGuid);
+            var current = await GetActiveFrontReferenceByFrontIdAsync(session, keyspace, normalizedSystemId, frontId.Value);
             if (current is null)
             {
                 return false;
@@ -532,7 +524,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var row = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT alter_id, time_start, time_end FROM {keyspace}.fronts WHERE user_id = ? AND id = ? LIMIT 1 ALLOW FILTERING",
                 normalizedSystemId,
-                Guid.Parse(frontId)))).FirstOrDefault();
+                frontId.Value))).FirstOrDefault();
 
             if (row is null)
                 return false;
@@ -540,7 +532,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var alterId = AlterId.FromStorageShort(row.GetValue<short>("alter_id"));
             var timeStart = row.GetValue<DateTimeOffset>("time_start");
             var timeEnd = row.GetValue<DateTimeOffset?>("time_end");
-            var frontGuid = Guid.Parse(frontId);
+            var frontGuid = frontId.Value;
 
             // Prefetch current front and primary info to batch operations
             var currentRow = await GetCurrentFrontRowAsync(session, keyspace, normalizedSystemId, alterId);
@@ -596,16 +588,11 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!Guid.TryParse(frontId, out var frontGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
-            var current = await GetActiveFrontReferenceByFrontIdAsync(session, keyspace, normalizedSystemId, frontGuid);
+            var current = await GetActiveFrontReferenceByFrontIdAsync(session, keyspace, normalizedSystemId, frontId.Value);
             if (current is null)
                 return false;
 

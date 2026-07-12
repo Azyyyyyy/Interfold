@@ -1,4 +1,5 @@
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Infrastructure.Scylla.Repository;
 
 namespace Interfold.IntegrationTests.Services.Scylla;
@@ -11,17 +12,17 @@ public sealed class ScyllaMappingRegressionTests : BaseEndpointTest
         var compact = Guid.NewGuid().ToString("N");
         var hyphenated = Guid.NewGuid().ToString("D");
 
-        var compactOk = ScyllaPollRepository.TryParseUuid(compact, out var compactParsed);
-        var hyphenatedOk = ScyllaPollRepository.TryParseUuid(hyphenated, out var hyphenatedParsed);
-        var invalidOk = ScyllaPollRepository.TryParseUuid("not-a-guid", out _);
+        var compactOk = PollId.TryParse(compact, provider: null, out var compactParsed);
+        var hyphenatedOk = PollId.TryParse(hyphenated, provider: null, out var hyphenatedParsed);
+        var invalidOk = PollId.TryParse("not-a-guid", provider: null, out _);
 
         using (Assert.Multiple())
         {
             await Assert.That(compactOk).IsTrue();
             await Assert.That(hyphenatedOk).IsTrue();
             await Assert.That(invalidOk).IsFalse();
-            await Assert.That(compactParsed.ToString("N")).IsEqualTo(compact);
-            await Assert.That(hyphenatedParsed.ToString("D")).IsEqualTo(hyphenated);
+            await Assert.That(compactParsed.Value.ToString("N")).IsEqualTo(compact);
+            await Assert.That(hyphenatedParsed.Value.ToString("D")).IsEqualTo(hyphenated);
         }
     }
 
@@ -63,13 +64,13 @@ public sealed class ScyllaMappingRegressionTests : BaseEndpointTest
 
         using (Assert.Multiple())
         {
-            await Assert.That(ScyllaTagRepository.TryParseUuid(tag, out _)).IsTrue();
-            await Assert.That(ScyllaJournalRepository.TryParseUuid(journal, out _)).IsTrue();
-            await Assert.That(ScyllaSettingsFieldRepository.TryParseUuid(field, out _)).IsTrue();
+            await Assert.That(TagId.TryParse(tag, provider: null, out _)).IsTrue();
+            await Assert.That(EntryId.TryParse(journal, provider: null, out _)).IsTrue();
+            await Assert.That(FieldId.TryParse(field, provider: null, out _)).IsTrue();
 
-            await Assert.That(ScyllaTagRepository.TryParseUuid("bad", out _)).IsFalse();
-            await Assert.That(ScyllaJournalRepository.TryParseUuid("bad", out _)).IsFalse();
-            await Assert.That(ScyllaSettingsFieldRepository.TryParseUuid("bad", out _)).IsFalse();
+            await Assert.That(TagId.TryParse("bad", provider: null, out _)).IsFalse();
+            await Assert.That(EntryId.TryParse("bad", provider: null, out _)).IsFalse();
+            await Assert.That(FieldId.TryParse("bad", provider: null, out _)).IsFalse();
         }
     }
 }

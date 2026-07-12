@@ -146,8 +146,7 @@ public sealed class TagsController : InterfoldControllerBase
     [HttpPost("{id}/parent")]
     public async Task<Response> SetParent(TagId id, [FromBody] SetParentRequest body, CancellationToken ct)
     {
-        var parentTagId = body.ParentTagId;
-        if (string.IsNullOrWhiteSpace(parentTagId?.Value))
+        if (body.ParentTagId is not { } parentTagId || parentTagId.Value == Guid.Empty)
             return new ErrorResponse("Invalid parent tag ID.", ErrorCodes.InvalidParentTagId, System.Net.HttpStatusCode.BadRequest);
 
         var command = new CommandEnvelope<SetParentTagCommand>(
@@ -156,7 +155,7 @@ public sealed class TagsController : InterfoldControllerBase
             PrincipalId: PrincipalId,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetParentTagCommand(id, parentTagId.Value)
+            Payload: new SetParentTagCommand(id, parentTagId)
         );
 
         return CommandNoContent(await _setParent.HandleAsync(command, ct));

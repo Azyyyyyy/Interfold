@@ -39,9 +39,11 @@ public sealed class InMemoryPollRepository : IPollRepository
         if (!_bySystem.TryGetValue(systemKey, out var store))
             return Task.FromResult<IReadOnlyList<PollReadModel>>(Array.Empty<PollReadModel>());
 
+        // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
+        // to the historic string-backed PollId — Guid.CompareTo bytewise reorders differently.
         var list = store.Values
             .Select(ToReadModel)
-            .OrderBy(p => (string)p.Id, StringComparer.Ordinal)
+            .OrderBy(p => p.Id.Value.ToString("N"), StringComparer.Ordinal)
             .ToList();
 
         return Task.FromResult<IReadOnlyList<PollReadModel>>(list);
@@ -60,7 +62,7 @@ public sealed class InMemoryPollRepository : IPollRepository
     {
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<PollId, PollState>());
-        PollId id = new(Guid.NewGuid().ToString("N"));
+        PollId id = new(Guid.NewGuid());
 
         store[id] = new PollState
         {

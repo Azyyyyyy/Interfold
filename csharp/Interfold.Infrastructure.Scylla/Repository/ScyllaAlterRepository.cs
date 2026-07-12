@@ -151,7 +151,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 ))).FirstOrDefault();
 
                 var merged = (currentRow?.GetValue<IEnumerable<AlterFieldUdt>?>("fields") ?? [])
-                    .ToDictionary(x => x.Id.ToString("N"), x => x.Value, StringComparer.OrdinalIgnoreCase);
+                    .ToDictionary(x => x.Id, x => x.Value);
 
                 foreach (var f in command.Fields)
                 {
@@ -159,7 +159,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 }
 
                 var udts = merged
-                    .Select(kvp => new AlterFieldUdt { Id = Guid.Parse(kvp.Key), Value = kvp.Value })
+                    .Select(kvp => new AlterFieldUdt { Id = kvp.Key, Value = kvp.Value })
                     .ToList();
 
                 batch.Add(new SimpleStatement(
@@ -617,7 +617,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         IReadOnlyList<SettingsFieldReadModel> definitions)
     {
         var valuesByFieldId = (alterFields ?? Array.Empty<AlterFieldUdt>())
-            .ToDictionary(x => x.Id.ToString("N"), x => x.Value, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(x => x.Id, x => x.Value);
 
         if (valuesByFieldId.Count == 0 || definitions.Count == 0)
         {

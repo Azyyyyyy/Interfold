@@ -80,7 +80,7 @@ public sealed class FrontingController : InterfoldControllerBase
         var execution = await _startHandler.HandleAsync(envelope, ct);
         var response = CommandCreated(execution, r => new FrontStartedResponse(r.FrontId!.Value), r => r?.Replay);
 
-        if (response.IsT0 && !string.IsNullOrWhiteSpace(response.AsT0.Data.FrontId.Value))
+        if (response.IsT0 && response.AsT0.Data.FrontId.Value != Guid.Empty)
         {
             Response.Headers.Location = $"/api/systems/me/front/{response.AsT0.Data.FrontId}";
         }

@@ -46,7 +46,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             );
 
             await session.ExecuteAsync(insert);
-            return new(entryId.ToString("N"));
+            return new(entryId);
         }, _options, cancellationToken);
     }
 
@@ -54,11 +54,6 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId, out var entryGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -66,7 +61,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var query = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.global_journals WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId,
-                entryGuid
+                entryId.Value
             );
 
             var rows = await session.ExecuteAsync(query);
@@ -78,11 +73,6 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(command.EntryId, out var entryGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -99,7 +89,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                     $"UPDATE {keyspace}.global_journals SET title = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                     command.Title,
                     normalizedSystemId,
-                    entryGuid
+                    command.EntryId.Value
                 );
                 updateBatch.Add(q);
             }
@@ -110,7 +100,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                     $"UPDATE {keyspace}.global_journals SET content = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                     command.Content,
                     normalizedSystemId,
-                    entryGuid
+                    command.EntryId.Value
                 );
                 updateBatch.Add(q);
             }
@@ -121,7 +111,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                     $"UPDATE {keyspace}.global_journals SET color = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                     color.Value,
                     normalizedSystemId,
-                    entryGuid
+                    command.EntryId.Value
                 );
                 updateBatch.Add(q);
             }
@@ -139,11 +129,6 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId, out var entryGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -156,12 +141,12 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             deleteBatch.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.global_journals WHERE user_id = ? AND id = ?",
                 normalizedSystemId,
-                entryGuid
+                entryId.Value
             ));
             deleteBatch.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.global_journal_alters WHERE user_id = ? AND global_journal_id = ?",
                 normalizedSystemId,
-                entryGuid
+                entryId.Value
             ));
             await session.ExecuteAsync(deleteBatch);
 
@@ -173,11 +158,6 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId, out var entryGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -190,7 +170,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 $"UPDATE {keyspace}.global_journals SET locked = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                 locked,
                 normalizedSystemId,
-                entryGuid
+                entryId.Value
             );
             await session.ExecuteAsync(upsert);
 
@@ -202,11 +182,6 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId, out var entryGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -219,7 +194,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 $"UPDATE {keyspace}.global_journals SET pinned = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                 pinned,
                 normalizedSystemId,
-                entryGuid
+                entryId.Value
             );
             await session.ExecuteAsync(upsert);
 
@@ -231,11 +206,6 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId, out var entryGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -247,7 +217,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var insert = new SimpleStatement(
                 $"INSERT INTO {keyspace}.global_journal_alters (user_id, global_journal_id, alter_id, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
                 normalizedSystemId,
-                entryGuid,
+                entryId.Value,
                 alterId.ToStorageShort()
             );
             await session.ExecuteAsync(insert);
@@ -260,11 +230,6 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId, out var entryGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -272,7 +237,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var edgeExistsQuery = new SimpleStatement(
                 $"SELECT alter_id FROM {keyspace}.global_journal_alters WHERE user_id = ? AND global_journal_id = ? AND alter_id = ? LIMIT 1",
                 normalizedSystemId,
-                entryGuid,
+                entryId.Value,
                 alterId.ToStorageShort()
             );
 
@@ -283,7 +248,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var delete = new SimpleStatement(
                 $"DELETE FROM {keyspace}.global_journal_alters WHERE user_id = ? AND global_journal_id = ? AND alter_id = ?",
                 normalizedSystemId,
-                entryGuid,
+                entryId.Value,
                 alterId.ToStorageShort()
             );
             await session.ExecuteAsync(delete);
@@ -335,7 +300,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             batch.Add(insert);
             batch.Add(insertLookup);
             await session.ExecuteAsync(batch);
-            return new(entryId.ToString("N"));
+            return new(entryId);
         }, _options, cancellationToken);
     }
 
@@ -343,11 +308,6 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId, out var entryGuid))
-            {
-                return null;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -355,13 +315,13 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var query = new SimpleStatement(
                 $"SELECT id, alter_id FROM {keyspace}.alter_journals WHERE user_id = ? AND id = ? ALLOW FILTERING",
                 normalizedSystemId,
-                entryGuid
+                entryId.Value
             );
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             return row is null
                 ? null
-                : new AlterJournalRef(new(row.GetValue<Guid>("id").ToString("N")), new(row.GetValue<short>("alter_id")));
+                : new AlterJournalRef(new(row.GetValue<Guid>("id")), new(row.GetValue<short>("alter_id")));
         }, _options, cancellationToken);
     }
 
@@ -370,7 +330,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var reference = await GetAlterRefAsync(systemId, command.EntryId, cancellationToken);
-            if (reference is null || !TryParseUuid(reference.EntryId, out var entryGuid))
+            if (reference is null)
             {
                 return false;
             }
@@ -387,30 +347,30 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             {
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alter_journals SET title = ?, updated_at = ? WHERE user_id = ? AND id = ? AND alter_id = ?",
-                    command.Title, timestamp, normalizedSystemId, entryGuid, reference.AlterId.ToStorageShort()));
+                    command.Title, timestamp, normalizedSystemId, reference.EntryId.Value, reference.AlterId.ToStorageShort()));
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alter_journals_by_alter SET title = ?, updated_at = ? WHERE user_id = ? AND alter_id = ? AND id = ?",
-                    command.Title, timestamp, normalizedSystemId, reference.AlterId.ToStorageShort(), entryGuid));
+                    command.Title, timestamp, normalizedSystemId, reference.AlterId.ToStorageShort(), reference.EntryId.Value));
             }
 
             if (command.Content is not null)
             {
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alter_journals SET content = ?, updated_at = ? WHERE user_id = ? AND id = ? AND alter_id = ?",
-                    command.Content, timestamp, normalizedSystemId, entryGuid, reference.AlterId.ToStorageShort()));
+                    command.Content, timestamp, normalizedSystemId, reference.EntryId.Value, reference.AlterId.ToStorageShort()));
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alter_journals_by_alter SET content = ?, updated_at = ? WHERE user_id = ? AND alter_id = ? AND id = ?",
-                    command.Content, timestamp, normalizedSystemId, reference.AlterId.ToStorageShort(), entryGuid));
+                    command.Content, timestamp, normalizedSystemId, reference.AlterId.ToStorageShort(), reference.EntryId.Value));
             }
 
             if (command.Color is not null)
             {
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alter_journals SET color = ?, updated_at = ? WHERE user_id = ? AND id = ? AND alter_id = ?",
-                    command.Color?.Value, timestamp, normalizedSystemId, entryGuid, reference.AlterId.ToStorageShort()));
+                    command.Color?.Value, timestamp, normalizedSystemId, reference.EntryId.Value, reference.AlterId.ToStorageShort()));
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alter_journals_by_alter SET color = ?, updated_at = ? WHERE user_id = ? AND alter_id = ? AND id = ?",
-                    command.Color?.Value, timestamp, normalizedSystemId, reference.AlterId.ToStorageShort(), entryGuid));
+                    command.Color?.Value, timestamp, normalizedSystemId, reference.AlterId.ToStorageShort(), reference.EntryId.Value));
             }
 
             if (!updateBatch.IsEmpty)
@@ -427,7 +387,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var reference = await GetAlterRefAsync(systemId, entryId, cancellationToken);
-            if (reference is null || !TryParseUuid(reference.EntryId, out var entryGuid))
+            if (reference is null)
             {
                 return false;
             }
@@ -440,14 +400,14 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             delete.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.alter_journals WHERE user_id = ? AND id = ? AND alter_id = ?",
                 normalizedSystemId,
-                entryGuid,
+                reference.EntryId.Value,
                 reference.AlterId.ToStorageShort()
             ));
             delete.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.alter_journals_by_alter WHERE user_id = ? AND alter_id = ? AND id = ?",
                 normalizedSystemId,
                 reference.AlterId.ToStorageShort(),
-                entryGuid
+                reference.EntryId.Value
             ));
             await session.ExecuteAsync(delete);
 
@@ -460,7 +420,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var reference = await GetAlterRefAsync(systemId, entryId, cancellationToken);
-            if (reference is null || !TryParseUuid(reference.EntryId, out var entryGuid))
+            if (reference is null)
             {
                 return false;
             }
@@ -472,10 +432,10 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var batch = new BatchStatement();
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.alter_journals SET locked = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ? AND alter_id = ?",
-                locked, normalizedSystemId, entryGuid, reference.AlterId.ToStorageShort()));
+                locked, normalizedSystemId, reference.EntryId.Value, reference.AlterId.ToStorageShort()));
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.alter_journals_by_alter SET locked = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND alter_id = ? AND id = ?",
-                locked, normalizedSystemId, reference.AlterId.ToStorageShort(), entryGuid));
+                locked, normalizedSystemId, reference.AlterId.ToStorageShort(), reference.EntryId.Value));
             await session.ExecuteAsync(batch);
 
             return true;
@@ -487,7 +447,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var reference = await GetAlterRefAsync(systemId, entryId, cancellationToken);
-            if (reference is null || !TryParseUuid(reference.EntryId, out var entryGuid))
+            if (reference is null)
             {
                 return false;
             }
@@ -499,10 +459,10 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var batch = new BatchStatement();
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.alter_journals SET pinned = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ? AND alter_id = ?",
-                pinned, normalizedSystemId, entryGuid, reference.AlterId.ToStorageShort()));
+                pinned, normalizedSystemId, reference.EntryId.Value, reference.AlterId.ToStorageShort()));
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.alter_journals_by_alter SET pinned = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND alter_id = ? AND id = ?",
-                pinned, normalizedSystemId, reference.AlterId.ToStorageShort(), entryGuid));
+                pinned, normalizedSystemId, reference.AlterId.ToStorageShort(), reference.EntryId.Value));
             await session.ExecuteAsync(batch);
 
             return true;
@@ -526,7 +486,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var rows = await session.ExecuteAsync(query);
             return rows
                 .Select(row => new AlterJournalReadModel(
-                    new(row.GetValue<Guid>("id").ToString("N")),
+                    new(row.GetValue<Guid>("id")),
                     new(row.GetValue<string>("user_id")),
                     new(row.GetValue<short>("alter_id")),
                     row.GetValue<string>("title"),
@@ -545,11 +505,6 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId, out var entryGuid))
-            {
-                return null;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -557,14 +512,14 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var query = new SimpleStatement(
                 $"SELECT id, user_id, alter_id, title, content, color, pinned, locked, inserted_at, updated_at FROM {keyspace}.alter_journals WHERE user_id = ? AND id = ? ALLOW FILTERING",
                 normalizedSystemId,
-                entryGuid
+                entryId.Value
             );
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             return row is null
                 ? null
                 : new AlterJournalReadModel(
-                    new(row.GetValue<Guid>("id").ToString("N")),
+                    new(row.GetValue<Guid>("id")),
                     new(row.GetValue<string>("user_id")),
                     new(row.GetValue<short>("alter_id")),
                     row.GetValue<string>("title"),
@@ -604,7 +559,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 var alterIds = alterRows.Select(r => new AlterId(r.GetValue<short>("alter_id"))).ToArray();
 
                 result.Add(new JournalReadModel(
-                    new(id.ToString("N")),
+                    new(id),
                     new(row.GetValue<string>("user_id")),
                     row.GetValue<string>("title"),
                     row.GetValue<string?>("content"),
@@ -616,8 +571,10 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                     alterIds));
             }
 
+            // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
+            // to the historic string-backed EntryId — Guid.CompareTo bytewise reorders differently.
             return (IReadOnlyList<JournalReadModel>)result
-                .OrderByDescending(e => (string)e.Id, StringComparer.Ordinal)
+                .OrderByDescending(e => e.Id.Value.ToString("N"), StringComparer.Ordinal)
                 .ToArray();
         }, _options, cancellationToken);
     }
@@ -626,11 +583,6 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(entryId, out var entryGuid))
-            {
-                return null;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -638,7 +590,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var entryQuery = new SimpleStatement(
                 $"SELECT id, user_id, title, content, color, pinned, locked, inserted_at, updated_at FROM {keyspace}.global_journals WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId,
-                entryGuid
+                entryId.Value
             );
             var entryRow = (await session.ExecuteAsync(entryQuery)).FirstOrDefault();
             if (entryRow is null)
@@ -647,14 +599,14 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var altersQuery = new SimpleStatement(
                 $"SELECT alter_id FROM {keyspace}.global_journal_alters WHERE user_id = ? AND global_journal_id = ?",
                 normalizedSystemId,
-                entryGuid
+                entryId.Value
             );
             var alterIds = (await session.ExecuteAsync(altersQuery))
                 .Select(r => new AlterId(r.GetValue<short>("alter_id")))
                 .ToArray();
 
             return new JournalReadModel(
-                new(entryRow.GetValue<Guid>("id").ToString("N")),
+                new(entryRow.GetValue<Guid>("id")),
                 new(entryRow.GetValue<string>("user_id")),
                 entryRow.GetValue<string>("title"),
                 entryRow.GetValue<string?>("content"),
@@ -738,6 +690,4 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             return entryIds.Length;
         }, _options, cancellationToken);
     }
-
-    internal static bool TryParseUuid(string value, out Guid guid) => UuidString.TryParse(value, out guid);
 }

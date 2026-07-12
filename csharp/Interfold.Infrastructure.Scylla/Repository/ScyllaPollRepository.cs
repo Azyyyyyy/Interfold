@@ -43,7 +43,9 @@ public sealed class ScyllaPollRepository : IPollRepository
 
             var rows = await session.ExecuteAsync(query);
             // VERIFIED: 2026-03-17 Elixir polls.ex get_polls() has no explicit sort → database order (ascending). Matches C# OrderBy.
-            return rows.Select(ToReadModel).OrderBy(p => (string)p.Id, StringComparer.Ordinal).ToList();
+            // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
+            // to the historic string-backed PollId — Guid.CompareTo bytewise reorders differently.
+            return rows.Select(ToReadModel).OrderBy(p => p.Id.Value.ToString("N"), StringComparer.Ordinal).ToList();
         }, _options, cancellationToken);
     }
 
@@ -54,12 +56,11 @@ public sealed class ScyllaPollRepository : IPollRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            if (!TryParseUuid(pollId, out var pollGuid)) return null;
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, title, description, type, data, time_end, inserted_at, updated_at FROM {keyspace}.polls WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId,
-                pollGuid
+                pollId.Value
             );
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
@@ -89,7 +90,7 @@ public sealed class ScyllaPollRepository : IPollRepository
             );
 
             await session.ExecuteAsync(insert);
-            return new(pollGuid.ToString("N"));
+            return new(pollGuid);
         }, _options, cancellationToken);
     }
 
@@ -97,11 +98,6 @@ public sealed class ScyllaPollRepository : IPollRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(pollId, out var pollGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -109,7 +105,7 @@ public sealed class ScyllaPollRepository : IPollRepository
             var query = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.polls WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId,
-                pollGuid
+                pollId.Value
             );
 
             var rows = await session.ExecuteAsync(query);
@@ -121,16 +117,11 @@ public sealed class ScyllaPollRepository : IPollRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(command.Id, out var pollGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
-            var exists = await ExistsAsync(session, keyspace, normalizedSystemId, pollGuid);
+            var exists = await ExistsAsync(session, keyspace, normalizedSystemId, command.Id.Value);
             if (!exists)
                 return false;
 
@@ -142,7 +133,7 @@ public sealed class ScyllaPollRepository : IPollRepository
                     $"UPDATE {keyspace}.polls SET title = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                     command.Title,
                     normalizedSystemId,
-                    pollGuid));
+                    command.Id.Value));
             }
 
             if (command.Description is not null)
@@ -151,7 +142,7 @@ public sealed class ScyllaPollRepository : IPollRepository
                     $"UPDATE {keyspace}.polls SET description = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                     command.Description,
                     normalizedSystemId,
-                    pollGuid));
+                    command.Id.Value));
             }
 
             if (command.HasTimeEnd)
@@ -160,7 +151,7 @@ public sealed class ScyllaPollRepository : IPollRepository
                     $"UPDATE {keyspace}.polls SET time_end = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                     command.TimeEnd,
                     normalizedSystemId,
-                    pollGuid));
+                    command.Id.Value));
             }
 
             if (command.Data is not null)
@@ -169,7 +160,7 @@ public sealed class ScyllaPollRepository : IPollRepository
                     $"UPDATE {keyspace}.polls SET data = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                     command.Data.Value.GetRawText(),
                     normalizedSystemId,
-                    pollGuid));
+                    command.Id.Value));
             }
 
             if (!updateBatch.IsEmpty)
@@ -185,30 +176,23 @@ public sealed class ScyllaPollRepository : IPollRepository
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(pollId, out var pollGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
-            var exists = await ExistsAsync(session, keyspace, normalizedSystemId, pollGuid);
+            var exists = await ExistsAsync(session, keyspace, normalizedSystemId, pollId.Value);
             if (!exists)
                 return false;
 
             var delete = new SimpleStatement(
                 $"DELETE FROM {keyspace}.polls WHERE user_id = ? AND id = ?",
                 normalizedSystemId,
-                pollGuid
+                pollId.Value
             );
             await session.ExecuteAsync(delete);
             return true;
         }, _options, cancellationToken);
     }
-
-    internal static bool TryParseUuid(string value, out Guid guid) => UuidString.TryParse(value, out guid);
 
     private static async Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, Guid pollGuid)
     {
@@ -253,7 +237,7 @@ public sealed class ScyllaPollRepository : IPollRepository
 
     private static PollReadModel ToReadModel(Row row)
         => new(
-            new(row.GetValue<Guid>("id").ToString("N")),
+            new(row.GetValue<Guid>("id")),
             new(row.GetValue<string>("user_id")),
             row.GetValue<string>("title"),
             row.GetValue<string?>("description"),

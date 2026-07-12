@@ -69,7 +69,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
                 return Task.FromResult<FrontId?>(null);
             }
 
-            FrontId frontId = new(Guid.NewGuid().ToString("N"));
+            FrontId frontId = new(Guid.NewGuid());
             set[alterId] = new FrontState
             {
                 FrontId = frontId,

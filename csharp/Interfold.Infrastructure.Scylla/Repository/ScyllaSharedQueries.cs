@@ -58,7 +58,7 @@ internal static class ScyllaSharedQueries
         }
 
         return definitions
-            .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, alterFields?.FirstOrDefault(x => x.Id.ToString("N") == def.Id)?.Value))
+            .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, alterFields?.FirstOrDefault(x => x.Id == def.Id)?.Value))
             .ToArray();
     }
 }

@@ -26,9 +26,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         // VisibilityLevelExtensions.FromCodeOrPublic, so new alters are world-readable
         // until the owner tightens visibility explicitly.
         public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Public;
-        // Keyed on FieldId (record-struct with ordinal equality on the underlying string).
-        // Every writer produces field ids via Guid.NewGuid().ToString("N") (lowercase hex)
-        // so ordinal is equivalent to the historic OrdinalIgnoreCase compare.
+        // Keyed on FieldId (Guid-backed record-struct → value-based equality on Guid).
         public Dictionary<FieldId, string?> Fields { get; } = new();
         public bool Untracked { get; set; }
         public bool Archived { get; set; }
@@ -334,7 +332,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         if (!_bySystem.TryGetValue(systemKey, out var store))
             return;
 
-        FieldId fieldKey = new(fieldId.ToString("N"));
+        FieldId fieldKey = new(fieldId);
         foreach (var kv in store)
         {
             var state = kv.Value;
