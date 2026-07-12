@@ -5,6 +5,7 @@ using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Secrets;
 using Interfold.DatabaseBootstrap;
 using Interfold.Infrastructure.Postgres;
@@ -225,7 +226,7 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             Mode = Interfold.Contracts.PersistenceMode.ScyllaPostgres,
             PostgresConnectionString = PostgresConnectionString,
             IsSingleScyllaInstance = true,
-            ScyllaKeyspace = Interfold.Contracts.Enums.ScyllaKeyspace.Nam,
+            ScyllaKeyspace = ScyllaKeyspace.Nam,
         };
         var connectionFactory = new PostgresConnectionFactory(Options.Create(persistenceConfig));
         var secretsStore = new PostgresSecretsStore(connectionFactory);

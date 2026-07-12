@@ -22,8 +22,6 @@ namespace Interfold.Bootstrapper.Phases;
 /// </remarks>
 internal static partial class SecretsPhase
 {
-    private const string SecretsRelativePath = BootstrapArtifactPaths.SecretsRelativePath;
-
     // Alphabet for generated passwords. Drops the easily-confused chars (0/O, 1/l/I) plus shell-tricky
     // punctuation. 32 characters from this alphabet still gives ~190 bits of entropy.
     private const string PasswordAlphabet =
@@ -47,7 +45,7 @@ internal static partial class SecretsPhase
         const string Phase = "secrets";
         logger.PhaseStart(Phase);
 
-        var secretsPath = Path.Combine(options.OutputDir, SecretsRelativePath);
+        var secretsPath = Path.Combine(options.OutputDir, BootstrapArtifactPaths.SecretsRelativePath);
         if (File.Exists(secretsPath) && !options.RotateSecrets)
         {
             logger.PhaseSkip(Phase, PhaseFailureReasons.Skip.AlreadyPresent);
@@ -144,7 +142,7 @@ internal static partial class SecretsPhase
     /// </summary>
     public static GeneratedSecrets LoadExisting(BootstrapOptions options)
     {
-        var secretsPath = Path.Combine(options.OutputDir, SecretsRelativePath);
+        var secretsPath = Path.Combine(options.OutputDir, BootstrapArtifactPaths.SecretsRelativePath);
         if (!File.Exists(secretsPath))
         {
             throw new InvalidOperationException(

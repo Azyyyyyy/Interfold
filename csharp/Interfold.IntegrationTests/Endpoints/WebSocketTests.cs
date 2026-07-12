@@ -4,6 +4,7 @@ using System.Text.Json;
 using Interfold.Contracts;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.IntegrationTests.TestServices;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
@@ -24,8 +25,8 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
     // one from the raw test id. NAM is the only region the test bootstrapper seeds;
     // compose is idempotent, so callers that already pass "nam:..." (or another valid
     // region prefix) keep the same wire bytes.
-    internal static Interfold.Contracts.Ids.ScopedSystemId AsScopedSystemId(string rawSystemId)
-        => Interfold.Contracts.Ids.ScopedSystemId.Compose(ScyllaKeyspace.Nam, rawSystemId);
+    internal static ScopedSystemId AsScopedSystemId(string rawSystemId)
+        => ScopedSystemId.Compose(ScyllaKeyspace.Nam, rawSystemId);
 
     [Test]
     public async Task Api_UserSocketEndpoint_AllowsWebSocketUpgrade(CancellationToken token)
@@ -64,8 +65,8 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             await Assert.That(frame.Topic).IsEqualTo($"system:{systemId}").Because("Expected topic to match array join topic.");
             await Assert.That(frame.Event).IsEqualTo("phx_reply").Because("Expected array reply event phx_reply.");
             var reply = frame.Reply<SocketJoinReconnectPayload>();
-            await Assert.That(reply.Status).IsEqualTo(Interfold.Contracts.Enums.PhoenixReplyStatus.Ok).Because("Expected status=ok for reconnect join.");
-            await Assert.That(reply.Response.System.Id).IsEqualTo(new Interfold.Contracts.Ids.SystemId(systemId)).Because("Expected system ID in reconnect payload.");
+            await Assert.That(reply.Status).IsEqualTo(PhoenixReplyStatus.Ok).Because("Expected status=ok for reconnect join.");
+            await Assert.That(reply.Response.System.Id).IsEqualTo(new SystemId(systemId)).Because("Expected system ID in reconnect payload.");
         }
     }
     
@@ -82,7 +83,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         {
             Topic = $"system:{systemId}",
             Event = "phx_join",
-            Payload = new PhxJoinPayload { Token = new Interfold.Contracts.Ids.SocketToken(socketToken), ProtocolVersion = "not-a-version" },
+            Payload = new PhxJoinPayload { Token = new SocketToken(socketToken), ProtocolVersion = "not-a-version" },
             Ref = "1",
             JoinRef = "1"
         }.ToBytes();
@@ -92,7 +93,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         using (Assert.Multiple())
         {
-            await Assert.That(reply.Status).IsEqualTo(Interfold.Contracts.Enums.PhoenixReplyStatus.Error).Because("Expected status=error for unsupported protocol version.");
+            await Assert.That(reply.Status).IsEqualTo(PhoenixReplyStatus.Error).Because("Expected status=error for unsupported protocol version.");
             await Assert.That(reply.Response.Reason).IsEqualTo(ErrorCodes.SocketReasons.UnsupportedProtocolVersion).Because("Expected reason=unsupported_protocol_version.");
         }
 
@@ -112,7 +113,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         {
             Topic = $"system:{systemId}",
             Event = "phx_join",
-            Payload = new PhxJoinPayload { Token = new Interfold.Contracts.Ids.SocketToken(socketToken), Platform = Interfold.Contracts.Enums.ClientPlatform.Ios, ProtocolVersion = "2.0.0", ForceBatch = true },
+            Payload = new PhxJoinPayload { Token = new SocketToken(socketToken), Platform = ClientPlatform.Ios, ProtocolVersion = "2.0.0", ForceBatch = true },
             Ref = "1",
             JoinRef = "1"
         }.ToBytes();
@@ -122,7 +123,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         using (Assert.Multiple())
         {
-            await Assert.That(reply.Status).IsEqualTo(Interfold.Contracts.Enums.PhoenixReplyStatus.Ok).Because("Expected status=ok for iOS batched join.");
+            await Assert.That(reply.Status).IsEqualTo(PhoenixReplyStatus.Ok).Because("Expected status=ok for iOS batched join.");
             await Assert.That(reply.Response.Batched).IsTrue().Because("Expected batched=true for iOS join above threshold.");
         }
 
@@ -147,9 +148,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         using (Assert.Multiple())
         {
-            await Assert.That(firstReply.Status).IsEqualTo(Interfold.Contracts.Enums.PhoenixReplyStatus.Ok).Because("Expected first join to be accepted.");
-            await Assert.That(secondReply.Status).IsEqualTo(Interfold.Contracts.Enums.PhoenixReplyStatus.Ok).Because("Expected second join to be accepted.");
-            await Assert.That(thirdReply.Status).IsEqualTo(Interfold.Contracts.Enums.PhoenixReplyStatus.Error).Because("Expected third join to be rate-limited.");
+            await Assert.That(firstReply.Status).IsEqualTo(PhoenixReplyStatus.Ok).Because("Expected first join to be accepted.");
+            await Assert.That(secondReply.Status).IsEqualTo(PhoenixReplyStatus.Ok).Because("Expected second join to be accepted.");
+            await Assert.That(thirdReply.Status).IsEqualTo(PhoenixReplyStatus.Error).Because("Expected third join to be rate-limited.");
         }
 
         var thirdResponse = JsonSerializer.Deserialize<SocketReasonResponse>(
@@ -1172,7 +1173,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
                 // "Name or service not known" SocketException seen in the production
                 // crash. Under TestServer the authority is cosmetic, so this assertion
                 // alone is not sufficient — see the URI-recorder assertions below.
-                await Assert.That(reply.Status).IsEqualTo(Interfold.Contracts.Enums.PhoenixReplyStatus.Ok)
+                await Assert.That(reply.Status).IsEqualTo(PhoenixReplyStatus.Ok)
                     .Because("Expected the endpoint-proxy phx_reply to be ok; the proxy must succeed regardless of the inbound Host header.");
                 await Assert.That(reply.Response.Status).IsEqualTo(System.Net.HttpStatusCode.Created)
                     .Because("Expected the relayed POST /api/systems/me/alters to return 201 Created (mirrors the contract from the existing endpoint-proxy tests above).");
@@ -1253,7 +1254,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         {
             Topic = topic,
             Event = "phx_join",
-            Payload = new PhxJoinPayload { Token = new Interfold.Contracts.Ids.SocketToken(socketToken), IsReconnect = true },
+            Payload = new PhxJoinPayload { Token = new SocketToken(socketToken), IsReconnect = true },
             Ref = "1",
             JoinRef = "1"
         };
@@ -1281,7 +1282,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         {
             Topic = $"system:{systemId}",
             Event = "phx_join",
-            Payload = new PhxJoinPayload { Token = new Interfold.Contracts.Ids.SocketToken(socketToken), IsReconnect = true },
+            Payload = new PhxJoinPayload { Token = new SocketToken(socketToken), IsReconnect = true },
             Ref = refId,
             JoinRef = "1"
         };

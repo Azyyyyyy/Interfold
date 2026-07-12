@@ -126,7 +126,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             {
                 // avatar_url + avatar_source must move together; the domain handler
                 // rejects the half-set case so we can write both unconditionally here.
-                var sourceShort = (short)(command.AvatarSource ?? Interfold.Contracts.Enums.AvatarSource.Local);
+                var sourceShort = (short)(command.AvatarSource ?? AvatarSource.Local);
                 batch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alters SET avatar_url = ?, avatar_source = ?, updated_at = ? WHERE user_id = ? AND id = ?",
                     avatarUrl.Value,

@@ -112,6 +112,6 @@ public static class FirebaseConfigResolver
 
     private static ErrorResponse Unavailable() => new(
         "Firebase config is not available for the requested platform.",
-        Interfold.Contracts.ErrorCodes.FirebaseConfigUnavailable,
+        ErrorCodes.FirebaseConfigUnavailable,
         HttpStatusCode.ServiceUnavailable);
 }

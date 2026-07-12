@@ -34,7 +34,6 @@ internal static class DatabaseInitPhase
 {
     private static readonly string Phase = BootstrapPhase.DbInit.ToWireName();
     private const string PostgresService = ComposeServices.Postgres;
-    private const string PostgresInitUser = PostgresRoles.Init;
 
     public static async Task RunAsync(
         BootstrapOptions options,
@@ -104,7 +103,7 @@ internal static class DatabaseInitPhase
         int scyllaPort)
     {
         return new PostgresSeedOptions(
-            InitUser: PostgresInitUser,
+            InitUser: PostgresRoles.Init,
             InitPassword: secrets.PostgresInitPassword,
             AppUser: secrets.PostgresUser,
             AppPassword: secrets.PostgresPassword,
@@ -223,7 +222,7 @@ internal static class DatabaseInitPhase
             attempt++;
             var probe = await ProcessRunner.RunAsync("docker",
                 ["compose", "-f", composeFile, "exec", "-T", PostgresService,
-                 "pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", PostgresInitUser],
+                 "pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", PostgresRoles.Init],
                 ct: ct).ConfigureAwait(false);
             if (probe.ExitCode == 0)
             {

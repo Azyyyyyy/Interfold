@@ -25,8 +25,8 @@ public sealed class ImportSpCommandHandlerDispatchTests
 {
     // PrincipalId is a ScopedSystemId; ParseScoped enforces the wire-canonical form so
     // the test fixture matches what the middleware constructs at ingress.
-    private static readonly Interfold.Contracts.Ids.ScopedSystemId SystemId
-        = Interfold.Contracts.Ids.ScopedSystemId.ParseScoped("nam:sys-sp-dispatch-test");
+    private static readonly ScopedSystemId SystemId
+        = ScopedSystemId.ParseScoped("nam:sys-sp-dispatch-test");
 
     /// <summary>
     /// First dispatch for a clean system: handler returns <c>queued</c> and enqueues a job

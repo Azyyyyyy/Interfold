@@ -19,8 +19,8 @@ public sealed class ImportPkCommandHandlerDispatchTests
 {
     // PrincipalId is a ScopedSystemId; ParseScoped enforces the wire-canonical form so
     // the test fixture matches what the middleware constructs at ingress.
-    private static readonly Interfold.Contracts.Ids.ScopedSystemId SystemId
-        = Interfold.Contracts.Ids.ScopedSystemId.ParseScoped("nam:sys-pk-dispatch-test");
+    private static readonly ScopedSystemId SystemId
+        = ScopedSystemId.ParseScoped("nam:sys-pk-dispatch-test");
 
     /// <summary>
     /// PK dispatch under the same shape as SP: fresh claim, queued result, exactly one

@@ -5,6 +5,7 @@ using Interfold.Api;
 using Interfold.Api.Auth;
 using Interfold.Api.Helpers;
 using Interfold.Api.Middleware;
+using Interfold.Api.Models;
 using Interfold.Api.Services;
 using Interfold.Api.Services.Http;
 using Interfold.Api.Services.ImportJobs;
@@ -13,6 +14,7 @@ using Interfold.Api.Socket;
 using Interfold.Api.Swagger;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Domain.Abstractions.Repository;
@@ -137,18 +139,18 @@ var healthChecks = builder.Services.AddHealthChecks();
 
 if (persistenceConfig.Mode == PersistenceMode.ScyllaPostgres)
 {
-    healthChecks.AddCheck<Interfold.Infrastructure.Scylla.ScyllaHealthChecker>(
+    healthChecks.AddCheck<ScyllaHealthChecker>(
         "scylla-ready", tags: [HealthCheckTags.Ready], timeout: TimeSpan.FromSeconds(5));
-    healthChecks.AddCheck<Interfold.Infrastructure.Scylla.ScyllaHealthChecker>(
+    healthChecks.AddCheck<ScyllaHealthChecker>(
         "scylla-startup", tags: [HealthCheckTags.Startup], timeout: TimeSpan.FromSeconds(30));
-    healthChecks.AddCheck<Interfold.Infrastructure.Postgres.PostgresHealthChecker>(
+    healthChecks.AddCheck<PostgresHealthChecker>(
         "postgres-ready", tags: [HealthCheckTags.Ready], timeout: TimeSpan.FromSeconds(5));
-    healthChecks.AddCheck<Interfold.Infrastructure.Postgres.PostgresHealthChecker>(
+    healthChecks.AddCheck<PostgresHealthChecker>(
         "postgres-startup", tags: [HealthCheckTags.Startup], timeout: TimeSpan.FromSeconds(30));
 }
 builder.Services.AddSingleton<IAvatarStorage, LocalAvatarStorage>();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<Interfold.Api.Socket.SocketJoinRateLimiter>();
+builder.Services.AddSingleton<SocketJoinRateLimiter>();
 
 builder.Services.AddTransient<HttpLoggingHandler>();
 
@@ -388,13 +390,13 @@ app.Use(async (context, next) =>
         if (context.User.FindFirst(JwtClaimNames.Jti)?.Value is { } jti && !string.IsNullOrWhiteSpace(jti))
         {
             var revocationRepository = context.RequestServices.GetRequiredService<IAuthTokenRevocationRepository>();
-            var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(new Interfold.Contracts.Ids.Jti(jti), context.RequestAborted);
+            var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(new Jti(jti), context.RequestAborted);
             
             if (!isTokenValid)
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 context.Response.ContentType = "application/json";
-                var error = new Interfold.Api.Models.ErrorResponse("Token has been revoked.", Interfold.Contracts.ErrorCodes.TokenRevoked);
+                var error = new ErrorResponse("Token has been revoked.", ErrorCodes.TokenRevoked);
                 // Web options keep the historical lowercase member names ("error"/"code").
                 var json = JsonSerializer.Serialize(error, JsonSerializerOptions.Web);
                 await context.Response.WriteAsync(json, context.RequestAborted);
@@ -537,13 +539,13 @@ static SecurityToken ValidateJwtTokenSignatureForBearer(
     }
 
     var headerJson = Encoding.UTF8.GetString(parts[0].Base64UrlDecode());
-    var alg = Interfold.Api.Helpers.JwtHeaderAlg.Parse(headerJson);
+    var alg = JwtHeaderAlg.Parse(headerJson);
 
     var signingInput = Encoding.UTF8.GetBytes(parts[0] + "." + parts[1]);
     var signatureBytes = parts[2].Base64UrlDecode();
 
     // ES256 (ECDSA P-256 with SHA-256) validation
-    if (!string.Equals(alg, Interfold.Api.Helpers.JwtHeaderAlg.Es256, StringComparison.Ordinal))
+    if (!string.Equals(alg, JwtHeaderAlg.Es256, StringComparison.Ordinal))
     {
         throw new SecurityTokenInvalidSignatureException("Only ES256 algorithm is supported.");
     }

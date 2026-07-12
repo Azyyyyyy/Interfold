@@ -1,4 +1,5 @@
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.ImportOperations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.ImportJobs;
@@ -124,7 +125,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
                 // we log and skip the client-visible event so a malformed id can't
                 // propagate into the topic name — the row is still marked failed above,
                 // so the slot frees regardless.
-                if (Interfold.Contracts.Ids.ScopedSystemId.TryParseScoped(row.SystemId, out var scopedSweepId))
+                if (ScopedSystemId.TryParseScoped(row.SystemId, out var scopedSweepId))
                 {
                     await PublishFailureAsync(scopedSweepId, row.Kind, cancellationToken).ConfigureAwait(false);
                 }
@@ -237,7 +238,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
         }
     }
 
-    private ValueTask PublishSuccessAsync(Interfold.Contracts.Ids.ScopedSystemId systemId, ImportOperationKind kind, int alterCount, CancellationToken cancellationToken)
+    private ValueTask PublishSuccessAsync(ScopedSystemId systemId, ImportOperationKind kind, int alterCount, CancellationToken cancellationToken)
     {
         return kind switch
         {
@@ -249,7 +250,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
         };
     }
 
-    private ValueTask PublishFailureAsync(Interfold.Contracts.Ids.ScopedSystemId systemId, ImportOperationKind kind, CancellationToken cancellationToken)
+    private ValueTask PublishFailureAsync(ScopedSystemId systemId, ImportOperationKind kind, CancellationToken cancellationToken)
     {
         return kind switch
         {

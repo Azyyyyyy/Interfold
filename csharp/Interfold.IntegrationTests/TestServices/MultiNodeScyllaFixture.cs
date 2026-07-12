@@ -6,6 +6,7 @@ using Aspire.Hosting.Testing;
 using Cassandra;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Secrets;
 using Interfold.DatabaseBootstrap;
 using Interfold.Infrastructure.Postgres;
@@ -179,7 +180,7 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
             Mode = Interfold.Contracts.PersistenceMode.ScyllaPostgres,
             PostgresConnectionString = SharedDb.PostgresConnectionString,
             IsSingleScyllaInstance = false,
-            ScyllaKeyspace = Interfold.Contracts.Enums.ScyllaKeyspace.Nam,
+            ScyllaKeyspace = ScyllaKeyspace.Nam,
         };
         var connectionFactory = new PostgresConnectionFactory(Options.Create(persistenceConfig));
         var secretsStore = new PostgresSecretsStore(connectionFactory);

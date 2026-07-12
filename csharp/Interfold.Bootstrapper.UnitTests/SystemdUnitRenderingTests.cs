@@ -1,3 +1,4 @@
+using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Phases;
 using TUnit.Core;
 
@@ -161,9 +162,9 @@ public sealed class SystemdUnitRenderingTests
         Directory.CreateDirectory(tmp);
         try
         {
-            var logger = new Interfold.Bootstrapper.Cli.PhaseLogger(
-                new Interfold.Bootstrapper.Cli.BootstrapOptions(
-                    Command: Interfold.Bootstrapper.Cli.BootstrapCommand.InstallService,
+            var logger = new PhaseLogger(
+                new BootstrapOptions(
+                    Command: BootstrapCommand.InstallService,
                     ConfigPath: null, OutputDir: tmp,
                     SkipPrereqs: false, RotateSecrets: false, RotateCerts: false,
                     NonInteractive: true, FaultInject: null, PrintPhaseStatus: false));
@@ -195,9 +196,9 @@ public sealed class SystemdUnitRenderingTests
         Directory.CreateDirectory(tmp);
         try
         {
-            var logger = new Interfold.Bootstrapper.Cli.PhaseLogger(
-                new Interfold.Bootstrapper.Cli.BootstrapOptions(
-                    Command: Interfold.Bootstrapper.Cli.BootstrapCommand.InstallService,
+            var logger = new PhaseLogger(
+                new BootstrapOptions(
+                    Command: BootstrapCommand.InstallService,
                     ConfigPath: null, OutputDir: tmp,
                     SkipPrereqs: false, RotateSecrets: false, RotateCerts: false,
                     NonInteractive: true, FaultInject: null, PrintPhaseStatus: false));
@@ -231,9 +232,9 @@ public sealed class SystemdUnitRenderingTests
             var dropInPath = Path.Combine(dropInDir, SystemdInstallPhase.BackupOnSuccessDropInFile);
             await File.WriteAllTextAsync(dropInPath, "[Unit]\nOnSuccess=interfold-update.service\n");
 
-            var logger = new Interfold.Bootstrapper.Cli.PhaseLogger(
-                new Interfold.Bootstrapper.Cli.BootstrapOptions(
-                    Command: Interfold.Bootstrapper.Cli.BootstrapCommand.InstallService,
+            var logger = new PhaseLogger(
+                new BootstrapOptions(
+                    Command: BootstrapCommand.InstallService,
                     ConfigPath: null, OutputDir: tmp,
                     SkipPrereqs: false, RotateSecrets: false, RotateCerts: false,
                     NonInteractive: true, FaultInject: null, PrintPhaseStatus: false));

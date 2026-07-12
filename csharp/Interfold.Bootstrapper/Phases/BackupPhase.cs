@@ -47,7 +47,6 @@ namespace Interfold.Bootstrapper.Phases;
 internal static class BackupPhase
 {
     private static readonly string Phase = BootstrapCommand.Backup.ToPhaseLogName();
-    private const string PostgresService = ComposeServices.Postgres;
 
     /// <summary>
     /// Allowed values for <see cref="BootstrapOptions.BackupComponent"/>. Kept as an array
@@ -206,7 +205,7 @@ internal static class BackupPhase
             "compose", "-f", composeFile,
             "exec", "-T",
             "--env", "PGPASSWORD",
-            PostgresService,
+            ComposeServices.Postgres,
             "pg_dump",
             "-U", adminUser,
             "-d", database,
@@ -309,7 +308,7 @@ internal static class BackupPhase
             logger.PhaseFail(Phase, PhaseFailureReasons.EmptyPostgresDump);
             File.Delete(dumpPath);
             throw new InvalidOperationException(
-                $"pg_dump produced an empty file at {dumpPath}. Inspect docker logs for {PostgresService}.");
+                $"pg_dump produced an empty file at {dumpPath}. Inspect docker logs for {ComposeServices.Postgres}.");
         }
         logger.Info($"    postgres: wrote {FormatBytes(size)}");
 

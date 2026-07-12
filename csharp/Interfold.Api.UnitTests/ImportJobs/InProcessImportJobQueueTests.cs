@@ -1,3 +1,4 @@
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.ImportOperations;
 using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Infrastructure.Coordination;
@@ -157,9 +158,9 @@ public sealed class InProcessImportJobQueueTests
     }
 
     private static ImportJobItem NewItem(string systemId) => new(
-        new Interfold.Contracts.Ids.ImportOperationId(Guid.NewGuid()),
-        Interfold.Contracts.Ids.ScopedSystemId.ParseScoped(systemId),
+        new ImportOperationId(Guid.NewGuid()),
+        ScopedSystemId.ParseScoped(systemId),
         ImportOperationKind.SimplyPlural,
-        Token: new Interfold.Contracts.Ids.ImportToken("synthetic-token"),
+        Token: new ImportToken("synthetic-token"),
         RecoveryCode: null);
 }

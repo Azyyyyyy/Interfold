@@ -4,6 +4,8 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure;
 using Interfold.IntegrationTests.TestServices;
@@ -625,14 +627,14 @@ public class BaseEndpointTest
         // callers that already pass a scoped id get the same value out. Nam is the
         // default region the InMemory bootstrapper seeds, matching the sibling token
         // minter InterfoldWebApplicationFactory.CreateToken.
-        var scoped = Interfold.Contracts.Ids.ScopedSystemId.Compose(Interfold.Contracts.Enums.ScyllaKeyspace.Nam, systemId);
+        var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, systemId);
         var scopedSystemId = scoped.AsSystemId();
 
-        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, new Interfold.Contracts.Ids.Jti(jti), scopedSystemId);
+        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, new Jti(jti), scopedSystemId);
         // Record the same scoped id so any audit column persisted alongside the revocation
         // row is byte-identical to the JWT sub — future readers cross-referencing revocation
         // by system id see the wire-canonical shape rather than a raw-id ghost.
-        await rev.RecordTokenAsync(new Interfold.Contracts.Ids.Jti(jti), scopedSystemId, expiresAt, CancellationToken.None);
+        await rev.RecordTokenAsync(new Jti(jti), scopedSystemId, expiresAt, CancellationToken.None);
 
         // EnsureUserExistsAsync goes through AttachPrincipalAuth → factory.CreateToken,
         // which auto-scopes internally, so passing the raw `systemId` here is correct:

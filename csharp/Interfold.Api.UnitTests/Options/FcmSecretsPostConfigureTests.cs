@@ -2,6 +2,7 @@ using Interfold.Api.Services.Secrets;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Secrets;
 using Microsoft.Extensions.Options;
+using TUnit.Mocks;
 
 namespace Interfold.Api.UnitTests.Options;
 
@@ -19,9 +20,9 @@ public sealed class FcmSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_RowPresent_PopulatesServiceAccountJson()
     {
-        var snapshot = new StubSecretsSnapshot()
+        var snapshot = SecretsSnapshotMock.Empty()
             .With(SecretsStoreKeys.FcmServiceAccountJson, ServiceAccountJson);
-        var patcher = new FcmSecretsPostConfigure(snapshot);
+        var patcher = new FcmSecretsPostConfigure(snapshot.Object);
         var options = new FcmConfiguration();
 
         patcher.PostConfigure(Microsoft.Extensions.Options.Options.DefaultName, options);
@@ -33,8 +34,8 @@ public sealed class FcmSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_MissingRow_LeavesNull()
     {
-        var snapshot = new StubSecretsSnapshot(); // empty
-        var patcher = new FcmSecretsPostConfigure(snapshot);
+        var snapshot = SecretsSnapshotMock.Empty();
+        var patcher = new FcmSecretsPostConfigure(snapshot.Object);
         var options = new FcmConfiguration();
 
         patcher.PostConfigure(Microsoft.Extensions.Options.Options.DefaultName, options);
@@ -46,9 +47,9 @@ public sealed class FcmSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_NamedInstance_LeavesUntouched()
     {
-        var snapshot = new StubSecretsSnapshot()
+        var snapshot = SecretsSnapshotMock.Empty()
             .With(SecretsStoreKeys.FcmServiceAccountJson, ServiceAccountJson);
-        var patcher = new FcmSecretsPostConfigure(snapshot);
+        var patcher = new FcmSecretsPostConfigure(snapshot.Object);
         var options = new FcmConfiguration();
 
         patcher.PostConfigure("other-name", options);
@@ -57,19 +58,4 @@ public sealed class FcmSecretsPostConfigureTests
             .Because("PostConfigure guards on Options.DefaultName so a named bucket never receives the default's FCM credential.");
     }
 
-    private sealed class StubSecretsSnapshot : ISecretsSnapshot
-    {
-        private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
-
-        public bool IsPopulated => true;
-
-        public string? Get(SecretsStoreKey key) =>
-            _values.TryGetValue(key.Value, out var v) ? v : null;
-
-        public StubSecretsSnapshot With(SecretsStoreKey key, string value)
-        {
-            _values[key.Value] = value;
-            return this;
-        }
-    }
 }

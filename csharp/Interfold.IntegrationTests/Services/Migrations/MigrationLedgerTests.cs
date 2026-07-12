@@ -1,6 +1,7 @@
 using Cassandra;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Secrets;
 using Interfold.Infrastructure.Postgres;
 using Interfold.Infrastructure.Scylla;
@@ -224,7 +225,7 @@ public sealed class MigrationLedgerTests(ScyllaWebFactoryFixture fixture) : Base
         Mode = PersistenceMode.ScyllaPostgres,
         PostgresConnectionString = SharedDb.PostgresConnectionString,
         IsSingleScyllaInstance = true,
-        ScyllaKeyspace = Interfold.Contracts.Enums.ScyllaKeyspace.Nam,
+        ScyllaKeyspace = ScyllaKeyspace.Nam,
     };
 
     private ISecretsStore BuildPostgresSecretsStore()

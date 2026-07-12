@@ -19,8 +19,6 @@ namespace Interfold.Api.Controllers;
 [Route("auth")]
 public sealed class AuthController : OAuthControllerBase
 {
-    private const string RedirectUriCookieName = InterfoldCookieNames.AuthRedirectUri;
-
     private readonly IAccountRepository _accounts;
     private readonly IAuthTokenRevocationRepository _tokenRevocation;
     private readonly IEncryptionStateRepository _encryptionRepository;
@@ -50,7 +48,7 @@ public sealed class AuthController : OAuthControllerBase
         if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
             return UnsupportedProviderResponse(provider);
 
-        StoreRedirectUriCookie(RedirectUriCookieName);
+        StoreRedirectUriCookie(InterfoldCookieNames.AuthRedirectUri);
 
         var challenge = await IssueChallengeIfRegisteredAsync(
             oauthProvider, OperationIds.QueryAuthOAuthRequest);
@@ -137,8 +135,8 @@ public sealed class AuthController : OAuthControllerBase
 
         var token = await IssueDeepLinkTokenAsync(systemId);
 
-        var clientRedirectUri = Request.Cookies[RedirectUriCookieName];
-        Response.Cookies.Delete(RedirectUriCookieName);
+        var clientRedirectUri = Request.Cookies[InterfoldCookieNames.AuthRedirectUri];
+        Response.Cookies.Delete(InterfoldCookieNames.AuthRedirectUri);
 
         // The client (web/desktop/mobile) is responsible for supplying its own redirect_uri
         // on the initial GET /auth/{provider}?redirect_uri=... call; we store that in the
@@ -162,14 +160,14 @@ public sealed class AuthController : OAuthControllerBase
         return Redirect(redirectUrl);
     }
 
-    private async Task<string> IssueDeepLinkTokenAsync(Interfold.Contracts.Ids.SystemId systemId)
+    private async Task<string> IssueDeepLinkTokenAsync(SystemId systemId)
     {
         var authConfig = AuthOptions.CurrentValue;
         // Jti.NewJti() mints + wraps in one call so the raw JTI string doesn't live as a
         // bare local across the CreateToken and RecordTokenAsync sites. Any incidental
         // log or exception-with-locals between mint and wrap would emit the unredacted
         // JTI; the wrapper's ToString redacts.
-        var jti = Interfold.Contracts.Ids.Jti.NewJti();
+        var jti = Jti.NewJti();
 
         // Set expiry to 100 years in the future. This is practically permanent
         // but avoids DateTimeOffset.MaxValue which can cause int64 overflow on validation.

@@ -694,7 +694,7 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? 
             // Jti.From wraps the possibly-null JWT claim so the null-check runs on the
             // typed Jti? and every log site routes through Jti.ToString (which redacts)
             // rather than interpolating a bare string.
-            var jti = Interfold.Contracts.Ids.Jti.From(principal.FindFirstValue(JwtClaimNames.Jti));
+            var jti = Jti.From(principal.FindFirstValue(JwtClaimNames.Jti));
             if (jti is { } typedJti)
             {
                 var revocationRepository = context.RequestServices

@@ -76,7 +76,7 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
         // before returning). Route through Compose one more time so we still hand the
         // event publisher a ScopedSystemId if a repo path ever emits a bare id — the
         // principal's region is the safe fallback for the same-region friendship case.
-        var targetScopedId = Interfold.Contracts.Ids.ScopedSystemId.Compose(
+        var targetScopedId = ScopedSystemId.Compose(
             command.PrincipalId.Region,
             targetSystemId);
 

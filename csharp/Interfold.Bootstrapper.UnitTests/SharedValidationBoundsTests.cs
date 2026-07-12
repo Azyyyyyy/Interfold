@@ -3,6 +3,7 @@ using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Configuration.Validation;
+using Interfold.Contracts.Enums;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -242,7 +243,7 @@ public sealed class SharedValidationBoundsTests
             WebHttp = 8080,
             WebHttps = 8081,
         },
-        DatabaseMode = Interfold.Contracts.Enums.DatabaseMode.Single,
+        DatabaseMode = DatabaseMode.Single,
     };
 
     /// <summary>Default-construct a <see cref="PersistenceConfiguration"/> that satisfies every attribute.</summary>

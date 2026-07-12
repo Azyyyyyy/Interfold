@@ -57,18 +57,10 @@ public sealed class FCMServiceFactoryFixture : IAsyncInitializer
         services.AddSingleton<IAccountRepository, InMemoryAccountRepository>();
         services.AddSingleton<IAlterRepository, InMemoryAlterRepository>();
 
-        // IFCMService now resolves the credential via IOptions<FcmConfiguration> (populated
-        // in production by FcmSecretsPostConfigure from the secrets snapshot); the fixture
-        // just configures the options bucket directly rather than seeding a secrets store.
-        if (seedServiceAccount)
-        {
-            services.Configure<FcmConfiguration>(o =>
-                o.ServiceAccountJson = "{\"type\":\"service_account\",\"project_id\":\"test\"}");
-        }
-        else
-        {
-            services.Configure<FcmConfiguration>(o => o.ServiceAccountJson = null);
-        }
+        services.Configure<FcmConfiguration>(o =>
+            o.ServiceAccountJson = seedServiceAccount 
+                ? "{\"type\":\"service_account\",\"project_id\":\"test\"}" 
+                : null);
 
         services.AddInterfoldCluster(role);
         return new FCMFactoryScope(services.BuildServiceProvider());

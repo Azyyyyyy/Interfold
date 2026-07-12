@@ -243,7 +243,7 @@ public static class ConfigurationServiceCollectionExtensions
     internal static void ApplyPersistence(PersistenceConfiguration opts, IConfiguration config)
     {
         // Fail-fast on operator typos: ParseScyllaKeyspace throws for unknown region spellings.
-        var keyspace = Interfold.Contracts.Enums.EnumWireExtensions.ParseScyllaKeyspace(
+        var keyspace = EnumWireExtensions.ParseScyllaKeyspace(
             config[OctoconEnvKeys.ScyllaKeyspace] ?? "nam");
         opts.Mode = PersistenceModeExtensions.Parse(config[OctoconEnvKeys.Persistence]);
         opts.ScyllaKeyspace = keyspace;

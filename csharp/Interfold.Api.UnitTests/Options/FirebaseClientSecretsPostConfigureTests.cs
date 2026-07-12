@@ -2,6 +2,7 @@ using Interfold.Api.Services.Secrets;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Secrets;
 using Microsoft.Extensions.Options;
+using TUnit.Mocks;
 
 namespace Interfold.Api.UnitTests.Options;
 
@@ -59,11 +60,11 @@ public sealed class FirebaseClientSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_ThreeValidPlatformJsonRows_PopulatesAll()
     {
-        var snapshot = new StubSecretsSnapshot()
+        var snapshot = SecretsSnapshotMock.Empty()
             .With(SecretsStoreKeys.FirebaseClientAndroid, AndroidJson)
             .With(SecretsStoreKeys.FirebaseClientIos,     IosJson)
             .With(SecretsStoreKeys.FirebaseClientWeb,     WebJson);
-        var patcher = new FirebaseClientSecretsPostConfigure(snapshot);
+        var patcher = new FirebaseClientSecretsPostConfigure(snapshot.Object);
         var options = new FirebaseClientConfiguration();
 
         patcher.PostConfigure(Microsoft.Extensions.Options.Options.DefaultName, options);
@@ -94,8 +95,8 @@ public sealed class FirebaseClientSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_MissingRows_LeavesAllNull()
     {
-        var snapshot = new StubSecretsSnapshot(); // empty
-        var patcher = new FirebaseClientSecretsPostConfigure(snapshot);
+        var snapshot = SecretsSnapshotMock.Empty();
+        var patcher = new FirebaseClientSecretsPostConfigure(snapshot.Object);
         var options = new FirebaseClientConfiguration();
 
         patcher.PostConfigure(Microsoft.Extensions.Options.Options.DefaultName, options);
@@ -122,9 +123,9 @@ public sealed class FirebaseClientSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_MalformedJson_ThrowsWithKeyName()
     {
-        var snapshot = new StubSecretsSnapshot()
+        var snapshot = SecretsSnapshotMock.Empty()
             .With(SecretsStoreKeys.FirebaseClientAndroid, "{ this is not JSON");
-        var patcher = new FirebaseClientSecretsPostConfigure(snapshot);
+        var patcher = new FirebaseClientSecretsPostConfigure(snapshot.Object);
         var options = new FirebaseClientConfiguration();
 
         var ex = Assert.Throws<InvalidOperationException>(
@@ -143,9 +144,9 @@ public sealed class FirebaseClientSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_NamedInstance_LeavesUntouched()
     {
-        var snapshot = new StubSecretsSnapshot()
+        var snapshot = SecretsSnapshotMock.Empty()
             .With(SecretsStoreKeys.FirebaseClientAndroid, AndroidJson);
-        var patcher = new FirebaseClientSecretsPostConfigure(snapshot);
+        var patcher = new FirebaseClientSecretsPostConfigure(snapshot.Object);
         var options = new FirebaseClientConfiguration();
 
         patcher.PostConfigure("other-name", options);
@@ -154,19 +155,4 @@ public sealed class FirebaseClientSecretsPostConfigureTests
             .Because("PostConfigure guards on Options.DefaultName so a named bucket never receives the default's Firebase payload.");
     }
 
-    private sealed class StubSecretsSnapshot : ISecretsSnapshot
-    {
-        private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
-
-        public bool IsPopulated => true;
-
-        public string? Get(SecretsStoreKey key) =>
-            _values.TryGetValue(key.Value, out var v) ? v : null;
-
-        public StubSecretsSnapshot With(SecretsStoreKey key, string value)
-        {
-            _values[key.Value] = value;
-            return this;
-        }
-    }
 }

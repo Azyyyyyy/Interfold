@@ -1,4 +1,4 @@
-﻿using Interfold.Contracts;
+using Interfold.Contracts;
 using Interfold.Contracts.Events;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
@@ -49,7 +49,7 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
 
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<DeleteAccountCommand> command, CancellationToken cancellationToken = default)
     {
-        var unfriendedIds = new List<Interfold.Contracts.Ids.SystemId>();
+        var unfriendedIds = new List<SystemId>();
         var result = await SettingsCommandHelper.ExecuteAsync(command, SettingsAction.AccountDeleted, EntityRefs.SettingsAccountDelete, _idempotencyStore, async ct =>
         {
             var systemId = command.PrincipalId;
@@ -113,7 +113,7 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
                 // results — compose with the principal's region so the socket router filter
                 // sees a scoped TargetSystemId. Cross-region friendships would want the
                 // friend's own region here; a same-region compose is the current behaviour.
-                var friendTarget = Interfold.Contracts.Ids.ScopedSystemId.Compose(
+                var friendTarget = ScopedSystemId.Compose(
                     command.PrincipalId.Region,
                     friendId);
                 await _eventBus.PublishAsync(new FriendshipRemovedEvent(friendTarget, command.PrincipalId), cancellationToken);

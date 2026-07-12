@@ -5,6 +5,7 @@ using Interfold.Contracts.Secrets;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using TUnit.Mocks;
 
 namespace Interfold.Api.UnitTests.Options;
 
@@ -36,7 +37,7 @@ public sealed class AuthenticationSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_SnapshotHasAllRows_PatchesAllFields()
     {
-        var snapshot = new StubSecretsSnapshot()
+        var snapshot = SecretsSnapshotMock.Empty()
             .With(SecretsStoreKeys.OAuthGoogleClientSecret,  "google-secret")
             .With(SecretsStoreKeys.OAuthDiscordClientSecret, "discord-secret")
             .With(SecretsStoreKeys.OAuthAppleClientSecret,   "apple-secret")
@@ -44,7 +45,7 @@ public sealed class AuthenticationSecretsPostConfigureTests
             .With(SecretsStoreKeys.AuthDeepLinkSecret,       "test-deep-link")
             .With(SecretsStoreKeys.AuthJwtRsa256PrivatePem,  Rsa.PrivatePem)
             .With(SecretsStoreKeys.AuthJwtEs256PrivatePem,   Es.PrivatePem);
-        var patcher = new AuthenticationSecretsPostConfigure(snapshot);
+        var patcher = new AuthenticationSecretsPostConfigure(snapshot.Object);
         var options = new AuthenticationConfiguration();
 
         patcher.PostConfigure(Microsoft.Extensions.Options.Options.DefaultName, options);
@@ -84,12 +85,12 @@ public sealed class AuthenticationSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_IdempotentAcrossResolves()
     {
-        var snapshot = new StubSecretsSnapshot()
+        var snapshot = SecretsSnapshotMock.Empty()
             .With(SecretsStoreKeys.EncryptionPepper,        "pepper")
             .With(SecretsStoreKeys.AuthDeepLinkSecret,      "dl")
             .With(SecretsStoreKeys.AuthJwtRsa256PrivatePem, Rsa.PrivatePem)
             .With(SecretsStoreKeys.AuthJwtEs256PrivatePem,  Es.PrivatePem);
-        var patcher = new AuthenticationSecretsPostConfigure(snapshot);
+        var patcher = new AuthenticationSecretsPostConfigure(snapshot.Object);
         var options = new AuthenticationConfiguration();
 
         patcher.PostConfigure(Microsoft.Extensions.Options.Options.DefaultName, options);
@@ -113,8 +114,8 @@ public sealed class AuthenticationSecretsPostConfigureTests
     public async Task PostConfigure_MissingMandatoryRow_TripsValidation()
     {
         var services = new ServiceCollection();
-        var snapshot = new StubSecretsSnapshot(); // empty — no mandatory rows populated
-        services.AddSingleton<ISecretsSnapshot>(snapshot);
+        var snapshot = SecretsSnapshotMock.Empty(); // empty — no mandatory rows populated
+        services.AddSingleton<ISecretsSnapshot>(snapshot.Object);
         services.AddSingleton<IPostConfigureOptions<AuthenticationConfiguration>, AuthenticationSecretsPostConfigure>();
         services.AddOptions<AuthenticationConfiguration>()
             .Configure(_ => { /* no-op initial bind; PostConfigure has nothing to fold in */ })
@@ -141,11 +142,11 @@ public sealed class AuthenticationSecretsPostConfigureTests
         var services = new ServiceCollection();
         // Populate every mandatory field EXCEPT the ES256 PEM so the validator can only
         // blame the missing field.
-        var snapshot = new StubSecretsSnapshot()
+        var snapshot = SecretsSnapshotMock.Empty()
             .With(SecretsStoreKeys.EncryptionPepper,        "pepper")
             .With(SecretsStoreKeys.AuthDeepLinkSecret,      "dl")
             .With(SecretsStoreKeys.AuthJwtRsa256PrivatePem, Rsa.PrivatePem);
-        services.AddSingleton<ISecretsSnapshot>(snapshot);
+        services.AddSingleton<ISecretsSnapshot>(snapshot.Object);
         services.AddSingleton<IPostConfigureOptions<AuthenticationConfiguration>, AuthenticationSecretsPostConfigure>();
         services.AddOptions<AuthenticationConfiguration>()
             .Configure(_ => { })
@@ -168,9 +169,9 @@ public sealed class AuthenticationSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_NamedInstance_LeavesUntouched()
     {
-        var snapshot = new StubSecretsSnapshot()
+        var snapshot = SecretsSnapshotMock.Empty()
             .With(SecretsStoreKeys.EncryptionPepper, "leaked-if-named");
-        var patcher = new AuthenticationSecretsPostConfigure(snapshot);
+        var patcher = new AuthenticationSecretsPostConfigure(snapshot.Object);
         var options = new AuthenticationConfiguration();
 
         patcher.PostConfigure("other-name", options);
@@ -191,23 +192,4 @@ public sealed class AuthenticationSecretsPostConfigureTests
         return (ecdsa.ExportECPrivateKeyPem(), ecdsa.ExportSubjectPublicKeyInfoPem());
     }
 
-    /// <summary>
-    /// Minimal <see cref="ISecretsSnapshot"/> stub — the loader's job in production, mocked
-    /// here so the tests stay pure-C# and don't need an <see cref="ISecretsStore"/>.
-    /// </summary>
-    private sealed class StubSecretsSnapshot : ISecretsSnapshot
-    {
-        private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
-
-        public bool IsPopulated => true;
-
-        public string? Get(SecretsStoreKey key) =>
-            _values.TryGetValue(key.Value, out var v) ? v : null;
-
-        public StubSecretsSnapshot With(SecretsStoreKey key, string value)
-        {
-            _values[key.Value] = value;
-            return this;
-        }
-    }
 }

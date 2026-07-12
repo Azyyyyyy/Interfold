@@ -28,7 +28,7 @@ namespace Interfold.Api.UnitTests.ImportJobs;
 /// </summary>
 public sealed class ImportJobBackgroundServiceTests
 {
-    private static readonly Interfold.Contracts.Ids.ScopedSystemId TestSystemId = Interfold.Contracts.Ids.ScopedSystemId.ParseScoped("nam:sys-worker-test");
+    private static readonly ScopedSystemId TestSystemId = ScopedSystemId.ParseScoped("nam:sys-worker-test");
 
     /// <summary>
     /// Happy path: the runner reports success, the repository row transitions to
@@ -273,7 +273,7 @@ public sealed class ImportJobBackgroundServiceTests
             return ValueTask.CompletedTask;
         }
 
-        public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(Interfold.Contracts.Ids.ScopedSystemId? targetSystemId, CancellationToken ct = default)
+        public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(ScopedSystemId? targetSystemId, CancellationToken ct = default)
             where TEvent : class => EmptyAsync<TEvent>();
 
         private static async IAsyncEnumerable<T> EmptyAsync<T>()

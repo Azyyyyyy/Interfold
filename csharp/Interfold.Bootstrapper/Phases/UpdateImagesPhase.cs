@@ -33,7 +33,6 @@ namespace Interfold.Bootstrapper.Phases;
 internal static class UpdateImagesPhase
 {
     private static readonly string Phase = BootstrapCommand.UpdateImages.ToPhaseLogName();
-    private const string PostgresService = ComposeServices.Postgres;
 
     public static async Task<int> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
@@ -450,7 +449,7 @@ internal static class UpdateImagesPhase
             ct.ThrowIfCancellationRequested();
             attempt++;
             var probe = await ProcessRunner.RunAsync("docker",
-                ["compose", "-f", composeFile, "exec", "-T", PostgresService,
+                ["compose", "-f", composeFile, "exec", "-T", ComposeServices.Postgres,
                  "pg_isready", "-h", "127.0.0.1", "-p", "5432"],
                 ct: ct).ConfigureAwait(false);
             if (probe.ExitCode == 0)
@@ -461,7 +460,7 @@ internal static class UpdateImagesPhase
             try { await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false); }
             catch (OperationCanceledException) { throw; }
         }
-        return $"postgres ({PostgresService}) did not report ready within the health-check budget";
+        return $"postgres ({ComposeServices.Postgres}) did not report ready within the health-check budget";
     }
 
     private static async Task<string?> WaitForScyllaReadyAsync(
@@ -527,7 +526,7 @@ internal static class UpdateImagesPhase
 
         // Best-effort: dump the failing tier's logs so operators have a diagnosis without
         // having to shell into the box.
-        var suspects = new[] { PostgresService, ComposeServices.ScyllaSingle, ComposeServices.ScyllaNam, ComposeServices.Cassandra, ComposeServices.InterfoldApi, ComposeServices.OctoconWeb };
+        var suspects = new[] { ComposeServices.Postgres, ComposeServices.ScyllaSingle, ComposeServices.ScyllaNam, ComposeServices.Cassandra, ComposeServices.InterfoldApi, ComposeServices.OctoconWeb };
         foreach (var svc in suspects)
         {
             var logsArgs = BuildComposeLogsArgs(composeFile, svc, 200);

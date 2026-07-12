@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.RegularExpressions;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Contracts.Enums;
 using Spectre.Console;
 using Spectre.Console.Testing;
 using TUnit.Core;
@@ -108,10 +109,10 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(config.Ports.Scylla).IsEqualTo(9042);
 
         // Database / API defaults
-        await Assert.That(config.DatabaseMode).IsEqualTo(Interfold.Contracts.Enums.DatabaseMode.Single);
+        await Assert.That(config.DatabaseMode).IsEqualTo(DatabaseMode.Single);
         await Assert.That(config.PostgresDatabase).IsEqualTo("interfold");
         await Assert.That(config.ClusterName).IsEqualTo("InterfoldCluster");
-        await Assert.That(config.ScyllaKeyspace).IsEqualTo(Interfold.Contracts.Enums.ScyllaKeyspace.Nam);
+        await Assert.That(config.ScyllaKeyspace).IsEqualTo(ScyllaKeyspace.Nam);
         await Assert.That(config.ApiImage).IsEqualTo("ghcr.io/azyyyyyy/interfold-api:latest");
 
         // ApiRuntime: derivation happens in RunAsync / Validate, not PromptForConfig, so
@@ -122,7 +123,7 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(config.ApiRuntime.CorsAllowedOrigins.Count).IsEqualTo(0);
 
         // Blank string/null fields reproduce the pre-bootstrapper "env var unset" behaviour.
-        await Assert.That(config.Cluster.NodeGroup).IsEqualTo(Interfold.Contracts.Enums.NodeGroup.Auxiliary);
+        await Assert.That(config.Cluster.NodeGroup).IsEqualTo(NodeGroup.Auxiliary);
         await Assert.That(config.Observability.OtlpEndpoint).IsEqualTo(string.Empty);
         await Assert.That(config.Storage.AvatarStorageRoot).IsEqualTo(string.Empty);
         await Assert.That(config.Storage.AvatarPublicBase).IsEqualTo(string.Empty);
@@ -463,7 +464,7 @@ public sealed class ConfigInteractivePromptTests
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.DatabaseMode).IsEqualTo(Interfold.Contracts.Enums.DatabaseMode.Multi);
+        await Assert.That(config.DatabaseMode).IsEqualTo(DatabaseMode.Multi);
     }
 
     [Test]
@@ -476,7 +477,7 @@ public sealed class ConfigInteractivePromptTests
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.ScyllaKeyspace).IsEqualTo(Interfold.Contracts.Enums.ScyllaKeyspace.Eur);
+        await Assert.That(config.ScyllaKeyspace).IsEqualTo(ScyllaKeyspace.Eur);
     }
 
     [Test]
@@ -489,7 +490,7 @@ public sealed class ConfigInteractivePromptTests
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.ScyllaKeyspace).IsEqualTo(Interfold.Contracts.Enums.ScyllaKeyspace.Gdpr);
+        await Assert.That(config.ScyllaKeyspace).IsEqualTo(ScyllaKeyspace.Gdpr);
     }
 
     [Test]
@@ -727,7 +728,7 @@ public sealed class ConfigInteractivePromptTests
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Cluster.NodeGroup).IsEqualTo(Interfold.Contracts.Enums.NodeGroup.Primary);
+        await Assert.That(config.Cluster.NodeGroup).IsEqualTo(NodeGroup.Primary);
     }
 
     [Test]
@@ -740,7 +741,7 @@ public sealed class ConfigInteractivePromptTests
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Cluster.NodeGroup).IsEqualTo(Interfold.Contracts.Enums.NodeGroup.Sidecar);
+        await Assert.That(config.Cluster.NodeGroup).IsEqualTo(NodeGroup.Sidecar);
     }
 
     [Test]

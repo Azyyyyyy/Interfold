@@ -5,6 +5,8 @@ using System.Web;
 using Interfold.Api.Services;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
@@ -28,7 +30,7 @@ namespace Interfold.IntegrationTests.SimplyPluralImport;
 /// </summary>
 public sealed class SpImportTests : BaseEndpointTest
 {
-    private static Interfold.Contracts.Ids.SystemId Uid() => new($"sys-{Guid.NewGuid():N}"[..16]);
+    private static SystemId Uid() => new($"sys-{Guid.NewGuid():N}"[..16]);
     private static string MemberUuid() => Guid.NewGuid().ToString("N");
 
     // Synthetic timestamps (ms since Unix epoch). The whole point of this test file is to
@@ -546,7 +548,7 @@ public sealed class SpImportTests : BaseEndpointTest
         var poll = polls[0];
         await Assert.That(poll.Title).IsEqualTo("synthetic abstain vote");
         await Assert.That(poll.Description).IsEqualTo("synthetic desc");
-        await Assert.That(poll.Type).IsEqualTo(Interfold.Contracts.Enums.PollType.Vote);
+        await Assert.That(poll.Type).IsEqualTo(PollType.Vote);
         await Assert.That(poll.TimeEnd).IsNotNull();
         await Assert.That(poll.TimeEnd!.Value)
             .IsEqualTo(DateTimeOffset.FromUnixTimeMilliseconds(Date_2021_06_10_End).UtcDateTime);
@@ -603,7 +605,7 @@ public sealed class SpImportTests : BaseEndpointTest
 
         var poll = polls[0];
         await Assert.That(poll.Title).IsEqualTo("synthetic choice");
-        await Assert.That(poll.Type).IsEqualTo(Interfold.Contracts.Enums.PollType.Choice);
+        await Assert.That(poll.Type).IsEqualTo(PollType.Choice);
 
         var choices = poll.Data.GetProperty("choices");
         await Assert.That(choices.GetArrayLength()).IsEqualTo(3);
@@ -862,7 +864,7 @@ public sealed class SpImportTests : BaseEndpointTest
         // SP's own code defaults missing supportMarkdown to true (SimplyPluralApi/src/api/v2/user.ts:95,
         // generateReport.ts:117), so a null on the wire should produce the markdown variant ("text"),
         // not the plaintext variant.
-        await Assert.That(fields[0].Type).IsEqualTo(Interfold.Contracts.Enums.FieldType.Text);
+        await Assert.That(fields[0].Type).IsEqualTo(FieldType.Text);
         await Assert.That(fields[0].InsertedAt).IsEqualTo(expectedInsertedAt);
     }
 
@@ -1135,7 +1137,7 @@ public sealed class SpImportTests : BaseEndpointTest
 
     private static async Task<(SpImportResult Result, IFrontingRepository FrontingRepo, IPollRepository PollRepo, ISettingsFieldRepository FieldRepo, ITagRepository TagRepo, CapturingLogger Logger)> RunImportAsync(
         TestServices.StubSpHandler stub,
-        Interfold.Contracts.Ids.SystemId systemId)
+        SystemId systemId)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(new ConfigurationManager());
@@ -1147,7 +1149,7 @@ public sealed class SpImportTests : BaseEndpointTest
         InMemoryServiceCollectionExtensions.Register();
         services.AddInterfoldPersistence(PersistenceMode.InMemory, cfg =>
         {
-            cfg.ScyllaKeyspace = Interfold.Contracts.Enums.ScyllaKeyspace.Nam;
+            cfg.ScyllaKeyspace = ScyllaKeyspace.Nam;
         });
         services.AddInterfoldDomainHandlers();
 
@@ -1167,7 +1169,7 @@ public sealed class SpImportTests : BaseEndpointTest
 
         // encryptionKey is null → ImportAsync skips ValidateEncryptionKeyAsync; notes are skipped too.
         // spToken is a synthetic placeholder — StubSpHandler doesn't check it.
-        var result = await importService.ImportAsync(systemId, new Interfold.Contracts.Ids.ImportToken("synthetic-token"), encryptionKey: null);
+        var result = await importService.ImportAsync(systemId, new ImportToken("synthetic-token"), encryptionKey: null);
 
         var frontingRepo = scope.ServiceProvider.GetRequiredService<IFrontingRepository>();
         var pollRepo = scope.ServiceProvider.GetRequiredService<IPollRepository>();
@@ -1178,13 +1180,13 @@ public sealed class SpImportTests : BaseEndpointTest
 
     private sealed class NullAvatarStorage : IAvatarStorage
     {
-        public Task<Interfold.Contracts.Ids.AvatarUrl> SaveSystemAvatarAsync(Interfold.Contracts.Ids.SystemId systemId, Stream stream, CancellationToken cancellationToken = default)
-            => Task.FromResult(new Interfold.Contracts.Ids.AvatarUrl(string.Empty));
+        public Task<AvatarUrl> SaveSystemAvatarAsync(SystemId systemId, Stream stream, CancellationToken cancellationToken = default)
+            => Task.FromResult(new AvatarUrl(string.Empty));
 
-        public Task<Interfold.Contracts.Ids.AvatarUrl> SaveAlterAvatarAsync(Interfold.Contracts.Ids.SystemId systemId, Interfold.Contracts.Ids.AlterId alterId, Stream stream, CancellationToken cancellationToken = default)
-            => Task.FromResult(new Interfold.Contracts.Ids.AvatarUrl(string.Empty));
+        public Task<AvatarUrl> SaveAlterAvatarAsync(SystemId systemId, AlterId alterId, Stream stream, CancellationToken cancellationToken = default)
+            => Task.FromResult(new AvatarUrl(string.Empty));
 
-        public Task<bool> DeleteByUrlAsync(Interfold.Contracts.Ids.AvatarUrl? avatarUrl, CancellationToken cancellationToken = default)
+        public Task<bool> DeleteByUrlAsync(AvatarUrl? avatarUrl, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
     }
 

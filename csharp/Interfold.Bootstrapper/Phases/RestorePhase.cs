@@ -36,7 +36,6 @@ namespace Interfold.Bootstrapper.Phases;
 internal static class RestorePhase
 {
     private static readonly string Phase = BootstrapCommand.Restore.ToPhaseLogName();
-    private const string PostgresService = ComposeServices.Postgres;
 
     /// <summary>
     /// Compose services stopped BEFORE the scylla restore so client-side hydration
@@ -208,7 +207,7 @@ internal static class RestorePhase
             "compose", "-f", composeFile,
             "exec", "-T",
             "--env", "PGPASSWORD",
-            PostgresService,
+            ComposeServices.Postgres,
             "pg_restore",
             "-U", adminUser,
             "-d", database,
@@ -253,7 +252,7 @@ internal static class RestorePhase
 
         // Make sure the postgres container is up before we try to exec into it — an
         // update-images rollback path may have left the whole stack stopped. Idempotent.
-        await ComposeUpAsync(composeFile, [PostgresService], logger, ct).ConfigureAwait(false);
+        await ComposeUpAsync(composeFile, [ComposeServices.Postgres], logger, ct).ConfigureAwait(false);
         await WaitForPostgresAsync(composeFile, logger, ct).ConfigureAwait(false);
 
         logger.Info($"    postgres: pg_restore --clean --if-exists <- {archivePath}");
@@ -416,7 +415,7 @@ internal static class RestorePhase
             ct.ThrowIfCancellationRequested();
             attempt++;
             var probe = await ProcessRunner.RunAsync("docker",
-                ["compose", "-f", composeFile, "exec", "-T", PostgresService,
+                ["compose", "-f", composeFile, "exec", "-T", ComposeServices.Postgres,
                  "pg_isready", "-h", "127.0.0.1", "-p", "5432"],
                 ct: ct).ConfigureAwait(false);
             if (probe.ExitCode == 0)
