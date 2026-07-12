@@ -50,12 +50,12 @@ public sealed class WireByteFreezeTests
         // `new SystemId(CanonicalScoped)`, which is exactly the scoped-vs-raw sensitivity
         // this test pins.
         const string pepper = "test-pepper";
-        var recoveryCode = new RecoveryCode("test-code");
-        var salt = new EncryptionSalt(Convert.ToBase64String(Encoding.UTF8.GetBytes("known-salt-16b!!")));
+        RecoveryCode recoveryCode = new("test-code");
+        EncryptionSalt salt = new(Convert.ToBase64String(Encoding.UTF8.GetBytes("known-salt-16b!!")));
 
-        var first = EncryptionKey.DeriveKey(pepper, new SystemId(CanonicalScoped), recoveryCode, salt);
-        var second = EncryptionKey.DeriveKey(pepper, new SystemId(CanonicalScoped), recoveryCode, salt);
-        var rawOnly = EncryptionKey.DeriveKey(pepper, new SystemId(CanonicalRaw), recoveryCode, salt);
+        var first = EncryptionKey.DeriveKey(pepper, new(CanonicalScoped), recoveryCode, salt);
+        var second = EncryptionKey.DeriveKey(pepper, new(CanonicalScoped), recoveryCode, salt);
+        var rawOnly = EncryptionKey.DeriveKey(pepper, new(CanonicalRaw), recoveryCode, salt);
 
         await Assert.That(first).IsEqualTo(second)
             .Because("DeriveKey must be deterministic — a diff between two calls with identical inputs means Argon2 params or salt handling drifted.");
@@ -85,7 +85,7 @@ public sealed class WireByteFreezeTests
         };
         var now = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
         var expiresAt = now.AddDays(1);
-        var jti = new Jti("golden-jti");
+        Jti jti = new("golden-jti");
         var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, CanonicalRaw);
 
         var token = AuthHelper.CreateToken(authConfig, expiresAt, now, jti, scoped.AsSystemId());
@@ -137,7 +137,7 @@ public sealed class WireByteFreezeTests
 
         var enumerator = subscriber.GetAsyncEnumerator(cts.Token);
 
-        await bus.PublishAsync(new AlterCreatedEvent(scopedTarget, new AlterId(42)), cts.Token);
+        await bus.PublishAsync(new AlterCreatedEvent(scopedTarget, new(42)), cts.Token);
 
         var moved = await enumerator.MoveNextAsync();
         await Assert.That(moved).IsTrue()
@@ -169,7 +169,7 @@ public sealed class WireByteFreezeTests
 
         var enumerator = subscriber.GetAsyncEnumerator(cts.Token);
 
-        await bus.PublishAsync(new AlterCreatedEvent(eurScoped, new AlterId(42)), cts.Token);
+        await bus.PublishAsync(new AlterCreatedEvent(eurScoped, new(42)), cts.Token);
 
         // The cross-region publish must NOT wake this subscriber. Wait until the cts
         // fires (i.e. no delivery in 2 s); MoveNextAsync will observe the cancellation

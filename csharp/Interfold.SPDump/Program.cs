@@ -63,7 +63,7 @@ else
 	var key = new byte[32];
 	RandomNumberGenerator.Fill(key);
 	var encryptionKeyBase64 = Convert.ToBase64String(key);
-	recoveryKey = new RecoveryCode(encryptionKeyBase64);
+	recoveryKey = new(encryptionKeyBase64);
 	logger.LogInformation("Using generated random encryption key (base64): {KeyPreview}", encryptionKeyBase64[..8] + "...");
 }
 
@@ -123,7 +123,7 @@ internal readonly record struct SpDumpOptions(ImportToken Token, RecoveryCode? R
 		RecoveryCode? recoveryKey = args.Length >= 2 && !string.IsNullOrWhiteSpace(args[1])
 			? new RecoveryCode(args[1])
 			: null;
-		return new SpDumpOptions(new ImportToken(spToken), recoveryKey);
+		return new(new(spToken), recoveryKey);
 	}
 }
 

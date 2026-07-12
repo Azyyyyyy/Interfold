@@ -40,6 +40,24 @@ public readonly record struct SystemId : IParsable<SystemId>
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(SystemId)raw</c> instead of the
+    /// <c>new SystemId(raw)</c> ceremony. Explicit (not implicit) preserves the "raw and
+    /// typed cannot silently mix" guarantee this type exists for.
+    /// </summary>
+    public static explicit operator SystemId(string value) => new(value);
+
+    /// <summary>
+    /// Implicit widen to the raw <see cref="string"/> — reads as "get the wire value" and
+    /// removes the <c>.Value</c> ceremony at every <c>string</c>-typed sink. Safe because
+    /// <c>ToString()</c> already returns the raw value verbatim.
+    /// <br/>
+    /// <b>Hazard:</b> <c>default(SystemId)</c> bypasses the ctor's null-guard, so widening a
+    /// default slot returns <see langword="null"/>. Identical hazard to reading
+    /// <see cref="Value"/> on a <c>default</c>; do not widen where a default might sneak in.
+    /// </summary>
+    public static implicit operator string(SystemId value) => value.Value;
+
     public override string ToString() => Value;
 
     public static SystemId Parse(string s, IFormatProvider? provider) => new(s);

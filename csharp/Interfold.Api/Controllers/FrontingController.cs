@@ -66,7 +66,7 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("start")]
     public async Task<Response<FrontStartedResponse>> Start([FromBody] FrontStartRequest req, CancellationToken ct)
     {
-        var alterId = req.Id ?? new AlterId(0);
+        var alterId = req.Id ?? new(0);
         await CheckAlterId(alterId);
 
         var envelope = new CommandEnvelope<StartFrontCommand>(
@@ -91,7 +91,7 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("end")]
     public async Task<Response> End([FromBody] FrontEndRequest req, CancellationToken ct)
     {
-        var alterId = req.Id ?? new AlterId(0);
+        var alterId = req.Id ?? new(0);
         await CheckAlterId(alterId);
 
         var envelope = new CommandEnvelope<EndFrontCommand>(
@@ -108,7 +108,7 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("set")]
     public async Task<Response> Set([FromBody] FrontSetRequest req, CancellationToken ct)
     {
-        var alterId = req.Id ?? new AlterId(0);
+        var alterId = req.Id ?? new(0);
         await CheckAlterId(alterId);
 
         var envelope = new CommandEnvelope<SetFrontCommand>(

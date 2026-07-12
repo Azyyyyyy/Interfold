@@ -19,6 +19,13 @@ public readonly record struct EncryptionKeyMaterial
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(EncryptionKeyMaterial)raw</c> instead of
+    /// <c>new EncryptionKeyMaterial(raw)</c>. No implicit widen by design —
+    /// see <see cref="DiscordId"/>'s operator xml-doc for the redaction-preservation rationale.
+    /// </summary>
+    public static explicit operator EncryptionKeyMaterial(string value) => new(value);
+
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
@@ -43,6 +50,14 @@ public readonly record struct KeyChecksum
     {
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
+
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(KeyChecksum)raw</c> instead of
+    /// <c>new KeyChecksum(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
+    /// operator xml-doc for the redaction-preservation rationale. Prefer
+    /// <see cref="FromNullable(string?)"/> when the DB read may be null.
+    /// </summary>
+    public static explicit operator KeyChecksum(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
 
@@ -69,6 +84,15 @@ public readonly record struct EncryptionSalt
     {
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
+
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(EncryptionSalt)raw</c> instead of
+    /// <c>new EncryptionSalt(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
+    /// operator xml-doc for the redaction-preservation rationale. Prefer
+    /// <see cref="FromNullable(string?)"/> for nullable DB reads and <see cref="NewRandom"/>
+    /// to mint a fresh salt in one call.
+    /// </summary>
+    public static explicit operator EncryptionSalt(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
 

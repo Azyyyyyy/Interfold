@@ -27,6 +27,17 @@ public readonly record struct UsernameOrSystemId : IParsable<UsernameOrSystemId>
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(UsernameOrSystemId)raw</c> instead of
+    /// <c>new UsernameOrSystemId(raw)</c>. See <see cref="SystemId"/> for the wider rationale.
+    /// </summary>
+    public static explicit operator UsernameOrSystemId(string value) => new(value);
+
+    /// <summary>
+    /// Implicit widen to the raw <see cref="string"/> for repository-dispatch use.
+    /// </summary>
+    public static implicit operator string(UsernameOrSystemId value) => value.Value;
+
     public override string ToString() => Value;
 
     public static UsernameOrSystemId Parse(string s, IFormatProvider? provider) => new(s);

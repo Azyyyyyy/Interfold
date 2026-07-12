@@ -52,7 +52,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     {
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<EntryId, EntryState>());
-        var id = new EntryId(Guid.NewGuid().ToString("N"));
+        EntryId id = new(Guid.NewGuid().ToString("N"));
         var now = DateTime.UtcNow;
 
         store[id] = new EntryState
@@ -157,7 +157,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     {
         var systemKey = GetSystemKey(systemId);
         var store = _alterEntriesBySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<EntryId, AlterEntryState>());
-        var entryId = new EntryId(Guid.NewGuid().ToString("N"));
+        EntryId entryId = new(Guid.NewGuid().ToString("N"));
         var now = DateTime.UtcNow;
 
         store[entryId] = new AlterEntryState
@@ -297,7 +297,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
             return Task.FromResult<IReadOnlyList<JournalReadModel>>(Array.Empty<JournalReadModel>());
 
         var entries = store.Values
-            .OrderByDescending(e => e.EntryId.Value, StringComparer.Ordinal)
+            .OrderByDescending(e => (string)e.EntryId, StringComparer.Ordinal)
             .Select(e =>
             {
                 var (pinned, locked) = GetGlobalState(systemId, e.EntryId);

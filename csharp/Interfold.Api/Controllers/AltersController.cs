@@ -266,7 +266,7 @@ public sealed class AltersController : InterfoldControllerBase
             AlterId: alterId,
             Name: null,
             Description: null,
-            AvatarUrl: new AvatarUrl(url),
+            AvatarUrl: new(url),
             AvatarSource: AvatarSource.External,
             Color: null,
             Pronouns: null,

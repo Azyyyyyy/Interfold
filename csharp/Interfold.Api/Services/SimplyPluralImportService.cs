@@ -923,7 +923,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         }
 
         // Non-SP URL → store as passthrough; nothing to download.
-        await _accountRepository.UpdateAvatarAsync(systemId, new AvatarUrl(rawAvatarUrl), AvatarSource.External, cancellationToken);
+        await _accountRepository.UpdateAvatarAsync(systemId, new(rawAvatarUrl), AvatarSource.External, cancellationToken);
         return null;
     }
 

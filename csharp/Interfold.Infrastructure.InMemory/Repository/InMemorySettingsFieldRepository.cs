@@ -50,7 +50,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
     {
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new List<SettingsFieldReadModel>());
-        var fieldId = new FieldId(Guid.NewGuid().ToString("N"));
+        FieldId fieldId = new(Guid.NewGuid().ToString("N"));
 
         lock (store)
         {
@@ -94,7 +94,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
 
     public Task<bool> DeleteAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default)
     {
-        if (!TryParseUuid(fieldId.Value, out var fieldGuid))
+        if (!TryParseUuid(fieldId, out var fieldGuid))
         {
             return Task.FromResult(false);
         }

@@ -10,11 +10,16 @@ namespace Interfold.Contracts.Ids;
 //   - is a readonly record struct backed by string
 //   - implements IParsable<T> for [FromRoute] binding
 //   - carries a wire-identical JsonConverter emitting the raw underlying value
+//   - ships an `explicit operator W(string)` narrow + `implicit operator string(W)` widen so
+//     call sites can drop the `new W(raw)` / `.Value` ceremony (see SystemId for rationale)
 
 /// <summary>Strongly-typed wrapper around a tag id (32-char hex UUID). See <see cref="SystemId"/> for the migration story.</summary>
 [JsonConverter(typeof(TagIdJsonConverter))]
 public readonly record struct TagId(string Value) : IParsable<TagId>
 {
+    public static explicit operator TagId(string value) => new(value);
+    public static implicit operator string(TagId value) => value.Value;
+
     public override string ToString() => Value;
     public static TagId Parse(string s, IFormatProvider? provider) => new(s);
     public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out TagId result)
@@ -29,6 +34,9 @@ public readonly record struct TagId(string Value) : IParsable<TagId>
 [JsonConverter(typeof(PollIdJsonConverter))]
 public readonly record struct PollId(string Value) : IParsable<PollId>
 {
+    public static explicit operator PollId(string value) => new(value);
+    public static implicit operator string(PollId value) => value.Value;
+
     public override string ToString() => Value;
     public static PollId Parse(string s, IFormatProvider? provider) => new(s);
     public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out PollId result)
@@ -43,6 +51,9 @@ public readonly record struct PollId(string Value) : IParsable<PollId>
 [JsonConverter(typeof(EntryIdJsonConverter))]
 public readonly record struct EntryId(string Value) : IParsable<EntryId>
 {
+    public static explicit operator EntryId(string value) => new(value);
+    public static implicit operator string(EntryId value) => value.Value;
+
     public override string ToString() => Value;
     public static EntryId Parse(string s, IFormatProvider? provider) => new(s);
     public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out EntryId result)
@@ -57,6 +68,9 @@ public readonly record struct EntryId(string Value) : IParsable<EntryId>
 [JsonConverter(typeof(FrontIdJsonConverter))]
 public readonly record struct FrontId(string Value) : IParsable<FrontId>
 {
+    public static explicit operator FrontId(string value) => new(value);
+    public static implicit operator string(FrontId value) => value.Value;
+
     public override string ToString() => Value;
     public static FrontId Parse(string s, IFormatProvider? provider) => new(s);
     public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out FrontId result)
@@ -71,6 +85,9 @@ public readonly record struct FrontId(string Value) : IParsable<FrontId>
 [JsonConverter(typeof(FieldIdJsonConverter))]
 public readonly record struct FieldId(string Value) : IParsable<FieldId>
 {
+    public static explicit operator FieldId(string value) => new(value);
+    public static implicit operator string(FieldId value) => value.Value;
+
     public override string ToString() => Value;
     public static FieldId Parse(string s, IFormatProvider? provider) => new(s);
     public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out FieldId result)

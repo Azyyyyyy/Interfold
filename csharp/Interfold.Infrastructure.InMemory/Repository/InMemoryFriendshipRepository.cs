@@ -40,7 +40,7 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
 
     public async Task<SystemId?> ResolveUserIdAsync(UsernameOrSystemId userNameOrId, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(userNameOrId.Value))
+        if (string.IsNullOrWhiteSpace(userNameOrId))
         {
             return null;
         }
@@ -70,12 +70,12 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
         {
             LookupKind.Discord => _accounts is null
                 ? null
-                : await _accounts.TryFindSystemIdByDiscordIdAsync(new DiscordId(handle.RawId), cancellationToken),
+                : await _accounts.TryFindSystemIdByDiscordIdAsync(new(handle.RawId), cancellationToken),
             LookupKind.Username => null,
             // Region / Id both target the raw system id; Normalize collapses "nam:abc"
             // → "abc" so the storage key matches what other InMemory repos wrote when
             // the caller passed the scoped shape.
-            _ => Normalize(new SystemId(handle.RawId)),
+            _ => Normalize(new(handle.RawId)),
         };
     }
 

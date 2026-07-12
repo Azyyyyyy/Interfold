@@ -110,7 +110,7 @@ public sealed class TagsController : InterfoldControllerBase
     [HttpPost("{id}/alter")]
     public async Task<Response> AttachAlter(TagId id, [FromBody] TagAlterRequest body, CancellationToken ct)
     {
-        var alterId = body.AlterId ?? new AlterId(0);
+        var alterId = body.AlterId ?? new(0);
         await CheckAlterId(alterId);
 
         var command = new CommandEnvelope<AttachAlterToTagCommand>(
@@ -128,7 +128,7 @@ public sealed class TagsController : InterfoldControllerBase
     [HttpDelete("{id}/alter")]
     public async Task<Response> DetachAlter(TagId id, [FromBody] TagAlterRequest body, CancellationToken ct)
     {
-        var alterId = body.AlterId ?? new AlterId(0);
+        var alterId = body.AlterId ?? new(0);
         await CheckAlterId(alterId);
 
         var command = new CommandEnvelope<DetachAlterFromTagCommand>(

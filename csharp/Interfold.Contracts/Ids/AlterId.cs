@@ -20,6 +20,19 @@ public readonly record struct AlterId : IParsable<AlterId>
         Value = value;
     }
 
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(AlterId)v</c> instead of
+    /// <c>new AlterId(v)</c>. See <see cref="SystemId"/> for the wider rationale.
+    /// </summary>
+    public static explicit operator AlterId(int value) => new(value);
+
+    /// <summary>
+    /// Implicit widen to the underlying <see cref="int"/>. Note: prefer
+    /// <see cref="ToStorageShort"/> / <see cref="ToStorageInt"/> at CQL bind sites — those
+    /// encode the Cassandra <c>smallint</c> vs <c>int</c> column asymmetry the widen cannot.
+    /// </summary>
+    public static implicit operator int(AlterId value) => value.Value;
+
     public override string ToString() => Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>

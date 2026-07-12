@@ -97,7 +97,7 @@ public sealed class AuthLinkController : OAuthControllerBase
         // The link-token map stores scoped ids on write; TryParseScoped enforces the
         // invariant at the read boundary so a legacy row that lost its prefix surfaces
         // here rather than as a bad event target three hops downstream.
-        if (!Interfold.Contracts.Ids.ScopedSystemId.TryParseScoped(resolvedSystemId.Value.Value, out var systemId))
+        if (!Interfold.Contracts.Ids.ScopedSystemId.TryParseScoped(resolvedSystemId.Value, out var systemId))
         {
             Response.Cookies.Delete(LinkTokenCookieName);
             return StatusCode(StatusCodes.Status403Forbidden, "This link token is invalid or has expired.");

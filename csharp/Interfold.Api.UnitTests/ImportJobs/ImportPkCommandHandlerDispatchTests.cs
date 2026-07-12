@@ -133,20 +133,20 @@ public sealed class ImportPkCommandHandlerDispatchTests
     }
 
     private static CommandEnvelope<ImportPkCommand> NewEnvelope(string idempotencyKey, string token) => new(
-        OperationId: new OperationId("settings:import_pk"),
+        OperationId: new("settings:import_pk"),
         CommandId: Guid.NewGuid(),
         PrincipalId: SystemId,
-        IdempotencyKey: new IdempotencyKey(idempotencyKey),
+        IdempotencyKey: new(idempotencyKey),
         OccurredAt: DateTimeOffset.UtcNow,
-        Payload: new ImportPkCommand(new ImportToken(token)));
+        Payload: new ImportPkCommand(new(token)));
 
     private static CommandEnvelope<ImportSpCommand> NewSpEnvelope(string idempotencyKey) => new(
-        OperationId: new OperationId("settings:import_sp"),
+        OperationId: new("settings:import_sp"),
         CommandId: Guid.NewGuid(),
         PrincipalId: SystemId,
-        IdempotencyKey: new IdempotencyKey(idempotencyKey),
+        IdempotencyKey: new(idempotencyKey),
         OccurredAt: DateTimeOffset.UtcNow,
-        Payload: new ImportSpCommand(new ImportToken("synthetic-sp-token"), RecoveryCode: null));
+        Payload: new ImportSpCommand(new("synthetic-sp-token"), RecoveryCode: null));
 
     private sealed class CapturingQueue : IImportJobQueue, IAsyncDisposable
     {

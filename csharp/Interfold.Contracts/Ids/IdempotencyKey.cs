@@ -24,6 +24,18 @@ public readonly record struct IdempotencyKey : IParsable<IdempotencyKey>
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(IdempotencyKey)raw</c> instead of
+    /// <c>new IdempotencyKey(raw)</c>. See <see cref="SystemId"/>'s conversion operators for
+    /// the wider rationale on explicit-narrow / implicit-widen.
+    /// </summary>
+    public static explicit operator IdempotencyKey(string value) => new(value);
+
+    /// <summary>
+    /// Implicit widen to the raw <see cref="string"/> for DB / HTTP boundary use.
+    /// </summary>
+    public static implicit operator string(IdempotencyKey value) => value.Value;
+
     public override string ToString() => Value;
 
     public static IdempotencyKey Parse(string s, IFormatProvider? provider) => new(s);

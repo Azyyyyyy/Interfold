@@ -31,7 +31,7 @@ public sealed class SocketTokenRedactionTests
         // log message along the six-hop socket path must not leak the JWT. If this changes to
         // return Value verbatim, every log statement in WebSocketHandler.cs that mentions the
         // token becomes a credential-leak vector.
-        var token = new SocketToken(SampleToken);
+        SocketToken token = new(SampleToken);
 
         await Assert.That(token.ToString()).IsEqualTo("eyJh…")
             .Because("SocketToken.ToString() must redact to the first-4-chars + ellipsis form so log-shaped uses of the wrapper cannot leak the JWT. WebSocketHandler.cs threads the wrapper through every hop specifically to lean on this contract.");
@@ -44,7 +44,7 @@ public sealed class SocketTokenRedactionTests
         // that writes $"token = {token}" gets the redacted form, and the raw JWT never
         // appears in the resulting string. A regression on ToString() would show up
         // here as the interpolation switching back to the full token bytes.
-        var token = new SocketToken(SampleToken);
+        SocketToken token = new(SampleToken);
 
         var interpolated = $"socket token = {token}";
 
@@ -61,7 +61,7 @@ public sealed class SocketTokenRedactionTests
         // calls and the Authorization: Bearer header write) explicitly reach for .Value. Pin
         // that this unwrap is truly identity — a future 'safer' Value that also redacted
         // would break every socket authentication silently.
-        var token = new SocketToken(SampleToken);
+        SocketToken token = new(SampleToken);
 
         await Assert.That(token.Value).IsEqualTo(SampleToken)
             .Because(".Value is the deliberate escape hatch — it must return the raw JWT unmodified so JwtSecurityTokenHandler can validate the signature and so the loopback endpoint proxy emits a valid Authorization: Bearer header.");
@@ -75,7 +75,7 @@ public sealed class SocketTokenRedactionTests
         // handler's guard is IsNullOrWhiteSpace, which does NOT catch a 1–4 char string. If
         // someone passes a stub token in a test or a malformed client sends one, the log
         // must still redact rather than emitting the whole thing.
-        var token = new SocketToken("abc");
+        SocketToken token = new("abc");
 
         await Assert.That(token.ToString()).IsEqualTo("…")
             .Because("Sub-5-char values collapse to a lone ellipsis so the redaction never accidentally reveals more than 4 characters of any secret.");
@@ -88,10 +88,10 @@ public sealed class SocketTokenRedactionTests
         // StringComparison.Ordinal) with `payloadToken == token` — this test pins that the
         // record-struct-generated equality is in fact ordinal-string equality, so the join
         // gate's semantics are unchanged from the pre-refactor comparison.
-        var a = new SocketToken(SampleToken);
-        var b = new SocketToken(SampleToken);
-        var different = new SocketToken(SampleToken + "-tampered");
-        var caseVariant = new SocketToken(SampleToken.ToUpperInvariant());
+        SocketToken a = new(SampleToken);
+        SocketToken b = new(SampleToken);
+        SocketToken different = new(SampleToken + "-tampered");
+        SocketToken caseVariant = new(SampleToken.ToUpperInvariant());
 
         await Assert.That(a == b).IsTrue()
             .Because("Two SocketToken wrappers over the same raw string must compare equal — this is the equality WebSocketHandler.cs uses to gate `payload.token == query.token` on phx_join.");

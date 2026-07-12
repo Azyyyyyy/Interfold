@@ -177,7 +177,7 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
         // OCTOCON_REGION explicitly.
         var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, systemId);
 
-        return AuthHelper.CreateToken(authConfig, expiresAt, now, new Jti(jti), scoped.AsSystemId());
+        return AuthHelper.CreateToken(authConfig, expiresAt, now, new(jti), scoped.AsSystemId());
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

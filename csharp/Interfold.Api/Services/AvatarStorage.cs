@@ -105,7 +105,7 @@ public sealed class LocalAvatarStorage : IAvatarStorage
     // one place instead of once per call site.
     private async Task<AvatarUrl> SaveAsync(SystemId systemId, string targetId, Stream stream, CancellationToken cancellationToken)
     {
-        var rawSystemId = SystemIdNormalization.StripRegionPrefix(systemId.Value);
+        var rawSystemId = SystemIdNormalization.StripRegionPrefix(systemId);
         var safeSystemId = SafeSegmentPattern.Replace(rawSystemId, "_");
         var safeTargetId = SafeSegmentPattern.Replace(targetId, "_");
 
@@ -128,7 +128,7 @@ public sealed class LocalAvatarStorage : IAvatarStorage
         await File.WriteAllBytesAsync(filePath, content, cancellationToken);
 
         var basePath = PublicBase.TrimEnd('/');
-        return new AvatarUrl($"{basePath}/{safeSystemId}/{safeTargetId}/{fileName}");
+        return new($"{basePath}/{safeSystemId}/{safeTargetId}/{fileName}");
     }
 
     /// <summary>

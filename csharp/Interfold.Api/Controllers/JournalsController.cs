@@ -134,7 +134,7 @@ public sealed class JournalsController : InterfoldControllerBase
     [HttpPost("{id}/alter")]
     public async Task<Response> AttachAlter(EntryId id, [FromBody] JournalAlterRequest req, CancellationToken ct)
     {
-        var alterId = req.AlterId ?? new AlterId(0);
+        var alterId = req.AlterId ?? new(0);
         await CheckAlterId(alterId);
 
         var envelope = new CommandEnvelope<AttachAlterToGlobalJournalCommand>(
@@ -152,7 +152,7 @@ public sealed class JournalsController : InterfoldControllerBase
     [HttpDelete("{id}/alter")]
     public async Task<Response> DetachAlter(EntryId id, [FromBody] JournalAlterRequest req, CancellationToken ct)
     {
-        var alterId = req.AlterId ?? new AlterId(0);
+        var alterId = req.AlterId ?? new(0);
         await CheckAlterId(alterId);
 
         var envelope = new CommandEnvelope<DetachAlterFromGlobalJournalCommand>(

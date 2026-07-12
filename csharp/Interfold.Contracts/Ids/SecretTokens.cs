@@ -30,6 +30,14 @@ public readonly record struct LinkToken
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(LinkToken)raw</c> instead of
+    /// <c>new LinkToken(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
+    /// operator xml-doc for the redaction-preservation rationale. Prefer
+    /// <see cref="From(string?)"/> when the input may be null/blank.
+    /// </summary>
+    public static explicit operator LinkToken(string value) => new(value);
+
     public override string ToString() => SecretRedaction.Redact(Value);
 
     /// <summary>
@@ -68,6 +76,13 @@ public readonly record struct PushToken
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(PushToken)raw</c> instead of
+    /// <c>new PushToken(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
+    /// operator xml-doc for the redaction-preservation rationale.
+    /// </summary>
+    public static explicit operator PushToken(string value) => new(value);
+
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
@@ -94,6 +109,13 @@ public readonly record struct ImportToken
     {
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
+
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(ImportToken)raw</c> instead of
+    /// <c>new ImportToken(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
+    /// operator xml-doc for the redaction-preservation rationale.
+    /// </summary>
+    public static explicit operator ImportToken(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
 }
@@ -122,6 +144,13 @@ public readonly record struct RecoveryCode
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(RecoveryCode)raw</c> instead of
+    /// <c>new RecoveryCode(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
+    /// operator xml-doc for the redaction-preservation rationale.
+    /// </summary>
+    public static explicit operator RecoveryCode(string value) => new(value);
+
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
@@ -147,6 +176,14 @@ public readonly record struct Jti
     {
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
+
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(Jti)raw</c> instead of <c>new Jti(raw)</c>.
+    /// No implicit widen by design — see <see cref="DiscordId"/>'s operator xml-doc for the
+    /// redaction-preservation rationale. Prefer <see cref="From(string?)"/> when the input
+    /// may be null/blank, and <see cref="NewJti"/> to mint a fresh id in one call.
+    /// </summary>
+    public static explicit operator Jti(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
 
@@ -191,6 +228,13 @@ public readonly record struct SocketToken
     {
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
+
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(SocketToken)raw</c> instead of
+    /// <c>new SocketToken(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
+    /// operator xml-doc for the redaction-preservation rationale.
+    /// </summary>
+    public static explicit operator SocketToken(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
 }

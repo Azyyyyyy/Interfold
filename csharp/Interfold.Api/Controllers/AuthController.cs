@@ -156,7 +156,7 @@ public sealed class AuthController : OAuthControllerBase
         }
 
         var separator = clientRedirectUri.Contains('?') ? '&' : '?';
-        var redirectUrl = $"{clientRedirectUri}{separator}{OAuthQueryKeys.CallbackToken}={Uri.EscapeDataString(token)}&{OAuthQueryKeys.CallbackId}={Uri.EscapeDataString(systemId.Value)}";
+        var redirectUrl = $"{clientRedirectUri}{separator}{OAuthQueryKeys.CallbackToken}={Uri.EscapeDataString(token)}&{OAuthQueryKeys.CallbackId}={Uri.EscapeDataString(systemId)}";
 
         Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthOAuthCallback.Value;
         return Redirect(redirectUrl);

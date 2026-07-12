@@ -40,7 +40,7 @@ public static class RecoveryCodeResolver
         errorCode = default;
         // Wrap-at-decrypt-boundary: the plaintext local dies with this method frame; every
         // downstream reference goes through the redacting RecoveryCode wrapper.
-        recoveryCode = new RecoveryCode(plaintext);
+        recoveryCode = new(plaintext);
         return !string.IsNullOrWhiteSpace(plaintext);
     }
 

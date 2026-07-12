@@ -373,7 +373,7 @@ public sealed class SettingsController : InterfoldControllerBase
             PrincipalId: principal,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UploadAvatarCommand(new AvatarUrl(url), AvatarSource.External)
+            Payload: new UploadAvatarCommand(new(url), AvatarSource.External)
         );
 
         var result = CommandNoContent(await _uploadAvatarHandler.HandleAsync(envelope, ct));

@@ -30,7 +30,7 @@ public sealed class DeleteFrontByIdCommandHandler : ICommandHandler<DeleteFrontB
         CommandEnvelope<DeleteFrontByIdCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.FrontId.Value))
+        if (string.IsNullOrWhiteSpace(command.Payload.FrontId))
             return RejectInvariant(command, EntityRefs.FrontingInvalidFrontId);
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);

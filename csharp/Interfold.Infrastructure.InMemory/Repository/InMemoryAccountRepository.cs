@@ -103,7 +103,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         var token = _linkTokenBySystem.GetOrAdd(systemKey, static key =>
         {
             var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key.Value));
-            return new LinkToken(Convert.ToHexString(hash)[..32].ToLowerInvariant());
+            return new(Convert.ToHexString(hash)[..32].ToLowerInvariant());
         });
 
         _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkTokenTtl));
@@ -212,7 +212,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         // the SCOPED composite every downstream read (LinkIdentifier / Unlink* /
         // GetPublicProfile) uses via GetSystemKey.
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
+        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new(newSystemId)), newSystemId);
         _discordBySystem[scopedNew] = discordId;
         _systemByDiscord[discordId.Value] = scopedNew;
 
@@ -235,7 +235,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         // See FindOrCreateSystemIdByDiscord above for the "typed local + scoped-composite
         // reverse-map key" rationale.
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
+        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new(newSystemId)), newSystemId);
         _emailBySystem[scopedNew] = email;
         _systemByEmail[email.Value] = scopedNew;
 
@@ -258,7 +258,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         // See FindOrCreateSystemIdByDiscord above for the "typed local + scoped-composite
         // reverse-map key" rationale.
         var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new SystemId(newSystemId)), newSystemId);
+        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new(newSystemId)), newSystemId);
         _appleBySystem[scopedNew] = appleId;
         _systemByApple[appleId.Value] = scopedNew;
 

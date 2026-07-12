@@ -10,7 +10,7 @@ public sealed class SocketJoinRateLimiter(TimeProvider timeProvider)
     public bool Allow(SystemId systemId)
     {
         var now = timeProvider.GetUtcNow();
-        var queue = _windows.GetOrAdd(systemId.Value, _ => new Queue<DateTimeOffset>());
+        var queue = _windows.GetOrAdd(systemId, _ => new Queue<DateTimeOffset>());
         lock (queue)
         {
             var cutoff = now.AddSeconds(-1);

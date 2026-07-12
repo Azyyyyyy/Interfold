@@ -37,7 +37,7 @@ internal static class FriendshipIdNormalization
     /// </summary>
     public static ScopedSystemId CanonicalizeForPrincipal(SystemId principalSystemId, ScopedSystemId candidateSystemId)
     {
-        if (ScopedSystemId.TryParseScoped(principalSystemId.Value, out var scopedPrincipal))
+        if (ScopedSystemId.TryParseScoped(principalSystemId, out var scopedPrincipal))
         {
             return ScopedSystemId.Compose(scopedPrincipal.Region, candidateSystemId);
         }

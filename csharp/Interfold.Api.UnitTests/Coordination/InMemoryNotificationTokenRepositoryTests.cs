@@ -22,16 +22,16 @@ public sealed class InMemoryNotificationTokenRepositoryTests
         // Alice registers a token for herself; Bob and Carol are her friends and each
         // register their own tokens. A push to Alice's friends should hit Bob and Carol,
         // not Alice — the whole point of the fronting-change flow is to notify others.
-        await tokens.AddAsync(new SystemId("alice"), new PushToken("alice-token"), CancellationToken.None);
-        await tokens.AddAsync(new SystemId("bob"), new PushToken("bob-token"), CancellationToken.None);
-        await tokens.AddAsync(new SystemId("carol"), new PushToken("carol-token"), CancellationToken.None);
+        await tokens.AddAsync(new("alice"), new("alice-token"), CancellationToken.None);
+        await tokens.AddAsync(new("bob"), new("bob-token"), CancellationToken.None);
+        await tokens.AddAsync(new("carol"), new("carol-token"), CancellationToken.None);
 
-        await friendships.SendRequestAsync(new SystemId("alice"), new SystemId("bob"));
-        await friendships.AcceptRequestAsync(new SystemId("bob"), new SystemId("alice"));
-        await friendships.SendRequestAsync(new SystemId("alice"), new SystemId("carol"));
-        await friendships.AcceptRequestAsync(new SystemId("carol"), new SystemId("alice"));
+        await friendships.SendRequestAsync(new("alice"), new("bob"));
+        await friendships.AcceptRequestAsync(new("bob"), new("alice"));
+        await friendships.SendRequestAsync(new("alice"), new("carol"));
+        await friendships.AcceptRequestAsync(new("carol"), new("alice"));
 
-        var result = await tokens.ListTokensForFriendsOfAsync(new SystemId("alice"), CancellationToken.None);
+        var result = await tokens.ListTokensForFriendsOfAsync(new("alice"), CancellationToken.None);
 
         await Assert.That(result.Count).IsEqualTo(2);
         await Assert.That(result.Any(g => g.FriendSystemId == new SystemId("bob") && g.Tokens.Contains(new PushToken("bob-token")))).IsTrue();
@@ -45,9 +45,9 @@ public sealed class InMemoryNotificationTokenRepositoryTests
     {
         var friendships = new InMemoryFriendshipRepository();
         var tokens = new InMemoryNotificationTokenRepository(friendships);
-        await tokens.AddAsync(new SystemId("lonely"), new PushToken("lonely-token"), CancellationToken.None);
+        await tokens.AddAsync(new("lonely"), new("lonely-token"), CancellationToken.None);
 
-        var result = await tokens.ListTokensForFriendsOfAsync(new SystemId("lonely"), CancellationToken.None);
+        var result = await tokens.ListTokensForFriendsOfAsync(new("lonely"), CancellationToken.None);
         await Assert.That(result.Count).IsEqualTo(0);
     }
 
@@ -60,10 +60,10 @@ public sealed class InMemoryNotificationTokenRepositoryTests
         var friendships = new InMemoryFriendshipRepository();
         var tokens = new InMemoryNotificationTokenRepository(friendships);
 
-        await friendships.SendRequestAsync(new SystemId("alice"), new SystemId("bob"));
-        await friendships.AcceptRequestAsync(new SystemId("bob"), new SystemId("alice"));
+        await friendships.SendRequestAsync(new("alice"), new("bob"));
+        await friendships.AcceptRequestAsync(new("bob"), new("alice"));
 
-        var result = await tokens.ListTokensForFriendsOfAsync(new SystemId("alice"), CancellationToken.None);
+        var result = await tokens.ListTokensForFriendsOfAsync(new("alice"), CancellationToken.None);
         await Assert.That(result.Count).IsEqualTo(0);
     }
 
@@ -75,13 +75,13 @@ public sealed class InMemoryNotificationTokenRepositoryTests
         // entry so the FCM sender can batch them under a single per-friend message.
         var friendships = new InMemoryFriendshipRepository();
         var tokens = new InMemoryNotificationTokenRepository(friendships);
-        await tokens.AddAsync(new SystemId("bob"), new PushToken("bob-phone"), CancellationToken.None);
-        await tokens.AddAsync(new SystemId("bob"), new PushToken("bob-tablet"), CancellationToken.None);
+        await tokens.AddAsync(new("bob"), new("bob-phone"), CancellationToken.None);
+        await tokens.AddAsync(new("bob"), new("bob-tablet"), CancellationToken.None);
 
-        await friendships.SendRequestAsync(new SystemId("alice"), new SystemId("bob"));
-        await friendships.AcceptRequestAsync(new SystemId("bob"), new SystemId("alice"));
+        await friendships.SendRequestAsync(new("alice"), new("bob"));
+        await friendships.AcceptRequestAsync(new("bob"), new("alice"));
 
-        var result = await tokens.ListTokensForFriendsOfAsync(new SystemId("alice"), CancellationToken.None);
+        var result = await tokens.ListTokensForFriendsOfAsync(new("alice"), CancellationToken.None);
         await Assert.That(result.Count).IsEqualTo(1);
 
         var bobGroup = result.Single();
@@ -100,7 +100,7 @@ public sealed class InMemoryNotificationTokenRepositoryTests
         var friendships = new InMemoryFriendshipRepository();
         var tokens = new InMemoryNotificationTokenRepository(friendships);
 
-        var result = await tokens.ListTokensForFriendsOfAsync(new SystemId(""), CancellationToken.None);
+        var result = await tokens.ListTokensForFriendsOfAsync(new(""), CancellationToken.None);
         await Assert.That(result.Count).IsEqualTo(0);
     }
 }

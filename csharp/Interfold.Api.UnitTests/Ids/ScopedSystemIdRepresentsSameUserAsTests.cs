@@ -33,7 +33,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     [Test]
     public async Task SystemId_SameRegionScoped_IsSelf()
     {
-        var candidate = new SystemId("nam:abcdefg");
+        SystemId candidate = new("nam:abcdefg");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsTrue()
             .Because("A scoped candidate in the principal's region and with the principal's raw id is the same user.");
@@ -47,7 +47,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     [Test]
     public async Task SystemId_RawId_MatchingPrincipalRawId_IsSelf()
     {
-        var candidate = new SystemId("abcdefg");
+        SystemId candidate = new("abcdefg");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsTrue()
             .Because("A raw candidate whose value equals the principal's RawId represents the same user in the principal's region.");
@@ -64,7 +64,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     [Test]
     public async Task SystemId_CrossRegionScopedWithSameRawId_IsNotSelf()
     {
-        var candidate = new SystemId("eur:abcdefg");
+        SystemId candidate = new("eur:abcdefg");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
             .Because("A cross-region scoped id with the same raw id is a different user per the 'scoped composite is identity' contract — the self-guard must not coerce it into the principal's region.");
@@ -77,7 +77,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     [Test]
     public async Task SystemId_SameRegionDifferentRawId_IsNotSelf()
     {
-        var candidate = new SystemId("nam:xyzzyxq");
+        SystemId candidate = new("nam:xyzzyxq");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
             .Because("Same-region scoped candidates with a different raw id are different users.");
@@ -92,7 +92,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     [Test]
     public async Task SystemId_BlankValue_ReturnsFalse()
     {
-        var candidate = new SystemId(string.Empty);
+        SystemId candidate = new(string.Empty);
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
             .Because("Blank candidates cannot represent any user — the primitive must return false rather than throw so the guard is safe on defensive inputs.");
@@ -107,7 +107,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     [Test]
     public async Task UsernameOrSystemId_ScopedSelf_IsSelf()
     {
-        var candidate = new UsernameOrSystemId("nam:abcdefg");
+        UsernameOrSystemId candidate = new("nam:abcdefg");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsTrue()
             .Because("A scoped self-id sent as the route segment is the trivial fast-path the Send controller must catch.");
@@ -120,7 +120,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     [Test]
     public async Task UsernameOrSystemId_RawSelf_IsSelf()
     {
-        var candidate = new UsernameOrSystemId("abcdefg");
+        UsernameOrSystemId candidate = new("abcdefg");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsTrue()
             .Because("A bare raw-id route parses as LookupKind.Id and must delegate to the SystemId primitive's raw-id branch.");
@@ -135,7 +135,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     [Test]
     public async Task UsernameOrSystemId_UsernameShape_IsNotSelf()
     {
-        var candidate = new UsernameOrSystemId("username:alice");
+        UsernameOrSystemId candidate = new("username:alice");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
             .Because("The controller cannot decide 'is alice me?' without a registry lookup; the fast-path must return false and let the downstream resolved-id self-check take over.");
@@ -147,7 +147,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     [Test]
     public async Task UsernameOrSystemId_DiscordShape_IsNotSelf()
     {
-        var candidate = new UsernameOrSystemId("discord:1234567");
+        UsernameOrSystemId candidate = new("discord:1234567");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
             .Because("Discord snowflake shapes require a registry lookup to resolve to a system id; the fast-path returns false.");
@@ -164,7 +164,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     [Test]
     public async Task UsernameOrSystemId_UnknownPrefix_IsNotSelf()
     {
-        var candidate = new UsernameOrSystemId("xxx:abcdefg");
+        UsernameOrSystemId candidate = new("xxx:abcdefg");
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
             .Because("Unknown non-region prefixes are opaque to the controller fast-path; the downstream resolver rejects them separately as friend_request:no_user.");
@@ -178,7 +178,7 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
     [Test]
     public async Task UsernameOrSystemId_BlankValue_ReturnsFalse()
     {
-        var candidate = new UsernameOrSystemId(string.Empty);
+        UsernameOrSystemId candidate = new(string.Empty);
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
             .Because("Blank candidates cannot represent any user — the primitive must return false rather than throw.");

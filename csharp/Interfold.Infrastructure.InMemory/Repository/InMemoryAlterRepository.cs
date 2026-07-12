@@ -62,7 +62,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     {
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<AlterId, AlterState>());
-        var next = new AlterId(_nextIdBySystem.AddOrUpdate(systemKey, 1, (_, current) => current + 1));
+        AlterId next = new(_nextIdBySystem.AddOrUpdate(systemKey, 1, (_, current) => current + 1));
 
         var created = store.TryAdd(next, new AlterState
         {
@@ -334,7 +334,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         if (!_bySystem.TryGetValue(systemKey, out var store))
             return;
 
-        var fieldKey = new FieldId(fieldId.ToString("N"));
+        FieldId fieldKey = new(fieldId.ToString("N"));
         foreach (var kv in store)
         {
             var state = kv.Value;

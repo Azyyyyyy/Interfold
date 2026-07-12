@@ -80,7 +80,7 @@ public sealed class ScopedSystemIdTests
     public async Task Compose_FromSystemId_MatchesStringOverload()
     {
         var scopedFromString = ScopedSystemId.Compose(ScyllaKeyspace.Sam, "sam:xyz1234");
-        var scopedFromSystemId = ScopedSystemId.Compose(ScyllaKeyspace.Sam, new SystemId("sam:xyz1234"));
+        var scopedFromSystemId = ScopedSystemId.Compose(ScyllaKeyspace.Sam, new("sam:xyz1234"));
 
         await Assert.That(scopedFromSystemId.Value).IsEqualTo(scopedFromString.Value)
             .Because("The SystemId overload is a strict alias for the string overload — same idempotency, same output.");

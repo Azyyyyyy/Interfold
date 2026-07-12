@@ -110,7 +110,7 @@ public sealed class ImportJobBackgroundServiceTests
     {
         await using var harness = await Harness.RunAsync(new StubRunner(succeed: true, alterCount: 3));
 
-        var second = await harness.Operations.TryClaimAsync(TestSystemId, ImportOperationKind.SimplyPlural, new IdempotencyKey("idem-2"));
+        var second = await harness.Operations.TryClaimAsync(TestSystemId, ImportOperationKind.SimplyPlural, new("idem-2"));
         await Assert.That(second.IsNew).IsTrue()
             .Because("After the worker terminates an operation, a second click for the same system must claim a fresh slot — otherwise users could never re-import after a successful or failed run.");
     }
@@ -163,8 +163,8 @@ public sealed class ImportJobBackgroundServiceTests
 
             // Pre-claim the slot the way the real handler would, so the worker has a
             // legitimate row to transition.
-            var claim = await operations.TryClaimAsync(TestSystemId, ImportOperationKind.SimplyPlural, new IdempotencyKey("idem-1"));
-            var item = new ImportJobItem(claim.OperationId, TestSystemId, jobKind, Token: new ImportToken("synthetic"), RecoveryCode: null);
+            var claim = await operations.TryClaimAsync(TestSystemId, ImportOperationKind.SimplyPlural, new("idem-1"));
+            var item = new ImportJobItem(claim.OperationId, TestSystemId, jobKind, Token: new("synthetic"), RecoveryCode: null);
 
             var cts = new CancellationTokenSource();
             var worker = new ImportJobBackgroundService(

@@ -48,7 +48,7 @@ public sealed class AddPushTokenCommandHandler : ICommandHandler<AddPushTokenCom
                 return CommandExecutionResult<SettingsCommandResult>.Success(replay with { Replay = true });
         }
         
-        var persisted = await _repository.AddAsync(command.PrincipalId, new PushToken(command.Payload.Token.Value.Trim()), cancellationToken);
+        var persisted = await _repository.AddAsync(command.PrincipalId, new(command.Payload.Token.Value.Trim()), cancellationToken);
         if (!persisted)
             return RejectInvariant(command, EntityRefs.SettingsPushTokenAddFailed);
 

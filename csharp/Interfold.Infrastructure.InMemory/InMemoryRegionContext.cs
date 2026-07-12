@@ -23,7 +23,7 @@ public sealed class InMemoryRegionContext : IRegionContext
         // on a nullable, etc.). Treat null / empty / whitespace uniformly and fall back to
         // the constructor-supplied CurrentRegion — the ScyllaKeyspaceResolver default path
         // depends on this and would throw otherwise.
-        if (string.IsNullOrWhiteSpace(systemId.Value))
+        if (string.IsNullOrWhiteSpace(systemId))
         {
             return CurrentRegion;
         }
@@ -36,7 +36,7 @@ public sealed class InMemoryRegionContext : IRegionContext
         //
         // Strip the region prefix first so the hash is a function of the principal, not
         // of the caller's chosen wire form. Mirrors ScyllaUserRegistryRegionContext.
-        var normalized = SystemIdNormalization.StripRegionPrefix(systemId.Value);
+        var normalized = SystemIdNormalization.StripRegionPrefix(systemId);
         var index = Math.Abs(normalized.GetHashCode(StringComparison.Ordinal)) % Regions.Length;
         return Regions[index];
     }

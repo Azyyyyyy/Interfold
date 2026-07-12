@@ -130,7 +130,7 @@ public static class FriendshipSocketEventHandlers
         {
             var index = await friendshipRepository.GetFriendRequestsAsync(targetSystemId, cancellationToken);
             var matched = (outgoing ? index.Outgoing : index.Incoming)
-                .FirstOrDefault(r => SystemTopic.IdMatches(r.System?.Id.Value, otherSystemId.Value));
+                .FirstOrDefault(r => SystemTopic.IdMatches(r.System?.Id, otherSystemId));
 
             if (matched is not null)
             {

@@ -32,7 +32,7 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var newOperationId = new ImportOperationId(Guid.NewGuid());
+        ImportOperationId newOperationId = new(Guid.NewGuid());
         var key = (systemId, kind);
 
         // TryAdd is the in-memory equivalent of the Cassandra LWT IF NOT EXISTS — atomic

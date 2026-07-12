@@ -68,7 +68,7 @@ public sealed class SocketPushContext
         {
             var matchedTopic = JoinedTopics.Keys.FirstOrDefault(t =>
                 SystemTopic.TryParse(t, out var joined)
-                && SystemTopic.IdMatches(joined.Id.Value, systemId.Value));
+                && SystemTopic.IdMatches(joined.Id, systemId));
 
             if (matchedTopic is null)
             {

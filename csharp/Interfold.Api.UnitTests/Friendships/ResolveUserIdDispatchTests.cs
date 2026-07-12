@@ -30,14 +30,14 @@ public sealed class ResolveUserIdDispatchTests
     [Test]
     public async Task ResolveUserId_DiscordPrefix_DelegatesToAccountRepo_AndPropagatesHit()
     {
-        var expected = new SystemId("nam:abcdefg");
+        SystemId expected = new("nam:abcdefg");
         var accounts = new RecordingAccountRepository
         {
             DiscordLookup = _ => expected,
         };
         var repo = new InMemoryFriendshipRepository(accounts);
 
-        var resolved = await repo.ResolveUserIdAsync(new UsernameOrSystemId("discord:1234567890"));
+        var resolved = await repo.ResolveUserIdAsync(new("discord:1234567890"));
 
         using (Assert.Multiple())
         {
@@ -60,7 +60,7 @@ public sealed class ResolveUserIdDispatchTests
         };
         var repo = new InMemoryFriendshipRepository(accounts);
 
-        var resolved = await repo.ResolveUserIdAsync(new UsernameOrSystemId("discord:9999999999999"));
+        var resolved = await repo.ResolveUserIdAsync(new("discord:9999999999999"));
 
         await Assert.That(resolved).IsNull()
             .Because("An unknown Discord id must surface as null instead of spawning a phantom account — that's the whole reason the Discord branch delegates to TryFind rather than FindOrCreate.");
@@ -77,7 +77,7 @@ public sealed class ResolveUserIdDispatchTests
         var accounts = new RecordingAccountRepository();
         var repo = new InMemoryFriendshipRepository(accounts);
 
-        var resolved = await repo.ResolveUserIdAsync(new UsernameOrSystemId("username:alice"));
+        var resolved = await repo.ResolveUserIdAsync(new("username:alice"));
 
         using (Assert.Multiple())
         {
@@ -99,7 +99,7 @@ public sealed class ResolveUserIdDispatchTests
     {
         var repo = new InMemoryFriendshipRepository();
 
-        var resolved = await repo.ResolveUserIdAsync(new UsernameOrSystemId(input));
+        var resolved = await repo.ResolveUserIdAsync(new(input));
 
         await Assert.That(resolved?.Value).IsEqualTo(expected)
             .Because($"'{input}' must normalise to '{expected}' so the resolved id can be used as a storage key for the other InMemory repos (which write with region-stripped keys).");
@@ -126,7 +126,7 @@ public sealed class ResolveUserIdDispatchTests
         // rationale block for the full backend-shape asymmetry.
         var repo = new InMemoryFriendshipRepository();
 
-        var resolved = await repo.ResolveUserIdAsync(new UsernameOrSystemId("xxx:abcdefg"));
+        var resolved = await repo.ResolveUserIdAsync(new("xxx:abcdefg"));
 
         await Assert.That(resolved).IsNull()
             .Because("Unknown non-region prefix must return null on the InMemory backend so the command handler surfaces the same friend_request:no_user (422) the Scylla path produces via user_registry miss — opaque round-trip is the Scylla-only path, not a portable InMemory pin.");
@@ -136,8 +136,8 @@ public sealed class ResolveUserIdDispatchTests
     public async Task ResolveUserId_BlankInput_ReturnsNull()
     {
         var repo = new InMemoryFriendshipRepository();
-        await Assert.That(await repo.ResolveUserIdAsync(new UsernameOrSystemId(""))).IsNull();
-        await Assert.That(await repo.ResolveUserIdAsync(new UsernameOrSystemId("   "))).IsNull();
+        await Assert.That(await repo.ResolveUserIdAsync(new(""))).IsNull();
+        await Assert.That(await repo.ResolveUserIdAsync(new("   "))).IsNull();
     }
 
     // ---------------- Recording fake ----------------------------------------

@@ -118,12 +118,12 @@ public sealed class ImportSpCommandHandlerDispatchTests
     }
 
     private static CommandEnvelope<ImportSpCommand> NewEnvelope(string idempotencyKey, string token) => new(
-        OperationId: new OperationId("settings:import_sp"),
+        OperationId: new("settings:import_sp"),
         CommandId: Guid.NewGuid(),
         PrincipalId: SystemId,
-        IdempotencyKey: new IdempotencyKey(idempotencyKey),
+        IdempotencyKey: new(idempotencyKey),
         OccurredAt: DateTimeOffset.UtcNow,
-        Payload: new ImportSpCommand(new ImportToken(token), RecoveryCode: null));
+        Payload: new ImportSpCommand(new(token), RecoveryCode: null));
 
     /// <summary>
     /// Decorator over the real queue so tests can assert on what was enqueued without

@@ -25,6 +25,17 @@ public readonly record struct OperationId : IParsable<OperationId>
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(OperationId)raw</c> instead of
+    /// <c>new OperationId(raw)</c>. See <see cref="SystemId"/> for the wider rationale.
+    /// </summary>
+    public static explicit operator OperationId(string value) => new(value);
+
+    /// <summary>
+    /// Implicit widen to the raw <see cref="string"/> for header / DB boundary use.
+    /// </summary>
+    public static implicit operator string(OperationId value) => value.Value;
+
     public override string ToString() => Value;
 
     public static OperationId Parse(string s, IFormatProvider? provider) => new(s);

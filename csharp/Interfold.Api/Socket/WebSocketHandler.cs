@@ -49,7 +49,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
     // (guards, not logs — no leak risk), the framework's JwtSecurityTokenHandler string-only
     // API in IsSocketJoinTokenAuthorizedAsync, and the final Authorization: Bearer header
     // write in HandleEndpointProxyAsync which needs the raw value on the wire.
-    var token = new SocketToken(context.Request.Query[SocketQueryKeys.Token].ToString());
+    SocketToken token = new(context.Request.Query[SocketQueryKeys.Token].ToString());
     logger.LogInformation("Token from query string length: {TokenLength}", token.Value.Length);
 
     if (string.IsNullOrWhiteSpace(token.Value))

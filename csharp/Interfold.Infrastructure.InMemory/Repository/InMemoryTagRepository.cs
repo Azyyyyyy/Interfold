@@ -52,7 +52,7 @@ public sealed class InMemoryTagRepository : ITagRepository
         if (!string.IsNullOrWhiteSpace(command.ParentTagId?.Value) && !store.ContainsKey(command.ParentTagId.Value))
             return Task.FromResult<TagId?>(null);
 
-        var id = new TagId(Guid.NewGuid().ToString("N"));
+        TagId id = new(Guid.NewGuid().ToString("N"));
         store[id] = new TagState(id, command.ParentTagId, command.Name, command.InsertedAtUtc, DateTime.UtcNow);
         return Task.FromResult<TagId?>(id);
     }
@@ -152,7 +152,7 @@ public sealed class InMemoryTagRepository : ITagRepository
                return Task.FromResult<IReadOnlyList<TagReadModel>>(Array.Empty<TagReadModel>());
 
            var rows = store.Values
-               .OrderBy(x => x.TagId.Value, StringComparer.Ordinal)
+               .OrderBy(x => (string)x.TagId, StringComparer.Ordinal)
                .Select(x => new TagReadModel(
                    x.TagId,
                    x.Name,
@@ -181,7 +181,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
            var rows = store.Values
                .Where(x => x.SecurityLevel.CanBeViewedBy(friendshipLevel))
-               .OrderBy(x => x.TagId.Value, StringComparer.Ordinal)
+               .OrderBy(x => (string)x.TagId, StringComparer.Ordinal)
                .Select(x => new TagPublicReadModel(
                    x.TagId,
                    x.Name,

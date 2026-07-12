@@ -12,7 +12,7 @@ internal readonly record struct SystemTopic(SystemId Id)
 {
     public const string Prefix = "system:";
 
-    public string ToWireString() => $"{Prefix}{Id.Value}";
+    public string ToWireString() => $"{Prefix}{Id}";
 
     public static bool TryParse(string? topic, out SystemTopic result)
     {
@@ -20,7 +20,7 @@ internal readonly record struct SystemTopic(SystemId Id)
             && topic.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)
             && topic.Length > Prefix.Length)
         {
-            result = new SystemTopic(new SystemId(topic[Prefix.Length..]));
+            result = new(new(topic[Prefix.Length..]));
             return true;
         }
 

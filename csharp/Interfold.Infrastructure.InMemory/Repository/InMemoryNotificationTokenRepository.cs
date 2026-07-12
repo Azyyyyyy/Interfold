@@ -19,7 +19,7 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalizedSystemId = InMemoryStorageKeys.Normalize(systemId);
-        var normalizedToken = new PushToken(token.Value.Trim());
+        PushToken normalizedToken = new(token.Value.Trim());
         _tokenOwners[normalizedToken] = normalizedSystemId;
 
         var systemTokens = _tokensBySystem.GetOrAdd(normalizedSystemId, _ => new ConcurrentDictionary<PushToken, byte>());
@@ -32,7 +32,7 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var normalizedToken = new PushToken(token.Value.Trim());
+        PushToken normalizedToken = new(token.Value.Trim());
         if (_tokenOwners.TryRemove(normalizedToken, out var ownerSystemId) &&
             _tokensBySystem.TryGetValue(ownerSystemId, out var systemTokens))
         {
@@ -53,7 +53,7 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
         cancellationToken.ThrowIfCancellationRequested();
 
         var normalizedSystemId = InMemoryStorageKeys.Normalize(systemId);
-        if (string.IsNullOrWhiteSpace(normalizedSystemId.Value))
+        if (string.IsNullOrWhiteSpace(normalizedSystemId))
             return Array.Empty<FriendNotificationTokens>();
 
         var friendships = await _friendshipRepository.ListFriendshipsAsync(normalizedSystemId, cancellationToken);
@@ -68,7 +68,7 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
                 continue;
 
             var friendId = InMemoryStorageKeys.Normalize(friendship.Friend.Id);
-            if (string.IsNullOrWhiteSpace(friendId.Value) || !seenFriends.Add(friendId))
+            if (string.IsNullOrWhiteSpace(friendId) || !seenFriends.Add(friendId))
                 continue;
 
             if (!_tokensBySystem.TryGetValue(friendId, out var tokens))

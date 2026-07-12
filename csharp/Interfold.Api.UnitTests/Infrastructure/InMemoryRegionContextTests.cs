@@ -42,8 +42,8 @@ public sealed class InMemoryRegionContextTests
     {
         var ctx = new InMemoryRegionContext();
 
-        var scoped = ctx.ResolveUserRegion(new SystemId($"nam:{RawId}"));
-        var raw = ctx.ResolveUserRegion(new SystemId(RawId));
+        var scoped = ctx.ResolveUserRegion(new($"nam:{RawId}"));
+        var raw = ctx.ResolveUserRegion(new(RawId));
 
         await Assert.That(scoped).IsEqualTo(raw)
             .Because("A scoped nam:{rawId} JWT-derived principal and a raw {rawId} route-bound principal must land in the same region — otherwise InMemoryStorageKeys.ForSystem yields two different partition keys for the same user and public reads 404 with system_not_found.");
@@ -58,8 +58,8 @@ public sealed class InMemoryRegionContextTests
         // suffix. StripRegionPrefix removes both prefixes symmetrically, so the hash sees
         // the same string in both cases. This pins that the resolver does NOT gate on the
         // region prefix (it's purely a canonicalisation of the id, not a region filter).
-        var namScoped = ctx.ResolveUserRegion(new SystemId($"nam:{RawId}"));
-        var eurScoped = ctx.ResolveUserRegion(new SystemId($"eur:{RawId}"));
+        var namScoped = ctx.ResolveUserRegion(new($"nam:{RawId}"));
+        var eurScoped = ctx.ResolveUserRegion(new($"eur:{RawId}"));
 
         await Assert.That(namScoped).IsEqualTo(eurScoped)
             .Because("The region prefix is stripped, not gated on — a caller that happens to hold the id under a different region wire tag (rare but possible across the seven canonical regions) must not partition into a different physical bucket.");
@@ -87,7 +87,7 @@ public sealed class InMemoryRegionContextTests
         var observed = new HashSet<ScyllaKeyspace>();
         for (var i = 0; i < 50; i++)
         {
-            observed.Add(ctx.ResolveUserRegion(new SystemId($"sys-discriminator-{i:D4}")));
+            observed.Add(ctx.ResolveUserRegion(new($"sys-discriminator-{i:D4}")));
         }
 
         await Assert.That(observed.Count).IsGreaterThan(1)
@@ -126,7 +126,7 @@ public sealed class InMemoryRegionContextTests
     {
         var ctx = new InMemoryRegionContext(currentRegion: ScyllaKeyspace.Sam);
 
-        var region = ctx.ResolveUserRegion(new SystemId(string.Empty));
+        var region = ctx.ResolveUserRegion(new(string.Empty));
 
         await Assert.That(region).IsEqualTo(ScyllaKeyspace.Sam)
             .Because("Empty id is the second IsNullOrWhiteSpace shape — pin all three (null-via-default, empty, whitespace) so a refactor to a single guard clause can't silently drop one branch.");
@@ -137,7 +137,7 @@ public sealed class InMemoryRegionContextTests
     {
         var ctx = new InMemoryRegionContext(currentRegion: ScyllaKeyspace.Sas);
 
-        var region = ctx.ResolveUserRegion(new SystemId("   "));
+        var region = ctx.ResolveUserRegion(new("   "));
 
         await Assert.That(region).IsEqualTo(ScyllaKeyspace.Sas)
             .Because("Whitespace-only id completes the IsNullOrWhiteSpace matrix.");

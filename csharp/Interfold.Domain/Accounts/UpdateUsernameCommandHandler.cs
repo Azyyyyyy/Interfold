@@ -31,7 +31,7 @@ public sealed class UpdateUsernameCommandHandler : ICommandHandler<UpdateUsernam
         CancellationToken cancellationToken = default
     )
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Username.Value))
+        if (string.IsNullOrWhiteSpace(command.Payload.Username))
         {
             return RejectInvariant(command, EntityRefs.AccountUsernameInvalid);
         }

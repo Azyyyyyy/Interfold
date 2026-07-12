@@ -124,7 +124,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
                 // we log and skip the client-visible event so a malformed id can't
                 // propagate into the topic name — the row is still marked failed above,
                 // so the slot frees regardless.
-                if (Interfold.Contracts.Ids.ScopedSystemId.TryParseScoped(row.SystemId.Value, out var scopedSweepId))
+                if (Interfold.Contracts.Ids.ScopedSystemId.TryParseScoped(row.SystemId, out var scopedSweepId))
                 {
                     await PublishFailureAsync(scopedSweepId, row.Kind, cancellationToken).ConfigureAwait(false);
                 }

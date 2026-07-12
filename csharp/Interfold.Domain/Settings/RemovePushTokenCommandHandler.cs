@@ -49,7 +49,7 @@ public sealed class RemovePushTokenCommandHandler : ICommandHandler<RemovePushTo
         }
 
         // Removal is treated as idempotent for retry safety.
-        await _repository.RemoveAsync(new PushToken(command.Payload.Token.Value.Trim()), cancellationToken);
+        await _repository.RemoveAsync(new(command.Payload.Token.Value.Trim()), cancellationToken);
 
         var result = new SettingsCommandResult(command.PrincipalId, SettingsAction.PushTokenRemoved, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);

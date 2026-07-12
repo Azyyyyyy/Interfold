@@ -29,7 +29,7 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(jti.Value, nameof(jti));
-        ArgumentException.ThrowIfNullOrWhiteSpace(systemId.Value, nameof(systemId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(systemId, nameof(systemId));
 
         lock (s_lock)
         {

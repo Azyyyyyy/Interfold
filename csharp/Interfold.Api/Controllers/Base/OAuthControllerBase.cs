@@ -62,7 +62,7 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
                 var fallback = await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.DiscordIdFallback, OAuthQueryKeys.Id);
                 return string.IsNullOrWhiteSpace(fallback)
                     ? null
-                    : ProviderIdentity.FromDiscord(new DiscordId(fallback));
+                    : ProviderIdentity.FromDiscord(new(fallback));
             }
 
             case OAuthProvider.Google:
@@ -73,7 +73,7 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
                     var directEmail = await GetValueAsync(OAuthQueryKeys.Email);
                     return string.IsNullOrWhiteSpace(directEmail)
                         ? null
-                        : ProviderIdentity.FromGoogle(new Email(directEmail));
+                        : ProviderIdentity.FromGoogle(new(directEmail));
                 }
 
                 var redirectUri = BuildCallbackBaseUri(provider);
@@ -86,7 +86,7 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
                 var fallbackEmail = await GetValueAsync(OAuthQueryKeys.Email);
                 return string.IsNullOrWhiteSpace(fallbackEmail)
                     ? null
-                    : ProviderIdentity.FromGoogle(new Email(fallbackEmail));
+                    : ProviderIdentity.FromGoogle(new(fallbackEmail));
             }
 
             case OAuthProvider.Apple:
@@ -112,7 +112,7 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
                 var fallback = await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.AppleIdFallback, OAuthQueryKeys.Id, OAuthQueryKeys.Sub);
                 return string.IsNullOrWhiteSpace(fallback)
                     ? null
-                    : ProviderIdentity.FromApple(new AppleId(fallback));
+                    : ProviderIdentity.FromApple(new(fallback));
             }
 
             default:

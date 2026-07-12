@@ -16,6 +16,18 @@ namespace Interfold.Contracts.Ids;
 [JsonConverter(typeof(ImportOperationIdJsonConverter))]
 public readonly record struct ImportOperationId(Guid Value)
 {
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(ImportOperationId)guid</c> instead of
+    /// <c>new ImportOperationId(guid)</c>. See <see cref="SystemId"/> for the wider rationale.
+    /// </summary>
+    public static explicit operator ImportOperationId(Guid value) => new(value);
+
+    /// <summary>
+    /// Implicit widen to the underlying <see cref="Guid"/> — the Cassandra <c>timeuuid</c>
+    /// bind sites take a Guid directly, so the widen removes the <c>.Value</c> ceremony.
+    /// </summary>
+    public static implicit operator Guid(ImportOperationId value) => value.Value;
+
     public override string ToString() => Value.ToString("D");
 }
 

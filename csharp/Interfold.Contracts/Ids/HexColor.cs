@@ -20,6 +20,17 @@ public readonly record struct HexColor
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(HexColor)raw</c> instead of
+    /// <c>new HexColor(raw)</c>. See <see cref="SystemId"/> for the wider rationale.
+    /// </summary>
+    public static explicit operator HexColor(string value) => new(value);
+
+    /// <summary>
+    /// Implicit widen to the raw <see cref="string"/> for wire / DB boundary use.
+    /// </summary>
+    public static implicit operator string(HexColor value) => value.Value;
+
     /// <summary>True when the value matches <c>#RGB</c>, <c>#RRGGBB</c>, or <c>#RRGGBBAA</c>.</summary>
     public bool IsWellFormed
     {

@@ -38,7 +38,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     public async Task ScopedSub_RawTopic_SameRawId_IsAuthorized()
     {
         var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
-        var topic = new SystemId(RawId);
+        SystemId topic = new(RawId);
 
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
 
@@ -50,7 +50,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     public async Task ScopedSub_ScopedTopic_SameRawId_IsAuthorized()
     {
         var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
-        var topic = new SystemId($"nam:{RawId}");
+        SystemId topic = new($"nam:{RawId}");
 
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
 
@@ -68,7 +68,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     public async Task ScopedSub_DifferentRegionOnTopic_SameRawId_IsAuthorized()
     {
         var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
-        var topic = new SystemId($"eur:{RawId}");
+        SystemId topic = new($"eur:{RawId}");
 
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
 
@@ -86,7 +86,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     public async Task ScopedSub_RawTopic_DifferentRawIds_IsRejected()
     {
         var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
-        var topic = new SystemId("sys-someone-else");
+        SystemId topic = new("sys-someone-else");
 
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
 
@@ -98,7 +98,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     public async Task ScopedSub_ScopedTopic_DifferentRawIds_IsRejected()
     {
         var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
-        var topic = new SystemId("nam:sys-someone-else");
+        SystemId topic = new("nam:sys-someone-else");
 
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
 
@@ -124,7 +124,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     [Test]
     public async Task NullScopedSub_IsRejected()
     {
-        var topic = new SystemId(RawId);
+        SystemId topic = new(RawId);
 
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(tokenSubject: null, requestedSystemId: topic);
 

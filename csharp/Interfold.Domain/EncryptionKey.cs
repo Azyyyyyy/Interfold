@@ -32,7 +32,7 @@ public class EncryptionKey
         argon2.Iterations = 12;
 
         var keyBytes = argon2.GetBytes(32);
-        return new EncryptionKeyMaterial(Convert.ToBase64String(keyBytes));
+        return new(Convert.ToBase64String(keyBytes));
     }
 
     /// <summary>
@@ -43,6 +43,6 @@ public class EncryptionKey
     public static KeyChecksum DeriveChecksum(EncryptionKeyMaterial key)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key.Value));
-        return new KeyChecksum(Convert.ToBase64String(hash)[..9]);
+        return new(Convert.ToBase64String(hash)[..9]);
     }
 }

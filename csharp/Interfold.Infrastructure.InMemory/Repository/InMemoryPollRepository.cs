@@ -41,7 +41,7 @@ public sealed class InMemoryPollRepository : IPollRepository
 
         var list = store.Values
             .Select(ToReadModel)
-            .OrderBy(p => p.Id.Value, StringComparer.Ordinal)
+            .OrderBy(p => (string)p.Id, StringComparer.Ordinal)
             .ToList();
 
         return Task.FromResult<IReadOnlyList<PollReadModel>>(list);
@@ -60,7 +60,7 @@ public sealed class InMemoryPollRepository : IPollRepository
     {
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<PollId, PollState>());
-        var id = new PollId(Guid.NewGuid().ToString("N"));
+        PollId id = new(Guid.NewGuid().ToString("N"));
 
         store[id] = new PollState
         {

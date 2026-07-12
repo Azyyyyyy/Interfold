@@ -79,7 +79,7 @@ public abstract class InterfoldControllerBase : ControllerBase
     protected IdempotencyKey GetIdempotencyKey()
     {
         var header = Request.Headers[InterfoldHeaders.IdempotencyKey].FirstOrDefault();
-        return new IdempotencyKey(!string.IsNullOrWhiteSpace(header) ? header : Guid.NewGuid().ToString("N"));
+        return new(!string.IsNullOrWhiteSpace(header) ? header : Guid.NewGuid().ToString("N"));
     }
 
     /// <summary>

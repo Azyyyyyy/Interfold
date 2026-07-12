@@ -13,6 +13,17 @@ namespace Interfold.Contracts.Ids;
 [JsonConverter(typeof(EntityVersionJsonConverter))]
 public readonly record struct EntityVersion(long Value)
 {
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(EntityVersion)v</c> instead of
+    /// <c>new EntityVersion(v)</c>. See <see cref="SystemId"/> for the wider rationale.
+    /// </summary>
+    public static explicit operator EntityVersion(long value) => new(value);
+
+    /// <summary>
+    /// Implicit widen to the underlying <see cref="long"/> for wire / DB boundary use.
+    /// </summary>
+    public static implicit operator long(EntityVersion value) => value.Value;
+
     public override string ToString() => Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }
 
