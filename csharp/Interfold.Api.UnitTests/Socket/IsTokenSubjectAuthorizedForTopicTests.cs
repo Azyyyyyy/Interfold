@@ -115,9 +115,9 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     // guards means unit tests / any future non-socket caller doesn't need to hand-craft a
     // "non-null" precondition.
     //
-    // Note: the pre-Step-5 sub-side null/empty/whitespace/unknown-prefix rejection tests
-    // are gone — those inputs can't be constructed as a ScopedSystemId in the first place.
-    // See ScopedSystemIdTests.TryParseScoped_InvalidInputs_ReturnsFalse for the moved-
+    // Note: there are no sub-side null/empty/whitespace/unknown-prefix rejection tests
+    // here — those inputs can't be constructed as a ScopedSystemId in the first place.
+    // See ScopedSystemIdTests.TryParseScoped_InvalidInputs_ReturnsFalse for the
     // upstream rejection matrix.
     // ------------------------------------------------------------------------------------
 

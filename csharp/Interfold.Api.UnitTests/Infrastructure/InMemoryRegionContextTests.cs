@@ -100,12 +100,12 @@ public sealed class InMemoryRegionContextTests
     // callers (particularly Scylla's ScyllaKeyspaceResolver.ResolveRegionalKeyspace) rely
     // on that default rather than throwing.
     //
-    // Post-Step 3, the ordinary SystemId ctor rejects null with ArgumentNullException, so
-    // the "null Value" branch is only reachable via default(SystemId) (uninitialised
-    // struct, nullable GetValueOrDefault, etc.). Empty and whitespace remain constructible
-    // via the ordinary ctor — SystemId doesn't enforce a non-blank invariant, only
-    // non-null. All three shapes are pinned so a refactor to a single guard clause can't
-    // silently drop one branch.
+    // The ordinary SystemId ctor rejects null with ArgumentNullException, so the
+    // "null Value" branch is only reachable via default(SystemId) (uninitialised struct,
+    // nullable GetValueOrDefault, etc.). Empty and whitespace remain constructible via
+    // the ordinary ctor — SystemId doesn't enforce a non-blank invariant, only non-null.
+    // All three shapes are pinned so a refactor to a single guard clause can't silently
+    // drop one branch.
     // ------------------------------------------------------------------------------------
 
     [Test]
@@ -142,11 +142,4 @@ public sealed class InMemoryRegionContextTests
         await Assert.That(region).IsEqualTo(ScyllaKeyspace.Sas)
             .Because("Whitespace-only id completes the IsNullOrWhiteSpace matrix.");
     }
-
-    // Note: the historical `TypedOverload_AgreesWithStringOverload` parity test is gone —
-    // Step 3 removed the string overload from IRegionContext, so the two-surface parity it
-    // guarded no longer exists to test. The invariant it stood in for (a raw string and
-    // its SystemId wrapper resolve to the same region) is now type-enforced: there is
-    // exactly one overload and it accepts only SystemId, so a caller CAN'T route through
-    // two different code paths.
 }

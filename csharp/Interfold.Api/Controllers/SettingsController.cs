@@ -468,12 +468,11 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("import-sp")]
     public async Task<Response<ImportDispatchResponse>> ImportSp([FromBody] SettingsImportRequest req, CancellationToken ct)
     {
-        // Step 6: recoveryCode is now RecoveryCode? end-to-end. The nested-if shape replaces
-        // the pre-Step-6 combined `&& !TryResolve(... out recoveryCode ...)` short-circuit
-        // because the resolver's out is now a non-nullable RecoveryCode — we can't write it
-        // directly into the nullable outer local. Splitting the guard also makes the
-        // "code supplied but blank" case a clean no-op (nothing to decrypt, nothing to
-        // return an error for), matching the pre-Step-6 behaviour.
+        // recoveryCode is nullable at this layer, but the resolver's out param is a
+        // non-nullable RecoveryCode — we can't write it directly into the nullable outer
+        // local, so the guard splits into a nested-if. Splitting it also makes the
+        // "code supplied but blank" case a clean no-op: nothing to decrypt, nothing to
+        // return an error for.
         RecoveryCode? recoveryCode = null;
         if (req.RecoveryCode is { } suppliedRecoveryCode
             && !string.IsNullOrWhiteSpace(suppliedRecoveryCode.Value))

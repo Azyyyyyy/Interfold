@@ -54,7 +54,7 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
     // Private string-typed core so the internal helpers (HandleForLookup, LookupAsync,
     // StoreInCache, TryParseRegion) and the still-string-typed public sibling APIs
     // (ResolveUserRegionAsync, RegisterRegion) can all share one implementation while the
-    // interface surface presents only the typed SystemId overload post-Step 3.
+    // interface surface presents only the typed SystemId overload.
     private ScyllaKeyspace ResolveUserRegionCore(string systemId)
     {
         if (string.IsNullOrWhiteSpace(systemId))

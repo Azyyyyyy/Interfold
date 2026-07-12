@@ -8,7 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Interfold.IntegrationTests.Services.Scylla;
 
 /// <summary>
-/// Locks the Step 3 fix from the SP-import "today-date" bug: when
+/// Locks the fix for the SP-import "today-date" bug: when
 /// <c>current_fronts.time_start</c> is somehow stored as <c>NULL</c> (partial-batch failure,
 /// manual fixup, schema drift), the next <see cref="IFrontingRepository.EndAsync"/> must
 /// refuse the close rather than silently stamp today's date into
@@ -52,7 +52,7 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
         // Synthesise the corrupt row directly. time_start is deliberately omitted from the
         // column list so Scylla stores it as NULL — this is the exact shape ScyllaFrontingRepository
         // can't produce on the happy path, but which would silently break EndAsync without
-        // the Step 3 fix.
+        // the null-time_start guard.
         await session.ExecuteAsync(new SimpleStatement(
             $"INSERT INTO {keyspace}.current_fronts (user_id, alter_id, id, comment, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
             normalizedSystemId,

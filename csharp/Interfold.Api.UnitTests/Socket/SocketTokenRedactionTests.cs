@@ -27,10 +27,10 @@ public sealed class SocketTokenRedactionTests
     [Test]
     public async Task ToString_OnPopulatedToken_RedactsToFirstFourCharsPlusEllipsis()
     {
-        // The whole point of Step 1: an accidental $"{token}" interpolation in any structured
-        // log message along the six-hop socket path must not leak the JWT. If this changes to
-        // return Value verbatim, every log statement in WebSocketHandler.cs that mentions the
-        // token becomes a credential-leak vector.
+        // An accidental $"{token}" interpolation in any structured log message along the
+        // six-hop socket path must not leak the JWT. If this changes to return Value
+        // verbatim, every log statement in WebSocketHandler.cs that mentions the token
+        // becomes a credential-leak vector.
         SocketToken token = new(SampleToken);
 
         await Assert.That(token.ToString()).IsEqualTo("eyJh…")
@@ -84,10 +84,10 @@ public sealed class SocketTokenRedactionTests
     [Test]
     public async Task RecordStructEquality_ComparesRawValuesOrdinally()
     {
-        // WebSocketHandler.cs line 174 (post-Step-1) replaced string.Equals(...,
-        // StringComparison.Ordinal) with `payloadToken == token` — this test pins that the
-        // record-struct-generated equality is in fact ordinal-string equality, so the join
-        // gate's semantics are unchanged from the pre-refactor comparison.
+        // WebSocketHandler.cs line 174 uses `payloadToken == token` to gate the phx_join
+        // — this test pins that the record-struct-generated equality is in fact ordinal
+        // string equality, so the join gate can never accidentally admit a case-variant or
+        // otherwise-non-byte-identical token.
         SocketToken a = new(SampleToken);
         SocketToken b = new(SampleToken);
         SocketToken different = new(SampleToken + "-tampered");

@@ -75,12 +75,12 @@ public sealed class AuthLinkController : OAuthControllerBase
         if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
             return UnsupportedProviderResponse(provider);
 
-        // Step 7 cleanup: LinkToken.From wraps the query-or-cookie fallback in one call so
-        // the null check operates on the typed LinkToken?, not on a bare string local. The
-        // null-coalescing chain preserves its shape (query first, cookie second, .From
-        // consumes the possibly-null result). Pre-Step-7 the raw link-token string stayed
-        // alive across the null-check / error-return boundary; a redirect-log or exception-
-        // message-containing-locals in that window would leak the token verbatim.
+        // LinkToken.From wraps the query-or-cookie fallback in one call so the null check
+        // operates on the typed LinkToken?, not on a bare string local. The null-coalescing
+        // chain preserves its shape (query first, cookie second, .From consumes the
+        // possibly-null result). A bare string local would stay alive across the null-check
+        // / error-return boundary; a redirect-log or exception-message-containing-locals in
+        // that window would leak the token verbatim.
         var linkToken = LinkToken.From(await GetValueAsync(OAuthQueryKeys.LinkToken) ?? Request.Cookies[LinkTokenCookieName]);
         if (linkToken is null)
         {
