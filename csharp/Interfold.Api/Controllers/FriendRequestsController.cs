@@ -55,15 +55,22 @@ public sealed class FriendRequestsController : InterfoldControllerBase
         return new SuccessResponse<FriendRequestIndexReadModel>(new FriendRequestIndexReadModel(incoming, outgoing));
     }
 
-    // The route value may be a username OR a system id — the handler resolves it via
-    // IFriendshipRepository.ResolveUserIdAsync, hence UsernameOrSystemId rather than SystemId.
+    // The route value is bound as FriendLookup, which accepts exactly two shapes:
+    // a bare (or "id:"-prefixed) system id, and a "username:"-prefixed username. Every
+    // other shape — Discord snowflakes, region-scoped ids (nam:...), unknown prefixes,
+    // blank / half inputs — fails FriendLookup.TryParse and ASP.NET Core's IParsable
+    // pipeline surfaces a 400 before this action runs. The command handler resolves
+    // Kind.Username via IFriendshipRepository.ResolveUserIdAsync.
     [HttpPut("{id}")]
-    public async Task<Response> Send(UsernameOrSystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Send(FriendLookup id, [FromBody] BaseRequest? req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        // Semantic self-check via the UsernameOrSystemId overload — catches the "client
-        // sent their own id" fast-path case without a repository hop. Username / Discord
-        // shapes fall through to SendFriendRequestCommandHandler's post-resolution guard.
+        // Semantic self-check via the FriendLookup overload — catches the "client
+        // sent their own id" fast-path case without a repository hop. The overload
+        // fires for both Kind.Id (delegates to the SystemId primitive so raw and
+        // same-region-scoped inputs both self-reject) and Kind.Username (trivially
+        // returns false — deciding "is alice me?" requires a registry lookup, so
+        // SendFriendRequestCommandHandler's post-resolution guard takes over).
         if (principal.RepresentsSameUserAs(id))
         {
             return new ErrorResponse(

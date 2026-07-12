@@ -6,7 +6,7 @@ using Interfold.IntegrationTests.TestServices;
 namespace Interfold.IntegrationTests.Friendships;
 
 /// <summary>
-/// End-to-end pins on the <see cref="Interfold.Contracts.Ids.LookupHandle"/> dispatch
+/// End-to-end pins on the <see cref="Interfold.Contracts.Ids.FriendLookup"/> dispatch
 /// matrix, exercised through the <c>/api/friend-requests/{id}</c> route so the whole
 /// stack (controller → command handler → friendship repo → registry) is in play.
 ///
@@ -19,9 +19,12 @@ namespace Interfold.IntegrationTests.Friendships;
 ///   <item>
 ///     <description>
 ///       <b>Backend-uniform</b> — dispatch matrix contracts that must hold regardless of
-///       which persistence backend is behind the API: bare id / <c>id:</c> / unknown-prefix
-///       / <c>username:unknown</c> / <c>discord:unknown</c>. Every fixture goes through
-///       these to lock in that InMemory / Scylla / Cassandra route identically.
+///       which persistence backend is behind the API. The surviving shapes are bare id,
+///       <c>id:</c>-prefixed, and <c>username:unknown</c> (all go through
+///       <see cref="Interfold.Contracts.Ids.FriendLookup"/> route binding). The pre-merge
+///       <c>discord:</c> and unknown-prefix shapes now fail
+///       <c>FriendLookup.TryParse</c> and surface as a 400 at ASP.NET route binding —
+///       pinned by <see cref="SendFriendRequest_UnparseableShape_Returns400"/> below.
 ///     </description>
 ///   </item>
 ///   <item>
@@ -74,30 +77,36 @@ public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : B
 
         var status = await SendFriendRequestAsync(client, sender, $"id:{recipient}");
         await Assert.That(status).IsEqualTo(HttpStatusCode.NoContent)
-            .Because("'id:{recipient}' must dispatch identically to the bare form — both are Kind.Id under LookupHandle and target user_registry.user_id.");
+            .Because("'id:{recipient}' must dispatch identically to the bare form — both are Kind.Id under FriendLookup and target user_registry.user_id.");
     }
 
     // ---------------- Backend-uniform: strict rejection --------------------
 
+    /// <summary>
+    /// Every shape that <see cref="Interfold.Contracts.Ids.FriendLookup.TryParse"/>
+    /// rejects surfaces as a 400 from ASP.NET Core's IParsable route-binding pipeline
+    /// before the controller action runs. Covers the pre-merge <c>discord:</c> and
+    /// unknown-prefix shapes (previously 422 <c>friend_request:no_user</c> via a
+    /// registry miss) and the region-scoped shape that used to strip-and-look-up under
+    /// <c>LookupHandle.Kind.Region</c>. Backend-uniform because the rejection happens
+    /// before any persistence layer is touched.
+    /// </summary>
     [Test]
-    public async Task SendFriendRequest_UnknownPrefix_ReturnsNoUser()
+    [Arguments("xxx:definitely-not-a-real-user")]
+    [Arguments("discord:1234567890")]
+    [Arguments("nam:abcdefg")]
+    [Arguments(":emptyprefix")]
+    [Arguments("username:")]
+    public async Task SendFriendRequest_UnparseableShape_Returns400(string recipientHandle)
     {
         using var client = fixture.Factory.CreateClient();
-        var sender = UniqueId("s7-send-unk-a");
+        var sender = UniqueId("s7-send-badshape-a");
         await EnsureUserExistsAsync(client, sender);
 
-        // An unknown prefix must NOT get silently stripped and re-tried as a bare id
-        // (which by coincidence would sometimes find a user). The whole input hits
-        // user_registry, misses, and returns NoUser.
-        var (status, entityRef) = await SendFriendRequestWithEntityRefAsync(
-            client, sender, "xxx:definitely-not-a-real-user");
+        var (status, _) = await SendFriendRequestWithEntityRefAsync(client, sender, recipientHandle);
 
-        using (Assert.Multiple())
-        {
-            await Assert.That(status).IsEqualTo(HttpStatusCode.UnprocessableEntity)
-                .Because("Unknown non-region prefix must not silently strip — the whole input is looked up as a bare id, misses, and returns NoUser (422).");
-            await Assert.That(entityRef).IsEqualTo("friend_request:no_user");
-        }
+        await Assert.That(status).IsEqualTo(HttpStatusCode.BadRequest)
+            .Because($"'{recipientHandle}' is not a valid FriendLookup shape and must be rejected by IParsable route binding with a 400 — never reach the friendship repo, so no NoUser (422) fallback.");
     }
 
     [Test]
@@ -115,29 +124,6 @@ public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : B
             await Assert.That(status).IsEqualTo(HttpStatusCode.UnprocessableEntity);
             await Assert.That(entityRef).IsEqualTo("friend_request:no_user")
                 .Because("Username lookup that misses must NOT fall back to treating the literal 'username:...' as a system id.");
-        }
-    }
-
-    [Test]
-    public async Task SendFriendRequest_DiscordPrefix_UnknownDiscordId_ReturnsNoUser_NoPhantomCreate()
-    {
-        using var client = fixture.Factory.CreateClient();
-        var sender = UniqueId("s7-send-discmiss-a");
-        await EnsureUserExistsAsync(client, sender);
-
-        // The unique Discord id makes this fresh per run. If the friendship dispatch
-        // ever regressed to the auto-provisioning FindOrCreateSystemIdAsync (the sole
-        // create-on-miss OAuth-login surface), the account would be created and this
-        // test would flip to 204. NoUser is the load-bearing pin on TryFind delegation.
-        var uniqueDiscord = $"99999{DateTime.UtcNow.Ticks}";
-        var (status, entityRef) = await SendFriendRequestWithEntityRefAsync(
-            client, sender, $"discord:{uniqueDiscord}");
-
-        using (Assert.Multiple())
-        {
-            await Assert.That(status).IsEqualTo(HttpStatusCode.UnprocessableEntity);
-            await Assert.That(entityRef).IsEqualTo("friend_request:no_user")
-                .Because("Discord dispatch delegates to TryFindSystemIdByDiscordIdAsync (not FindOrCreate) precisely so an unknown Discord id can't spawn a phantom account through the friendship surface.");
         }
     }
 

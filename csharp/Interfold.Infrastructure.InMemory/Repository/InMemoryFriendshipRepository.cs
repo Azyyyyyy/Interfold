@@ -23,60 +23,39 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
 
     private readonly ConcurrentDictionary<SystemId, ConcurrentDictionary<SystemId, FriendshipState>> _friendships = new();
     private readonly ConcurrentDictionary<SystemId, ConcurrentDictionary<SystemId, RequestState>> _outgoingRequests = new();
-    private readonly IAccountRepository? _accounts;
 
     /// <summary>
     /// Parameterless / find-only-account ctor used from the DI container.
-    /// <paramref name="accounts"/> is optional so the older tests that instantiate this
-    /// repository directly (e.g. <c>InMemoryNotificationTokenRepositoryTests</c>) don't
-    /// have to spin up an account repository; those tests never exercise the
-    /// <c>Kind.Discord</c> branch, so a null delegate is safe there. Production wiring
-    /// always passes a real <see cref="IAccountRepository"/>.
+    /// <paramref name="accounts"/> is accepted (and ignored) so the DI signature stays
+    /// stable across the friend-request tightening that removed the Discord dispatch
+    /// lane; production and test wiring can keep passing whatever they used to. A
+    /// follow-up may drop the parameter once every consumer stops passing it.
     /// </summary>
     public InMemoryFriendshipRepository(IAccountRepository? accounts = null)
     {
-        _accounts = accounts;
+        _ = accounts;
     }
 
-    public async Task<SystemId?> ResolveUserIdAsync(UsernameOrSystemId userNameOrId, CancellationToken cancellationToken = default)
+    public Task<SystemId?> ResolveUserIdAsync(FriendLookup lookup, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(userNameOrId))
-        {
-            return null;
-        }
-
-        var input = userNameOrId.Value.Trim();
-
-        // Mirror the ScyllaFriendshipRepository routing table so both backends dispatch
-        // identically. InMemory has no user_registry / users_by_username tables, so
-        // Kind.Region / Kind.Id inputs collapse onto "normalise and return" — tests
-        // explicitly seed users via EnsureUserExistsAsync so the returned SystemId
-        // always maps to a real record. Kind.Username has no reverse-index — returning
-        // null matches "no such username" cleanly.
+        // Mirror ScyllaFriendshipRepository's dispatch so both backends resolve identically.
+        // InMemory has no user_registry / users_by_username tables, so Kind.Id inputs
+        // collapse onto "normalise and return" — tests explicitly seed users via
+        // EnsureUserExistsAsync so the returned SystemId always maps to a real record.
+        // Kind.Username has no reverse-index — returning null matches "no such username"
+        // cleanly and lines up with the 422 friend_request:no_user surface exercised by
+        // SendFriendRequestPrefixTests's InMemory branch.
         //
-        // Unparseable inputs (unknown non-region prefix like "xxx:foo", or the
-        // colon-at-boundary shapes ":foo" / "foo:") return null. On Scylla the same
-        // input round-trips into a user_registry.user_id miss; InMemory has no such
-        // intermediate lookup so round-tripping would flow the opaque id straight into
-        // the friend-request writer with no existence check, creating a phantom request.
-        // Short-circuiting here keeps the observable outcome (422 friend_request:no_user)
-        // aligned across all backends.
-        if (!LookupHandle.TryParse(input, out var handle))
+        // Non-id/username shapes (Discord, region-scoped, unknown-prefix, blank) never
+        // reach here — FriendLookup.TryParse rejects them at route binding with a 400,
+        // so this method's switch only has to cover the two remaining kinds.
+        SystemId? result = lookup.Kind switch
         {
-            return null;
-        }
-
-        return handle.Kind switch
-        {
-            LookupKind.Discord => _accounts is null
-                ? null
-                : await _accounts.TryFindSystemIdByDiscordIdAsync(new(handle.RawId), cancellationToken),
-            LookupKind.Username => null,
-            // Region / Id both target the raw system id; Normalize collapses "nam:abc"
-            // → "abc" so the storage key matches what other InMemory repos wrote when
-            // the caller passed the scoped shape.
-            _ => Normalize(new(handle.RawId)),
+            FriendLookupKind.Id => Normalize(new SystemId(lookup.Value)),
+            FriendLookupKind.Username => null,
+            _ => null,
         };
+        return Task.FromResult(result);
     }
 
     public Task<FriendshipLevel?> GetFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken = default)

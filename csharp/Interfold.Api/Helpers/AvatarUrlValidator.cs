@@ -15,9 +15,6 @@ internal static class AvatarUrlValidator
     /// </summary>
     internal const int MaxLength = 2048;
 
-    internal static readonly ErrorCode ErrorInvalid = ErrorCodes.AvatarUrlInvalid;
-    internal static readonly ErrorCode ErrorTooLong = ErrorCodes.AvatarUrlTooLong;
-
     /// <summary>
     /// Validates and normalises <paramref name="raw"/>. Returns the trimmed URL on success.
     /// </summary>
@@ -28,33 +25,33 @@ internal static class AvatarUrlValidator
 
         if (string.IsNullOrWhiteSpace(raw))
         {
-            errorCode = ErrorInvalid;
+            errorCode = ErrorCodes.AvatarUrlInvalid;
             return false;
         }
 
         var trimmed = raw.Trim();
         if (trimmed.Length > MaxLength)
         {
-            errorCode = ErrorTooLong;
+            errorCode = ErrorCodes.AvatarUrlTooLong;
             return false;
         }
 
         if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
         {
-            errorCode = ErrorInvalid;
+            errorCode = ErrorCodes.AvatarUrlInvalid;
             return false;
         }
 
         if (uri.Scheme is not ("http" or "https"))
         {
-            errorCode = ErrorInvalid;
+            errorCode = ErrorCodes.AvatarUrlInvalid;
             return false;
         }
 
         url = uri.ToString();
         if (url.Length > MaxLength)
         {
-            errorCode = ErrorTooLong;
+            errorCode = ErrorCodes.AvatarUrlTooLong;
             url = string.Empty;
             return false;
         }

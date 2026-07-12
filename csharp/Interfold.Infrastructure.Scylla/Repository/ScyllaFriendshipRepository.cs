@@ -19,7 +19,6 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
     private readonly IScyllaSessionProvider _sessionProvider;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
-    private readonly IAccountRepository _accounts;
     private readonly PersistenceConfiguration _options;
 
     public ScyllaFriendshipRepository(
@@ -30,21 +29,25 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
-        _accounts = accounts;
+        // `accounts` is accepted (and ignored) so the DI signature stays stable after
+        // the friend-request tightening removed the Discord dispatch lane. A follow-up
+        // may drop the parameter once every consumer stops passing it.
+        _ = accounts;
         _options = options.Value;
     }
 
-    public async Task<SystemId?> ResolveUserIdAsync(UsernameOrSystemId userNameOrId, CancellationToken cancellationToken = default)
+    public async Task<SystemId?> ResolveUserIdAsync(FriendLookup lookup, CancellationToken cancellationToken = default)
     {
-        // Pass the raw input into ResolveUserIdInScyllaAsync so its LookupHandle switch
-        // picks the right registry column (or delegates to the account repo for the
-        // Discord branch). NormalizeSystemId only strips region tags, so a "discord:1234"
-        // input would come through unchanged and be mishandled by a direct
-        // user_id/username-fanout path.
+        // FriendLookup guarantees the caller-supplied shape is either Kind.Id or
+        // Kind.Username at this point — the wire boundary already rejected every other
+        // shape with a 400. Pass the raw wire (OriginalValue via the implicit widen) into
+        // ResolveUserIdInScyllaAsync so its shared re-parse picks the right registry lane
+        // for both this public path and the internal defensive re-resolutions further
+        // down.
         return await DatabaseTransientRetry.ExecuteScyllaAsync<SystemId?>(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            return await ResolveUserIdInScyllaAsync(session, userNameOrId, cancellationToken);
+            return await ResolveUserIdInScyllaAsync(session, lookup, cancellationToken);
         }, _options, cancellationToken);
     }
 
@@ -472,39 +475,49 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
     private async Task<SystemId?> ResolveUserIdInScyllaAsync(
         ISession session,
-        string rawInput,
+        string input,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(rawInput))
+        if (string.IsNullOrWhiteSpace(input))
         {
             return null;
         }
 
-        var input = rawInput.Trim();
+        input = input.Trim();
 
-        // LookupHandle picks the routing lane. Unparseable input (bare-prefix like
-        // "nam:", or unknown non-region prefix like "xxx:abcdefg") falls through to the
-        // same user_registry.user_id lookup as a bare id, using the WHOLE input as the
-        // query value — mirrors LookupHandle.TryParse's strict-rejection contract and
-        // ScyllaUserRegistryRegionContext's fallback branch.
-        if (!LookupHandle.TryParse(input, out var handle))
+        // FriendLookup picks the routing lane at the friend-request wire boundary; the
+        // internal defensive re-resolutions in Send/Accept/Reject/Cancel below pass a
+        // post-normalization bare SystemId string which parses as Kind.Id here. An
+        // unparseable input (a rare shape that slipped past both route binding and
+        // NormalizeSystemId — should not happen in practice) falls through to the
+        // user_registry.user_id lookup with the WHOLE input, matching
+        // ScyllaUserRegistryRegionContext's fallback branch and keeping the read-side
+        // behaviour identical to the pre-merge shape.
+        if (!FriendLookup.TryParse(input, provider: null, out var handle))
         {
             return await LookupByUserIdAsync(session, input);
         }
 
         return handle.Kind switch
         {
-            LookupKind.Username => await LookupByUsernameFanoutAsync(session, handle.RawId),
-            // Discord dispatch delegates to the account repo's find-only lookup so an
-            // unknown Discord id surfaces as null instead of spawning a phantom account
-            // (see IAccountRepository.TryFindSystemIdByDiscordIdAsync).
-            LookupKind.Discord => await _accounts.TryFindSystemIdByDiscordIdAsync(
-                new(handle.RawId), cancellationToken),
-            // Region / Id / (unreachable fallback) all target user_registry.user_id with
-            // the bare RawId.
-            _ => await LookupByUserIdAsync(session, handle.RawId),
+            // Kind.Username → per-region users_by_username fanout with the after-prefix
+            // Value ("alice" from "username:alice").
+            FriendLookupKind.Username => await LookupByUsernameFanoutAsync(session, handle.Value),
+            // Kind.Id (bare or "id:"-prefixed) → user_registry.user_id lookup with the
+            // after-prefix Value.
+            FriendLookupKind.Id => await LookupByUserIdAsync(session, handle.Value),
+            _ => await LookupByUserIdAsync(session, handle.Value),
         };
     }
+
+    // Internal helper: forward a plain string to the private inner resolver. Used by the
+    // Send/Accept/Reject/Cancel defensive re-resolution paths that receive a normalized
+    // SystemId string rather than a FriendLookup.
+    private Task<SystemId?> ResolveUserIdInScyllaAsync(
+        ISession session,
+        FriendLookup lookup,
+        CancellationToken cancellationToken)
+        => ResolveUserIdInScyllaAsync(session, lookup.OriginalValue, cancellationToken);
 
     private static async Task<SystemId?> LookupByUserIdAsync(ISession session, string userId)
     {

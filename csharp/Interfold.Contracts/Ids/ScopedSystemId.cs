@@ -26,8 +26,8 @@ namespace Interfold.Contracts.Ids;
 /// </para>
 ///
 /// <para>
-/// <b>Not to be confused with</b> <see cref="UsernameOrSystemId"/> (which expresses "either a
-/// username OR a raw system id" at route-binding time) or
+/// <b>Not to be confused with</b> <see cref="FriendLookup"/> (which expresses "either a
+/// system id OR a username" at route-binding time) or
 /// <c>Interfold.Domain.FriendshipIdNormalization</c> (which re-applies the principal's
 /// prefix rather than stripping — different semantics).
 /// </para>
@@ -194,7 +194,7 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
         // If the candidate carries its own region prefix, compare scoped-to-scoped.
         // The strict parse returns false for anything without a valid region tag, so a
         // discriminator-prefixed input like "username:alice" (which should never reach
-        // this overload since it belongs to UsernameOrSystemId) also falls through to
+        // this overload since it belongs to FriendLookup) also falls through to
         // the raw-id branch and yields "not self" because "alice" != this.RawId.
         if (TryParseScoped(candidate.Value, out var scopedCandidate))
         {
@@ -208,47 +208,38 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
 
     /// <summary>
     /// Route-binding overload for the friend-request send path where the route segment is
-    /// bound as <see cref="UsernameOrSystemId"/>. Delegates to the
-    /// <see cref="RepresentsSameUserAs(SystemId)"/> primitive when the candidate parses as
-    /// a system-id shape (bare or scoped or explicit <c>id:</c> prefix). Username and
-    /// Discord shapes always return <see langword="false"/> — those require a registry
-    /// lookup to resolve to a concrete system id, so the fast-path can't decide self here
-    /// and the downstream handler's post-resolution self-check takes over (see
+    /// bound as <see cref="FriendLookup"/>. Delegates to the
+    /// <see cref="RepresentsSameUserAs(SystemId)"/> primitive when the candidate is an
+    /// id shape (bare or explicit <c>id:</c> prefix). Username shapes always return
+    /// <see langword="false"/> — a username requires a registry lookup to resolve to a
+    /// concrete system id, so the fast-path can't decide self here and the downstream
+    /// handler's post-resolution self-check takes over (see
     /// <c>SendFriendRequestCommandHandler</c>'s resolved-id self-guard). The fast-path
     /// keeps the crisp <c>cannot_send_self</c> error for the trivial "client sends their
     /// own id" case without a repository hop.
+    ///
+    /// <para>
+    /// Every non-id/username shape (Discord, region-scoped, unknown-prefix, blank) is
+    /// rejected by <see cref="FriendLookup.TryParse"/> at route binding with a 400, so
+    /// this method never sees them — the pre-merge fall-through to a byte-level compare
+    /// against the raw wire is gone (and unnecessary now that the wire contract is
+    /// strict).
+    /// </para>
     /// </summary>
-    public bool RepresentsSameUserAs(UsernameOrSystemId candidate)
+    public bool RepresentsSameUserAs(FriendLookup candidate) => candidate.Kind switch
     {
-        if (string.IsNullOrWhiteSpace(candidate.Value))
-        {
-            return false;
-        }
+        // Kind.Id — bare id or explicit "id:" prefix. FriendLookup.Value is the
+        // after-prefix content, i.e. exactly the raw id the primitive expects; the
+        // primitive's raw-id branch matches "this principal's RawId == candidate.Value".
+        FriendLookupKind.Id => RepresentsSameUserAs(new SystemId(candidate.Value)),
 
-        if (!LookupHandle.TryParse(candidate.Value, out var handle))
-        {
-            // Not a parseable handle shape (e.g. "xxx:abcdefg") → fall back to the raw
-            // byte-level compare so an opaque non-handle input still catches the trivial
-            // case where the client happened to send this principal's exact scoped
-            // composite as the route segment. The downstream resolver rejects the opaque
-            // input separately.
-            return string.Equals(Value, candidate.Value, StringComparison.Ordinal);
-        }
+        // Kind.Username — requires a registry hop; the downstream resolver's post-resolution
+        // self-check catches "client sent their own username" without needing this overload
+        // to guess.
+        FriendLookupKind.Username => false,
 
-        return handle.Kind switch
-        {
-            // Region-scoped or explicit id: shapes translate directly into a SystemId
-            // that the primitive can canonicalise. Bare 7-char handles parse as
-            // LookupKind.Id with RawId == input, so the primitive's raw-id branch fires.
-            LookupKind.Region => RepresentsSameUserAs(new SystemId(candidate.Value)),
-            LookupKind.Id => RepresentsSameUserAs(new SystemId(handle.RawId)),
-
-            // Username / Discord shapes require a registry lookup — the fast-path can't
-            // decide self here without hitting the repository. Fall through to the
-            // downstream handler's post-resolution self-check.
-            _ => false,
-        };
-    }
+        _ => false,
+    };
 
     /// <summary>
     /// Implicit widen to <see cref="SystemId"/>. Persistence adapters, event constructors, and
@@ -280,9 +271,12 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
     /// Strip a leading <c>{region}:</c> prefix if present. The strip fires only when the
     /// substring before the first colon is a recognised region tag; every other input
     /// (blank, no colon, colon-at-start, non-region prefix like <c>"username:"</c>) is
-    /// returned unchanged. The discriminator prefixes (<c>username:</c> / <c>discord:</c> /
-    /// <c>id:</c>) belong to <see cref="LookupHandle"/> — refusing to strip them here keeps
-    /// the two parsers' responsibilities separate. A bare prefix like <c>"nam:"</c>
+    /// returned unchanged. The friend-request discriminator prefixes
+    /// (<c>username:</c>, <c>id:</c>) belong to <see cref="FriendLookup"/>, and the
+    /// registry-column discriminator prefixes (<c>username:</c> / <c>discord:</c> /
+    /// <c>id:</c>) belong to the internal Scylla <c>UserRegistryLookup</c> — refusing to
+    /// strip them here keeps the parsers' responsibilities separate. A bare prefix like
+    /// <c>"nam:"</c>
     /// deliberately returns empty so <see cref="Compose(ScyllaKeyspace, string)"/> surfaces
     /// the caller-bug via its blank-raw guard rather than emitting a malformed
     /// <c>"nam:nam:"</c>.

@@ -60,11 +60,11 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         if (string.IsNullOrWhiteSpace(systemId))
             return CurrentRegion;
 
-        // A parseable LookupHandle carries an explicit Kind so LookupAsync knows which
-        // registry column to hit; an unparseable input (unknown prefix, or bare-prefix
-        // like "nam:") falls through to the "opaque bare id" branch inside LookupAsync
-        // with the whole systemId as the query value — matches the strict-rejection
-        // contract on LookupHandle.TryParse.
+        // A parseable UserRegistryLookup carries an explicit Kind so LookupAsync knows
+        // which registry column to hit; an unparseable input (unknown prefix, or
+        // bare-prefix like "nam:") falls through to the "opaque bare id" branch inside
+        // LookupAsync with the whole systemId as the query value — matches the
+        // strict-rejection contract on UserRegistryLookup.TryParse.
         var (cacheKey, handle) = HandleForLookup(systemId);
 
         if (_cache.TryGetValue(cacheKey, out var cached))
@@ -157,7 +157,7 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
     }
 
     private async Task<string?> LookupAsync(
-        LookupHandle? handle,
+        UserRegistryLookup? handle,
         string originalInput,
         CancellationToken cancellationToken = default)
     {
@@ -165,11 +165,12 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
 
-            // Fallback shape (handle == null) happens when LookupHandle.TryParse rejected
-            // the input as unparseable — bare-prefix like "nam:", or an unknown non-region
-            // prefix like "xxx:abcdefg". We deliberately query user_id with the WHOLE
-            // original input so the strict-rejection contract holds: a rejected handle
-            // becomes an opaque bare-id lookup, never a silent prefix-strip.
+            // Fallback shape (handle == null) happens when UserRegistryLookup.TryParse
+            // rejected the input as unparseable — bare-prefix like "nam:", or an unknown
+            // non-region prefix like "xxx:abcdefg". We deliberately query user_id with
+            // the WHOLE original input so the strict-rejection contract holds: a
+            // rejected handle becomes an opaque bare-id lookup, never a silent
+            // prefix-strip.
             //
             // The column selector is a typed UserRegistryLookupColumn rather than a magic
             // string. The CQL text still needs to interpolate the raw column name, so
@@ -177,10 +178,10 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
             // from the SQL builder because the compiler forces the enum branch first.
             var (column, value) = handle switch
             {
-                { Kind: LookupKind.Username } h => (UserRegistryLookupColumn.Username, h.RawId),
-                { Kind: LookupKind.Discord } h => (UserRegistryLookupColumn.DiscordId, h.RawId),
-                { Kind: LookupKind.Region } h => (UserRegistryLookupColumn.UserId, h.RawId),
-                { Kind: LookupKind.Id } h => (UserRegistryLookupColumn.UserId, h.RawId),
+                { Kind: UserRegistryLookupKind.Username } h => (UserRegistryLookupColumn.Username, h.RawId),
+                { Kind: UserRegistryLookupKind.Discord } h => (UserRegistryLookupColumn.DiscordId, h.RawId),
+                { Kind: UserRegistryLookupKind.Region } h => (UserRegistryLookupColumn.UserId, h.RawId),
+                { Kind: UserRegistryLookupKind.Id } h => (UserRegistryLookupColumn.UserId, h.RawId),
                 _ => (UserRegistryLookupColumn.UserId, originalInput),
             };
 
@@ -207,17 +208,17 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
 
     /// <summary>
     /// Turn an incoming lookup input into a (cache key, parsed handle) pair.
-    /// <see cref="LookupHandle.TryParse"/> is the single source of truth for the routing
-    /// table; this helper just picks the cache key so different-shape inputs referring to
-    /// the same user (bare id, region-scoped id, explicit <c>id:</c> prefix) collapse
-    /// onto the same cache entry while username / Discord lookups keep their own key
-    /// space (there's no ambiguity — a username string can't collide with a system id in
-    /// the same 7-char alphabet). Unparseable input keeps its whole original string as
-    /// the cache key so a rejected handle round-trips deterministically.
+    /// <see cref="UserRegistryLookup.TryParse"/> is the single source of truth for the
+    /// routing table; this helper just picks the cache key so different-shape inputs
+    /// referring to the same user (bare id, region-scoped id, explicit <c>id:</c>
+    /// prefix) collapse onto the same cache entry while username / Discord lookups keep
+    /// their own key space (there's no ambiguity — a username string can't collide with
+    /// a system id in the same 7-char alphabet). Unparseable input keeps its whole
+    /// original string as the cache key so a rejected handle round-trips deterministically.
     /// </summary>
-    private static (string cacheKey, LookupHandle? handle) HandleForLookup(string systemId)
+    private static (string cacheKey, UserRegistryLookup? handle) HandleForLookup(string systemId)
     {
-        if (!LookupHandle.TryParse(systemId, out var parsed))
+        if (!UserRegistryLookup.TryParse(systemId, out var parsed))
         {
             return (systemId, null);
         }
@@ -227,8 +228,8 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
             // System-id-shaped inputs canonicalise onto RawId so "abcdefg",
             // "nam:abcdefg", and "id:abcdefg" collide in the cache (they all identify the
             // same user_registry row).
-            LookupKind.Region => parsed.RawId,
-            LookupKind.Id => parsed.RawId,
+            UserRegistryLookupKind.Region => parsed.RawId,
+            UserRegistryLookupKind.Id => parsed.RawId,
             // Username / Discord handles keep their prefix in the cache key so a username
             // "abcdefg" doesn't spuriously alias the bare id "abcdefg".
             _ => parsed.OriginalValue,
@@ -239,9 +240,9 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
 
     /// <summary>
     /// Typed replacement for magic-string column literals inside
-    /// <see cref="LookupAsync"/>. Ties the <see cref="LookupKind"/> switch to the CQL
-    /// column universe so a new lookup kind cannot accidentally drift from the SQL
-    /// builder. Private/nested because its only consumer is inside this class.
+    /// <see cref="LookupAsync"/>. Ties the <see cref="UserRegistryLookupKind"/> switch
+    /// to the CQL column universe so a new lookup kind cannot accidentally drift from
+    /// the SQL builder. Private/nested because its only consumer is inside this class.
     /// </summary>
     private enum UserRegistryLookupColumn
     {

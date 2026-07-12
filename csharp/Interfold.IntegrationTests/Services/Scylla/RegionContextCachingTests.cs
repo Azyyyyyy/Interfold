@@ -76,11 +76,11 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
         await Assert.That(result).IsEqualTo(ScyllaKeyspace.Nam);
     }
 
-    // ---------------- LookupHandle-driven cache-key routing --------
+    // ---------------- UserRegistryLookup-driven cache-key routing --------
     //
-    // Pins the (cacheKey, LookupHandle?) contract inside HandleForLookup — the read-side
-    // helper that routes region-context cache reads by handle kind. The invariants
-    // being locked in:
+    // Pins the (cacheKey, UserRegistryLookup?) contract inside HandleForLookup — the
+    // read-side helper that routes region-context cache reads by handle kind. The
+    // invariants being locked in:
     //
     // - Bare id / "id:<raw>" / "<region>:<raw>" all cache under the same key (they all
     //   identify the same user_registry row).
@@ -88,7 +88,7 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
     //   username "abcdefg" cannot spuriously alias the bare id "abcdefg".
     // - Unknown non-region prefixes ("xxx:abcdefg") don't get silently stripped — the
     //   whole input is the cache key AND the query value, matching the strict-rejection
-    //   contract in LookupHandle.TryParse's xml-doc.
+    //   contract in UserRegistryLookup.TryParse's xml-doc.
 
     [Test]
     public async Task ResolveUserRegion_ExplicitIdPrefix_SharesCacheKeyWithBareId()
@@ -150,7 +150,7 @@ public sealed class RegionContextCachingTests : BaseEndpointTest
     [Test]
     public async Task ResolveUserRegion_UnknownPrefix_KeepsFullFormAsCacheKey()
     {
-        // 'xxx' is not a region tag and not a discriminator prefix — LookupHandle.TryParse
+        // 'xxx' is not a region tag and not a discriminator prefix — UserRegistryLookup.TryParse
         // rejects it. The cache key must be the WHOLE original input so a rejected handle
         // is deterministic and round-trippable, matching the fallback branch in
         // LookupAsync that queries user_registry.user_id with the same whole input.

@@ -5,7 +5,7 @@ namespace Interfold.Api.UnitTests.Ids;
 
 /// <summary>
 /// Pins the <see cref="ScopedSystemId.RepresentsSameUserAs(SystemId)"/> and
-/// <see cref="ScopedSystemId.RepresentsSameUserAs(UsernameOrSystemId)"/> primitives that
+/// <see cref="ScopedSystemId.RepresentsSameUserAs(FriendLookup)"/> primitives that
 /// back the eight controller self-request guards (FriendRequestsController: Send /
 /// Cancel / Accept / Reject; FriendsController: Show / Delete / Trust / Untrust).
 ///
@@ -15,8 +15,10 @@ namespace Interfold.Api.UnitTests.Ids;
 /// error instead of the crisp <c>cannot_*_self</c>. These tests pin the semantic-check
 /// invariants: same-region raw and same-region scoped both self-reject; cross-region
 /// scoped is treated as a different user (matching the "scoped composite is identity"
-/// contract); blank / mismatched-raw / username / Discord shapes never falsely
-/// self-reject.
+/// contract); blank / mismatched-raw / username shapes never falsely self-reject. The
+/// Discord / unknown-prefix / region-scoped shapes that the pre-merge overload used to
+/// cover are now rejected by <see cref="FriendLookup.TryParse"/> at ASP.NET route
+/// binding and never reach the FriendLookup overload.
 /// </para>
 /// </summary>
 public sealed class ScopedSystemIdRepresentsSameUserAsTests
@@ -98,89 +100,38 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
             .Because("Blank candidates cannot represent any user — the primitive must return false rather than throw so the guard is safe on defensive inputs.");
     }
 
-    // ---------------- UsernameOrSystemId overload ----------------
-
-    /// <summary>
-    /// The Send fast-path: a client sending their own scoped id as the route segment
-    /// must self-reject without a repository hop.
-    /// </summary>
-    [Test]
-    public async Task UsernameOrSystemId_ScopedSelf_IsSelf()
-    {
-        UsernameOrSystemId candidate = new("nam:abcdefg");
-
-        await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsTrue()
-            .Because("A scoped self-id sent as the route segment is the trivial fast-path the Send controller must catch.");
-    }
+    // ---------------- FriendLookup overload ----------------
 
     /// <summary>
     /// Raw-id self-send: catches it at the controller with the crisp cannot_send_self
-    /// error rather than delegating to the downstream resolved-id self-check.
+    /// error rather than delegating to the downstream resolved-id self-check. Bare and
+    /// <c>id:</c>-prefixed shapes both parse as <see cref="FriendLookupKind.Id"/> and
+    /// delegate through the SystemId primitive's raw-id branch.
     /// </summary>
     [Test]
-    public async Task UsernameOrSystemId_RawSelf_IsSelf()
+    [Arguments("abcdefg")]
+    [Arguments("id:abcdefg")]
+    public async Task FriendLookup_IdSelf_IsSelf(string input)
     {
-        UsernameOrSystemId candidate = new("abcdefg");
+        var candidate = FriendLookup.Parse(input, provider: null);
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsTrue()
-            .Because("A bare raw-id route parses as LookupKind.Id and must delegate to the SystemId primitive's raw-id branch.");
+            .Because($"'{input}' parses as FriendLookupKind.Id whose Value equals the principal's RawId; the overload must delegate to the SystemId primitive's raw-id branch and self-reject.");
     }
 
     /// <summary>
     /// A username shape (<c>username:alice</c>) must NEVER falsely self-reject — the
     /// controller has no way to know whether "alice" resolves to this principal without
-    /// hitting the registry. Delegating to the downstream resolver keeps the self-check
-    /// correct for the case where the principal's own username is sent as the route.
+    /// hitting the registry. The overload returns false so the downstream resolved-id
+    /// self-check takes over for the case where the principal's own username was sent
+    /// as the route.
     /// </summary>
     [Test]
-    public async Task UsernameOrSystemId_UsernameShape_IsNotSelf()
+    public async Task FriendLookup_UsernameShape_IsNotSelf()
     {
-        UsernameOrSystemId candidate = new("username:alice");
+        var candidate = FriendLookup.Parse("username:alice", provider: null);
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
             .Because("The controller cannot decide 'is alice me?' without a registry lookup; the fast-path must return false and let the downstream resolved-id self-check take over.");
-    }
-
-    /// <summary>
-    /// Discord shapes have the same "requires registry lookup" property as usernames.
-    /// </summary>
-    [Test]
-    public async Task UsernameOrSystemId_DiscordShape_IsNotSelf()
-    {
-        UsernameOrSystemId candidate = new("discord:1234567");
-
-        await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
-            .Because("Discord snowflake shapes require a registry lookup to resolve to a system id; the fast-path returns false.");
-    }
-
-    /// <summary>
-    /// An unknown non-region prefix (<c>"xxx:abcdefg"</c>) is neither a system-id shape
-    /// nor a discriminator-prefixed handle. LookupHandle.TryParse returns false for these,
-    /// and the overload falls back to a byte-level compare that catches only the case
-    /// where the client happened to send this principal's exact scoped composite. Pinned
-    /// so a future LookupHandle behaviour change doesn't silently promote arbitrary
-    /// prefixes into a coerce-then-self spelling.
-    /// </summary>
-    [Test]
-    public async Task UsernameOrSystemId_UnknownPrefix_IsNotSelf()
-    {
-        UsernameOrSystemId candidate = new("xxx:abcdefg");
-
-        await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
-            .Because("Unknown non-region prefixes are opaque to the controller fast-path; the downstream resolver rejects them separately as friend_request:no_user.");
-    }
-
-    /// <summary>
-    /// Blank input returns false rather than throwing. Route binding catches empty
-    /// segments earlier, but the overload must be safe on manually-constructed inputs
-    /// too — never let a defensive-input path throw.
-    /// </summary>
-    [Test]
-    public async Task UsernameOrSystemId_BlankValue_ReturnsFalse()
-    {
-        UsernameOrSystemId candidate = new(string.Empty);
-
-        await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
-            .Because("Blank candidates cannot represent any user — the primitive must return false rather than throw.");
     }
 }
