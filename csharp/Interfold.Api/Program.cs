@@ -271,6 +271,27 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new UtcDateTimeOffsetConverter());
     });
 
+// Route DataAnnotations-driven 400s (e.g. `[ValidAlterId]` on request records) through
+// the same `ErrorResponse` shape the rest of the API returns, using
+// `ValidationErrorCodeRegistry` to preserve stable wire codes (`invalid_alter_id`,
+// falling back to `bad_request`). Without this the framework default is
+// `ValidationProblemDetails`, which the Kotlin client does not decode.
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        var firstError = context.ModelState
+            .Where(kv => kv.Value?.Errors.Count > 0)
+            .SelectMany(kv => kv.Value!.Errors.Select(e => e.ErrorMessage))
+            .FirstOrDefault(m => !string.IsNullOrWhiteSpace(m))
+            ?? "The request payload was invalid.";
+
+        var code = ValidationErrorCodeRegistry.LookupOrDefault(firstError);
+        var body = new ErrorResponse(firstError, code, System.Net.HttpStatusCode.BadRequest);
+        return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(body);
+    };
+});
+
 // --- Swagger/OpenAPI ---
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -287,14 +308,23 @@ builder.Services.AddSwaggerGen(options =>
         var first = apiDescriptions.First();
         var route = first.RelativePath?.ToLowerInvariant();
 
-        // Only allow conflicts for avatar upload endpoints
+        // Normalise any route-parameter placeholder to a fixed sentinel so the allow-list is
+        // token-agnostic. Otherwise renaming a route parameter (e.g. `{id}` → `{alterId}` on
+        // AltersController.UploadAvatar*) silently pushes the route out of the allow-list and
+        // Swagger throws NotSupportedException on every doc generation — which propagates as
+        // an unhandled 500 through the ExceptionHandler pipeline on any request.
+        var normalisedRoute = route is null
+            ? null
+            : System.Text.RegularExpressions.Regex.Replace(route, @"\{[^/{}]+\}", "{*}");
+
+        // Only allow conflicts for avatar upload endpoints (multipart vs JSON siblings).
         var allowedConflicts = new[]
         {
             "api/settings/avatar",
-            "api/systems/me/alters/{id}/avatar"
+            "api/systems/me/alters/{*}/avatar"
         };
 
-        if (allowedConflicts.All(allowed => route?.Contains(allowed) != true))
+        if (allowedConflicts.All(allowed => normalisedRoute?.Contains(allowed) != true))
         {
             var actionNames = string.Join(", ", apiDescriptions.Select(d => $"{d.ActionDescriptor.DisplayName}"));
             throw new NotSupportedException(

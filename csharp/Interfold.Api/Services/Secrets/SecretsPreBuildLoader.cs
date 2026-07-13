@@ -1,6 +1,6 @@
+using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Secrets;
-using Microsoft.Extensions.Configuration;
 using Npgsql;
 
 namespace Interfold.Api.Services.Secrets;
@@ -108,15 +108,20 @@ internal static class SecretsPreBuildLoader
 
     public static SecretsSnapshot Load(IConfigurationBuilder cfg)
     {
-        var config = (IConfigurationRoot)((IConfigurationBuilder)cfg).Build();
-        var pgConn = config[OctoconEnvKeys.PostgresConnection];
+        var config = cfg.Build();
         var snapshot = new SecretsSnapshot();
 
-        if (!string.IsNullOrWhiteSpace(pgConn))
+        if (config.GetValue<PersistenceMode>(OctoconEnvKeys.Persistence) == PersistenceMode.ScyllaPostgres)
         {
+            var pgConn = config[OctoconEnvKeys.PostgresConnection];
+            if (string.IsNullOrWhiteSpace(pgConn))
+            {
+                throw new InvalidOperationException("Postgres connection string is not configured.");
+            }
+            
             var rows = FetchFromPostgres(pgConn);
             snapshot.Populate(BuildSnapshotBuffer(rows));
-            var leafPfxPassword = rows.TryGetValue(SecretsStoreKeys.CertsLeafPfxPassword.Value, out var pw) ? pw : null;
+            var leafPfxPassword = rows.GetValueOrDefault(SecretsStoreKeys.CertsLeafPfxPassword.Value);
             ApplyLeafPfxPasswordIfNeeded(cfg, config, pgConnPresent: true, leafPfxPassword);
         }
         else
@@ -133,7 +138,7 @@ internal static class SecretsPreBuildLoader
         var buffer = new Dictionary<SecretsStoreKey, string?>(SnapshotKeys.Length);
         foreach (var key in SnapshotKeys)
         {
-            buffer[key] = rows.TryGetValue(key.Value, out var value) ? value : null;
+            buffer[key] = rows.GetValueOrDefault(key.Value);
         }
         return buffer;
     }

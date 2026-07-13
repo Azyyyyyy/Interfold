@@ -110,16 +110,13 @@ public sealed class TagsController : InterfoldControllerBase
     [HttpPost("{id}/alter")]
     public async Task<Response> AttachAlter(TagId id, [FromBody] TagAlterRequest body, CancellationToken ct)
     {
-        var alterId = body.AlterId ?? new(0);
-        await CheckAlterId(alterId);
-
         var command = new CommandEnvelope<AttachAlterToTagCommand>(
             OperationId: OperationIds.TagAttachAlter,
             CommandId: Guid.NewGuid(),
             PrincipalId: PrincipalId,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new AttachAlterToTagCommand(id, alterId)
+            Payload: new AttachAlterToTagCommand(id, body.AlterId)
         );
 
         return CommandNoContent(await _attachAlter.HandleAsync(command, ct));
@@ -128,16 +125,13 @@ public sealed class TagsController : InterfoldControllerBase
     [HttpDelete("{id}/alter")]
     public async Task<Response> DetachAlter(TagId id, [FromBody] TagAlterRequest body, CancellationToken ct)
     {
-        var alterId = body.AlterId ?? new(0);
-        await CheckAlterId(alterId);
-
         var command = new CommandEnvelope<DetachAlterFromTagCommand>(
             OperationId: OperationIds.TagDetachAlter,
             CommandId: Guid.NewGuid(),
             PrincipalId: PrincipalId,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DetachAlterFromTagCommand(id, alterId)
+            Payload: new DetachAlterFromTagCommand(id, body.AlterId)
         );
 
         return CommandNoContent(await _detachAlter.HandleAsync(command, ct));

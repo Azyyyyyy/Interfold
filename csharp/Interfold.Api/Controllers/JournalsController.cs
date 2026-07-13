@@ -134,16 +134,13 @@ public sealed class JournalsController : InterfoldControllerBase
     [HttpPost("{id}/alter")]
     public async Task<Response> AttachAlter(EntryId id, [FromBody] JournalAlterRequest req, CancellationToken ct)
     {
-        var alterId = req.AlterId ?? new(0);
-        await CheckAlterId(alterId);
-
         var envelope = new CommandEnvelope<AttachAlterToGlobalJournalCommand>(
             OperationIds.JournalGlobalAttachAlter,
             Guid.NewGuid(),
             PrincipalId: PrincipalId,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new AttachAlterToGlobalJournalCommand(id, alterId)
+            Payload: new AttachAlterToGlobalJournalCommand(id, req.AlterId)
         );
 
         return CommandNoContent(await _attachAlter.HandleAsync(envelope, ct));
@@ -152,16 +149,13 @@ public sealed class JournalsController : InterfoldControllerBase
     [HttpDelete("{id}/alter")]
     public async Task<Response> DetachAlter(EntryId id, [FromBody] JournalAlterRequest req, CancellationToken ct)
     {
-        var alterId = req.AlterId ?? new(0);
-        await CheckAlterId(alterId);
-
         var envelope = new CommandEnvelope<DetachAlterFromGlobalJournalCommand>(
             OperationIds.JournalGlobalDetachAlter,
             Guid.NewGuid(),
             PrincipalId: PrincipalId,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DetachAlterFromGlobalJournalCommand(id, alterId)
+            Payload: new DetachAlterFromGlobalJournalCommand(id, req.AlterId)
         );
 
         return CommandNoContent(await _detachAlter.HandleAsync(envelope, ct));

@@ -66,15 +66,12 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("start")]
     public async Task<Response<FrontStartedResponse>> Start([FromBody] FrontStartRequest req, CancellationToken ct)
     {
-        var alterId = req.Id ?? new(0);
-        await CheckAlterId(alterId);
-
         var envelope = new CommandEnvelope<StartFrontCommand>(
             OperationIds.FrontStart, Guid.NewGuid(),
             PrincipalId: PrincipalId,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new StartFrontCommand(alterId, req.Comment)
+            Payload: new StartFrontCommand(req.Id, req.Comment)
         );
 
         var execution = await _startHandler.HandleAsync(envelope, ct);
@@ -91,15 +88,12 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("end")]
     public async Task<Response> End([FromBody] FrontEndRequest req, CancellationToken ct)
     {
-        var alterId = req.Id ?? new(0);
-        await CheckAlterId(alterId);
-
         var envelope = new CommandEnvelope<EndFrontCommand>(
             OperationIds.FrontEnd, Guid.NewGuid(),
             PrincipalId: PrincipalId,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new EndFrontCommand(alterId)
+            Payload: new EndFrontCommand(req.Id)
         );
 
         return CommandNoContent(await _endHandler.HandleAsync(envelope, ct));
@@ -108,16 +102,13 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("set")]
     public async Task<Response> Set([FromBody] FrontSetRequest req, CancellationToken ct)
     {
-        var alterId = req.Id ?? new(0);
-        await CheckAlterId(alterId);
-
         var envelope = new CommandEnvelope<SetFrontCommand>(
             OperationIds.FrontSet,
             Guid.NewGuid(),
             PrincipalId: PrincipalId,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetFrontCommand(alterId, req.Comment)
+            Payload: new SetFrontCommand(req.Id, req.Comment)
         );
 
         return CommandNoContent(await _setHandler.HandleAsync(envelope, ct));
@@ -126,15 +117,12 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("primary")]
     public async Task<Response> Primary([FromBody] FrontPrimaryRequest req, CancellationToken ct)
     {
-        // null legitimately clears the primary front, so no CheckAlterId here.
-        var alterId = req.Id;
-
         var envelope = new CommandEnvelope<SetPrimaryFrontCommand>(
             OperationIds.FrontPrimary, Guid.NewGuid(),
             PrincipalId: PrincipalId,
             IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetPrimaryFrontCommand(alterId)
+            Payload: new SetPrimaryFrontCommand(req.Id)
         );
 
         return CommandNoContent(await _primaryHandler.HandleAsync(envelope, ct));
