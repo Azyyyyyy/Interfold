@@ -316,7 +316,7 @@ public sealed class SettingsController : InterfoldControllerBase
 
         var result = CommandNoContent(await _uploadAvatarHandler.HandleAsync(envelope, ct));
 
-        if (!result.IsT0)
+        if (!result.IsSuccess)
         {
             return result;
         }
@@ -378,7 +378,7 @@ public sealed class SettingsController : InterfoldControllerBase
 
         var result = CommandNoContent(await _uploadAvatarHandler.HandleAsync(envelope, ct));
 
-        if (!result.IsT0)
+        if (!result.IsSuccess)
         {
             return result;
         }

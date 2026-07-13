@@ -26,7 +26,7 @@ public sealed class PersistenceConfiguration : IValidatableObject
 
     /// <summary>
     /// Persistence backend mode. Bound from <c>OCTOCON_PERSISTENCE</c> via
-    /// <see cref="PersistenceModeExtensions.Parse"/>; the wire values are
+    /// <see cref="Enums.EnumWireExtensions.ParsePersistenceMode"/>; the wire values are
     /// <c>scylla-postgres</c> and <c>inmemory</c>.
     /// </summary>
     [EnumDataType(typeof(PersistenceMode))]

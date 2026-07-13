@@ -17,6 +17,13 @@ namespace Interfold.Contracts.Ids;
 public readonly record struct ImportOperationId(Guid Value)
 {
     /// <summary>
+    /// The zero-Guid import operation id — sentinel matching <see cref="Guid.Empty"/>.
+    /// Call sites can write <c>id == ImportOperationId.Empty</c> instead of reaching
+    /// through <c>.Value</c> to compare against <see cref="Guid.Empty"/>.
+    /// </summary>
+    public static readonly ImportOperationId Empty = new(Guid.Empty);
+
+    /// <summary>
     /// Explicit narrow so call sites can write <c>(ImportOperationId)guid</c> instead of
     /// <c>new ImportOperationId(guid)</c>. See <see cref="SystemId"/> for the wider rationale.
     /// </summary>

@@ -57,7 +57,7 @@ public sealed class CreateTagCommandHandler : ICommandHandler<CreateTagCommand, 
                 return CommandExecutionResult<TagCommandResult>.Success(replay with { Replay = true });
         }
 
-        if (command.Payload.ParentTagId is { } parentTagId && parentTagId.Value != Guid.Empty)
+        if (command.Payload.ParentTagId is { } parentTagId && parentTagId != TagId.Empty)
         {
             var parentExists = await _tagRepository.ExistsAsync(
                 command.PrincipalId,

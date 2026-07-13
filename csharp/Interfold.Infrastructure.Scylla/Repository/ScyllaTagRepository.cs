@@ -44,7 +44,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
             Guid? parentTagId = null;
 
-            if (command.ParentTagId is { } requestedParentTagId && requestedParentTagId.Value != Guid.Empty)
+            if (command.ParentTagId is { } requestedParentTagId && requestedParentTagId != TagId.Empty)
             {
                 parentTagId = requestedParentTagId.Value;
             }

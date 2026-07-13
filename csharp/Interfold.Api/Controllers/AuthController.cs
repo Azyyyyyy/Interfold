@@ -147,10 +147,10 @@ public sealed class AuthController : OAuthControllerBase
         if (string.IsNullOrWhiteSpace(clientRedirectUri))
         {
             Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthOAuthCallback.Value;
-            return BadRequest(new OAuthRedirectErrorResponse(
+            return BadRequest(new ErrorResponse(
                 "Missing client-supplied redirect_uri.",
                 ErrorCodes.MissingRedirectUri,
-                "Pass redirect_uri on GET /auth/{provider} so the callback knows where to send the token."));
+                detail: "Pass redirect_uri on GET /auth/{provider} so the callback knows where to send the token."));
         }
 
         var separator = clientRedirectUri.Contains('?') ? '&' : '?';

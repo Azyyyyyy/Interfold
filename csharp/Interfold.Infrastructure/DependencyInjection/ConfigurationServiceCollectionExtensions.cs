@@ -245,7 +245,7 @@ public static class ConfigurationServiceCollectionExtensions
         // Fail-fast on operator typos: ParseScyllaKeyspace throws for unknown region spellings.
         var keyspace = EnumWireExtensions.ParseScyllaKeyspace(
             config[OctoconEnvKeys.ScyllaKeyspace] ?? "nam");
-        opts.Mode = PersistenceModeExtensions.Parse(config[OctoconEnvKeys.Persistence]);
+        opts.Mode = EnumWireExtensions.ParsePersistenceMode(config[OctoconEnvKeys.Persistence]);
         opts.ScyllaKeyspace = keyspace;
         opts.PostgresConnectionString = config[OctoconEnvKeys.PostgresConnection]
             ?? "Host=localhost;Port=5432;Database=interfold;Username=interfold;Password=interfold";

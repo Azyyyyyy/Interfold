@@ -174,10 +174,10 @@ public sealed class AuthLinkController : OAuthControllerBase
         // than papering over with a server-configured fallback.
         if (string.IsNullOrWhiteSpace(redirectUri))
         {
-            return BadRequest(new OAuthRedirectErrorResponse(
+            return BadRequest(new ErrorResponse(
                 "Missing client-supplied redirect_uri.",
                 ErrorCodes.MissingRedirectUri,
-                "Pass redirect_uri on GET /auth/link/{provider} so the link callback knows where to send the result."));
+                detail: "Pass redirect_uri on GET /auth/link/{provider} so the link callback knows where to send the result."));
         }
 
         return Redirect(redirectUri);

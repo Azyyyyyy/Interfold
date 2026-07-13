@@ -41,7 +41,6 @@ public sealed class PhxJoinPayload
 
     [JsonPropertyName("platform")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [JsonConverter(typeof(Enums.TolerantClientPlatformJsonConverter))]
     public Enums.ClientPlatform? Platform { get; init; }
 
     [JsonPropertyName("isReconnect")]

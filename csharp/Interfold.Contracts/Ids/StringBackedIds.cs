@@ -16,6 +16,14 @@ namespace Interfold.Contracts.Ids;
 [JsonConverter(typeof(TagIdJsonConverter))]
 public readonly record struct TagId(Guid Value) : IParsable<TagId>
 {
+    /// <summary>
+    /// The zero-Guid tag id — call sites can write <c>tagId == TagId.Empty</c> instead of
+    /// reaching through <c>.Value</c> to compare against <see cref="Guid.Empty"/>. Mirrors
+    /// <see cref="Guid.Empty"/> so the intent-checking idiom stays visible even after the
+    /// wrapper hides the underlying <see cref="Guid"/>.
+    /// </summary>
+    public static readonly TagId Empty = new(Guid.Empty);
+
     public static explicit operator TagId(Guid value) => new(value);
     public static implicit operator Guid(TagId value) => value.Value;
 
@@ -38,6 +46,11 @@ public readonly record struct TagId(Guid Value) : IParsable<TagId>
 [JsonConverter(typeof(PollIdJsonConverter))]
 public readonly record struct PollId(Guid Value) : IParsable<PollId>
 {
+    /// <summary>
+    /// The zero-Guid poll id. See <see cref="TagId.Empty"/> for the general story.
+    /// </summary>
+    public static readonly PollId Empty = new(Guid.Empty);
+
     public static explicit operator PollId(Guid value) => new(value);
     public static implicit operator Guid(PollId value) => value.Value;
 
@@ -60,6 +73,11 @@ public readonly record struct PollId(Guid Value) : IParsable<PollId>
 [JsonConverter(typeof(EntryIdJsonConverter))]
 public readonly record struct EntryId(Guid Value) : IParsable<EntryId>
 {
+    /// <summary>
+    /// The zero-Guid entry id. See <see cref="TagId.Empty"/> for the general story.
+    /// </summary>
+    public static readonly EntryId Empty = new(Guid.Empty);
+
     public static explicit operator EntryId(Guid value) => new(value);
     public static implicit operator Guid(EntryId value) => value.Value;
 
@@ -82,6 +100,11 @@ public readonly record struct EntryId(Guid Value) : IParsable<EntryId>
 [JsonConverter(typeof(FrontIdJsonConverter))]
 public readonly record struct FrontId(Guid Value) : IParsable<FrontId>
 {
+    /// <summary>
+    /// The zero-Guid front id. See <see cref="TagId.Empty"/> for the general story.
+    /// </summary>
+    public static readonly FrontId Empty = new(Guid.Empty);
+
     public static explicit operator FrontId(Guid value) => new(value);
     public static implicit operator Guid(FrontId value) => value.Value;
 
@@ -104,6 +127,11 @@ public readonly record struct FrontId(Guid Value) : IParsable<FrontId>
 [JsonConverter(typeof(FieldIdJsonConverter))]
 public readonly record struct FieldId(Guid Value) : IParsable<FieldId>
 {
+    /// <summary>
+    /// The zero-Guid field id. See <see cref="TagId.Empty"/> for the general story.
+    /// </summary>
+    public static readonly FieldId Empty = new(Guid.Empty);
+
     public static explicit operator FieldId(Guid value) => new(value);
     public static implicit operator Guid(FieldId value) => value.Value;
 

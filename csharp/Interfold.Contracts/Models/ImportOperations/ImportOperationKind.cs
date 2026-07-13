@@ -25,23 +25,3 @@ public enum ImportOperationKind
     [JsonStringEnumMemberName("pk")]
     PluralKit,
 }
-
-/// <summary>
-/// Wire values that the enum members are persisted / emitted as. Also used as the
-/// convenient stable string form outside JSON (repositories, log lines). Wire spellings
-/// are sourced from <c>[JsonStringEnumMemberName]</c> via <see cref="EnumWire{TEnum}"/>.
-/// </summary>
-public static class ImportOperationKindExtensions
-{
-    public static ImportOperationKind ParseWireValue(string value)
-    {
-        if (value.TryParseWire<ImportOperationKind>(out var kind))
-        {
-            return kind;
-        }
-
-        throw new ArgumentException(
-            $"'{value}' is not a valid ImportOperationKind wire value. Expected 'sp' or 'pk'.",
-            nameof(value));
-    }
-}

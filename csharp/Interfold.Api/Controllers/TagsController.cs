@@ -140,7 +140,7 @@ public sealed class TagsController : InterfoldControllerBase
     [HttpPost("{id}/parent")]
     public async Task<Response> SetParent(TagId id, [FromBody] SetParentRequest body, CancellationToken ct)
     {
-        if (body.ParentTagId is not { } parentTagId || parentTagId.Value == Guid.Empty)
+        if (body.ParentTagId is not { } parentTagId || parentTagId == TagId.Empty)
             return new ErrorResponse("Invalid parent tag ID.", ErrorCodes.InvalidParentTagId, System.Net.HttpStatusCode.BadRequest);
 
         var command = new CommandEnvelope<SetParentTagCommand>(

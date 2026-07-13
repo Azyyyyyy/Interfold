@@ -26,13 +26,3 @@ public enum PollType : short
     [JsonStringEnumMemberName("approval")]
     Approval = 2,
 }
-
-public static class PollTypeExtensions
-{
-    /// <summary>
-    /// Best-effort case-insensitive parse. Unknown values fall back to <see cref="PollType.Vote"/>,
-    /// matching the Scylla mapping which returns "vote" for any code outside the 0-2 range.
-    /// </summary>
-    public static PollType ParseWireValueOrVote(string? value)
-        => value.TryParseWire<PollType>(out var type) ? type : PollType.Vote;
-}

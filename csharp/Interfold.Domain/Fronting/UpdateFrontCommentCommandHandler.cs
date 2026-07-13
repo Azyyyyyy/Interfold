@@ -29,7 +29,7 @@ public sealed class UpdateFrontCommentCommandHandler : ICommandHandler<UpdateFro
         CommandEnvelope<UpdateFrontCommentCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (command.Payload.FrontId.Value == Guid.Empty)
+        if (command.Payload.FrontId == FrontId.Empty)
             return RejectInvariant(command, EntityRefs.FrontingInvalidFrontId);
 
         if ((command.Payload.Comment?.Length ?? 0) > 50)

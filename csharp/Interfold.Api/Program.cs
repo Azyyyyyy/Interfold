@@ -569,13 +569,17 @@ static SecurityToken ValidateJwtTokenSignatureForBearer(
     }
 
     var headerJson = Encoding.UTF8.GetString(parts[0].Base64UrlDecode());
-    var alg = JwtHeaderAlg.Parse(headerJson);
+    var header = JsonSerializer.Deserialize<JwsHeader>(headerJson);
+    if (header is null || string.IsNullOrWhiteSpace(header.Alg))
+    {
+        throw new SecurityTokenInvalidSignatureException("Missing JWT algorithm.");
+    }
 
     var signingInput = Encoding.UTF8.GetBytes(parts[0] + "." + parts[1]);
     var signatureBytes = parts[2].Base64UrlDecode();
 
     // ES256 (ECDSA P-256 with SHA-256) validation
-    if (!string.Equals(alg, JwtHeaderAlg.Es256, StringComparison.Ordinal))
+    if (!string.Equals(header.Alg, JwsHeader.Es256, StringComparison.Ordinal))
     {
         throw new SecurityTokenInvalidSignatureException("Only ES256 algorithm is supported.");
     }

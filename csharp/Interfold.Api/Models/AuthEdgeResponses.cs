@@ -11,13 +11,6 @@ namespace Interfold.Api.Models;
 public sealed record NodeRoleResponse(NodeGroup Role, bool OwnsSingletons);
 
 /// <summary>
-/// 400 body for OAuth begin/callback endpoints when the client-supplied
-/// <c>redirect_uri</c> is missing. Same <c>{"error","code","detail"}</c> shape as the
-/// previous anonymous objects.
-/// </summary>
-public sealed record OAuthRedirectErrorResponse(string Error, ErrorCode Code, string Detail);
-
-/// <summary>
 /// 400 body for an unknown OAuth <c>{provider}</c> route value. Same
 /// <c>{"error","code","provider"}</c> shape as the previous anonymous object — the
 /// provider echoes the raw route string, which is exactly what failed to parse.

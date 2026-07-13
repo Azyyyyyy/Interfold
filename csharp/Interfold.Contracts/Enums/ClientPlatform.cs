@@ -22,30 +22,3 @@ public enum ClientPlatform
     [JsonStringEnumMemberName("web")]
     Web,
 }
-
-/// <summary>
-/// Tolerant converter for optional wire members (socket join payload): unknown or
-/// non-string spellings read as null instead of throwing, mirroring the legacy handler
-/// that only ever compared the raw string against known values. Writes the lowercase
-/// wire spelling (or null).
-/// </summary>
-public sealed class TolerantClientPlatformJsonConverter : JsonConverter<ClientPlatform?>
-{
-    public override ClientPlatform? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => reader.TokenType == JsonTokenType.String
-            && reader.GetString().TryParseWire<ClientPlatform>(out var platform)
-                ? platform
-                : null;
-
-    public override void Write(Utf8JsonWriter writer, ClientPlatform? value, JsonSerializerOptions options)
-    {
-        if (value is { } platform)
-        {
-            writer.WriteStringValue(platform.ToWire());
-        }
-        else
-        {
-            writer.WriteNullValue();
-        }
-    }
-}

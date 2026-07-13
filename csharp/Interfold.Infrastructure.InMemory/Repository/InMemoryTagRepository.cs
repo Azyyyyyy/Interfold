@@ -49,7 +49,7 @@ public sealed class InMemoryTagRepository : ITagRepository
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<TagId, TagState>());
 
-        if (command.ParentTagId is { } parent && parent.Value != Guid.Empty && !store.ContainsKey(parent))
+        if (command.ParentTagId is { } parent && parent != TagId.Empty && !store.ContainsKey(parent))
             return Task.FromResult<TagId?>(null);
 
         TagId id = new(Guid.NewGuid());

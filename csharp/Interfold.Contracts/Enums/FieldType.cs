@@ -8,11 +8,6 @@ namespace Interfold.Contracts.Enums;
 /// preserving what the Elixir server emitted so the Kotlin client and any prior
 /// captured payloads deserialize unchanged.
 /// </summary>
-/// <remarks>
-/// JSON deserialization is strict: unknown wire values throw. The tolerant
-/// <see cref="FieldTypeExtensions.ParseWireValueOrText"/> stays for the non-JSON
-/// CQL row-mapping path, where server-persisted schemas may pre-date new enum values.
-/// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<FieldType>))]
 public enum FieldType : short
 {
@@ -48,17 +43,4 @@ public enum FieldType : short
 
     [JsonStringEnumMemberName("month_day")]
     MonthDay = 10,
-}
-
-public static class FieldTypeExtensions
-{
-    /// <summary>
-    /// Case-insensitive parse of a wire value. Unknown values fall back to
-    /// <see cref="FieldType.Text"/>, matching the pre-enum <c>NormalizeType</c> behaviour in
-    /// <c>CreateFieldCommandHandler</c>: server-persisted schemas frequently pre-date new type
-    /// additions, and defaulting to plain text is the least-surprising story for downstream
-    /// renderers.
-    /// </summary>
-    public static FieldType ParseWireValueOrText(string? value)
-        => value.TryParseWire<FieldType>(out var type) ? type : FieldType.Text;
 }

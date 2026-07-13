@@ -207,7 +207,7 @@ public sealed class AltersController : InterfoldControllerBase
         );
 
         var result = CommandNoContent(await _updateHandler.HandleAsync(envelope, ct));
-        if (!result.IsT0) 
+        if (!result.IsSuccess) 
         {
             return result;
         }
@@ -285,7 +285,7 @@ public sealed class AltersController : InterfoldControllerBase
         );
 
         var result = CommandNoContent(await _updateHandler.HandleAsync(envelope, ct));
-        if (!result.IsT0)
+        if (!result.IsSuccess)
         {
             return result;
         }
