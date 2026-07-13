@@ -9,7 +9,7 @@ namespace Interfold.IntegrationTests.Controllers;
 /// <summary>
 /// Wire-boundary verification for the <c>ValidAlterId</c> refactor: every controller path
 /// that previously accepted a nullable <c>AlterId</c> and defaulted it to <c>new(0)</c> so
-/// <c>CheckAlterId</c> could throw at 500 must now short-circuit at model binding with a
+/// invalid ids could leak past model binding must now short-circuit with a
 /// <c>400 { code: "invalid_alter_id" }</c> — the same wire shape callers already handle for
 /// every other <c>ErrorResponse</c>.
 ///
@@ -118,6 +118,31 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
         await AssertInvalidAlterId(HttpMethod.Delete, $"/api/journals/{journalId}/alter", new { alter_id = 0 });
     }
 
+    // ---------- Route alterId ----------
+
+    [Test]
+    public async Task AltersShow_ZeroRouteAlterId_Returns400InvalidAlterId()
+        => await AssertInvalidAlterIdRoute(HttpMethod.Get, "/api/systems/me/alters/0");
+
+    [Test]
+    public async Task AltersUpdate_ZeroRouteAlterId_Returns400InvalidAlterId()
+        => await AssertInvalidAlterIdRoute(HttpMethod.Patch, "/api/systems/me/alters/0", new { name = "ignored" });
+
+    [Test]
+    public async Task AltersDelete_ZeroRouteAlterId_Returns400InvalidAlterId()
+        => await AssertInvalidAlterIdRoute(HttpMethod.Delete, "/api/systems/me/alters/0");
+
+    [Test]
+    public async Task AlterJournalsIndex_ZeroRouteAlterId_Returns400InvalidAlterId()
+        => await AssertInvalidAlterIdRoute(HttpMethod.Get, "/api/systems/me/alters/0/journals");
+
+    [Test]
+    public async Task PublicSystemsShowAlter_ZeroRouteAlterId_Returns400InvalidAlterId()
+    {
+        var systemId = $"public-alterid-{Guid.NewGuid():N}"[..32];
+        await AssertInvalidAlterIdRoute(HttpMethod.Get, $"/api/systems/{systemId}/alters/0");
+    }
+
     // ---------- helpers ----------
 
     private async Task AssertInvalidAlterId(HttpMethod method, string path, object body)
@@ -173,5 +198,46 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
         req.Content = JsonContent.Create(body);
         AttachPrincipalAuth(req, client, principal);
         return await client.SendAsync(req);
+    }
+
+    private async Task AssertInvalidAlterIdRoute(HttpMethod method, string path, object? body = null)
+    {
+        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+
+        var principal = $"alterid-route-neg-{Guid.NewGuid():N}"[..32];
+        await EnsureUserExistsAsync(client, principal);
+
+        using var req = new HttpRequestMessage(method, path);
+        if (body is not null)
+        {
+            req.Content = JsonContent.Create(body);
+        }
+
+        AttachPrincipalAuth(req, client, principal);
+
+        var res = await client.SendAsync(req);
+        var payload = await res.Content.ReadAsStringAsync();
+
+        using (Assert.Multiple())
+        {
+            await Assert.That(res.StatusCode)
+                .IsEqualTo(HttpStatusCode.BadRequest)
+                .Because($"expected 400 for invalid route AlterId at {method} {path}. Body: {payload}");
+
+            using var doc = JsonDocument.Parse(payload);
+            var code = ReadStringField(doc.RootElement, "code");
+            var error = ReadStringField(doc.RootElement, "error");
+
+            await Assert.That(code)
+                .IsEqualTo(InvalidAlterIdCode)
+                .Because($"the ErrorResponse code must survive route-parameter validation mapping. Body: {payload}");
+
+            await Assert.That(error)
+                .IsEqualTo(InvalidAlterIdMessage)
+                .Because($"the error message must be the sentinel used by ValidationErrorCodeRegistry. Body: {payload}");
+        }
     }
 }

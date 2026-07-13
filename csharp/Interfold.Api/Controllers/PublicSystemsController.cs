@@ -6,6 +6,7 @@ using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.AspNetCore.Mvc;
 using Interfold.Contracts;
+using Interfold.Contracts.Validation;
 
 namespace Interfold.Api.Controllers;
 
@@ -64,9 +65,8 @@ public sealed class PublicSystemsController : InterfoldControllerBase
     }
 
     [HttpGet("alters/{alterId:int}")]
-    public async Task<Response<BareAlter>> ShowAlter([FromRoute] SystemId systemId, [FromRoute] AlterId alterId, CancellationToken ct)
+    public async Task<Response<BareAlter>> ShowAlter([FromRoute] SystemId systemId, [FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
-        await CheckAlterId(alterId);
         if (!await SystemExistsAsync(systemId, ct))
         {
             return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);

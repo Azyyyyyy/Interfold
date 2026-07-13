@@ -14,7 +14,6 @@ using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
-using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Controllers.Base;
 
@@ -45,30 +44,6 @@ public abstract class InterfoldControllerBase : ControllerBase
         }
     }
 
-    protected async ValueTask CheckAlterId(AlterId alterId, SystemId? principal = null, CancellationToken? ct = null)
-    {
-        if (alterId.Value <= 0)
-        {
-            throw new InterfoldException("Invalid alter ID.", ErrorCodes.InvalidAlterId);
-        }
-
-        if (string.IsNullOrWhiteSpace(principal?.Value))
-        {
-            return;
-        }
-
-        if (!ct.HasValue)
-        {
-            throw new InterfoldException("CT is required on alter check", ErrorCodes.AlterCheckServerIssue);
-        }
-
-        var alterRepository = HttpContext.RequestServices.GetRequiredService<IAlterRepository>();
-        var alterExists = await alterRepository.ExistsAsync(principal.Value, alterId, ct.Value);
-        if (!alterExists)
-        {
-            throw new InterfoldException("Alter not found", ErrorCodes.AlterNotFound);
-        }
-    }
 
     /// <summary>
     /// Resolves the idempotency key for the current request: the

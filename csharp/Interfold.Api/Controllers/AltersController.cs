@@ -13,6 +13,7 @@ using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Alters;
 using Interfold.Api.Controllers.Base;
 using Interfold.Contracts;
+using Interfold.Contracts.Validation;
 
 namespace Interfold.Api.Controllers;
 
@@ -47,9 +48,8 @@ public sealed class AltersController : InterfoldControllerBase
     }
 
     [HttpGet("{alterId:int}")]
-    public async Task<Response<AlterReadModel>> Show(AlterId alterId, CancellationToken ct)
+    public async Task<Response<AlterReadModel>> Show([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
-        await CheckAlterId(alterId);
         var alter = await _alterRepository.GetAsync(PrincipalId, alterId, ct);
         if (alter is null)
         {
@@ -87,9 +87,8 @@ public sealed class AltersController : InterfoldControllerBase
     }
 
     [HttpPatch("{alterId:int}")]
-    public async Task<Response> Update(AlterId alterId, [FromBody] UpdateAlterRequest req, CancellationToken ct)
+    public async Task<Response> Update([FromRoute][ValidAlterId] AlterId alterId, [FromBody] UpdateAlterRequest req, CancellationToken ct)
     {
-        await CheckAlterId(alterId);
         var fields = req.Fields?.Select(f => new AlterFieldCommand(f.Id, f.Value)).ToList();
 
         // PATCH does not currently expose AvatarUrl as a mutable field — avatar updates go
@@ -126,9 +125,8 @@ public sealed class AltersController : InterfoldControllerBase
 
     //TODO: To ensure route works as expected - check if we delete alter journal entries, unattach from gobal journals when an alter is deleted and delete them from polls
     [HttpDelete("{alterId:int}")]
-    public async Task<Response> Delete(AlterId alterId, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Delete([FromRoute][ValidAlterId] AlterId alterId, [FromBody] BaseRequest? req, CancellationToken ct)
     {
-        await CheckAlterId(alterId);
         var envelope = new CommandEnvelope<DeleteAlterCommand>(
             OperationIds.AlterDelete, Guid.NewGuid(),
             PrincipalId: PrincipalId,
@@ -141,9 +139,8 @@ public sealed class AltersController : InterfoldControllerBase
 
     [HttpPut("{alterId:int}/avatar")]
     [Consumes("multipart/form-data")]
-    public async Task<Response> UploadAvatarMultipart(AlterId alterId, CancellationToken ct)
+    public async Task<Response> UploadAvatarMultipart([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
-        await CheckAlterId(alterId);
         var principal = PrincipalId;
 
         var upload = await ResolveMultipartUploadAsync(ct);
@@ -238,10 +235,8 @@ public sealed class AltersController : InterfoldControllerBase
     /// </summary>
     [HttpPut("{alterId:int}/avatar")]
     [Consumes("application/json")]
-    public async Task<Response> UploadAvatarByUrl(AlterId alterId, [FromBody] AvatarUrlUploadRequest req, CancellationToken ct)
+    public async Task<Response> UploadAvatarByUrl([FromRoute][ValidAlterId] AlterId alterId, [FromBody] AvatarUrlUploadRequest req, CancellationToken ct)
     {
-        await CheckAlterId(alterId);
-
         if (req is null)
             return new ErrorResponse("Avatar URL payload required.", ErrorCodes.AvatarUrlInvalid, System.Net.HttpStatusCode.BadRequest);
 
@@ -310,9 +305,8 @@ public sealed class AltersController : InterfoldControllerBase
     }
 
     [HttpDelete("{alterId:int}/avatar")]
-    public async Task<Response> DeleteAvatar(AlterId alterId, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> DeleteAvatar([FromRoute][ValidAlterId] AlterId alterId, [FromBody] BaseRequest? req, CancellationToken ct)
     {
-        await CheckAlterId(alterId);
         var principal = PrincipalId;
 
         var existingAlter = await _alterRepository.GetAsync(principal, alterId, ct);

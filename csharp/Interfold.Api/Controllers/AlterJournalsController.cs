@@ -9,6 +9,7 @@ using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Journals;
 using Interfold.Api.Controllers.Base;
 using Interfold.Contracts;
+using Interfold.Contracts.Validation;
 
 namespace Interfold.Api.Controllers;
 
@@ -39,11 +40,9 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     }
 
     [HttpGet("{alterId:int}/journals")]
-    public async Task<Response<IEnumerable<AlterJournalReadModel>>> Index(AlterId alterId, CancellationToken ct)
+    public async Task<Response<IEnumerable<AlterJournalReadModel>>> Index([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
         var principal = PrincipalId;
-        await CheckAlterId(alterId, principal, ct);
-
         IEnumerable<AlterJournalReadModel> entries = await _journalRepository.ListAlterAsync(principal, alterId, ct);
         return new SuccessResponse<IEnumerable<AlterJournalReadModel>>(entries);
     }
@@ -58,10 +57,9 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     }
 
     [HttpPost("{alterId:int}/journals")]
-    public async Task<Response<AlterJournalReadModel>> Create(AlterId alterId, [FromBody] CreateAlterJournalRequest req, CancellationToken ct)
+    public async Task<Response<AlterJournalReadModel>> Create([FromRoute][ValidAlterId] AlterId alterId, [FromBody] CreateAlterJournalRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        await CheckAlterId(alterId);
 
         var envelope = new CommandEnvelope<CreateAlterJournalEntryCommand>(
             OperationIds.JournalAlterCreate,

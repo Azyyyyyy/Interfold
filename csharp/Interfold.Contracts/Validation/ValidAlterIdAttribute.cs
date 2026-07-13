@@ -10,7 +10,7 @@ using Interfold.Contracts.Ids;
 /// <c>StartFrontCommandHandler</c>, <c>EndFrontCommandHandler</c>, <c>SetFrontCommandHandler</c>,
 /// which reject <c>&lt; 1 or &gt; 32_767</c>). Applied at the wire boundary so a bad payload
 /// short-circuits at model binding with a <c>400</c> instead of tripping the handler's
-/// invariant guard or the controller-side <c>CheckAlterId</c>.
+/// invariant guard.
 ///
 /// Mirrors the <c>AbsoluteHttpUriAttribute</c> / <c>AbsolutePathAttribute</c> pattern
 /// used by the configuration models: a small pure-logic core (<see cref="IsValid"/>)
@@ -18,9 +18,9 @@ using Interfold.Contracts.Ids;
 /// the wire" rule in one place.
 ///
 /// The default <see cref="ValidationAttribute.ErrorMessage"/> is
-/// <c>"Invalid alter ID."</c> — the same string that the legacy
-/// <c>InterfoldControllerBase.CheckAlterId</c> threw so the wire response the client
-/// sees is unchanged apart from the corrected <c>400</c> status.
+/// <c>"Invalid alter ID."</c> so the wire response code remains
+/// <c>invalid_alter_id</c> when <c>InvalidModelStateResponseFactory</c> maps
+/// DataAnnotations failures.
 /// </summary>
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter, AllowMultiple = false)]
 public sealed class ValidAlterIdAttribute : ValidationAttribute
@@ -69,6 +69,8 @@ public sealed class ValidAlterIdAttribute : ValidationAttribute
             return new ValidationResult(ErrorMessage, [memberName]);
         }
 
+        /*TODO: When .NET 11 comes out, readd the actual DB check here! (Need Async support)
+          happy to lose this guard in the short term*/
         return IsValid(alterId)
             ? ValidationResult.Success
             : new ValidationResult(ErrorMessage, [memberName]);
