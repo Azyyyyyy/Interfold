@@ -36,7 +36,7 @@ public sealed class InMemoryRegionContext : IRegionContext
         //
         // Strip the region prefix first so the hash is a function of the principal, not
         // of the caller's chosen wire form. Mirrors ScyllaUserRegistryRegionContext.
-        var normalized = SystemIdNormalization.StripRegionPrefix(systemId);
+        var normalized = ScopedSystemId.StripRegionPrefix(systemId);
         var index = Math.Abs(normalized.GetHashCode(StringComparison.Ordinal)) % Regions.Length;
         return Regions[index];
     }

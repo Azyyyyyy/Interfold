@@ -505,7 +505,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    // Fixed-point loop because SystemIdNormalization.StripRegionPrefix strips at most one
+    // Fixed-point loop because ScopedSystemId.StripRegionPrefix strips at most one
     // leading region tag per call; a legacy row that somehow carried a double-prefixed value
     // ("nam:nam:abcdefg") would otherwise slip through with the outer prefix intact.
     private string NormalizeRegistryUserId(SystemId userId)

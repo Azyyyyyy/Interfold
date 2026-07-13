@@ -79,7 +79,7 @@ try
 		return ExitSuccess;
 	}
 
-	logger.LogError("Import failed: {Code} {Reason}", result.ErrorCode?.ToWireValue(), result.ErrorMessage);
+	logger.LogError("Import failed: {Code} {Reason}", result.ErrorCode?.ToWire(), result.ErrorMessage);
 	return ExitImportFailed;
 }
 catch (Exception ex)

@@ -1,3 +1,4 @@
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 
 namespace Interfold.Contracts.Models.ImportOperations;
@@ -15,7 +16,7 @@ namespace Interfold.Contracts.Models.ImportOperations;
 /// <param name="StartedAt">When the dispatcher claimed the slot. Always present.</param>
 /// <param name="FinishedAt">When the worker transitioned the row to <see cref="ImportOperationStatus.Succeeded"/> or <see cref="ImportOperationStatus.Failed"/>. Null while <c>Queued</c> or <c>Running</c>.</param>
 /// <param name="AlterCount">Number of alters the importer reported on success. Null for non-succeeded rows.</param>
-/// <param name="ErrorCode">Stable machine code on failure. Null otherwise — including for legacy rows whose persisted string no longer parses (tolerant read via <see cref="ImportErrorCodeExtensions.TryParse"/>); pair with <paramref name="ErrorMessage"/> for the human detail.</param>
+/// <param name="ErrorCode">Stable machine code on failure. Null otherwise — including for legacy rows whose persisted string no longer parses (tolerant read via <see cref="EnumWire{TEnum}.TryParse"/>); pair with <paramref name="ErrorMessage"/> for the human detail.</param>
 /// <param name="ErrorMessage">Optional human-readable failure message. Null otherwise.</param>
 /// <param name="IdempotencyKey">The raw idempotency-key string the dispatching controller observed (any client-supplied shape — UUID, base64, Guid.ToString("N"), etc.). Pinned here for audit / debugging only — the per-system mutex (active_import_by_system) is the load-bearing dedupe mechanism.</param>
 public sealed record ImportOperationSnapshot(

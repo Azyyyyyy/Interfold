@@ -19,10 +19,10 @@ internal static class InMemoryStorageKeys
     /// <see cref="string"/>. Preferred entry point for the InMemory repositories that key
     /// by a normalized system id (friendship, encryption, notification, auth-revocation, ...).
     /// Callers that specifically need the raw <see cref="string"/> can call
-    /// <c>SystemIdNormalization.StripRegionPrefix</c> directly.
+    /// <see cref="ScopedSystemId.StripRegionPrefix(string)"/> directly.
     /// </summary>
     public static SystemId Normalize(SystemId systemId)
-        => new(SystemIdNormalization.StripRegionPrefix(systemId.Value));
+        => new(ScopedSystemId.StripRegionPrefix(systemId.Value));
 
     /// <summary>
     /// The per-system dictionary partition key: <c>"{region}:{systemId}"</c>. Routed through
@@ -51,7 +51,7 @@ internal static class InMemoryStorageKeys
     /// tag / fronting read model relies on.
     ///
     /// <para>
-    /// The self-check normalises through <see cref="SystemIdNormalization.StripRegionPrefix"/>
+    /// The self-check normalises through <see cref="ScopedSystemId.StripRegionPrefix(SystemId)"/>
     /// on both sides so a viewer arriving scoped (<c>"nam:abcdefg"</c>) still matches an
     /// owner arriving raw (<c>"abcdefg"</c>) and vice versa. Byte-identical to the
     /// equivalent Scylla shared-query self-check.
@@ -68,8 +68,8 @@ internal static class InMemoryStorageKeys
             return null;
         }
 
-        if (SystemIdNormalization.StripRegionPrefix(systemId) ==
-            SystemIdNormalization.StripRegionPrefix(viewerSystemId.Value))
+        if (ScopedSystemId.StripRegionPrefix(systemId) ==
+            ScopedSystemId.StripRegionPrefix(viewerSystemId.Value))
         {
             return FriendshipLevel.TrustedFriend;
         }

@@ -181,7 +181,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             var update = new SimpleStatement(
                 $"UPDATE {keyspace}.import_operations SET status = ?, finished_at = ?, error_code = ?, error_message = ? " +
                 "WHERE system_id = ? AND operation_id = ?",
-                ImportOperationStatus.Failed.ToWire(), now.UtcDateTime, errorCode.ToWireValue(), errorMessage,
+                ImportOperationStatus.Failed.ToWire(), now.UtcDateTime, errorCode.ToWire(), errorMessage,
                 normalizedSystemId, (TimeUuid)operationId.Value);
             await session.ExecuteAsync(update);
 
@@ -302,6 +302,11 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             ? new DateTimeOffset(finishedAtRaw.Value, TimeSpan.Zero)
             : null;
 
+        var errorCodeText = row.GetValue<string?>("error_code");
+        ImportErrorCode? errorCode = errorCodeText.TryParseWire<ImportErrorCode>(out var parsedErrorCode)
+            ? parsedErrorCode
+            : null;
+
         return new ImportOperationSnapshot(
             new(row.GetValue<string>("system_id")),
             new(row.GetValue<TimeUuid>("operation_id").ToGuid()),
@@ -310,7 +315,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             startedAt,
             finishedAt,
             row.GetValue<int?>("alter_count"),
-            ImportErrorCodeExtensions.TryParse(row.GetValue<string?>("error_code")),
+            errorCode,
             row.GetValue<string>("error_message"),
             new(row.GetValue<string>("idempotency_key")));
     }

@@ -105,7 +105,7 @@ public sealed class LocalAvatarStorage : IAvatarStorage
     // one place instead of once per call site.
     private async Task<AvatarUrl> SaveAsync(SystemId systemId, string targetId, Stream stream, CancellationToken cancellationToken)
     {
-        var rawSystemId = SystemIdNormalization.StripRegionPrefix(systemId);
+        var rawSystemId = ScopedSystemId.StripRegionPrefix(systemId);
         var safeSystemId = SafeSegmentPattern.Replace(rawSystemId, "_");
         var safeTargetId = SafeSegmentPattern.Replace(targetId, "_");
 

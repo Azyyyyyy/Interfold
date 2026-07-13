@@ -74,5 +74,5 @@ public sealed class ScyllaKeyspaceResolver : IScyllaKeyspaceResolver
     public string ResolveGlobalKeyspace() => ScyllaGlobalKeyspace.Name;
 
     public string NormalizeSystemId(SystemId systemId)
-        => SystemIdNormalization.StripRegionPrefix(systemId);
+        => ScopedSystemId.StripRegionPrefix(systemId);
 }

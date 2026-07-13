@@ -70,7 +70,7 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
     public static ScopedSystemId Compose(ScyllaKeyspace region, string maybeScoped)
     {
         ArgumentNullException.ThrowIfNull(maybeScoped);
-        var raw = StripLeadingRegionPrefix(maybeScoped);
+        var raw = StripRegionPrefix(maybeScoped);
         if (string.IsNullOrWhiteSpace(raw))
         {
             throw new ArgumentException("Cannot compose a ScopedSystemId from a blank id.", nameof(maybeScoped));
@@ -265,23 +265,43 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
         [MaybeNullWhen(false)] out ScopedSystemId result)
         => TryParseScoped(s, out result);
 
-    // --- Internal helpers (also used by SystemIdNormalization to keep one source of truth) ---
+    // --- Public strip helpers (single source of truth for the region-prefix strip) ---
 
     /// <summary>
-    /// Strip a leading <c>{region}:</c> prefix if present. The strip fires only when the
-    /// substring before the first colon is a recognised region tag; every other input
-    /// (blank, no colon, colon-at-start, non-region prefix like <c>"username:"</c>) is
-    /// returned unchanged. The friend-request discriminator prefixes
-    /// (<c>username:</c>, <c>id:</c>) belong to <see cref="FriendLookup"/>, and the
-    /// registry-column discriminator prefixes (<c>username:</c> / <c>discord:</c> /
-    /// <c>id:</c>) belong to the internal Scylla <c>UserRegistryLookup</c> — refusing to
-    /// strip them here keeps the parsers' responsibilities separate. A bare prefix like
-    /// <c>"nam:"</c>
-    /// deliberately returns empty so <see cref="Compose(ScyllaKeyspace, string)"/> surfaces
-    /// the caller-bug via its blank-raw guard rather than emitting a malformed
-    /// <c>"nam:nam:"</c>.
+    /// Typed overload — strips the region prefix from the wrapped
+    /// <see cref="SystemId.Value"/>. Delegates to the string overload; kept so callers
+    /// holding a typed <see cref="SystemId"/> don't have to unwrap to <see cref="string"/>
+    /// just to normalise.
     /// </summary>
-    internal static string StripLeadingRegionPrefix(string maybeScoped)
+    public static string StripRegionPrefix(SystemId systemId) => StripRegionPrefix(systemId.Value);
+
+    /// <summary>
+    /// Strip a leading <c>{region}:</c> prefix if present, e.g.
+    /// <c>"nam:abcdefg"</c> → <c>"abcdefg"</c>. The strip fires only when the substring
+    /// before the first colon is a recognised region tag (<c>nam</c>, <c>eur</c>,
+    /// <c>sam</c>, <c>sas</c>, <c>eas</c>, <c>ocn</c>, <c>gdpr</c>); every other input
+    /// (blank, no colon, colon-at-start, non-region prefix like <c>"username:"</c>) is
+    /// returned unchanged. The strip is <b>single-pass</b> — a double-prefixed
+    /// <c>"nam:nam:abcdefg"</c> yields <c>"nam:abcdefg"</c>, not the bare id; callers that
+    /// need to canonicalise a suspected legacy double-prefix loop this call to a fixed
+    /// point.
+    ///
+    /// <para>
+    /// The friend-request discriminator prefixes (<c>username:</c>, <c>id:</c>) belong to
+    /// <see cref="FriendLookup"/>, and the registry-column discriminator prefixes
+    /// (<c>username:</c> / <c>discord:</c> / <c>id:</c>) belong to the internal Scylla
+    /// <c>UserRegistryLookup</c> — refusing to strip them here keeps the parsers'
+    /// responsibilities separate. A bare prefix like <c>"nam:"</c> deliberately returns
+    /// empty so <see cref="Compose(ScyllaKeyspace, string)"/> surfaces the caller-bug via
+    /// its blank-raw guard rather than emitting a malformed <c>"nam:nam:"</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// Not to be confused with <c>Interfold.Domain.FriendshipIdNormalization</c>, which
+    /// deliberately re-applies the principal's prefix — different semantics.
+    /// </para>
+    /// </summary>
+    public static string StripRegionPrefix(string maybeScoped)
     {
         if (string.IsNullOrWhiteSpace(maybeScoped))
         {

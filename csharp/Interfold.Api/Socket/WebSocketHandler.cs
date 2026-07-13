@@ -580,7 +580,7 @@ internal static string ResolveLoopbackBaseUri(ICollection<string>? addresses)
 /// </para>
 /// <para>
 /// Sub-side normalisation reads <see cref="ScopedSystemId.RawId"/> directly.
-/// Topic-side normalisation keeps <see cref="SystemIdNormalization.StripRegionPrefix"/>
+/// Topic-side normalisation keeps <see cref="ScopedSystemId.StripRegionPrefix(string)"/>
 /// because <c>SystemTopic.TryParse</c> wraps whatever the client put after
 /// <c>system:</c> into a bare <c>SystemId</c>, which can still arrive raw <b>or</b>
 /// scoped depending on the client.
@@ -603,7 +603,7 @@ internal static bool IsTokenSubjectAuthorizedForTopic(
 
     return string.Equals(
         tokenSubject.Value.RawId,
-        SystemIdNormalization.StripRegionPrefix(requestedSystemId.Value.Value),
+        ScopedSystemId.StripRegionPrefix(requestedSystemId.Value.Value),
         StringComparison.Ordinal);
 }
 

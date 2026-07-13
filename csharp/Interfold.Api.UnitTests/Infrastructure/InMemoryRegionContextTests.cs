@@ -65,7 +65,7 @@ public sealed class InMemoryRegionContextTests
             .Because("The region prefix is stripped, not gated on — a caller that happens to hold the id under a different region wire tag (rare but possible across the seven canonical regions) must not partition into a different physical bucket.");
     }
 
-    // Note: single-vs-recursive strip semantics live in ScopedSystemId.StripLeadingRegionPrefix
+    // Note: single-vs-recursive strip semantics live in ScopedSystemId.StripRegionPrefix
     // and are covered by that type's own unit tests. Adding a "double-scoped" pin here would
     // duplicate that coverage and — because we can't observe the intermediate strip residue
     // from the outside without a pinned hash — could only assert probabilistic properties
@@ -114,7 +114,7 @@ public sealed class InMemoryRegionContextTests
         var ctx = new InMemoryRegionContext(currentRegion: ScyllaKeyspace.Eur);
 
         // default(SystemId) surfaces Value == null — the one shape that would otherwise
-        // NullReferenceException inside SystemIdNormalization.StripRegionPrefix.
+        // NullReferenceException inside ScopedSystemId.StripRegionPrefix.
         var region = ctx.ResolveUserRegion(default);
 
         await Assert.That(region).IsEqualTo(ScyllaKeyspace.Eur)

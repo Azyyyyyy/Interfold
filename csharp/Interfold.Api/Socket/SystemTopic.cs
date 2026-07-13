@@ -33,7 +33,7 @@ internal readonly record struct SystemTopic(SystemId Id)
     /// so ids can be compared across prefixed and unprefixed spellings.
     /// </summary>
     public static string ComparableId(string systemId)
-        => SystemIdNormalization.StripRegionPrefix(systemId);
+        => ScopedSystemId.StripRegionPrefix(systemId);
 
     /// <summary>Region-prefix-tolerant equality between two raw system-id spellings.</summary>
     public static bool IdMatches(string? left, string? right)
