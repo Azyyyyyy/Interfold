@@ -99,7 +99,7 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     }
 
     [HttpDelete("journals/{journalId}")]
-    public async Task<Response> Delete(EntryId journalId, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Delete(EntryId journalId, CancellationToken ct)
     {
         var envelope = new CommandEnvelope<DeleteAlterJournalEntryCommand>(
             OperationIds.JournalAlterDelete,
@@ -114,22 +114,22 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     }
 
     [HttpPost("journals/{journalId}/lock")]
-    public async Task<Response> Lock(EntryId journalId, [FromBody] BaseRequest? req, CancellationToken ct)
-        => await SetLockedInternal(journalId, true, OperationIds.JournalAlterLock, req, ct);
+    public async Task<Response> Lock(EntryId journalId, CancellationToken ct)
+        => await SetLockedInternal(journalId, true, OperationIds.JournalAlterLock, ct);
 
     [HttpPost("journals/{journalId}/unlock")]
-    public async Task<Response> Unlock(EntryId journalId, [FromBody] BaseRequest? req, CancellationToken ct)
-        => await SetLockedInternal(journalId, false, OperationIds.JournalAlterUnlock, req, ct);
+    public async Task<Response> Unlock(EntryId journalId, CancellationToken ct)
+        => await SetLockedInternal(journalId, false, OperationIds.JournalAlterUnlock, ct);
 
     [HttpPost("journals/{journalId}/pin")]
-    public async Task<Response> Pin(EntryId journalId, [FromBody] BaseRequest? req, CancellationToken ct)
-        => await SetPinnedInternal(journalId, true, OperationIds.JournalAlterPin, req, ct);
+    public async Task<Response> Pin(EntryId journalId, CancellationToken ct)
+        => await SetPinnedInternal(journalId, true, OperationIds.JournalAlterPin, ct);
 
     [HttpPost("journals/{journalId}/unpin")]
-    public async Task<Response> Unpin(EntryId journalId, [FromBody] BaseRequest? req, CancellationToken ct)
-        => await SetPinnedInternal(journalId, false, OperationIds.JournalAlterUnpin, req, ct);
+    public async Task<Response> Unpin(EntryId journalId, CancellationToken ct)
+        => await SetPinnedInternal(journalId, false, OperationIds.JournalAlterUnpin, ct);
 
-    private async Task<Response> SetLockedInternal(EntryId journalId, bool locked, OperationId operationId, BaseRequest? req, CancellationToken ct)
+    private async Task<Response> SetLockedInternal(EntryId journalId, bool locked, OperationId operationId, CancellationToken ct)
     {
         var envelope = new CommandEnvelope<SetAlterJournalLockedCommand>(
             operationId,
@@ -143,7 +143,7 @@ public sealed class AlterJournalsController : InterfoldControllerBase
         return CommandNoContent(await _setLocked.HandleAsync(envelope, ct));
     }
 
-    private async Task<Response> SetPinnedInternal(EntryId journalId, bool pinned, OperationId operationId, BaseRequest? req, CancellationToken ct)
+    private async Task<Response> SetPinnedInternal(EntryId journalId, bool pinned, OperationId operationId, CancellationToken ct)
     {
         var envelope = new CommandEnvelope<SetAlterJournalPinnedCommand>(
             operationId,

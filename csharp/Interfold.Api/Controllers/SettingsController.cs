@@ -251,7 +251,7 @@ public sealed class SettingsController : InterfoldControllerBase
 
     //TODO: To ensure route works as expected - does not delete journal entries currently which need adding
     [HttpPost("reset-encryption")]
-    public async Task<Response> ResetEncryption([FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> ResetEncryption(CancellationToken ct)
     {
         var envelope = new CommandEnvelope<ResetEncryptionCommand>(
             OperationIds.SettingsEncryptionReset,
@@ -398,7 +398,7 @@ public sealed class SettingsController : InterfoldControllerBase
     }
 
     [HttpDelete("avatar")]
-    public async Task<Response> DeleteAvatar([FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> DeleteAvatar(CancellationToken ct)
     {
         var principal = PrincipalId;
         var currentProfile = await _accountRepository.GetPublicProfileAsync(principal, ct);
@@ -498,7 +498,7 @@ public sealed class SettingsController : InterfoldControllerBase
     }
 
     [HttpPost("unlink_discord")]
-    public async Task<Response> UnlinkDiscord([FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> UnlinkDiscord(CancellationToken ct)
     {
         var envelope = new CommandEnvelope<UnlinkDiscordCommand>(
             OperationIds.SettingsAuthUnlinkDiscord,
@@ -513,7 +513,7 @@ public sealed class SettingsController : InterfoldControllerBase
     }
 
     [HttpPost("unlink_email")]
-    public async Task<Response> UnlinkEmail([FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> UnlinkEmail(CancellationToken ct)
     {
         var envelope = new CommandEnvelope<UnlinkEmailCommand>(
             OperationIds.SettingsAuthUnlinkEmail,
@@ -529,7 +529,7 @@ public sealed class SettingsController : InterfoldControllerBase
 
     //TODO: To ensure route works as expected - other ones work but this one needs testing to ensure the command handler is correctly implemented
     [HttpPost("unlink_apple")]
-    public async Task<Response> UnlinkApple([FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> UnlinkApple(CancellationToken ct)
     {
         var envelope = new CommandEnvelope<UnlinkAppleCommand>(
             OperationIds.SettingsAuthUnlinkApple,
@@ -545,7 +545,7 @@ public sealed class SettingsController : InterfoldControllerBase
 
     //TODO: To ensure route works as expected
     [HttpPost("delete-account")]
-    public async Task<Response> DeleteAccount([FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> DeleteAccount(CancellationToken ct)
     {
         var envelope = new CommandEnvelope<DeleteAccountCommand>(
             OperationIds.SettingsAccountDelete,
@@ -560,7 +560,7 @@ public sealed class SettingsController : InterfoldControllerBase
     }
 
     [HttpPost("wipe-alters")]
-    public async Task<Response> WipeAlters([FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> WipeAlters(CancellationToken ct)
     {
         var envelope = new CommandEnvelope<WipeAltersCommand>(
             OperationIds.SettingsAltersWipe,
@@ -575,7 +575,7 @@ public sealed class SettingsController : InterfoldControllerBase
     }
 
     [HttpPost("wipe-tags")]
-    public async Task<Response> WipeTags([FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> WipeTags(CancellationToken ct)
     {
         var envelope = new CommandEnvelope<WipeTagsCommand>(
             OperationIds.SettingsTagsWipe,
@@ -629,7 +629,7 @@ public sealed class SettingsController : InterfoldControllerBase
     }
 
     [HttpDelete("fields/{id}")]
-    public async Task<Response> DeleteField([FromRoute] FieldId id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> DeleteField([FromRoute] FieldId id, CancellationToken ct)
     {
         var envelope = new CommandEnvelope<DeleteFieldCommand>(
             OperationIds.SettingsFieldDelete,

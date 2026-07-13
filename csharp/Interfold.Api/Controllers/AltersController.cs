@@ -125,7 +125,7 @@ public sealed class AltersController : InterfoldControllerBase
 
     //TODO: To ensure route works as expected - check if we delete alter journal entries, unattach from gobal journals when an alter is deleted and delete them from polls
     [HttpDelete("{alterId:int}")]
-    public async Task<Response> Delete([FromRoute][ValidAlterId] AlterId alterId, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Delete([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
         var envelope = new CommandEnvelope<DeleteAlterCommand>(
             OperationIds.AlterDelete, Guid.NewGuid(),
@@ -305,7 +305,7 @@ public sealed class AltersController : InterfoldControllerBase
     }
 
     [HttpDelete("{alterId:int}/avatar")]
-    public async Task<Response> DeleteAvatar([FromRoute][ValidAlterId] AlterId alterId, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> DeleteAvatar([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
         var principal = PrincipalId;
 

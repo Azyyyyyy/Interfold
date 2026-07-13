@@ -93,7 +93,7 @@ public sealed class TagsController : InterfoldControllerBase
 
     //TODO: To ensure route works as expected - check if we unattach alters and remove parent tag relationships when a tag is deleted
     [HttpDelete("{id}")]
-    public async Task<Response> DeleteTag(TagId id, [FromBody] BaseRequest? body, CancellationToken ct)
+    public async Task<Response> DeleteTag(TagId id, CancellationToken ct)
     {
         var command = new CommandEnvelope<DeleteTagCommand>(
             OperationId: OperationIds.TagDelete,
@@ -156,7 +156,7 @@ public sealed class TagsController : InterfoldControllerBase
     }
 
     [HttpDelete("{id}/parent")]
-    public async Task<Response> RemoveParent(TagId id, [FromBody] BaseRequest? body, CancellationToken ct)
+    public async Task<Response> RemoveParent(TagId id, CancellationToken ct)
     {
         var command = new CommandEnvelope<RemoveParentTagCommand>(
             OperationId: OperationIds.TagRemoveParent,

@@ -174,7 +174,7 @@ public sealed class FrontingController : InterfoldControllerBase
     }
 
     [HttpDelete("{id}")]
-    public async Task<Response> Delete(FrontId id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Delete(FrontId id, CancellationToken ct)
     {
         var envelope = new CommandEnvelope<DeleteFrontByIdCommand>(
             OperationIds.FrontDelete,

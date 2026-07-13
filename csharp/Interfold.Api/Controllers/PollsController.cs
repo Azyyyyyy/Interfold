@@ -106,7 +106,7 @@ public sealed class PollsController : InterfoldControllerBase
     }
 
     [HttpDelete("{id}")]
-    public async Task<Response> Delete(PollId id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Delete(PollId id, CancellationToken ct)
     {
         var envelope = new CommandEnvelope<DeletePollCommand>(
             OperationIds.PollDelete,

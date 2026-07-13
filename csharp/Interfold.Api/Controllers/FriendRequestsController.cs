@@ -62,7 +62,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     // pipeline surfaces a 400 before this action runs. The command handler resolves
     // Kind.Username via IFriendshipRepository.ResolveUserIdAsync.
     [HttpPut("{id}")]
-    public async Task<Response> Send(FriendLookup id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Send(FriendLookup id, CancellationToken ct)
     {
         var principal = PrincipalId;
         // Semantic self-check via the FriendLookup overload — catches the "client
@@ -91,7 +91,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     }
 
     [HttpDelete("{id}")]
-    public async Task<Response> Cancel(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Cancel(SystemId id, CancellationToken ct)
     {
         var principal = PrincipalId;
         // Semantic self-check — CancelFriendRequestCommandHandler has no downstream
@@ -117,7 +117,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     }
 
     [HttpPost("{id}/accept")]
-    public async Task<Response> Accept(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Accept(SystemId id, CancellationToken ct)
     {
         var principal = PrincipalId;
         // Semantic self-check — see Cancel handler for the same rationale.
@@ -141,7 +141,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     }
 
     [HttpPost("{id}/reject")]
-    public async Task<Response> Reject(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Reject(SystemId id, CancellationToken ct)
     {
         var principal = PrincipalId;
         // Semantic self-check — see Cancel handler for the same rationale.

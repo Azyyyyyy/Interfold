@@ -69,7 +69,7 @@ public sealed class FriendsController : InterfoldControllerBase
     }
 
     [HttpDelete("{id}")]
-    public async Task<Response> Delete(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Delete(SystemId id, CancellationToken ct)
     {
         var principal = PrincipalId;
         // Semantic self-check — see Show handler for the same rationale.
@@ -93,19 +93,18 @@ public sealed class FriendsController : InterfoldControllerBase
     }
 
     [HttpPost("{id}/trust")]
-    public async Task<Response> Trust(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
-        => await SetTrustInternal(id, true, OperationIds.FriendTrust, ErrorCodes.CannotTrustSelf, req, ct);
+    public async Task<Response> Trust(SystemId id, CancellationToken ct)
+        => await SetTrustInternal(id, true, OperationIds.FriendTrust, ErrorCodes.CannotTrustSelf, ct);
 
     [HttpPost("{id}/untrust")]
-    public async Task<Response> Untrust(SystemId id, [FromBody] BaseRequest? req, CancellationToken ct)
-        => await SetTrustInternal(id, false, OperationIds.FriendUntrust, ErrorCodes.CannotUntrustSelf, req, ct);
+    public async Task<Response> Untrust(SystemId id, CancellationToken ct)
+        => await SetTrustInternal(id, false, OperationIds.FriendUntrust, ErrorCodes.CannotUntrustSelf, ct);
 
     private async Task<Response> SetTrustInternal(
         SystemId id,
         bool trusted,
         OperationId operationId,
         ErrorCode selfErrorCode,
-        BaseRequest? req,
         CancellationToken ct)
     {
         var principal = PrincipalId;
