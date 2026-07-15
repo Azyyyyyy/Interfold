@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Interfold.Api.ModelBinding;
 using Interfold.Api.Models;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Commands;
@@ -131,17 +132,14 @@ public sealed class FrontingController : InterfoldControllerBase
     //TODO: To ensure route works as expected
     [HttpGet("month")]
     public async Task<Response<IReadOnlyList<FrontHistoryReadModel>>> Month(
-        [FromQuery(Name = FrontingQueryKeys.EndAnchor)] string endAnchor,
+        [FromQuery(Name = FrontingQueryKeys.EndAnchor)]
+        [UnixSecondsBinding(
+            ErrorCode = "invalid_end_anchor",
+            ErrorMessage = "Invalid end anchor. Please pass a valid Unix timestamp.")]
+        UnixSeconds endAnchor,
         CancellationToken ct)
     {
-        // Binding stays string so an unparseable anchor keeps this exact error body.
-        if (!UnixSeconds.TryParse(endAnchor, out var unixEnd))
-            return new ErrorResponse(
-                "Invalid end anchor. Please pass a valid Unix timestamp.",
-                ErrorCodes.InvalidEndAnchor,
-                System.Net.HttpStatusCode.BadRequest);
-
-        var end = unixEnd.ToDateTimeOffset();
+        var end = endAnchor.ToDateTimeOffset();
         var start = end.AddDays(-30);
         var fronts = await _repository.ListHistoryBetweenAsync(PrincipalId, start, end, ct);
         return new SuccessResponse<IReadOnlyList<FrontHistoryReadModel>>(fronts);
@@ -149,17 +147,23 @@ public sealed class FrontingController : InterfoldControllerBase
 
     [HttpGet("between")]
     public async Task<Response<IReadOnlyList<FrontHistoryReadModel>>> Between(
-        [FromQuery(Name = FrontingQueryKeys.Start)] string startAnchor,
-        [FromQuery(Name = FrontingQueryKeys.End)] string endAnchor,
+        [FromQuery(Name = FrontingQueryKeys.Start)]
+        [UnixSecondsBinding(
+            ErrorCode = "invalid_anchor",
+            ErrorMessage = "Invalid start anchor. Please pass a valid Unix timestamp.")]
+        UnixSeconds startAnchor,
+        [FromQuery(Name = FrontingQueryKeys.End)]
+        [UnixSecondsBinding(
+            ErrorCode = "invalid_anchor",
+            ErrorMessage = "Invalid end anchor. Please pass a valid Unix timestamp.")]
+        UnixSeconds endAnchor,
         CancellationToken ct)
     {
-        if (!UnixSeconds.TryParse(startAnchor, out var unixStart) || !UnixSeconds.TryParse(endAnchor, out var unixEnd))
-            return new ErrorResponse(
-                "Invalid start or end anchor. Please pass valid Unix timestamps.",
-                ErrorCodes.InvalidAnchor,
-                System.Net.HttpStatusCode.BadRequest);
-
-        var fronts = await _repository.ListHistoryBetweenAsync(PrincipalId, unixStart.ToDateTimeOffset(), unixEnd.ToDateTimeOffset(), ct);
+        var fronts = await _repository.ListHistoryBetweenAsync(
+            PrincipalId,
+            startAnchor.ToDateTimeOffset(),
+            endAnchor.ToDateTimeOffset(),
+            ct);
         return new SuccessResponse<IReadOnlyList<FrontHistoryReadModel>>(fronts);
     }
 

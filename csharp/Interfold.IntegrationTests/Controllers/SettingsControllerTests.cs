@@ -11,7 +11,7 @@ namespace Interfold.IntegrationTests.Controllers;
 public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     [Test]
-    public async Task SettingsField_InvalidType_FallsBackToText_ReturnsCreatedWithId()
+    public async Task SettingsField_InvalidType_ReturnsBadRequest()
     {
         using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -21,20 +21,16 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         var principal = "parity-field-fallback";
         await EnsureUserExistsAsync(client, principal);
 
-        // type = "garbage" — Elixir falls back to "text"; C# must do the same
+        // type = "garbage" — the Elixir server used to fold this to "text", but we deliberately
+        // hold every enum boundary to the same fail-fast contract EnumWireExtensions documents
         using var req1 = new HttpRequestMessage(HttpMethod.Post, "/api/settings/fields")
         {
             Content = JsonContent.Create(new { name = "FallbackField", type = "garbage" })
         };
         AttachPrincipalAuth(req1, client, principal);
         var res1 = await client.SendAsync(req1);
-        var body1 = await res1.Content.ReadAsStringAsync();
 
-        using (Assert.Multiple())
-        {
-            await Assert.That(res1.StatusCode).IsEqualTo(HttpStatusCode.Created);
-            await Assert.That(ReadNestedString(body1, "data", "id")).IsNotNullOrWhiteSpace();
-        }
+        await Assert.That(res1.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
     }
     
     [Test]

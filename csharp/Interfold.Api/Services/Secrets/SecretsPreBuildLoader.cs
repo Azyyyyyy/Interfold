@@ -1,5 +1,6 @@
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Secrets;
 using Npgsql;
 
@@ -63,7 +64,7 @@ internal static class SecretsPreBuildLoader
         var config = cfg.Build();
         var snapshot = new SecretsSnapshot();
 
-        if (config.GetValue<PersistenceMode>(OctoconEnvKeys.Persistence) == PersistenceMode.ScyllaPostgres)
+        if (EnumWireExtensions.ParsePersistenceMode(config[OctoconEnvKeys.Persistence]) == PersistenceMode.ScyllaPostgres)
         {
             var pgConn = config[OctoconEnvKeys.PostgresConnection];
             if (string.IsNullOrWhiteSpace(pgConn))

@@ -5,6 +5,7 @@ using Interfold.Api;
 using Interfold.Api.Auth;
 using Interfold.Api.Helpers;
 using Interfold.Api.Middleware;
+using Interfold.Api.ModelBinding;
 using Interfold.Api.Models;
 using Interfold.Api.Services;
 using Interfold.Api.Services.Http;
@@ -262,7 +263,15 @@ builder.Services
     });
 
 // --- MVC ---
-builder.Services.AddControllers()
+// The UnixSecondsModelBinderProvider is inserted at position 0 so it takes precedence
+// over MVC's built-in SimpleType / ComplexObject providers for UnixSeconds parameters.
+// Without the front-of-queue insert, MVC would try to shape UnixSeconds as a complex
+// object (looking for a `Value` constructor arg on the query string) instead of using
+// the string TryParse path our custom binder owns.
+builder.Services.AddControllers(mvcOptions =>
+    {
+        mvcOptions.ModelBinderProviders.Insert(0, new UnixSecondsModelBinderProvider());
+    })
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
@@ -280,13 +289,28 @@ builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options 
 {
     options.InvalidModelStateResponseFactory = context =>
     {
-        var firstError = context.ModelState
-            .Where(kv => kv.Value?.Errors.Count > 0)
-            .SelectMany(kv => kv.Value!.Errors.Select(e => e.ErrorMessage))
-            .FirstOrDefault(m => !string.IsNullOrWhiteSpace(m))
+        // Prefer the first field with an error so we can pair its message with the
+        // matching UnixSecondsBinding stash on HttpContext.Items. Falling back to a
+        // synthetic entry keeps the payload shape stable when ModelState is empty
+        // (defensive — the factory only runs when at least one error is present).
+        var firstBadField = context.ModelState
+            .FirstOrDefault(kv => kv.Value?.Errors.Count > 0
+                && !string.IsNullOrWhiteSpace(kv.Value.Errors[0].ErrorMessage));
+
+        var firstError = firstBadField.Value?.Errors[0].ErrorMessage
             ?? "The request payload was invalid.";
 
-        var code = ValidationErrorCodeRegistry.LookupOrDefault(firstError);
+        // UnixSecondsModelBinder stashes the intended ErrorCode string on HttpContext.Items
+        // under a well-known per-field key. Preferring it over the message-keyed registry
+        // preserves the invalid_end_anchor / invalid_anchor wire codes verbatim without
+        // requiring the human-readable message to be globally unique.
+        var stashedCode = context.HttpContext.Items[
+            UnixSecondsBindingAttribute.ItemsKey(firstBadField.Key ?? string.Empty)] as string;
+
+        var code = stashedCode is not null
+            ? new ErrorCode(stashedCode)
+            : ValidationErrorCodeRegistry.LookupOrDefault(firstError);
+
         var body = new ErrorResponse(firstError, code, System.Net.HttpStatusCode.BadRequest);
         return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(body);
     };
