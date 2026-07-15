@@ -1010,16 +1010,16 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         return new DateTimeOffset(dateTime, TimeSpan.Zero);
     }
 
-    private static string? ParseColor(string? color)
-    {
-        if (string.IsNullOrWhiteSpace(color))
-            return null;
-        if (color.StartsWith('#') && color.Length == 7)
-            return color;
-        if (color.Length == 6 && !color.StartsWith('#'))
-            return color;
-        return null;
-    }
+    /// <summary>
+    /// Normalise a Simply Plural colour to the canonical <c>#RRGGBB</c> shape a
+    /// <see cref="HexColor"/> will accept. SP historically stores both shapes
+    /// interchangeably (bare <c>RRGGBB</c> and <c>#RRGGBB</c>) — we canonicalise on
+    /// the way in so no bare-hex value ever reaches <see cref="HexColor.FromNullable"/>,
+    /// which now rejects anything not well-formed. Delegates to
+    /// <see cref="HexColor.Normalise"/>, which is the single source of truth shared
+    /// with the one-shot HexColorFixupService that walks legacy DB rows.
+    /// </summary>
+    internal static string? ParseColor(string? color) => HexColor.Normalise(color);
 
     /// <summary>
     /// Pending rehost of a Simply Plural CDN avatar. <see cref="AlterId"/> is required for

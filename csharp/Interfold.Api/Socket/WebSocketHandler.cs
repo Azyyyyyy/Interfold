@@ -134,8 +134,17 @@ public static async Task HandleUserSocketAsync(HttpContext context)
 
         if (string.Equals(eventName, PhoenixEventNames.Join, StringComparison.OrdinalIgnoreCase))
         {
-            // Deserialize the typed join payload; a malformed member falls back to the
-            // defaults wholesale, matching the tolerance of the previous per-field probing.
+            // Deserialize the typed join payload. Per-property tolerance for the ONE
+            // field that historically saw stray wire spellings — the platform enum —
+            // is enforced by TolerantWireEnumJsonConverter on PhxJoinPayload.Platform,
+            // so an unknown platform value round-trips to null WITHOUT throwing a
+            // JsonException that would take the sibling token / protocolVersion down
+            // with it. The outer try/catch stays as a belt-and-braces guard for
+            // wholly-malformed payloads (e.g. `payload: 42`) where "keep defaults"
+            // is a safer floor than crashing the socket loop, but a valid join with
+            // an unknown platform must never hit this catch — that path would zero
+            // out the token and turn the reply into a bogus Unauthorized (regression
+            // pinned by Api_UserSocketEndpoint_AllowsWebSocketUpgrade).
             var joinPayload = new PhxJoinPayload();
             if (payload?.ValueKind == JsonValueKind.Object)
             {

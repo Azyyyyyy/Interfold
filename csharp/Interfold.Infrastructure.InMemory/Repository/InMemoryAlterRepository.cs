@@ -35,7 +35,11 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     private readonly IRegionContext _regionContext;
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<AlterId, AlterState>> _bySystem = new();
-    private readonly ConcurrentDictionary<ScopedSystemId, int> _nextIdBySystem = new();
+    // Retyped short alongside AlterId.Value so the counter cannot silently overflow the
+    // smallint canonical range. AddOrUpdate's update delegate widens to int in the arithmetic
+    // and narrows back with a checked cast — an out-of-range increment throws at the cast
+    // site (OverflowException) rather than truncating and handing back an already-used id.
+    private readonly ConcurrentDictionary<ScopedSystemId, short> _nextIdBySystem = new();
     private readonly IFriendshipRepository? _friendships;
     private readonly ISettingsFieldRepository? _settingsFields;
     private readonly IPollRepository? _polls;
@@ -60,7 +64,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     {
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<AlterId, AlterState>());
-        AlterId next = new(_nextIdBySystem.AddOrUpdate(systemKey, 1, (_, current) => current + 1));
+        AlterId next = AlterId.FromStorageShort(_nextIdBySystem.AddOrUpdate(systemKey, (short)1, (_, current) => checked((short)(current + 1))));
 
         var created = store.TryAdd(next, new AlterState
         {

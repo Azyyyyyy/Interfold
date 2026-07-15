@@ -266,7 +266,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 alterIdShort));
 
             var primaryTask = session.ExecuteAsync(new SimpleStatement(
-                $"SELECT primary_front FROM {keyspace}.users WHERE id = ? LIMIT 1",
+                $"SELECT primary_front_smallint FROM {keyspace}.users WHERE id = ? LIMIT 1",
                 normalizedSystemId));
 
             var tagsTask = session.ExecuteAsync(new SimpleStatement(
@@ -347,11 +347,14 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 await session.ExecuteAsync(journalBatch);
             }
 
-            // Handle primary_front update if needed
-            if (AlterId.FromStorageInt(primaryFrontRow?.GetValue<int?>("primary_front")) == AlterId.FromStorageShort(alterIdShort))
+            // If this alter is currently the primary front, clear it. Post-migration the
+            // only column is primary_front_smallint (see ScyllaMigrationService phase 007).
+            var currentPrimary = AlterId.FromNullableStorageShort(
+                primaryFrontRow?.GetValue<short?>("primary_front_smallint"));
+            if (currentPrimary == AlterId.FromStorageShort(alterIdShort))
             {
                 await session.ExecuteAsync(new SimpleStatement(
-                    $"UPDATE {keyspace}.users SET primary_front = null WHERE id = ?",
+                    $"UPDATE {keyspace}.users SET primary_front_smallint = null WHERE id = ?",
                     normalizedSystemId));
             }
 

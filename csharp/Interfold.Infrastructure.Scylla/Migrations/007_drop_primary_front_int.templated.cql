@@ -1,0 +1,25 @@
+-- =====================
+-- Schema Template: Replace {{KEYSPACE}} with regional keyspace (nam, eur, ocn, eas, sam, sas, gdpr)
+-- Applied by ScyllaMigrationService at startup, after the primary_front backfill.
+--
+-- Phase 2 of the users.primary_front narrowing (shipped in the same PR as phase 1).
+--
+-- The full sequence in a single boot on any cluster that hasn't seen phase 1 yet is:
+--   1. 006 adds users.primary_front_smallint (smallint, sibling column, defaults to null).
+--   2. ScyllaMigrationService.BackfillPrimaryFrontAsync walks every user row and copies
+--      the legacy int value into the smallint column, ledger-guarded per keyspace with
+--      scope 'primary_front_backfill:{keyspace}' / version 'v1'.
+--   3. THIS migration drops the legacy int column. The dual-write / dual-read window
+--      that phase 1 introduced never actually exists in production because the two
+--      migrations bracket the backfill inside a single StartingAsync pass; the
+--      dual-* codepaths were removed at the same time in favour of the pure-smallint
+--      shape the rest of the schema uses.
+--
+-- Idempotence is handled by the ledger: a matching checksum in
+-- global.schema_migrations skips re-application. If a boot crashes between the DROP
+-- landing and the ledger row being written, ExecuteStatements catches the
+-- "column primary_front does not exist" InvalidQueryException on re-run, matching
+-- the AlreadyExistsException handler used for the CREATE-side migrations.
+-- =====================
+
+ALTER TABLE {{KEYSPACE}}.users DROP primary_front;

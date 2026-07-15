@@ -272,4 +272,70 @@ public sealed class ScopedSystemIdTests
         await Assert.That(systemId.Value).IsEqualTo(scoped.Value)
             .Because("AsSystemId is the wire-boundary escape hatch — it must produce the identical byte string, not a re-parse.");
     }
+
+    // ---------------- WireEnum delegation parity ----------------------------
+    // TryParseRegion (called by TryParseScoped for the prefix side) now delegates
+    // to EnumWire<ScyllaKeyspace>.TryParse. These tests pin that behaviour so a
+    // future refactor cannot silently reintroduce a hand-rolled switch that drifts
+    // from the JsonStringEnumMemberName attributes on the enum.
+
+    /// <summary>
+    /// Every wire spelling produced by EnumWire's ToWire (i.e. every declared enum
+    /// member) must parse back through the scoped path. A regression here means the
+    /// hand-rolled switch has come back and skipped a region.
+    /// </summary>
+    [Test]
+    public async Task TryParseScoped_EveryWireRegion_Parses()
+    {
+        foreach (var region in Enum.GetValues<ScyllaKeyspace>())
+        {
+            var wire = EnumWire<ScyllaKeyspace>.ToWire(region);
+            var parsed = ScopedSystemId.TryParseScoped($"{wire}:abcdefg", out var result);
+
+            using (Assert.Multiple())
+            {
+                await Assert.That(parsed).IsTrue()
+                    .Because($"'{wire}:abcdefg' must parse — the wire tag came directly from EnumWire.ToWire so any TryParse mismatch indicates a hand-rolled table drifted from the enum.");
+                await Assert.That(result.Region).IsEqualTo(region);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Uppercase / mixed-case region prefixes are accepted (EnumWire's TryParse is
+    /// case-insensitive) and normalise to the lowercase wire form on the way out.
+    /// </summary>
+    [Test]
+    [Arguments("NAM")]
+    [Arguments("Eur")]
+    [Arguments("gDpR")]
+    public async Task TryParseScoped_CaseInsensitiveRegion_Normalises(string mixedCase)
+    {
+        var parsed = ScopedSystemId.TryParseScoped($"{mixedCase}:abcdefg", out var result);
+        var expected = EnumWire<ScyllaKeyspace>.ToWire(
+            Enum.Parse<ScyllaKeyspace>(char.ToUpperInvariant(mixedCase[0]) + mixedCase[1..].ToLowerInvariant()));
+
+        using (Assert.Multiple())
+        {
+            await Assert.That(parsed).IsTrue();
+            await Assert.That(result.Value).IsEqualTo($"{expected}:abcdefg")
+                .Because("Wire values must be lowercase-canonical regardless of client casing — this is what six downstream comparison sites assume.");
+        }
+    }
+
+    /// <summary>
+    /// Every unknown region tag must be rejected. This pins the "no silent default"
+    /// contract at the scoped-parse boundary — TryParseRegion drops the
+    /// blank-defaults-to-Nam fallback that <c>EnumWireExtensions.ParseScyllaKeyspace</c>
+    /// carries.
+    /// </summary>
+    [Test]
+    [Arguments("xxx:abcdefg")]
+    [Arguments("dev:abcdefg")]
+    [Arguments("northamerica:abcdefg")]
+    public async Task TryParseScoped_UnknownRegion_ReturnsFalse(string wire)
+    {
+        var parsed = ScopedSystemId.TryParseScoped(wire, out _);
+        await Assert.That(parsed).IsFalse();
+    }
 }

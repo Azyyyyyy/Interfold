@@ -27,12 +27,15 @@ public sealed class ValidAlterIdAttribute : ValidationAttribute
 {
     /// <summary>
     /// Alter ids are persisted in Cassandra <c>smallint</c> columns; anything above
-    /// <see cref="short.MaxValue"/> cannot round-trip.
+    /// <see cref="short.MaxValue"/> cannot round-trip. Retyped as <see cref="short"/>
+    /// alongside the narrowing of <see cref="AlterId.Value"/> — the upper-bound check
+    /// against <see cref="AlterId.Value"/> is now a tautology (the type system enforces
+    /// it), retained for the null-and-negative case that the type cannot express.
     /// </summary>
-    public const int MaxValue = short.MaxValue;
+    public const short MaxValue = short.MaxValue;
 
     /// <summary>Minimum accepted alter id. Zero and negatives are always rejected.</summary>
-    public const int MinValue = 1;
+    public const short MinValue = 1;
 
     public ValidAlterIdAttribute()
     {

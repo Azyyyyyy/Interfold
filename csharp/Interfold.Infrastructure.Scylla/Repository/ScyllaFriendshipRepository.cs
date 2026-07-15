@@ -687,7 +687,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             $"SELECT alter_id, comment FROM {regionalKeyspace}.current_fronts WHERE user_id = ?",
             friendSystemId.Value));
         var primaryTask = session.ExecuteAsync(new SimpleStatement(
-            $"SELECT primary_front FROM {regionalKeyspace}.users WHERE id = ? LIMIT 1",
+            $"SELECT primary_front_smallint FROM {regionalKeyspace}.users WHERE id = ? LIMIT 1",
             friendSystemId.Value));
         var altersTask = session.ExecuteAsync(new SimpleStatement(
             $"SELECT id, name, avatar_url, avatar_source, pronouns, color, description, extra_images, security_level FROM {regionalKeyspace}.alters WHERE user_id = ?",
@@ -699,7 +699,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         FriendshipLevel? friendshipLevel = levelRow is null ? null : levelRow.GetValue<short>("level").FromCode(FriendshipLevel.Friend);
         var activeRows = await activeTask;
         var primaryRow = (await primaryTask).FirstOrDefault();
-        var primaryAlterId = AlterId.FromStorageInt(primaryRow?.GetValue<int?>("primary_front"));
+        var primaryAlterId = AlterId.FromNullableStorageShort(
+            primaryRow?.GetValue<short?>("primary_front_smallint"));
         var alterRows = await altersTask;
 
         var alterMap = alterRows

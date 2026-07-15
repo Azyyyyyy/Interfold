@@ -17,23 +17,25 @@ namespace Interfold.Api.UnitTests.Validation;
 public sealed class ValidAlterIdAttributeTests
 {
     [Test]
-    [Arguments(1)]
-    [Arguments(2)]
-    [Arguments(1000)]
-    [Arguments(32_767)] // short.MaxValue — top of the Cassandra smallint column
-    public async Task IsValid_AcceptsInRangeIds(int value)
+    [Arguments((short)1)]
+    [Arguments((short)2)]
+    [Arguments((short)1000)]
+    [Arguments(short.MaxValue)] // top of the Cassandra smallint column
+    public async Task IsValid_AcceptsInRangeIds(short value)
     {
         await Assert.That(ValidAlterIdAttribute.IsValid(new AlterId(value))).IsTrue();
     }
 
     [Test]
-    [Arguments(0)]
-    [Arguments(-1)]
-    [Arguments(int.MinValue)]
-    [Arguments(32_768)]  // one past short.MaxValue — cannot round-trip through smallint
-    [Arguments(int.MaxValue)]
-    public async Task IsValid_RejectsOutOfRangeIds(int value)
+    [Arguments((short)0)]
+    [Arguments((short)-1)]
+    [Arguments(short.MinValue)]
+    public async Task IsValid_RejectsNegativeAndZeroIds(short value)
     {
+        // Values outside [short.MinValue, short.MaxValue] are now type-system-blocked
+        // via the smallint-typed AlterId constructor, so only null / zero / negatives
+        // reach this runtime check. Deserialising an out-of-range JSON number surfaces
+        // as a JsonException from AlterIdJsonConverter (see AlterIdJsonTests).
         await Assert.That(ValidAlterIdAttribute.IsValid(new AlterId(value))).IsFalse();
     }
 

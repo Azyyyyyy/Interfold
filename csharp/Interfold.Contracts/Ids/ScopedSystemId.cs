@@ -323,30 +323,16 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
     }
 
     /// <summary>
-    /// Case-insensitive region-tag lookup that never throws. Mirrors
-    /// <see cref="EnumWireExtensions.ParseScyllaKeyspace"/> without the "blank defaults to Nam"
-    /// fallback — a blank prefix here is unambiguously "no prefix at all".
+    /// Case-insensitive region-tag lookup that never throws. Delegates to
+    /// <see cref="EnumWire{TEnum}.TryParse"/> so the wire vocabulary flows from the
+    /// <see cref="System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute"/>s
+    /// on <see cref="ScyllaKeyspace"/> — a single source of truth shared with the
+    /// JSON boundary. Differs from <see cref="EnumWireExtensions.ParseScyllaKeyspace"/>
+    /// only in dropping the "blank defaults to Nam" fallback: a blank prefix here is
+    /// unambiguously "no prefix at all", not a signal to fall back.
     /// </summary>
     internal static bool TryParseRegion(string raw, out ScyllaKeyspace region)
-    {
-        region = default;
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return false;
-        }
-
-        switch (raw.Trim().ToLowerInvariant())
-        {
-            case "nam": region = ScyllaKeyspace.Nam; return true;
-            case "eur": region = ScyllaKeyspace.Eur; return true;
-            case "sam": region = ScyllaKeyspace.Sam; return true;
-            case "sas": region = ScyllaKeyspace.Sas; return true;
-            case "eas": region = ScyllaKeyspace.Eas; return true;
-            case "ocn": region = ScyllaKeyspace.Ocn; return true;
-            case "gdpr": region = ScyllaKeyspace.Gdpr; return true;
-            default: return false;
-        }
-    }
+        => raw.TryParseWire(out region);
 }
 
 /// <summary>
