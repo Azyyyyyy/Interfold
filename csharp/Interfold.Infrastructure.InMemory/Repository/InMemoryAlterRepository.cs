@@ -64,7 +64,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     {
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<AlterId, AlterState>());
-        AlterId next = AlterId.FromStorageShort(_nextIdBySystem.AddOrUpdate(systemKey, (short)1, (_, current) => checked((short)(current + 1))));
+        AlterId next = new(_nextIdBySystem.AddOrUpdate(systemKey, (short)1, (_, current) => checked((short)(current + 1))));
 
         var created = store.TryAdd(next, new AlterState
         {

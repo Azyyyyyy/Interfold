@@ -91,23 +91,4 @@ public sealed class AlterIdJsonTests
             .Because("Route-parameter binding uses TryParse; anything outside short range or non-numeric must yield false so ASP.NET Core surfaces a 400 rather than a runtime overflow.");
     }
 
-    // ---------------- Storage rehydration -----------------------------------
-
-    [Test]
-    public async Task FromStorageShort_RehydratesValue()
-    {
-        var id = AlterId.FromStorageShort(42);
-        await Assert.That(id.Value).IsEqualTo((short)42);
-    }
-
-    [Test]
-    public async Task FromNullableStorageShort_Null_ReturnsNull()
-        => await Assert.That(AlterId.FromNullableStorageShort(null)).IsNull();
-
-    [Test]
-    public async Task FromNullableStorageShort_Value_ReturnsAlterId()
-    {
-        var id = AlterId.FromNullableStorageShort((short)7);
-        await Assert.That(id!.Value.Value).IsEqualTo((short)7);
-    }
 }

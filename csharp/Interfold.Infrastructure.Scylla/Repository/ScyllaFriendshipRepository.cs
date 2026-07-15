@@ -24,15 +24,10 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
     public ScyllaFriendshipRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaKeyspaceResolver keyspaceResolver,
-        IAccountRepository accounts,
         IOptions<PersistenceConfiguration> options)
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
-        // `accounts` is accepted (and ignored) so the DI signature stays stable after
-        // the friend-request tightening removed the Discord dispatch lane. A follow-up
-        // may drop the parameter once every consumer stops passing it.
-        _ = accounts;
         _options = options.Value;
     }
 
@@ -272,12 +267,11 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var normalizedTargetSystemId = _keyspaceResolver.NormalizeSystemId(targetSystemId);
 
-            var resolvedTargetUserId = await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId, cancellationToken);
-            if (resolvedTargetUserId is null)
+            if (await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId, cancellationToken) is not { } resolvedTargetUserId)
             {
                 return SendFriendRequestOutcome.NoUser;
             }
-            normalizedTargetSystemId = resolvedTargetUserId.Value.Value;
+            normalizedTargetSystemId = resolvedTargetUserId.Value;
 
             if (await ExistsFriendshipAsync(session, normalizedSystemId, normalizedTargetSystemId))
             {
@@ -308,12 +302,11 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var normalizedSourceSystemId = _keyspaceResolver.NormalizeSystemId(sourceSystemId);
 
-            var resolvedSourceUserId = await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId, cancellationToken);
-            if (resolvedSourceUserId is null)
+            if (await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId, cancellationToken) is not { } resolvedSourceUserId)
             {
                 return FriendRequestMutationOutcome.NoUser;
             }
-            normalizedSourceSystemId = resolvedSourceUserId.Value.Value;
+            normalizedSourceSystemId = resolvedSourceUserId.Value;
 
             if (await ExistsFriendshipAsync(session, normalizedSystemId, normalizedSourceSystemId))
             {
@@ -338,12 +331,11 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var normalizedSourceSystemId = _keyspaceResolver.NormalizeSystemId(sourceSystemId);
 
-            var resolvedSourceUserId = await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId, cancellationToken);
-            if (resolvedSourceUserId is null)
+            if (await ResolveUserIdInScyllaAsync(session, normalizedSourceSystemId, cancellationToken) is not { } resolvedSourceUserId)
             {
                 return FriendRequestMutationOutcome.NoUser;
             }
-            normalizedSourceSystemId = resolvedSourceUserId.Value.Value;
+            normalizedSourceSystemId = resolvedSourceUserId.Value;
 
             if (await ExistsFriendshipAsync(session, normalizedSystemId, normalizedSourceSystemId))
             {
@@ -368,12 +360,11 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var normalizedTargetSystemId = _keyspaceResolver.NormalizeSystemId(targetSystemId);
 
-            var resolvedTargetUserId = await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId, cancellationToken);
-            if (resolvedTargetUserId is null)
+            if (await ResolveUserIdInScyllaAsync(session, normalizedTargetSystemId, cancellationToken) is not { } resolvedTargetUserId)
             {
                 return FriendRequestMutationOutcome.NoUser;
             }
-            normalizedTargetSystemId = resolvedTargetUserId.Value.Value;
+            normalizedTargetSystemId = resolvedTargetUserId.Value;
 
             if (await ExistsFriendshipAsync(session, normalizedSystemId, normalizedTargetSystemId))
             {
@@ -687,7 +678,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             $"SELECT alter_id, comment FROM {regionalKeyspace}.current_fronts WHERE user_id = ?",
             friendSystemId.Value));
         var primaryTask = session.ExecuteAsync(new SimpleStatement(
-            $"SELECT primary_front_smallint FROM {regionalKeyspace}.users WHERE id = ? LIMIT 1",
+            $"SELECT primary_front FROM {regionalKeyspace}.users WHERE id = ? LIMIT 1",
             friendSystemId.Value));
         var altersTask = session.ExecuteAsync(new SimpleStatement(
             $"SELECT id, name, avatar_url, avatar_source, pronouns, color, description, extra_images, security_level FROM {regionalKeyspace}.alters WHERE user_id = ?",
@@ -699,8 +690,9 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         FriendshipLevel? friendshipLevel = levelRow is null ? null : levelRow.GetValue<short>("level").FromCode(FriendshipLevel.Friend);
         var activeRows = await activeTask;
         var primaryRow = (await primaryTask).FirstOrDefault();
-        var primaryAlterId = AlterId.FromNullableStorageShort(
-            primaryRow?.GetValue<short?>("primary_front_smallint"));
+        var primaryAlterId = primaryRow?.GetValue<short?>("primary_front") is { } primaryShort
+            ? new AlterId(primaryShort)
+            : (AlterId?)null;
         var alterRows = await altersTask;
 
         var alterMap = alterRows
@@ -720,7 +712,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             .Select(row =>
             {
                 var alterIdShort = row.GetValue<short>("alter_id");
-                var alterId = AlterId.FromStorageShort(alterIdShort);
+                var alterId = new AlterId(alterIdShort);
                 if (!alterMap.TryGetValue(alterIdShort, out var alter))
                 {
                     return null;
@@ -740,7 +732,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
                     primaryAlterId == alterId);
             })
             .Where(x => x is not null)
-            .OrderBy(x => (int)x!.Alter.Id)
+            .OrderBy(x => x!.Alter.Id.Value)
             .ToList()!;
     }
 

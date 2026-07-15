@@ -84,7 +84,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var query = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId,
-                alterId.ToStorageShort()
+                alterId.Value
             );
 
             var rows = await session.ExecuteAsync(query);
@@ -119,7 +119,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     null,
                     updatedAt,
                     normalizedSystemId,
-                    command.AlterId.ToStorageShort()
+                    command.AlterId.Value
                 ));
             }
             else if (command.AvatarUrl is { } avatarUrl)
@@ -133,7 +133,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     sourceShort,
                     updatedAt,
                     normalizedSystemId,
-                    command.AlterId.ToStorageShort()
+                    command.AlterId.Value
                 ));
             }
             UpdateIfNotNull(batch, keyspace, command, "color", command.Color?.Value, normalizedSystemId, updatedAt);
@@ -147,7 +147,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 var currentRow = (await session.ExecuteAsync(new SimpleStatement(
                     $"SELECT fields FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
                     normalizedSystemId,
-                    command.AlterId.ToStorageShort()
+                    command.AlterId.Value
                 ))).FirstOrDefault();
 
                 var merged = (currentRow?.GetValue<IEnumerable<AlterFieldUdt>?>("fields") ?? [])
@@ -167,7 +167,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     udts,
                     updatedAt,
                     normalizedSystemId,
-                    command.AlterId.ToStorageShort()
+                    command.AlterId.Value
                 ));
             }
 
@@ -182,13 +182,13 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 // Read old alias to remove from lookup table
                 var oldAliasRow = (await session.ExecuteAsync(new SimpleStatement(
                     $"SELECT alias FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
-                    normalizedSystemId, command.AlterId.ToStorageShort()))).FirstOrDefault();
+                    normalizedSystemId, command.AlterId.Value))).FirstOrDefault();
                 var oldAlias = oldAliasRow?.GetValue<string?>("alias");
 
                 // Update the base table
                 batch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.alters SET alias = ?, updated_at = ? WHERE user_id = ? AND id = ?",
-                    command.Alias, updatedAt, normalizedSystemId, command.AlterId.ToStorageShort()));
+                    command.Alias, updatedAt, normalizedSystemId, command.AlterId.Value));
 
                 // Remove old lookup entry
                 if (!string.IsNullOrWhiteSpace(oldAlias))
@@ -204,7 +204,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 {
                     batch.Add(new SimpleStatement(
                         $"INSERT INTO {keyspace}.alters_by_alias (user_id, alias, alter_id) VALUES (?, ?, ?)",
-                        normalizedSystemId, newAlias, command.AlterId.ToStorageShort()));
+                        normalizedSystemId, newAlias, command.AlterId.Value));
                 }
             }
 
@@ -223,7 +223,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     value,
                     updatedAt,
                     normalizedSystemId,
-                    command.AlterId.ToStorageShort()
+                    command.AlterId.Value
                 ));
         }
     }
@@ -235,7 +235,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var alterIdShort = alterId.ToStorageShort();
+            var alterIdShort = alterId.Value;
 
             var exists = await ExistsAsync(session, keyspace, normalizedSystemId, alterId);
             if (!exists)
@@ -266,7 +266,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 alterIdShort));
 
             var primaryTask = session.ExecuteAsync(new SimpleStatement(
-                $"SELECT primary_front_smallint FROM {keyspace}.users WHERE id = ? LIMIT 1",
+                $"SELECT primary_front FROM {keyspace}.users WHERE id = ? LIMIT 1",
                 normalizedSystemId));
 
             var tagsTask = session.ExecuteAsync(new SimpleStatement(
@@ -347,14 +347,14 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 await session.ExecuteAsync(journalBatch);
             }
 
-            // If this alter is currently the primary front, clear it. Post-migration the
-            // only column is primary_front_smallint (see ScyllaMigrationService phase 007).
-            var currentPrimary = AlterId.FromNullableStorageShort(
-                primaryFrontRow?.GetValue<short?>("primary_front_smallint"));
-            if (currentPrimary == AlterId.FromStorageShort(alterIdShort))
+            // If this alter is currently the primary front, clear it.
+            var currentPrimary = primaryFrontRow?.GetValue<short?>("primary_front") is { } primaryShort
+                ? new AlterId(primaryShort)
+                : (AlterId?)null;
+            if (currentPrimary == new AlterId(alterIdShort))
             {
                 await session.ExecuteAsync(new SimpleStatement(
-                    $"UPDATE {keyspace}.users SET primary_front_smallint = null WHERE id = ?",
+                    $"UPDATE {keyspace}.users SET primary_front = null WHERE id = ?",
                     normalizedSystemId));
             }
 
@@ -437,7 +437,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     row.GetValue<bool?>("archived"),
                     row.GetValue<bool?>("pinned")
                 ))
-                .OrderBy(x => (int)x.Id)
+                .OrderBy(x => x.Id.Value)
                 .ToArray();
         }, _options, cancellationToken, _logger);
     }
@@ -473,7 +473,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     row.GetValue<string?>("pronouns"),
                     row.GetValue<string?>("description"),
                     ResolveGuardedFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions)))
-                .OrderBy(x => (int)x.Id)
+                .OrderBy(x => x.Id.Value)
                 .ToArray();
         }, _options, cancellationToken, _logger);
     }
@@ -492,7 +492,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var query = new SimpleStatement(
                 $"SELECT id, name, alias, fields, security_level, color, pronouns, avatar_url, avatar_source, pinned, archived, untracked, description, proxy_name FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId,
-                alterId.ToStorageShort()
+                alterId.Value
             );
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
@@ -535,7 +535,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var query = new SimpleStatement(
                 $"SELECT id, name, avatar_url, avatar_source, description, color, pronouns, pinned, security_level, fields FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId,
-                alterId.ToStorageShort()
+                alterId.Value
             );
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
@@ -583,7 +583,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             );
 
             var rows = await session.ExecuteAsync(query);
-            return rows.Any(row => row.GetValue<short>("id") != alterId.ToStorageShort());
+            return rows.Any(row => row.GetValue<short>("id") != alterId.Value);
         }, _options, cancellationToken, _logger);
     }
 
@@ -592,7 +592,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         var query = new SimpleStatement(
             $"SELECT id FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
             normalizedSystemId,
-            alterId.ToStorageShort()
+            alterId.Value
         );
 
         var rows = await session.ExecuteAsync(query);

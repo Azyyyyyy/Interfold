@@ -55,18 +55,19 @@ public sealed partial class ScyllaMigrationService(
     private const string FieldTimestampsMigration = "003_field_udt_timestamps.templated.cql";
     private const string ImportOperationsMigration = "004_import_operations.templated.cql";
     private const string ColorFixupMarkerMigration = "005_marker_color_fixup.templated.cql";
-    private const string PrimaryFrontSmallintMigration = "006_primary_front_smallint.templated.cql";
-    private const string PrimaryFrontDropIntMigration = "007_drop_primary_front_int.templated.cql";
+    private const string PrimaryFrontAddNewMigration = "006_add_primary_front_new.templated.cql";
+    private const string PrimaryFrontSwapTypeMigration = "007_swap_primary_front_type.templated.cql";
+    private const string PrimaryFrontDropNewMigration = "008_drop_primary_front_new.templated.cql";
     private const string GrantsVersion = "grants_v1";
 
-    // Ledger constants for the inlined primary_front backfill. The backfill has to sit
-    // between migrations 006 (adds primary_front_smallint) and 007 (drops primary_front),
-    // so it can't be a separate IHostedLifecycleService — hosted-service ordering would
-    // run it *after* StartingAsync completes and by then 007 will already have dropped
-    // the source column. Same shape as any other tracked migration: (scope, version,
-    // checksum) — bump the checksum to force a per-keyspace re-run.
+    // Ledger constants for the two inline backfill passes of the primary_front int -> smallint
+    // narrowing. Both passes have to be sequenced against the ALTER migrations that bracket
+    // them (see 006 for the full sequence), so they can't be a separate hosted service and
+    // instead live inline in StartingAsync. Same ledger shape as any tracked migration:
+    // (scope, version, checksum) — bump the checksum on either to force a per-keyspace re-run.
     private const string PrimaryFrontBackfillVersion = "v1";
-    private const string PrimaryFrontBackfillChecksum = "primary_front_smallint_backfill_v1";
+    private const string PrimaryFrontIntToNewChecksum = "primary_front_int_to_new_v1";
+    private const string PrimaryFrontNewToPrimaryChecksum = "primary_front_new_to_primary_v1";
 
     // Stable template hashed for grant tracking. Bump GrantsVersion whenever this string
     // changes so existing rows mismatch and grants get re-applied across all scopes.
@@ -160,12 +161,18 @@ public sealed partial class ScyllaMigrationService(
             await ApplyTemplatedMigrationPerKeyspace(session, applied, FieldTimestampsMigration);
             await ApplyTemplatedMigrationPerKeyspace(session, applied, ImportOperationsMigration);
             await ApplyTemplatedMigrationPerKeyspace(session, applied, ColorFixupMarkerMigration);
-            await ApplyTemplatedMigrationPerKeyspace(session, applied, PrimaryFrontSmallintMigration);
-            // The backfill has to run BEFORE 007 drops primary_front; if 007 lands first
-            // there's nothing left to copy from. Keeping this inline (rather than as a
-            // separate hosted service) is the only way to guarantee that sequencing.
-            await BackfillPrimaryFrontAsync(session, applied, cancellationToken);
-            await ApplyTemplatedMigrationPerKeyspace(session, applied, PrimaryFrontDropIntMigration);
+
+            // users.primary_front int -> smallint narrowing. Three ALTERs with two inline
+            // backfills between them; sequencing is load-bearing (see migration 006's
+            // header). All five steps have to finish inside this StartingAsync pass because
+            // repositories bind to the final primary_front (smallint) shape as soon as
+            // traffic starts.
+            await ApplyTemplatedMigrationPerKeyspace(session, applied, PrimaryFrontAddNewMigration);
+            await BackfillPrimaryFrontIntToNewAsync(session, applied, cancellationToken);
+            await ApplyTemplatedMigrationPerKeyspace(session, applied, PrimaryFrontSwapTypeMigration);
+            await BackfillPrimaryFrontNewToPrimaryAsync(session, applied, cancellationToken);
+            await ApplyTemplatedMigrationPerKeyspace(session, applied, PrimaryFrontDropNewMigration);
+
             await GrantPermissions(session, applied);
         }
         finally
@@ -453,139 +460,123 @@ public sealed partial class ScyllaMigrationService(
         }
     }
 
-    /// <summary>
-    /// Test hook: applies a single templated migration to one specific keyspace, bypassing the
-    /// ledger and the multi-keyspace fan-out. The full-migration integration test uses this
-    /// to drive migration 006 (add smallint) and migration 007 (drop int) against a scratch
-    /// keyspace so it can assert intermediate schema state around the backfill without
-    /// contaminating <c>global.schema_migrations</c>. Production code only ever goes through
-    /// <see cref="ApplyTemplatedMigrationPerKeyspace"/>.
-    /// </summary>
-    internal static async Task ApplyTemplatedMigrationToKeyspaceAsync(
-        ISession session,
-        string migrationFilename,
-        string keyspace,
-        ILogger logger)
-    {
-        var cqlTemplate = GetEmbeddedResource(migrationFilename);
-        var rendered = cqlTemplate.Replace("{{KEYSPACE}}", keyspace);
-        logger.LogInformation("[scylla-migrate] Applying {Migration} to scratch keyspace '{Keyspace}' (test hook)...",
-            migrationFilename, keyspace);
-        await ExecuteStatementsStatic(session, rendered, logger);
-    }
-
     // --- Primary Front Backfill ---
 
     /// <summary>
-    /// Copies <c>users.primary_front</c> (int) into <c>users.primary_front_smallint</c>
-    /// (added by migration 006) for every keyspace, ledger-guarded so the scan runs at
-    /// most once per keyspace even under crash-restart churn.
-    ///
-    /// <para>
-    /// Runs between migration 006 and migration 007. That sequencing is load-bearing:
-    /// 006 adds the sibling column, this pass populates it, 007 drops the legacy int.
-    /// Repositories switched to single-write / single-read against the smallint column in
-    /// the same PR, so the "dual-write window" never exists in production — new writes
-    /// go straight to the smallint and this pass handles the pre-existing rows.
-    /// </para>
+    /// Pass 1 of the users.primary_front int -> smallint narrowing: copies every non-null
+    /// <c>primary_front</c> (int) value into the sibling <c>primary_front_new</c> (smallint)
+    /// column added by migration 006. Runs before migration 007 drops the int column.
+    /// Ledger-guarded so the scan runs at most once per keyspace even under crash-restart
+    /// churn.
     /// </summary>
-    private async Task BackfillPrimaryFrontAsync(
+    private async Task BackfillPrimaryFrontIntToNewAsync(
         ISession session,
         Dictionary<(string Scope, string Version), string> applied,
+        CancellationToken cancellationToken)
+        => await RunPrimaryFrontBackfillAsync(
+            session,
+            applied,
+            "primary_front_backfill_int_to_new",
+            PrimaryFrontIntToNewChecksum,
+            keyspace => new SimpleStatement(
+                $"SELECT id, primary_front, primary_front_new FROM {keyspace}.users"),
+            static row => (row.GetValue<int?>("primary_front"), row.GetValue<short?>("primary_front_new")),
+            static intValue =>
+            {
+                if (intValue is < short.MinValue or > short.MaxValue)
+                {
+                    throw new InvalidDataException(
+                        $"users.primary_front value {intValue} is outside " +
+                        $"[{short.MinValue}, {short.MaxValue}]; a legacy row escaped the " +
+                        $"smallint invariant. Investigate before re-running the migration.");
+                }
+                return (short)intValue;
+            },
+            (keyspace, userId, smallintValue) => new SimpleStatement(
+                $"UPDATE {keyspace}.users SET primary_front_new = ? WHERE id = ?",
+                smallintValue,
+                userId),
+            cancellationToken);
+
+    /// <summary>
+    /// Pass 2 of the users.primary_front int -> smallint narrowing: copies the smallint
+    /// values from <c>primary_front_new</c> back into the re-added <c>primary_front</c>
+    /// (smallint) column. Runs after migration 007 has dropped the legacy int and re-added
+    /// primary_front as smallint, and before migration 008 drops the temp column.
+    /// </summary>
+    private async Task BackfillPrimaryFrontNewToPrimaryAsync(
+        ISession session,
+        Dictionary<(string Scope, string Version), string> applied,
+        CancellationToken cancellationToken)
+        => await RunPrimaryFrontBackfillAsync(
+            session,
+            applied,
+            "primary_front_backfill_new_to_primary",
+            PrimaryFrontNewToPrimaryChecksum,
+            keyspace => new SimpleStatement(
+                $"SELECT id, primary_front, primary_front_new FROM {keyspace}.users"),
+            static row => (row.GetValue<short?>("primary_front_new"), row.GetValue<short?>("primary_front")),
+            static shortValue => (short)shortValue,
+            (keyspace, userId, smallintValue) => new SimpleStatement(
+                $"UPDATE {keyspace}.users SET primary_front = ? WHERE id = ?",
+                smallintValue,
+                userId),
+            cancellationToken);
+
+    /// <summary>
+    /// Shared per-keyspace scan/update loop used by both narrowing backfills. Ledgered with
+    /// <c>(scope:{keyspace}, PrimaryFrontBackfillVersion, checksum)</c> so a completed pass
+    /// short-circuits on the next boot. Rows where the destination is already populated are
+    /// skipped, so a crash-mid-backfill just resumes and only touches the still-null tail.
+    /// </summary>
+    private async Task RunPrimaryFrontBackfillAsync(
+        ISession session,
+        Dictionary<(string Scope, string Version), string> applied,
+        string scopePrefix,
+        string checksum,
+        Func<string, SimpleStatement> buildSelect,
+        Func<Row, (int? Source, short? Destination)> readColumns,
+        Func<int, short> convertSource,
+        Func<string, string, short, SimpleStatement> buildUpdate,
         CancellationToken cancellationToken)
     {
         foreach (var keyspace in TargetKeyspaces())
         {
-            var scope = $"primary_front_backfill:{keyspace}";
-            if (ShouldSkip(applied, scope, PrimaryFrontBackfillVersion, PrimaryFrontBackfillChecksum))
+            var scope = $"{scopePrefix}:{keyspace}";
+            if (ShouldSkip(applied, scope, PrimaryFrontBackfillVersion, checksum))
             {
-                logger.LogDebug("[scylla-migrate] Skipping primary_front backfill for '{Keyspace}', already applied.",
-                    keyspace);
+                logger.LogDebug("[scylla-migrate] Skipping {Scope}, already applied.", scope);
                 continue;
             }
 
             var stopwatch = Stopwatch.StartNew();
-            var copied = await BackfillPrimaryFrontForKeyspaceAsync(session, keyspace, logger, cancellationToken);
-            stopwatch.Stop();
+            var selectStmt = buildSelect(keyspace);
+            selectStmt.SetPageSize(500);
+            var rows = await session.ExecuteAsync(selectStmt);
 
-            logger.LogInformation(
-                "[scylla-migrate] {Scope}: copied {Copied} row(s) from primary_front (int) to primary_front_smallint.",
-                scope, copied);
-
-            await RecordMigrationAsync(session, scope, PrimaryFrontBackfillVersion, PrimaryFrontBackfillChecksum,
-                (int)stopwatch.ElapsedMilliseconds);
-        }
-    }
-
-    /// <summary>
-    /// Test hook + backfill core. Scans <c>{keyspace}.users</c>, and for every row where
-    /// <c>primary_front_smallint</c> is null and <c>primary_front</c> has a value within
-    /// short range, writes the value into <c>primary_front_smallint</c>. Returns the number
-    /// of rows copied.
-    ///
-    /// <para>
-    /// Any stored int outside <see cref="short"/> range is a hard schema-invariant
-    /// violation — every other alter-id column in the schema is <c>smallint</c>, so a value
-    /// that fits in <c>int</c> but not <c>short</c> could only have come from a legacy
-    /// bug. The backfill throws <see cref="InvalidDataException"/> in that case so an
-    /// operator can investigate instead of the migration silently truncating the value.
-    /// </para>
-    ///
-    /// <para>
-    /// Bypasses the ledger. The production path in <see cref="BackfillPrimaryFrontAsync"/>
-    /// wraps this with ledger-guard; the integration test calls it directly against a scratch
-    /// keyspace.
-    /// </para>
-    /// </summary>
-    internal static async Task<int> BackfillPrimaryFrontForKeyspaceAsync(
-        ISession session,
-        string keyspace,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        var selectStmt = new SimpleStatement(
-            $"SELECT id, primary_front, primary_front_smallint FROM {keyspace}.users");
-        selectStmt.SetPageSize(500);
-
-        var rows = await session.ExecuteAsync(selectStmt);
-
-        var copied = 0;
-        foreach (var row in rows)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            // Rows written after 006 landed already have primary_front_smallint set (the
-            // repositories bind to the smallint column exclusively), so we only need to
-            // touch rows where the sibling column is still null.
-            var smallintValue = row.GetValue<short?>("primary_front_smallint");
-            if (smallintValue is not null)
-                continue;
-
-            var intValue = row.GetValue<int?>("primary_front");
-            if (intValue is null)
-                continue;
-
-            if (intValue.Value is < short.MinValue or > short.MaxValue)
+            var copied = 0;
+            foreach (var row in rows)
             {
-                throw new InvalidDataException(
-                    $"{keyspace}.users.primary_front value {intValue.Value} is outside " +
-                    $"[{short.MinValue}, {short.MaxValue}]; a legacy row escaped the " +
-                    $"smallint invariant. Investigate before re-running the migration.");
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var (source, destination) = readColumns(row);
+                if (destination is not null)
+                    continue;
+                if (source is null)
+                    continue;
+
+                var smallintValue = convertSource(source.Value);
+                var userId = row.GetValue<string>("id");
+                await session.ExecuteAsync(buildUpdate(keyspace, userId, smallintValue));
+                copied++;
             }
 
-            var userId = row.GetValue<string>("id");
-            var updateStmt = new SimpleStatement(
-                $"UPDATE {keyspace}.users SET primary_front_smallint = ? WHERE id = ?",
-                (short)intValue.Value,
-                userId);
+            stopwatch.Stop();
+            logger.LogInformation("[scylla-migrate] {Scope}: copied {Copied} row(s).", scope, copied);
 
-            await session.ExecuteAsync(updateStmt);
-            copied++;
+            await RecordMigrationAsync(session, scope, PrimaryFrontBackfillVersion, checksum,
+                (int)stopwatch.ElapsedMilliseconds);
         }
-
-        logger.LogDebug("[scylla-migrate] primary_front backfill for '{Keyspace}' copied {Copied} rows.",
-            keyspace, copied);
-        return copied;
     }
 
     // --- Permission Grants ---
@@ -762,21 +753,20 @@ public sealed partial class ScyllaMigrationService(
         => ExecuteStatementsStatic(session, cql, logger);
 
     /// <summary>
-    /// CQL execution helper shared with the static <see cref="ApplyTemplatedMigrationToKeyspaceAsync"/>
-    /// test hook. Swallows two idempotence-critical exception classes:
+    /// CQL execution helper. Swallows two idempotence-critical exception classes:
     ///
     /// <list type="bullet">
     ///   <item>
-    ///     <see cref="AlreadyExistsException"/> — the CREATE-side migrations
-    ///     (000-006) all use <c>IF NOT EXISTS</c> but Scylla still raises this for a small
-    ///     window of edge cases (concurrent CREATE INDEX, older server builds).
+    ///     <see cref="AlreadyExistsException"/> — CREATE-side migrations all use
+    ///     <c>IF NOT EXISTS</c> but Scylla still raises this for a small window of
+    ///     edge cases (concurrent CREATE INDEX, older server builds).
     ///   </item>
     ///   <item>
     ///     <see cref="InvalidQueryException"/> where the message signals "column not
-    ///     found" / "column does not exist" — the DROP-side migration 007 needs this so
-    ///     that a boot that crashes between the DROP landing and the ledger row being
-    ///     written can re-run without throwing on the second boot. Same story as the
-    ///     already-exists handler, just on the drop side.
+    ///     found" / "column does not exist" / "column already exists" — kept as a
+    ///     forward-compat safety net so that a boot which crashes between an ALTER
+    ///     landing and its ledger row being written can re-run without throwing on
+    ///     the second boot.
     ///   </item>
     /// </list>
     /// </summary>
@@ -804,8 +794,8 @@ public sealed partial class ScyllaMigrationService(
                 // Idempotent — ADD {column} already applied on an earlier boot. The
                 // target ScyllaDB version rejects `ADD IF NOT EXISTS` at parse time
                 // (SyntaxError on the `IF` token), so we lean on this handler to make
-                // migration 006's ALTER re-runnable after a crash between the ALTER
-                // landing and the ledger row being written.
+                // any future ALTER ... ADD migrations re-runnable after a crash between
+                // the ALTER landing and the ledger row being written.
                 logger.LogDebug("[scylla-migrate] Skipping ADD for existing column: {Message}", ex.Message);
             }
         }

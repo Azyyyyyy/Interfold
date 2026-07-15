@@ -236,12 +236,12 @@ public sealed class ScyllaTagRepository : ITagRepository
                 $"INSERT INTO {keyspace}.alter_tags (user_id, tag_id, alter_id, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
                 normalizedSystemId,
                 tagId.Value,
-                alterId.ToStorageShort()
+                alterId.Value
             ));
             insert.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.alter_tags_by_alter (user_id, alter_id, tag_id, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
                 normalizedSystemId,
-                alterId.ToStorageShort(),
+                alterId.Value,
                 tagId.Value
             ));
             await session.ExecuteAsync(insert);
@@ -267,7 +267,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 $"SELECT alter_id FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ? AND alter_id = ? LIMIT 1",
                 normalizedSystemId,
                 tagId.Value,
-                alterId.ToStorageShort()
+                alterId.Value
             );
 
             var edgeRows = await session.ExecuteAsync(edgeExistsQuery);
@@ -281,12 +281,12 @@ public sealed class ScyllaTagRepository : ITagRepository
                 $"DELETE FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ? AND alter_id = ?",
                 normalizedSystemId,
                 tagId.Value,
-                alterId.ToStorageShort()
+                alterId.Value
             ));
             delete.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.alter_tags_by_alter WHERE user_id = ? AND alter_id = ? AND tag_id = ?",
                 normalizedSystemId,
-                alterId.ToStorageShort(),
+                alterId.Value,
                 tagId.Value
             ));
             await session.ExecuteAsync(delete);
@@ -577,7 +577,7 @@ public sealed class ScyllaTagRepository : ITagRepository
         );
 
         var rows = await session.ExecuteAsync(query);
-        return rows.Select(x => new AlterId(x.GetValue<short>("alter_id"))).OrderBy(x => (int)x).ToArray();
+        return rows.Select(x => new AlterId(x.GetValue<short>("alter_id"))).OrderBy(x => x.Value).ToArray();
     }
 
     private static async Task<IReadOnlyList<AlterId>> GetGuardedAlterIdsAsync(
@@ -606,7 +606,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             })
             .Where(x => alterIds.Contains(x.AlterId) && x.Visibility.CanBeViewedBy(friendshipLevel))
             .Select(x => x.AlterId)
-            .OrderBy(x => (int)x)
+            .OrderBy(x => x.Value)
             .ToArray();
 
         return visible;
