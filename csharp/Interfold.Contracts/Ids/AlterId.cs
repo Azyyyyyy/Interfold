@@ -9,7 +9,7 @@ namespace Interfold.Contracts.Ids;
 /// <see cref="short"/> — matching every canonical Scylla column that stores it
 /// (<c>alters.id</c>, <c>tags.alter_id</c>, <c>alter_journals.alter_id</c>,
 /// <c>alter_journals_by_alter.alter_id</c>, <c>fronts.alter_id</c>,
-/// <c>users.primary_front</c>, and the <c>current_fronts</c> /
+/// <c>users.primary_front_alter</c>, and the <c>current_fronts</c> /
 /// <c>fronts_by_alter</c> lookup denormalisations, all declared as <c>smallint</c>). The
 /// wire form is still a JSON number; <see cref="short"/> values fit trivially in an
 /// Int32 JSON number so emission is byte-identical to the pre-narrowing shape.
@@ -19,6 +19,19 @@ namespace Interfold.Contracts.Ids;
 /// have been rejected by <see cref="Validation.ValidAlterIdAttribute"/>; now the JSON
 /// reader (<c>GetInt16</c>) throws on ingest, ASP.NET Core maps that to a 400, and no
 /// code path downstream ever sees a value outside <c>[short.MinValue, short.MaxValue]</c>.
+/// </para>
+///
+/// <para>
+/// <b>Why <c>users.primary_front_alter</c> and not <c>users.primary_front</c>.</b> The
+/// original column was <c>primary_front int</c>; we needed the <c>smallint</c> storage
+/// shape to match this type. Cassandra/Scylla forbids re-adding a dropped column with a
+/// different type (an entry is kept in <c>system_schema.dropped_columns</c> to protect
+/// old SSTables from being reinterpreted), and <c>ALTER TABLE ... RENAME</c> only works
+/// on primary-key columns, so the only server-side-safe path was a new column name.
+/// Migration 006 adds <c>primary_front_alter smallint</c> and
+/// <c>ScyllaMigrationService.BackfillPrimaryFrontIntToAlterAsync</c> copies every non-null
+/// legacy value across at startup. The legacy <c>primary_front int</c> column is left in
+/// place and can be dropped in a later release once no external tool still reads it.
 /// </para>
 ///
 /// <para>See <see cref="SystemId"/> for the wider typed-id-rollout story.</para>

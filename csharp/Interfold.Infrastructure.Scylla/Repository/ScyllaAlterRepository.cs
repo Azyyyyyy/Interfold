@@ -266,7 +266,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 alterIdShort));
 
             var primaryTask = session.ExecuteAsync(new SimpleStatement(
-                $"SELECT primary_front FROM {keyspace}.users WHERE id = ? LIMIT 1",
+                $"SELECT primary_front_alter FROM {keyspace}.users WHERE id = ? LIMIT 1",
                 normalizedSystemId));
 
             var tagsTask = session.ExecuteAsync(new SimpleStatement(
@@ -348,13 +348,13 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             }
 
             // If this alter is currently the primary front, clear it.
-            var currentPrimary = primaryFrontRow?.GetValue<short?>("primary_front") is { } primaryShort
+            var currentPrimary = primaryFrontRow?.GetValue<short?>("primary_front_alter") is { } primaryShort
                 ? new AlterId(primaryShort)
                 : (AlterId?)null;
             if (currentPrimary == new AlterId(alterIdShort))
             {
                 await session.ExecuteAsync(new SimpleStatement(
-                    $"UPDATE {keyspace}.users SET primary_front = null WHERE id = ?",
+                    $"UPDATE {keyspace}.users SET primary_front_alter = null WHERE id = ?",
                     normalizedSystemId));
             }
 

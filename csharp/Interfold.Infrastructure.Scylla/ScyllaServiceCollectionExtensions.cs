@@ -52,10 +52,11 @@ public static class ScyllaServiceCollectionExtensions
                 // every regional keyspace), then the fixup uses the app-user session to normalise
                 // legacy color rows to the shape strict HexColor.FromNullable now requires.
                 //
-                // Note: the primary_front int->smallint narrowing lives inline in
-                // ScyllaMigrationService.StartingAsync (migrations 006/007/008 + two backfills),
-                // not as a separate hosted service — the ALTERs and copies have to interleave
-                // and hosted-service ordering can't guarantee that.
+                // Note: the primary_front int -> primary_front_alter smallint narrowing lives
+                // inline in ScyllaMigrationService.StartingAsync (migration 006 + one backfill),
+                // not as a separate hosted service — the ADD and the copy have to run in the
+                // same startup pass before repositories bind to the new column, and
+                // hosted-service ordering can't guarantee that.
                 .AddHostedService<HexColorFixupService>();
 
         return pipeline;
