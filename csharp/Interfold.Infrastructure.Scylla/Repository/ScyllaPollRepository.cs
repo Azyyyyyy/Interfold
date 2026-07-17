@@ -237,7 +237,7 @@ public sealed class ScyllaPollRepository : IPollRepository
             new(row.GetValue<string>("user_id")),
             row.GetValue<string>("title"),
             row.GetValue<string?>("description"),
-            row.GetValue<short>("type").FromCode(PollType.Vote),
+            row.GetValue<short>("type").FromCode<PollType>(),
             JsonSerializer.Deserialize<JsonElement>(row.GetValue<string?>("data") ?? "{}"),
             row.GetValue<DateTime?>("time_end"),
             row.GetValue<DateTime>("inserted_at"),

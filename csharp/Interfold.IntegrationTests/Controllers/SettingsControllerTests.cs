@@ -1,5 +1,9 @@
 using System.Net;
-using System.Net.Http.Json;
+using Interfold.Api.Models;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
+using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
 using Microsoft.AspNetCore.Mvc.Testing;
 
@@ -22,17 +26,18 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         await EnsureUserExistsAsync(client, principal);
 
         // type = "garbage" — the Elixir server used to fold this to "text", but we deliberately
-        // hold every enum boundary to the same fail-fast contract EnumWireExtensions documents
-        using var req1 = new HttpRequestMessage(HttpMethod.Post, "/api/settings/fields")
-        {
-            Content = JsonContent.Create(new { name = "FallbackField", type = "garbage" })
-        };
-        AttachPrincipalAuth(req1, client, principal);
-        var res1 = await client.SendAsync(req1);
+        // hold every enum boundary to the same fail-fast contract EnumWireExtensions documents.
+        // Kept as raw JSON: the whole point is to bypass typed serialisation and prove the
+        // server rejects the malformed enum literal at the wire, which a typed FieldType
+        // value could never produce.
+        using var res = await client.SendRawJsonAsync(
+            HttpMethod.Post, "/api/settings/fields",
+            "{\"name\":\"FallbackField\",\"type\":\"garbage\"}",
+            principal);
 
-        await Assert.That(res1.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
     }
-    
+
     [Test]
     public async Task SettingsField_MissingType_FallsBackToText_ReturnsCreatedWithId()
     {
@@ -44,36 +49,30 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         var principal = "parity-field-missing-type";
         await EnsureUserExistsAsync(client, principal);
 
-        // type absent entirely
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/settings/fields")
-        {
-            Content = JsonContent.Create(new { name = "NoTypeField" })
-        };
-        AttachPrincipalAuth(req, client, principal);
-        var res = await client.SendAsync(req);
-        var body = await res.Content.ReadAsStringAsync();
+        // type absent entirely — the typed record has Type as `FieldType?` and passing null
+        // both preserves the "absent" wire shape AND documents the intent at the C# call site.
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/settings/fields",
+            new SettingsCreateFieldRequest("NoTypeField", Type: null, SecurityLevel: null, Locked: null),
+            principal);
 
-        using (Assert.Multiple())
-        {
-            await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.Created);
-            await Assert.That(ReadNestedString(body, "data", "id")).IsNotNullOrWhiteSpace();
-        }
+        var envelope = await res.ReadEnvelopeAsync<FieldCreatedResponse>(HttpStatusCode.Created);
+        await Assert.That(envelope.Data.Id).IsNotEqualTo(default(FieldId));
     }
-    
+
     [Test]
     public async Task Idempotency_SettingsUsernameUpdate_ReplayStable()
     {
         await RunSoakAsync(fixture.Factory, async (client, key) =>
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, "/api/settings/username")
-            {
-                Content = JsonContent.Create(new { username = "soakuser" })
-            };
-            req.Headers.Add("X-Interfold-Idempotency-Key", key);
-            return await client.SendAsync(req);
+            return await client.SendAsJsonAsync(
+                HttpMethod.Post, "/api/settings/username",
+                new SettingsUsernameRequest(new Username("soakuser")),
+                "soak-default-principal",
+                idempotencyKey: key);
         });
     }
-    
+
     [Test]
     public async Task SettingsField_Create_ReturnsCreatedFieldId()
     {
@@ -85,22 +84,13 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         var principal = "parity-field-defaults";
         await EnsureUserExistsAsync(client, principal);
 
-        // Create field without explicit security_level.
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/settings/fields")
-        {
-            Content = JsonContent.Create(new { name = "DefaultSecurityField", type = "text" })
-        };
-        AttachPrincipalAuth(req, client, principal);
-        var res = await client.SendAsync(req);
-        var body = await res.Content.ReadAsStringAsync();
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/settings/fields",
+            new SettingsCreateFieldRequest("DefaultSecurityField", FieldType.Text, SecurityLevel: null, Locked: null),
+            principal);
 
-        var fieldId = ReadNestedString(body, "data", "id");
-
-        using (Assert.Multiple())
-        {
-            await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.Created);
-            await Assert.That(fieldId).IsNotNullOrWhiteSpace();
-        }
+        var envelope = await res.ReadEnvelopeAsync<FieldCreatedResponse>(HttpStatusCode.Created);
+        await Assert.That(envelope.Data.Id).IsNotEqualTo(default(FieldId));
     }
 
     // Isolation contract for both avatar multipart tests below: each builds its OWN
@@ -149,20 +139,18 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
             var principalId = $"sys-avatar-{Guid.NewGuid():N}"[..18];
 
             using var uploadRequest = BuildMultipartUploadRequest(client, "/api/settings/avatar", principalId, "avatar-system.png", "image/png");
-            var uploadResponse = await client.SendAsync(uploadRequest);
+            using var uploadResponse = await client.SendAsync(uploadRequest);
             await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
             using var profileRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principalId}");
             AttachPrincipalAuth(profileRequest, client, principalId);
-            var profileResponse = await client.SendAsync(profileRequest);
-            var profileBody = await profileResponse.Content.ReadAsStringAsync();
+            using var profileResponse = await client.SendAsync(profileRequest);
+            var profile = await profileResponse.ReadEnvelopeAsync<PublicSystemReadModel>(HttpStatusCode.OK);
 
-            var avatarUrl = ReadNestedStringField(profileBody, "data", "avatar_url");
             using (Assert.Multiple())
             {
-                await Assert.That(profileResponse.StatusCode).IsEqualTo(HttpStatusCode.OK);
-                await Assert.That(avatarUrl).IsNotNullOrWhiteSpace();
-                await Assert.That(UrlPathStartsWith(avatarUrl, $"{publicBasePath}/{principalId}/self/")).IsTrue();
+                await Assert.That(profile.Data.AvatarUrl).IsNotNull();
+                await Assert.That(UrlPathStartsWith(profile.Data.AvatarUrl?.Value, $"{publicBasePath}/{principalId}/self/")).IsTrue();
             }
 
             // End-to-end serving check: the avatar_url that the SPA receives from the
@@ -173,16 +161,16 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
             // listener" gap. We do it inside the same test so any future shape change
             // to LocalAvatarStorage's URL format and the middleware's path matching is
             // caught in one place.
-            using var avatarRequest = new HttpRequestMessage(HttpMethod.Get, avatarUrl);
+            using var avatarRequest = new HttpRequestMessage(HttpMethod.Get, profile.Data.AvatarUrl?.Value);
             // Avatar GETs are unauthenticated (the URL itself is the capability — this
             // is the same exposure model as a CDN-fronted setup). Anonymous request is
             // intentional so the assertion reflects what the SPA / external embed sees.
-            var avatarResponse = await client.SendAsync(avatarRequest);
+            using var avatarResponse = await client.SendAsync(avatarRequest);
             var avatarBytes = await avatarResponse.Content.ReadAsByteArrayAsync();
             using (Assert.Multiple())
             {
                 await Assert.That(avatarResponse.StatusCode).IsEqualTo(HttpStatusCode.OK)
-                    .Because($"Expected the avatar URL returned by the profile endpoint to be servable. URL was '{avatarUrl}'.");
+                    .Because($"Expected the avatar URL returned by the profile endpoint to be servable. URL was '{profile.Data.AvatarUrl}'.");
                 await Assert.That(avatarBytes.Length).IsGreaterThan(0)
                     .Because("Expected non-zero bytes back from the avatar GET — a zero-length response would indicate the middleware matched the path but couldn't read the file off disk.");
             }
@@ -221,62 +209,47 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
 
             var principalId = $"sys-alter-avatar-{Guid.NewGuid():N}"[..24];
 
-            using var usernameRequest = new HttpRequestMessage(HttpMethod.Post, "/api/settings/username")
-            {
-                Content = JsonContent.Create(new { username = "avatar-parity" })
-            };
-            AttachPrincipalAuth(usernameRequest, client, principalId);
-            var usernameResponse = await client.SendAsync(usernameRequest);
+            using var usernameResponse = await client.SendAsJsonAsync(
+                HttpMethod.Post, "/api/settings/username",
+                new SettingsUsernameRequest(new Username("avatar-parity")),
+                principalId);
             await Assert.That(usernameResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
-            using var createRequest = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/alters")
-            {
-                Content = JsonContent.Create(new { name = "AvatarTarget" })
-            };
-            AttachPrincipalAuth(createRequest, client, principalId);
-
-            var createResponse = await client.SendAsync(createRequest);
+            using var createResponse = await client.SendAsJsonAsync(
+                HttpMethod.Post, "/api/systems/me/alters",
+                new CreateAlterRequest("AvatarTarget"),
+                principalId);
             await Assert.That(createResponse.StatusCode).IsEqualTo(HttpStatusCode.Created);
 
-            var alterId = ReadTrailingIntFromLocation(createResponse);
+            var alterId = ReadTrailingAlterIdFromLocation(createResponse);
 
             using var uploadRequest = BuildMultipartUploadRequest(client, $"/api/systems/me/alters/{alterId}/avatar", principalId, "avatar-alter.png", "image/png");
-            var uploadResponse = await client.SendAsync(uploadRequest);
+            using var uploadResponse = await client.SendAsync(uploadRequest);
             await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
             using var publicAlterRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principalId}/alters/{alterId}");
             AttachPrincipalAuth(publicAlterRequest, client, principalId);
-            var publicAlterResponse = await client.SendAsync(publicAlterRequest);
-            var publicAlterBody = await publicAlterResponse.Content.ReadAsStringAsync();
+            using var publicAlterResponse = await client.SendAsync(publicAlterRequest);
+            var publicAlter = await publicAlterResponse.ReadEnvelopeAsync<BareAlter>(HttpStatusCode.OK);
 
             var expectedPrefix = $"{publicBasePath}/{principalId}/{alterId}/";
-            var alterAvatarUrl = ReadNestedStringField(publicAlterBody, "data", "avatar_url");
             using (Assert.Multiple())
             {
-                await Assert.That(publicAlterResponse.StatusCode).IsEqualTo(HttpStatusCode.OK);
-                await Assert.That(alterAvatarUrl).IsNotNullOrWhiteSpace();
-                await Assert.That(UrlPathStartsWith(alterAvatarUrl, expectedPrefix)).IsTrue();
+                await Assert.That(publicAlter.Data.AvatarUrl).IsNotNull();
+                await Assert.That(UrlPathStartsWith(publicAlter.Data.AvatarUrl?.Value, expectedPrefix)).IsTrue();
             }
 
-            using var deleteReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/systems/me/alters/{alterId}/avatar")
-            {
-                Content = JsonContent.Create(new { })
-            };
+            using var deleteReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/systems/me/alters/{alterId}/avatar");
             AttachPrincipalAuth(deleteReq, client, principalId);
-            var deleteRes = await client.SendAsync(deleteReq);
+            using var deleteRes = await client.SendAsync(deleteReq);
             await Assert.That(deleteRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
             using var afterDeleteRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principalId}/alters/{alterId}");
             AttachPrincipalAuth(afterDeleteRequest, client, principalId);
-            var afterDeleteResponse = await client.SendAsync(afterDeleteRequest);
-            var afterDeleteBody = await afterDeleteResponse.Content.ReadAsStringAsync();
+            using var afterDeleteResponse = await client.SendAsync(afterDeleteRequest);
+            var afterDelete = await afterDeleteResponse.ReadEnvelopeAsync<BareAlter>(HttpStatusCode.OK);
 
-            var staleAvatarUrl = ReadNestedStringField(afterDeleteBody, "data", "avatar_url");
-            using (Assert.Multiple())
-            {
-                await Assert.That(afterDeleteResponse.StatusCode).IsEqualTo(HttpStatusCode.OK);
-                await Assert.That(staleAvatarUrl).IsNullOrWhiteSpace();
-            }
+            await Assert.That(afterDelete.Data.AvatarUrl).IsNull();
         }
         finally
         {

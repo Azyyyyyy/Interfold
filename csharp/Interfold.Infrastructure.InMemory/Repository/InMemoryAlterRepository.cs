@@ -6,6 +6,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Domain.Alters;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
@@ -22,9 +23,11 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         public string? Pronouns { get; set; }
         public string? ProxyName { get; set; }
         public string Name { get; set; } = string.Empty;
-        // Match Scylla read semantics: rows without security_level resolve to Public via
-        // code.FromCode(VisibilityLevel.Public), so new alters are world-readable until
-        // the owner tightens visibility explicitly.
+        // Match Scylla insert semantics: ScyllaAlterRepository.CreateAsync stamps
+        // security_level = (short)VisibilityLevel.Public on the INSERT, so new alters are
+        // world-readable until the owner tightens visibility explicitly. Kept as a plain
+        // field default here so a bare `new AlterState()` in tests mirrors what the API
+        // would see after a real create.
         public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Public;
         // Keyed on FieldId (Guid-backed record-struct → value-based equality on Guid).
         public Dictionary<FieldId, string?> Fields { get; } = new();
@@ -363,38 +366,23 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
         => InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
 
-    private IReadOnlyList<AlterPublicFieldReadModel> ResolveGuardedFields(
+    // Thin adapter around AlterFieldProjection.ResolveGuardedFields — the shared helper
+    // takes an IReadOnlyDictionary<FieldId, string?>, which AlterState.Fields already is.
+    // AlterState is a private nested type, so keeping this per-repo wrapper preserves
+    // the "callers hand in an AlterState" ergonomics without leaking the storage shape
+    // into the shared domain helper.
+    private static IReadOnlyList<AlterPublicFieldReadModel> ResolveGuardedFields(
         AlterState alter,
         IReadOnlyList<SettingsFieldReadModel> definitions)
-    {
-        if (alter.Fields.Count == 0 || definitions.Count == 0)
-        {
-            return Array.Empty<AlterPublicFieldReadModel>();
-        }
+        => AlterFieldProjection.ResolveGuardedFields(alter.Fields, definitions);
 
-        return definitions
-            .Where(def => alter.Fields.ContainsKey(def.Id))
-            .Select(def => new AlterPublicFieldReadModel(
-                def.Id,
-                def.Name,
-                def.Type,
-                alter.Fields.TryGetValue(def.Id, out var value) ? value : null))
-            .ToArray();
-    }
-
-    private async Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(
+    // _settingsFields is nullable historically (see the constructor); the shared helper
+    // wants a non-null repo so the null-check stays here at the InMemory boundary.
+    private Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(
         SystemId systemId,
         FriendshipLevel? friendshipLevel,
         CancellationToken cancellationToken)
-    {
-        if (_settingsFields is null)
-        {
-            return Array.Empty<SettingsFieldReadModel>();
-        }
-
-        var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
-        return definitions
-            .Where(def => def.SecurityLevel.CanBeViewedBy(friendshipLevel))
-            .ToArray();
-    }
+        => _settingsFields is null
+            ? Task.FromResult<IReadOnlyList<SettingsFieldReadModel>>(Array.Empty<SettingsFieldReadModel>())
+            : AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken);
 }

@@ -70,7 +70,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
                 normalizedViewerSystemId);
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
-            return row is null ? null : (FriendshipLevel?)row.GetValue<short>("level").FromCode(FriendshipLevel.Friend);
+            return row is null ? null : (FriendshipLevel?)row.GetValue<short>("level").FromCode<FriendshipLevel>();
         }, _options, cancellationToken);
     }
 
@@ -93,7 +93,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
                 async row =>
                 {
                     SystemId friendId = new(row.GetValue<string>("friend_id"));
-                    var level = row.GetValue<short>("level").FromCode(FriendshipLevel.Friend);
+                    var level = row.GetValue<short>("level").FromCode<FriendshipLevel>();
                     var since = row.GetValue<DateTimeOffset?>("since") ?? DateTimeOffset.UtcNow;
 
                     var profileTask = GetFriendProfileAsync(session, friendId);
@@ -131,7 +131,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             }
 
             var since = row.GetValue<DateTimeOffset?>("since") ?? DateTimeOffset.UtcNow;
-            var level = row.GetValue<short>("level").FromCode(FriendshipLevel.Friend);
+            var level = row.GetValue<short>("level").FromCode<FriendshipLevel>();
             var profile = await GetFriendProfileAsync(session, new(normalizedFriendSystemId));
             var fronting = await GetFrontingAsync(session, new(normalizedFriendSystemId), new(normalizedSystemId));
 
@@ -497,7 +497,12 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             // Kind.Id (bare or "id:"-prefixed) → user_registry.user_id lookup with the
             // after-prefix Value.
             FriendLookupKind.Id => await LookupByUserIdAsync(session, handle.Value),
-            _ => await LookupByUserIdAsync(session, handle.Value),
+            // Only Username/Id exist today. If a new FriendLookupKind is added (e.g. Discord,
+            // Region-scoped) it needs its own routing lane — silently falling through to
+            // user_registry.user_id would mis-route the lookup and produce phantom nulls or
+            // wrong hits. Throw so the omission is impossible to miss.
+            _ => throw new ArgumentOutOfRangeException(nameof(handle), handle.Kind,
+                $"Unhandled FriendLookupKind '{handle.Kind}' in ResolveUserIdInScyllaAsync."),
         };
     }
 
@@ -687,7 +692,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         await Task.WhenAll(levelTask, activeTask, primaryTask, altersTask);
 
         var levelRow = (await levelTask).FirstOrDefault();
-        FriendshipLevel? friendshipLevel = levelRow is null ? null : levelRow.GetValue<short>("level").FromCode(FriendshipLevel.Friend);
+        FriendshipLevel? friendshipLevel = levelRow is null ? null : levelRow.GetValue<short>("level").FromCode<FriendshipLevel>();
         var activeRows = await activeTask;
         var primaryRow = (await primaryTask).FirstOrDefault();
         var primaryAlterId = primaryRow?.GetValue<short?>("primary_front_alter") is { } primaryShort
@@ -737,7 +742,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
     }
 
     private static bool CanViewAlter(FriendshipLevel? friendshipLevel, short? securityLevel)
-        => securityLevel.FromCode(VisibilityLevel.Public).CanBeViewedBy(friendshipLevel);
+        => securityLevel.FromCode<VisibilityLevel>().CanBeViewedBy(friendshipLevel);
 
     // Returns null when the registry row is absent or carries an unknown region value —
     // callers treat both as "profile unavailable" rather than guessing a keyspace.

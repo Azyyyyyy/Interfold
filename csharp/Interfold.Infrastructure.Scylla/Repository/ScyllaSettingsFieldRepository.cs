@@ -47,8 +47,8 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 .Select((field, index) => new SettingsFieldReadModel(
                     new(field.Id),
                     field.Name,
-                    field.Type.FromCode(FieldType.Text),
-                    field.SecurityLevel.FromCode(VisibilityLevel.Private),
+                    field.Type.FromCode<FieldType>(),
+                    field.SecurityLevel.FromCode<VisibilityLevel>(),
                     field.Locked,
                     index,
                     field.InsertedAt?.UtcDateTime))

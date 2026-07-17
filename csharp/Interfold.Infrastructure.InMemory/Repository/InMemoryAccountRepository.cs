@@ -182,7 +182,13 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             { Discord: { } discordId } => FindOrCreateSystemIdByDiscord(discordId),
             { Google: { } email } => FindOrCreateSystemIdByEmail(email),
             { Apple: { } appleId } => FindOrCreateSystemIdByApple(appleId),
-            _ => Task.FromResult<SystemId?>(null),
+            // Mirrors ScyllaAccountRepository.FindOrCreateSystemIdAsync: an empty
+            // ProviderIdentity is either default(ProviderIdentity) leaking past the
+            // OAuth controllers' extract-or-403 gate, or a new union member added
+            // without a corresponding branch. Fail loud — the previous silent-null
+            // masqueraded as "unknown identity" and hid real bugs.
+            _ => throw new ArgumentOutOfRangeException(nameof(identity), identity,
+                "ProviderIdentity has no Discord/Google/Apple member populated."),
         };
 
     public Task<AccountLinkResult> LinkIdentityToUserAsync(SystemId systemId, ProviderIdentity identity, CancellationToken cancellationToken = default)
@@ -191,7 +197,8 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             { Discord: { } discordId } => Task.FromResult(LinkIdentifier(systemId, discordId, _discordBySystem, _systemByDiscord, static id => id.Value)),
             { Google: { } email } => Task.FromResult(LinkIdentifier(systemId, email, _emailBySystem, _systemByEmail, static e => e.Value)),
             { Apple: { } appleId } => Task.FromResult(LinkIdentifier(systemId, appleId, _appleBySystem, _systemByApple, static id => id.Value)),
-            _ => Task.FromResult(AccountLinkResult.UserNotFound),
+            _ => throw new ArgumentOutOfRangeException(nameof(identity), identity,
+                "ProviderIdentity has no Discord/Google/Apple member populated."),
         };
 
     private Task<SystemId?> FindOrCreateSystemIdByDiscord(DiscordId discordId)

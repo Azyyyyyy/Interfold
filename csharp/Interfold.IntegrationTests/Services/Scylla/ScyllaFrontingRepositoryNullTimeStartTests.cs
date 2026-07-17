@@ -34,8 +34,8 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
         // the cleanup. CreateAlterAsync also ensures the system + users row exist.
         var rawSystemId = $"sys-null-ts-{Guid.NewGuid():N}"[..32];
         var systemId = new SystemId(rawSystemId);
-        var alterIdInt = await CreateAlterAsync(client, rawSystemId, "synthetic-alter");
-        var alterId = (short)alterIdInt;
+        var typedAlterId = await CreateAlterAsync(client, rawSystemId, "synthetic-alter");
+        var alterId = typedAlterId.Value;
 
         var keyspaceResolver = factory.Services.GetRequiredService<IScyllaKeyspaceResolver>();
         var sessionProvider = factory.Services.GetRequiredService<IScyllaSessionProvider>();
@@ -64,7 +64,7 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
             insertedAt));
 
         var endedAt = DateTimeOffset.UtcNow;
-        var endResult = await frontingRepo.EndAsync(systemId, new AlterId((short)alterIdInt), endedAt);
+        var endResult = await frontingRepo.EndAsync(systemId, typedAlterId, endedAt);
 
         // Pull every fronts_by_time row for this synthetic user. With the fix in place
         // GetCurrentFrontRowAsync returns null on the null time_start and EndAsync bails

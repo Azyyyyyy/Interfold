@@ -7,6 +7,7 @@ using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Domain.Alters;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -58,12 +59,21 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var next = (short)(current + 1);
             var createdAt = command.CreatedAt.ToUniversalTime();
 
+            // Stamp security_level at insert time so the read-back path never sees a null
+            // column. The Option D 2026-07-17 strict-throw flip (see
+            // ScyllaAlterRepositoryUdtNullTests.GetGuardedAsync_NullSecurityLevelOnRow_ThrowsAfterStrictFlip)
+            // requires that every API-written row carries a declared VisibilityLevel member;
+            // omitting the column here made AltersController.Create's read-back throw
+            // ArgumentOutOfRangeException on the very next call, 500-ing the create. Public
+            // matches InMemoryAlterRepository.AlterState.VisibilityLevel's default so the
+            // two backends stay behaviourally interchangeable.
             var insert = new SimpleStatement(
-                $"INSERT INTO {keyspace}.alters (user_id, id, name, alias, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                $"INSERT INTO {keyspace}.alters (user_id, id, name, alias, security_level, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 normalizedSystemId,
                 next,
                 command.Name,
                 null,
+                (short)VisibilityLevel.Public,
                 createdAt,
                 createdAt
             );
@@ -429,7 +439,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
                     HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("pronouns"),
-                    row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public),
+                    row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
                     ResolveFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
                     row.GetValue<string?>("proxy_name"),
                     row.GetValue<string?>("alias"),
@@ -463,7 +473,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             var rows = await session.ExecuteAsync(query);
             return rows
-                .Where(row => row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public).CanBeViewedBy(friendshipLevel))
+                .Where(row => row.GetValue<short?>("security_level").FromCode<VisibilityLevel>().CanBeViewedBy(friendshipLevel))
                 .Select(row => new BareAlter(
                     new(row.GetValue<short>("id")),
                     row.GetValue<string>("name"),
@@ -506,7 +516,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
                     HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("pronouns"),
-                    row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public),
+                    row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
                     ResolveFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
                     row.GetValue<string?>("proxy_name"),
                     row.GetValue<string?>("alias"),
@@ -544,7 +554,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 return null;
             }
 
-            var securityLevel = row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public);
+            var securityLevel = row.GetValue<short?>("security_level").FromCode<VisibilityLevel>();
             if (!securityLevel.CanBeViewedBy(friendshipLevel))
             {
                 return null;
@@ -599,38 +609,28 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         return rows.Any();
     }
 
-    private async Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(
+    private Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(
         SystemId systemId,
         FriendshipLevel? friendshipLevel,
         CancellationToken cancellationToken)
-    {
-        var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
-        return definitions
-            .Where(def => def.SecurityLevel.CanBeViewedBy(friendshipLevel))
-            .ToArray();
-    }
+        => AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken);
 
     private static IReadOnlyList<AlterPublicFieldReadModel> ResolveFields(
         IEnumerable<AlterFieldUdt>? alterFields,
         IReadOnlyList<SettingsFieldReadModel> definitions)
         => ScyllaSharedQueries.ResolveAlterFields(alterFields, definitions);
 
+    // Thin adapter around AlterFieldProjection.ResolveGuardedFields — the shared helper
+    // takes an IReadOnlyDictionary<FieldId, string?> so the same code path serves both
+    // backends. Scylla stores field values as a UDT list; the .ToDictionary here does
+    // the one-time projection from AlterFieldUdt into the domain-shared shape.
     private static IReadOnlyList<AlterPublicFieldReadModel> ResolveGuardedFields(
         IEnumerable<AlterFieldUdt>? alterFields,
         IReadOnlyList<SettingsFieldReadModel> definitions)
     {
-        var valuesByFieldId = (alterFields ?? Array.Empty<AlterFieldUdt>())
-            .ToDictionary(x => x.Id, x => x.Value);
-
-        if (valuesByFieldId.Count == 0 || definitions.Count == 0)
-        {
-            return [];
-        }
-
-        return definitions
-            .Where(def => valuesByFieldId.ContainsKey(def.Id))
-            .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, valuesByFieldId[def.Id]))
-            .ToArray();
+        var valuesByFieldId = alterFields?
+            .ToDictionary(x => new FieldId(x.Id), x => x.Value);
+        return AlterFieldProjection.ResolveGuardedFields(valuesByFieldId, definitions);
     }
 
     public static void EnsureAlterFieldUdtMapping(ISession session, string keyspace)

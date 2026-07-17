@@ -1,6 +1,9 @@
 using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
+using Interfold.Contracts;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
+using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
 using Microsoft.AspNetCore.Mvc.Testing;
 
@@ -25,28 +28,22 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var principalId = $"sys-extavatar-{Guid.NewGuid():N}"[..24];
         await EnsureUserExistsAsync(client, principalId);
 
-        using var uploadRequest = new HttpRequestMessage(HttpMethod.Put, "/api/settings/avatar")
-        {
-            Content = JsonContent.Create(new { url = ExternalSystemAvatar }),
-        };
-        AttachPrincipalAuth(uploadRequest, client, principalId);
-        var uploadResponse = await client.SendAsync(uploadRequest);
+        using var uploadResponse = await client.SendAsJsonAsync(
+            HttpMethod.Put, "/api/settings/avatar",
+            new AvatarUrlUploadRequest(new AvatarUrl(ExternalSystemAvatar)),
+            principalId);
         await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
         using var profileRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principalId}");
         AttachPrincipalAuth(profileRequest, client, principalId);
-        var profileResponse = await client.SendAsync(profileRequest);
-        var profileBody = await profileResponse.Content.ReadAsStringAsync();
-
-        var avatarUrl = ReadNestedStringField(profileBody, "data", "avatar_url");
-        var avatarSource = ReadNestedStringField(profileBody, "data", "avatar_source");
+        using var profileResponse = await client.SendAsync(profileRequest);
+        var profile = await profileResponse.ReadEnvelopeAsync<PublicSystemReadModel>(HttpStatusCode.OK);
 
         using (Assert.Multiple())
         {
-            await Assert.That(profileResponse.StatusCode).IsEqualTo(HttpStatusCode.OK);
             // Passthrough: stored URL is returned verbatim, never qualified with the API origin.
-            await Assert.That(avatarUrl).IsEqualTo(ExternalSystemAvatar);
-            await Assert.That(avatarSource).IsEqualTo("external");
+            await Assert.That(profile.Data.AvatarUrl?.Value).IsEqualTo(ExternalSystemAvatar);
+            await Assert.That(profile.Data.AvatarSource).IsEqualTo(AvatarSource.External);
         }
     }
 
@@ -60,45 +57,35 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         var principalId = $"sys-altext-{Guid.NewGuid():N}"[..20];
 
-        using var usernameRequest = new HttpRequestMessage(HttpMethod.Post, "/api/settings/username")
-        {
-            Content = JsonContent.Create(new { username = "external-alter" }),
-        };
-        AttachPrincipalAuth(usernameRequest, client, principalId);
-        var usernameResponse = await client.SendAsync(usernameRequest);
+        using var usernameResponse = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/settings/username",
+            new SettingsUsernameRequest(new Username("external-alter")),
+            principalId);
         await Assert.That(usernameResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
-        using var createRequest = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/alters")
-        {
-            Content = JsonContent.Create(new { name = "ExternalAvatarAlter" }),
-        };
-        AttachPrincipalAuth(createRequest, client, principalId);
-        var createResponse = await client.SendAsync(createRequest);
+        using var createResponse = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/systems/me/alters",
+            new CreateAlterRequest("ExternalAvatarAlter"),
+            principalId);
         await Assert.That(createResponse.StatusCode).IsEqualTo(HttpStatusCode.Created);
 
-        var alterId = ReadTrailingIntFromLocation(createResponse);
+        var alterId = ReadTrailingAlterIdFromLocation(createResponse);
 
-        using var uploadRequest = new HttpRequestMessage(HttpMethod.Put, $"/api/systems/me/alters/{alterId}/avatar")
-        {
-            Content = JsonContent.Create(new { url = ExternalAlterAvatar }),
-        };
-        AttachPrincipalAuth(uploadRequest, client, principalId);
-        var uploadResponse = await client.SendAsync(uploadRequest);
+        using var uploadResponse = await client.SendAsJsonAsync(
+            HttpMethod.Put, $"/api/systems/me/alters/{alterId}/avatar",
+            new AvatarUrlUploadRequest(new AvatarUrl(ExternalAlterAvatar)),
+            principalId);
         await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
         using var alterRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principalId}/alters/{alterId}");
         AttachPrincipalAuth(alterRequest, client, principalId);
-        var alterResponse = await client.SendAsync(alterRequest);
-        var alterBody = await alterResponse.Content.ReadAsStringAsync();
-
-        var avatarUrl = ReadNestedStringField(alterBody, "data", "avatar_url");
-        var avatarSource = ReadNestedStringField(alterBody, "data", "avatar_source");
+        using var alterResponse = await client.SendAsync(alterRequest);
+        var alter = await alterResponse.ReadEnvelopeAsync<BareAlter>(HttpStatusCode.OK);
 
         using (Assert.Multiple())
         {
-            await Assert.That(alterResponse.StatusCode).IsEqualTo(HttpStatusCode.OK);
-            await Assert.That(avatarUrl).IsEqualTo(ExternalAlterAvatar);
-            await Assert.That(avatarSource).IsEqualTo("external");
+            await Assert.That(alter.Data.AvatarUrl?.Value).IsEqualTo(ExternalAlterAvatar);
+            await Assert.That(alter.Data.AvatarSource).IsEqualTo(AvatarSource.External);
         }
     }
 
@@ -117,19 +104,16 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var principalId = $"sys-bad-{Guid.NewGuid():N}"[..16];
         await EnsureUserExistsAsync(client, principalId);
 
-        using var uploadRequest = new HttpRequestMessage(HttpMethod.Put, "/api/settings/avatar")
-        {
-            Content = JsonContent.Create(new { url = "ftp://example.com/avatar.png" }),
-        };
-        AttachPrincipalAuth(uploadRequest, client, principalId);
-        var uploadResponse = await client.SendAsync(uploadRequest);
-        var uploadBody = await uploadResponse.Content.ReadAsStringAsync();
+        // AvatarUrl's constructor doesn't validate, so the typed record carries the
+        // ftp:// string through to the server unchanged. The 400 + avatar_url_invalid
+        // contract is the server-side rule under test.
+        using var uploadResponse = await client.SendAsJsonAsync(
+            HttpMethod.Put, "/api/settings/avatar",
+            new AvatarUrlUploadRequest(new AvatarUrl("ftp://example.com/avatar.png")),
+            principalId);
 
-        using (Assert.Multiple())
-        {
-            await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
-            await Assert.That(ReadJsonStringField(uploadBody, "code")).IsEqualTo("avatar_url_invalid");
-        }
+        var error = await uploadResponse.ReadErrorAsync(HttpStatusCode.BadRequest);
+        await Assert.That(error.Code).IsEqualTo(ErrorCodes.AvatarUrlInvalid);
     }
 
     [Test]
@@ -142,35 +126,28 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         var principalId = $"sys-altrel-{Guid.NewGuid():N}"[..20];
 
-        using var usernameRequest = new HttpRequestMessage(HttpMethod.Post, "/api/settings/username")
-        {
-            Content = JsonContent.Create(new { username = "relative-alter" }),
-        };
-        AttachPrincipalAuth(usernameRequest, client, principalId);
-        await client.SendAsync(usernameRequest);
+        using var usernameResponse = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/settings/username",
+            new SettingsUsernameRequest(new Username("relative-alter")),
+            principalId);
+        _ = usernameResponse;
 
-        using var createRequest = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/alters")
-        {
-            Content = JsonContent.Create(new { name = "RelativeAvatarAlter" }),
-        };
-        AttachPrincipalAuth(createRequest, client, principalId);
-        var createResponse = await client.SendAsync(createRequest);
+        using var createResponse = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/systems/me/alters",
+            new CreateAlterRequest("RelativeAvatarAlter"),
+            principalId);
         await Assert.That(createResponse.StatusCode).IsEqualTo(HttpStatusCode.Created);
-        var alterId = ReadTrailingIntFromLocation(createResponse);
+        var alterId = ReadTrailingAlterIdFromLocation(createResponse);
 
-        using var uploadRequest = new HttpRequestMessage(HttpMethod.Put, $"/api/systems/me/alters/{alterId}/avatar")
-        {
-            Content = JsonContent.Create(new { url = "/relative/path.png" }),
-        };
-        AttachPrincipalAuth(uploadRequest, client, principalId);
-        var uploadResponse = await client.SendAsync(uploadRequest);
-        var uploadBody = await uploadResponse.Content.ReadAsStringAsync();
+        // Same rationale as the sibling test — AvatarUrl accepts anything, and the
+        // server enforces the http(s)-scheme rule at validation time.
+        using var uploadResponse = await client.SendAsJsonAsync(
+            HttpMethod.Put, $"/api/systems/me/alters/{alterId}/avatar",
+            new AvatarUrlUploadRequest(new AvatarUrl("/relative/path.png")),
+            principalId);
 
-        using (Assert.Multiple())
-        {
-            await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
-            await Assert.That(ReadJsonStringField(uploadBody, "code")).IsEqualTo("avatar_url_invalid");
-        }
+        var error = await uploadResponse.ReadErrorAsync(HttpStatusCode.BadRequest);
+        await Assert.That(error.Code).IsEqualTo(ErrorCodes.AvatarUrlInvalid);
     }
 
     // Isolation contract: this test builds its OWN InterfoldWebApplicationFactory via
@@ -218,24 +195,20 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
             var principalId = $"sys-localavatar-{Guid.NewGuid():N}"[..24];
 
             using var uploadRequest = BuildMultipartUploadRequest(client, "/api/settings/avatar", principalId, "avatar.png", "image/png");
-            var uploadResponse = await client.SendAsync(uploadRequest);
+            using var uploadResponse = await client.SendAsync(uploadRequest);
             await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
             using var profileRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principalId}");
             AttachPrincipalAuth(profileRequest, client, principalId);
-            var profileResponse = await client.SendAsync(profileRequest);
-            var profileBody = await profileResponse.Content.ReadAsStringAsync();
-
-            var avatarSource = ReadNestedStringField(profileBody, "data", "avatar_source");
-            var avatarUrl = ReadNestedStringField(profileBody, "data", "avatar_url");
+            using var profileResponse = await client.SendAsync(profileRequest);
+            var profile = await profileResponse.ReadEnvelopeAsync<PublicSystemReadModel>(HttpStatusCode.OK);
 
             using (Assert.Multiple())
             {
-                await Assert.That(profileResponse.StatusCode).IsEqualTo(HttpStatusCode.OK);
-                await Assert.That(avatarSource).IsEqualTo("local");
+                await Assert.That(profile.Data.AvatarSource).IsEqualTo(AvatarSource.Local);
                 // Local avatars get the request origin prepended; the URL path must sit
                 // under our configured public base so external observers can fetch the bytes.
-                await Assert.That(UrlPathStartsWith(avatarUrl, $"{publicBasePath}/{principalId}/self/")).IsTrue();
+                await Assert.That(UrlPathStartsWith(profile.Data.AvatarUrl?.Value, $"{publicBasePath}/{principalId}/self/")).IsTrue();
             }
 
             // End-to-end serving check (mirrors the sibling assertion in
@@ -245,14 +218,14 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
             // the source-only happy-path tests above, because this is the only test in
             // the file that exercises a real multipart upload (the others use external
             // URLs and never persist bytes).
-            using var avatarRequest = new HttpRequestMessage(HttpMethod.Get, avatarUrl);
+            using var avatarRequest = new HttpRequestMessage(HttpMethod.Get, profile.Data.AvatarUrl?.Value);
             // Anonymous on purpose — see the sibling test for the rationale (URL is the capability).
-            var avatarResponse = await client.SendAsync(avatarRequest);
+            using var avatarResponse = await client.SendAsync(avatarRequest);
             var avatarBytes = await avatarResponse.Content.ReadAsByteArrayAsync();
             using (Assert.Multiple())
             {
                 await Assert.That(avatarResponse.StatusCode).IsEqualTo(HttpStatusCode.OK)
-                    .Because($"Expected the local-source avatar URL to be servable. URL was '{avatarUrl}'.");
+                    .Because($"Expected the local-source avatar URL to be servable. URL was '{profile.Data.AvatarUrl}'.");
                 await Assert.That(avatarBytes.Length).IsGreaterThan(0)
                     .Because("Expected non-zero bytes back from the avatar GET.");
             }
@@ -262,22 +235,5 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
             if (Directory.Exists(storageRoot))
                 Directory.Delete(storageRoot, true);
         }
-    }
-
-    private static string ReadJsonStringField(string json, string fieldName)
-    {
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.ValueKind != JsonValueKind.Object)
-            return string.Empty;
-
-        foreach (var prop in doc.RootElement.EnumerateObject())
-        {
-            if (!prop.Name.Equals(fieldName, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            return prop.Value.ValueKind == JsonValueKind.String ? prop.Value.GetString() ?? string.Empty : string.Empty;
-        }
-
-        return string.Empty;
     }
 }

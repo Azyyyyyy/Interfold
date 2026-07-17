@@ -150,9 +150,19 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
             .Because($"[{fixtureFileName}] Step '{step.Name}' ({step.Method.ToUpperInvariant()} {path}) expected {step.ExpectedStatus}, got {(int)response.StatusCode}. Request body: {requestBody}. Response body: {body}");
 
         // Assert replay flag when declared (only when the response has a body).
+        // Traces drive arbitrary endpoints so we still parse the raw envelope here rather
+        // than deserialise to any single typed contract — the trace format is
+        // wire-shape-first by design.
         if (step.ExpectedReplay.HasValue && !string.IsNullOrEmpty(body))
         {
-            var actualReplay = ReadBoolField(body, "replay");
+            using var replayDoc = JsonDocument.Parse(body);
+            var actualReplay =
+                replayDoc.RootElement.ValueKind == JsonValueKind.Object
+                && replayDoc.RootElement.TryGetProperty("replay", out var replayProp)
+                && (replayProp.ValueKind == JsonValueKind.True
+                    || replayProp.ValueKind == JsonValueKind.False)
+                && replayProp.GetBoolean();
+
             await Assert.That(actualReplay == step.ExpectedReplay.Value).IsTrue();
         }
 

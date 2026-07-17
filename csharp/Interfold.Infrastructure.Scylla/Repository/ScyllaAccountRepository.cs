@@ -319,7 +319,13 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             { Discord: { } discordId } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken),
             { Google: { } email } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Email, email.Value, cancellationToken),
             { Apple: { } appleId } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Apple, appleId.Value, cancellationToken),
-            _ => Task.FromResult<SystemId?>(null),
+            // ProviderIdentity's static factories always populate exactly one member; a fully-
+            // empty union means either default(ProviderIdentity) reached us (bypassing the
+            // OAuth controllers' extract-or-403 gate) or a new provider member was added to
+            // the union without a corresponding branch here. Both are bugs — surface loudly
+            // instead of silently returning "not found" as if the identity were unknown.
+            _ => throw new ArgumentOutOfRangeException(nameof(identity), identity,
+                "ProviderIdentity has no Discord/Google/Apple member populated."),
         };
 
     public Task<AccountLinkResult> LinkIdentityToUserAsync(SystemId systemId, ProviderIdentity identity, CancellationToken cancellationToken = default)
@@ -328,7 +334,8 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             { Discord: { } discordId } => LinkIdentityAsync(systemId, ProviderColumn.Discord, discordId.Value, cancellationToken),
             { Google: { } email } => LinkIdentityAsync(systemId, ProviderColumn.Email, email.Value, cancellationToken),
             { Apple: { } appleId } => LinkIdentityAsync(systemId, ProviderColumn.Apple, appleId.Value, cancellationToken),
-            _ => Task.FromResult(AccountLinkResult.UserNotFound),
+            _ => throw new ArgumentOutOfRangeException(nameof(identity), identity,
+                "ProviderIdentity has no Discord/Google/Apple member populated."),
         };
 
     public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)

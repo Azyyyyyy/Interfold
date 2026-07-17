@@ -1,4 +1,6 @@
 using System.Net;
+using Interfold.Api.Models;
+using Interfold.Contracts.Enums;
 using Interfold.IntegrationTests.TestServices;
 using Microsoft.AspNetCore.Mvc.Testing;
 
@@ -24,18 +26,13 @@ public sealed class ClusterRoleAndOAuthRegistrationTests : BaseEndpointTest
             .WithConfiguration("OCTOCON_NODE_GROUP", "primary");
         using var client = factory.CreateClient();
 
-        var response = await client.GetAsync("/health/node-role");
-
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-
-        var body = await response.Content.ReadAsStringAsync();
-        var role = ReadStringField(body, "role");
-        var ownsSingletons = ReadBoolField(body, "owns_singletons");
+        using var response = await client.GetAsync("/health/node-role");
+        var body = await response.ReadJsonAsync<NodeRoleResponse>(HttpStatusCode.OK);
 
         using (Assert.Multiple())
         {
-            await Assert.That(role).IsEqualTo("primary");
-            await Assert.That(ownsSingletons).IsTrue();
+            await Assert.That(body.Role).IsEqualTo(NodeGroup.Primary);
+            await Assert.That(body.OwnsSingletons).IsTrue();
         }
     }
 
@@ -46,15 +43,10 @@ public sealed class ClusterRoleAndOAuthRegistrationTests : BaseEndpointTest
             .WithConfiguration("FLY_PROCESS_GROUP", "primary");
         using var client = factory.CreateClient();
 
-        var response = await client.GetAsync("/health/node-role");
+        using var response = await client.GetAsync("/health/node-role");
+        var body = await response.ReadJsonAsync<NodeRoleResponse>(HttpStatusCode.OK);
 
-        var body = await response.Content.ReadAsStringAsync();
-        var role = ReadStringField(body, "role");
-        using (Assert.Multiple())
-        {
-            await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-            await Assert.That(role).IsEqualTo("primary");
-        }
+        await Assert.That(body.Role).IsEqualTo(NodeGroup.Primary);
     }
 
     [Test]
@@ -65,18 +57,13 @@ public sealed class ClusterRoleAndOAuthRegistrationTests : BaseEndpointTest
             .WithConfiguration("FLY_PROCESS_GROUP", "sidecar");
         using var client = factory.CreateClient();
 
-        var response = await client.GetAsync("/health/node-role");
-
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-
-        var body = await response.Content.ReadAsStringAsync();
-        var role = ReadStringField(body, "role");
-        var ownsSingletons = ReadBoolField(body, "owns_singletons");
+        using var response = await client.GetAsync("/health/node-role");
+        var body = await response.ReadJsonAsync<NodeRoleResponse>(HttpStatusCode.OK);
 
         using (Assert.Multiple())
         {
-            await Assert.That(role).IsEqualTo("sidecar");
-            await Assert.That(ownsSingletons).IsFalse();
+            await Assert.That(body.Role).IsEqualTo(NodeGroup.Sidecar);
+            await Assert.That(body.OwnsSingletons).IsFalse();
         }
     }
 
@@ -97,7 +84,7 @@ public sealed class ClusterRoleAndOAuthRegistrationTests : BaseEndpointTest
             AllowAutoRedirect = false
         });
 
-        var response = await client.GetAsync("/auth/google");
+        using var response = await client.GetAsync("/auth/google");
 
         var locationHeader = response.Headers.Location;
         var location = locationHeader!.ToString();

@@ -48,12 +48,15 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
         //
         // Non-id/username shapes (Discord, region-scoped, unknown-prefix, blank) never
         // reach here — FriendLookup.TryParse rejects them at route binding with a 400,
-        // so this method's switch only has to cover the two remaining kinds.
+        // so this method's switch only has to cover the two remaining kinds. If a new
+        // FriendLookupKind is added it needs an explicit branch: the previous silent-null
+        // fallback masqueraded as "no such user" and hid the omission from every caller.
         SystemId? result = lookup.Kind switch
         {
             FriendLookupKind.Id => Normalize(new SystemId(lookup.Value)),
             FriendLookupKind.Username => null,
-            _ => null,
+            _ => throw new ArgumentOutOfRangeException(nameof(lookup), lookup.Kind,
+                $"Unhandled FriendLookupKind '{lookup.Kind}' in ResolveUserIdAsync."),
         };
         return Task.FromResult(result);
     }

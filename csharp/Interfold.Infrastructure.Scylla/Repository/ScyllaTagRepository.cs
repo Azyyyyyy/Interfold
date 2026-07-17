@@ -65,6 +65,13 @@ public sealed class ScyllaTagRepository : ITagRepository
             var tagGuid = Guid.NewGuid();
 
             var insert = new SimpleStatement(
+                // Stamp security_level at insert time to satisfy the Option D 2026-07-17
+                // strict-throw invariant: every API-written row must carry a declared
+                // VisibilityLevel member so the fallback-less FromCode<VisibilityLevel>()
+                // read paths (ListAsync/GetAsync/GetGuardedAsync/GetGuardedAlterIdsAsync)
+                // don't fault on the immediate read-back. Private matches the default on
+                // InMemoryTagRepository.TagState.SecurityLevel so both backends behave
+                // identically for freshly-created tags.
                 $"INSERT INTO {keyspace}.tags (user_id, id, parent_tag_id, name, description, color, security_level, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, toTimestamp(now()))",
                 normalizedSystemId,
                 tagGuid,
@@ -72,7 +79,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 command.Name,
                 null,
                 null,
-                null,
+                (short)VisibilityLevel.Private,
                 command.InsertedAtUtc
             );
 
@@ -409,7 +416,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                     alterIds,
                     row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
                     row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
-                    row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public),
+                    row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
                     new(row.GetValue<string>("user_id"))));
             }
 
@@ -443,7 +450,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             foreach (var row in rows)
             {
-                var visibility = row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public);
+                var visibility = row.GetValue<short?>("security_level").FromCode<VisibilityLevel>();
                 if (!visibility.CanBeViewedBy(friendshipLevel))
                 {
                     continue;
@@ -507,7 +514,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 alterIds,
                 row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
                 row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
-                row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public),
+                row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
                 new(row.GetValue<string>("user_id")));
         }, _options, cancellationToken);
     }
@@ -538,7 +545,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 return null;
             }
 
-            var visibility = row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public);
+            var visibility = row.GetValue<short?>("security_level").FromCode<VisibilityLevel>();
             if (!visibility.CanBeViewedBy(friendshipLevel))
             {
                 return null;
@@ -602,7 +609,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             .Select(row => new
             {
                 AlterId = new AlterId(row.GetValue<short>("id")),
-                Visibility = row.GetValue<short?>("security_level").FromCode(VisibilityLevel.Public)
+                Visibility = row.GetValue<short?>("security_level").FromCode<VisibilityLevel>()
             })
             .Where(x => alterIds.Contains(x.AlterId) && x.Visibility.CanBeViewedBy(friendshipLevel))
             .Select(x => x.AlterId)
