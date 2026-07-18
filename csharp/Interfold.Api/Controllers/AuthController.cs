@@ -13,30 +13,32 @@ using Interfold.Contracts;
 using Interfold.Api.Models;
 using Interfold.Contracts.Ids;
 using Interfold.Api.Auth;
+using Interfold.Domain.Auth;
+using Interfold.Contracts.Models.Commands;
 
 namespace Interfold.Api.Controllers;
 
 [Route("auth")]
 public sealed class AuthController : OAuthControllerBase
 {
-    private readonly IAccountRepository _accounts;
-    private readonly IAuthTokenRevocationRepository _tokenRevocation;
-    private readonly IEncryptionStateRepository _encryptionRepository;
+    private readonly AuthenticateOAuthCommandHandler _authHandler;
+    private readonly RecordAuthTokenCommandHandler _recordTokenHandler;
+    private readonly RevokeAuthTokenCommandHandler _revokeTokenHandler;
 
     public AuthController(
-        IAccountRepository accounts,
+        AuthenticateOAuthCommandHandler authHandler,
         IOptionsMonitor<AuthenticationConfiguration> authOptions,
         IAuthenticationSchemeProvider schemeProvider,
         GoogleOAuthService googleOAuth,
         DiscordOAuthService discordOAuth,
         AppleOAuthService appleOAuth,
-        IAuthTokenRevocationRepository tokenRevocation,
-        IEncryptionStateRepository encryptionRepository)
+        RecordAuthTokenCommandHandler recordTokenHandler,
+        RevokeAuthTokenCommandHandler revokeTokenHandler)
         : base(authOptions, schemeProvider, googleOAuth, discordOAuth, appleOAuth)
     {
-        _accounts = accounts;
-        _tokenRevocation = tokenRevocation;
-        _encryptionRepository = encryptionRepository;
+        _authHandler = authHandler;
+        _recordTokenHandler = recordTokenHandler;
+        _revokeTokenHandler = revokeTokenHandler;
     }
 
     protected override string CallbackRoutePrefix => "auth";
@@ -91,7 +93,7 @@ public sealed class AuthController : OAuthControllerBase
             return BadRequest(new ErrorResponse("Token is missing JTI claim.", ErrorCodes.InvalidToken));
         }
 
-        await _tokenRevocation.RevokeTokenAsync(jti.Value, HttpContext.RequestAborted);
+        await _revokeTokenHandler.HandleAsync(BuildEnvelope(OperationIds.AuthRevokeToken, new RevokeAuthTokenCommand(jti.Value)), HttpContext.RequestAborted);
 
         Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthRevokeToken.Value;
         return NoContent();
@@ -111,27 +113,22 @@ public sealed class AuthController : OAuthControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
         }
 
-        // FindOrCreateSystemIdAsync auto-provisions on miss for all three providers —
-        // the name honours the invariant explicitly, so callers see the create-on-miss
-        // semantics at the call site rather than having to trust a provider-specific
-        // method name.
-        var resolvedSystemId = await _accounts.FindOrCreateSystemIdAsync(typedIdentity, HttpContext.RequestAborted);
+        var envelope = new CommandEnvelope<AuthenticateOAuthCommand>(
+            OperationIds.AuthOAuthCallback,
+            Guid.NewGuid(),
+            ScopedSystemId.ParseScoped("nam:auth"),
+            GetIdempotencyKey(),
+            DateTimeOffset.UtcNow,
+            new AuthenticateOAuthCommand(typedIdentity)
+        );
 
-        if (string.IsNullOrWhiteSpace(resolvedSystemId?.Value))
+        var result = await _authHandler.HandleAsync(envelope, HttpContext.RequestAborted);
+        if (!result.Accepted)
         {
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you use the same account to sign in before?");
         }
 
-        var systemId = resolvedSystemId.Value;
-
-        var encryptionState = await _encryptionRepository.GetAsync(systemId, HttpContext.RequestAborted);
-        if (encryptionState?.Salt == null)
-        {
-            // Mint via EncryptionSalt.NewRandom() so the raw base64 string does not
-            // survive as a local (ToString() on EncryptionSalt redacts; on a bare string
-            // it would not). Byte width lives inside the wrapper rather than hard-coded here.
-            await _encryptionRepository.UpsertAsync(systemId, false, null, EncryptionSalt.NewRandom(), HttpContext.RequestAborted);
-        }
+        var systemId = result.Result;
 
         var token = await IssueDeepLinkTokenAsync(systemId);
 
@@ -178,7 +175,17 @@ public sealed class AuthController : OAuthControllerBase
         var token = AuthHelper.CreateToken(authConfig, expiresAt, now, jti, systemId);
         
         // Record the issued token for revocation tracking
-        await _tokenRevocation.RecordTokenAsync(jti, systemId, expiresAt, HttpContext.RequestAborted);
+        var nowRecord = DateTimeOffset.UtcNow;
+        var envelope = new CommandEnvelope<RecordAuthTokenCommand>(
+            OperationIds.AuthOAuthCallback,
+            Guid.NewGuid(),
+            ScopedSystemId.ParseScoped(systemId.Value),
+            GetIdempotencyKey(),
+            nowRecord,
+            new RecordAuthTokenCommand(jti, systemId, expiresAt)
+        );
+
+        var recordResult = await _recordTokenHandler.HandleAsync(envelope, HttpContext.RequestAborted);
 
         // JWS Compact Serialization: base64url(header).base64url(payload).base64url(signature)
         return token;

@@ -11,6 +11,11 @@ namespace Interfold.Contracts.Operations;
 /// </summary>
 public static class EntityRefs
 {
+    // --- auth ---
+    public static readonly EntityRef AuthLoginFailed = new("auth:login_failed");
+    public static readonly EntityRef AuthLinkInvalidToken = new("auth:link_invalid_token");
+    public static readonly EntityRef AuthLinkFailed = new("auth:link_failed");
+
     // --- account ---
     public static readonly EntityRef AccountUsernameInvalid = new("account:username_invalid");
     public static readonly EntityRef AccountUsernameTooLong = new("account:username_too_long");

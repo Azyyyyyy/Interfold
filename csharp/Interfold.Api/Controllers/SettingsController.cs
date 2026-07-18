@@ -54,6 +54,7 @@ public sealed class SettingsController : InterfoldControllerBase
     private readonly UpdateFieldCommandHandler _updateFieldHandler;
     private readonly DeleteFieldCommandHandler _deleteFieldHandler;
     private readonly RelocateFieldCommandHandler _relocateFieldHandler;
+    private readonly CreateLinkTokenCommandHandler _createLinkTokenHandler;
 
     public SettingsController(
         IAccountRepository accountRepository,
@@ -81,7 +82,8 @@ public sealed class SettingsController : InterfoldControllerBase
         DeleteFieldCommandHandler deleteFieldHandler,
         RelocateFieldCommandHandler relocateFieldHandler,
         IOptionsMonitor<AuthenticationConfiguration> authenticationConfiguration,
-        IOptionsMonitor<FirebaseClientConfiguration> firebaseClientConfiguration)
+        IOptionsMonitor<FirebaseClientConfiguration> firebaseClientConfiguration,
+        CreateLinkTokenCommandHandler createLinkTokenHandler)
     {
         _accountRepository = accountRepository;
         _singletonTaskOwner = singletonTaskOwner;
@@ -107,6 +109,7 @@ public sealed class SettingsController : InterfoldControllerBase
         _updateFieldHandler = updateFieldHandler;
         _deleteFieldHandler = deleteFieldHandler;
         _relocateFieldHandler = relocateFieldHandler;
+        _createLinkTokenHandler = createLinkTokenHandler;
         _authenticationConfiguration = authenticationConfiguration;
         _firebaseClientConfiguration = firebaseClientConfiguration;
     }
@@ -122,8 +125,8 @@ public sealed class SettingsController : InterfoldControllerBase
         var principal = PrincipalId;
         if (_singletonTaskOwner.OwnsTask(SingletonTaskNames.LinkTokenRegistry))
         {
-            var token = await _accountRepository.GetOrCreateLinkTokenAsync(principal, ct);
-            return Ok(new SuccessResponse<LinkTokenReadModel>(new LinkTokenReadModel(token)));
+            var result = await _createLinkTokenHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsLinkToken, new CreateLinkTokenCommand()), ct);
+            return Ok(new SuccessResponse<LinkTokenReadModel>(new LinkTokenReadModel(result.Result!.Token)));
         }
 
         var existing = await _accountRepository.GetLinkTokenAsync(principal, ct);
