@@ -5,7 +5,7 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 
 internal static class ScyllaFriendshipDenormalizedTable
 {
-    public static void AddInsertStatements(BatchStatement batch, string systemId, string otherSystemId, int friendLevel)
+    public static void AddInsertStatements(BatchStatement batch, string systemId, string otherSystemId, short friendLevel)
     {
         batch.Add(new SimpleStatement(
             $"INSERT INTO {ScyllaGlobalKeyspace.Name}.friendships (user_id, friend_id, level, since, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()), toTimestamp(now()))",

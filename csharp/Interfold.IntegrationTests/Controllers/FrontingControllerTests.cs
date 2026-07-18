@@ -38,7 +38,13 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     {
         using var client = fixture.Factory.CreateClient();
 
-        var startAnchor = DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds();
+        // The API's fronting handlers stamp time_start/time_end from the injected TimeProvider,
+        // which the test fixture replaces with a FakeTimeProvider pinned at its epoch (see
+        // InterfoldWebApplicationFactory). Real wall-clock anchors would fall outside that
+        // frame and fronts_by_time WHERE time_start >= ? AND time_start <= ? would return
+        // zero rows.
+        var now = fixture.Factory.TimeProvider.GetUtcNow();
+        var startAnchor = now.AddMinutes(-1).ToUnixTimeSeconds();
 
         var principal = "phase3-fronting-history";
         var alter = await CreateAlterAsync(client, principal, "test alter");
@@ -50,7 +56,7 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         using var ended = await SendFrontEndAsync(client, alterId: alter, principal);
         await Assert.That(ended.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
-        var endAnchor = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeSeconds();
+        var endAnchor = now.AddMinutes(1).ToUnixTimeSeconds();
         using var betweenResponse = await client.SendAuthedGetAsync($"/api/systems/me/front/between?start={startAnchor}&end={endAnchor}", principal);
         var betweenEnv = await betweenResponse.ReadEnvelopeAsync<IReadOnlyList<FrontHistoryReadModel>>(HttpStatusCode.OK);
 
