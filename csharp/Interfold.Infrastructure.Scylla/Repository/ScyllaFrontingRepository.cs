@@ -236,15 +236,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
             var alterById = alterRows.ToDictionary(
                 row => new AlterId(row.GetValue<short>("id")),
-                row => new BareAlter(
-                    new(row.GetValue<short>("id")),
-                    row.GetValue<string>("name"),
-                    AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    row.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
-                    HexColor.FromNullable(row.GetValue<string?>("color")),
-                    row.GetValue<string?>("pronouns"),
-                    row.GetValue<string?>("description"),
-                    ResolveFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions)));
+                row => AlterRowMappers.MapBareAlter(row, definitions));
 
             return (IReadOnlyList<FrontActiveReadModel>)rows
                 .Select(row =>
@@ -262,7 +254,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
                     if (!alterById.TryGetValue(alterId, out var alter))
                     {
-                        alter = new BareAlter(alterId, $"Alter {alterId}", null, null, null, null, null, null!);
+                        alter = BareAlter.CreatePlaceholder(alterId);
                     }
 
                     return new FrontActiveReadModel(alter, front, primaryAlterId == alterId);
@@ -271,11 +263,6 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 .ToArray();
         }, cancellationToken);
     }
-
-    private static IReadOnlyList<AlterPublicFieldReadModel> ResolveFields(
-        IEnumerable<AlterFieldUdt>? alterFields,
-        IReadOnlyList<SettingsFieldReadModel> definitions)
-        => ScyllaSharedQueries.ResolveAlterFields(alterFields, definitions);
 
     public async Task<IReadOnlyList<FrontActiveReadModel>> ListActiveGuardedAsync(
         SystemId systemId,
@@ -394,19 +381,11 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             BareAlter alter;
             if (alterRow is null)
             {
-                alter = new BareAlter(new(alterId), $"Alter {alterId}", null, null, null, null, null, null!);
+                alter = BareAlter.CreatePlaceholder(new(alterId));
             }
             else
             {
-                alter = new BareAlter(
-                    new(alterRow.GetValue<short>("id")),
-                    alterRow.GetValue<string>("name"),
-                    AvatarUrl.FromNullable(alterRow.GetValue<string?>("avatar_url")),
-                    alterRow.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
-                    HexColor.FromNullable(alterRow.GetValue<string?>("color")),
-                    alterRow.GetValue<string?>("pronouns"),
-                    alterRow.GetValue<string?>("description"),
-                    ResolveFields(alterRow.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions));
+                alter = AlterRowMappers.MapBareAlter(alterRow, definitions);
             }
 
             var timeStart = currentRow.GetValue<DateTimeOffset?>("time_start") ?? DateTimeOffset.UtcNow;

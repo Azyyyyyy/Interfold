@@ -87,9 +87,7 @@ public class PollsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
             principal);
         var createEnv = await createRes.ReadEnvelopeAsync<PollReadModel>(HttpStatusCode.Created);
 
-        using var getReq = new HttpRequestMessage(HttpMethod.Get, $"/api/polls/{createEnv.Data.Id}");
-        AttachPrincipalAuth(getReq, client, principal);
-        using var getRes = await client.SendAsync(getReq);
+        using var getRes = await client.SendAuthedGetAsync($"/api/polls/{createEnv.Data.Id}", principal);
         var getBody = await getRes.Content.ReadAsStringAsync();
         var getEnv = await getRes.ReadEnvelopeAsync<PollReadModel>(HttpStatusCode.OK);
 
@@ -135,9 +133,7 @@ public class PollsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
         await Assert.That(patchRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
         patchRes.Dispose();
 
-        using var getReq = new HttpRequestMessage(HttpMethod.Get, $"/api/polls/{createEnv.Data.Id}");
-        AttachPrincipalAuth(getReq, client, principal);
-        using var getRes = await client.SendAsync(getReq);
+        using var getRes = await client.SendAuthedGetAsync($"/api/polls/{createEnv.Data.Id}", principal);
         var getEnv = await getRes.ReadEnvelopeAsync<PollReadModel>(HttpStatusCode.OK);
 
         await Assert.That(getEnv.Data.TimeEnd).IsNull();
@@ -215,3 +211,4 @@ public class PollsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
         });
     }
 }
+

@@ -28,7 +28,6 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     /// <summary>
     /// Application database name the test bootstrap config asks the seeder to create. MUST stay
@@ -42,14 +41,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
     private const string TestPostgresDb = "test_pg_db";
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     /// <summary>
     /// Drives a full bootstrap against a fresh scratch and returns the in-container compose
@@ -57,19 +49,15 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
     /// </summary>
     private async Task<(DinDScratch Scratch, string ComposeFile)> BootstrapStackAsync(string testName)
     {
-        var scratch = await dinD.CreateScratchAsync(testName, TestConfigJsonPath);
-        var result = await dinD.RunBootstrapperAsync(testName,
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(result.ExitCode).IsEqualTo(0)
-            .Because($"bootstrap must succeed before invariants can be checked: {result.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(testName, TestConfigPaths.DefaultConfig);
+
         return (scratch, $"{scratch.OutputDir}/docker-compose.yaml");
     }
 
     [Test]
     public async Task CassandraDefaultIsLockedAfterBootstrap()
     {
-        var (_, composeFile) = await BootstrapStackAsync(nameof(CassandraDefaultIsLockedAfterBootstrap));
+        var (_, composeFile) = await dinD.BootstrapAsync(nameof(CassandraDefaultIsLockedAfterBootstrap), TestConfigPaths.DefaultConfig);
 
         // After BootstrapScyllaAsync, the default cassandra/cassandra login is locked - either
         // LOGIN=false or the password is scrambled. Either failure mode produces a non-zero
@@ -88,7 +76,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task DbInitPostgresPasswordIsScrambledInCluster()
     {
-        var (scratch, composeFile) = await BootstrapStackAsync(nameof(DbInitPostgresPasswordIsScrambledInCluster));
+        var (scratch, composeFile) = await dinD.BootstrapAsync(nameof(DbInitPostgresPasswordIsScrambledInCluster), TestConfigPaths.DefaultConfig);
 
         // The bootstrapper scrambles db_init's in-cluster password as the final step of
         // BootstrapPostgresAsync. The compose .env still ships the *initial* db_init password
@@ -114,7 +102,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task InterfoldPostgresUserIsDmlOnly()
     {
-        var (scratch, composeFile) = await BootstrapStackAsync(nameof(InterfoldPostgresUserIsDmlOnly));
+        var (scratch, composeFile) = await dinD.BootstrapAsync(nameof(InterfoldPostgresUserIsDmlOnly), TestConfigPaths.DefaultConfig);
 
         // Read the app user's password from the persisted secrets file (the only place it lives
         // outside the cluster after a successful bootstrap).
@@ -140,7 +128,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task InterfoldScyllaUserIsNonSuperuser()
     {
-        var (scratch, composeFile) = await BootstrapStackAsync(nameof(InterfoldScyllaUserIsNonSuperuser));
+        var (scratch, composeFile) = await dinD.BootstrapAsync(nameof(InterfoldScyllaUserIsNonSuperuser), TestConfigPaths.DefaultConfig);
 
         // Read scyllaAdminPassword from THIS test's secrets.json. `/opt/scratch/*/secrets.json | head -1`
         // would pick the alphabetically-first scratch dir (which is a sibling test's, since the
@@ -192,7 +180,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task InterfoldAdminPostgresUserIsSuperuser()
     {
-        var (scratch, composeFile) = await BootstrapStackAsync(nameof(InterfoldAdminPostgresUserIsSuperuser));
+        var (scratch, composeFile) = await dinD.BootstrapAsync(nameof(InterfoldAdminPostgresUserIsSuperuser), TestConfigPaths.DefaultConfig);
 
         var adminPassRaw = await dinD.ExecAsync(
             ["sh", "-c",
@@ -215,7 +203,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task InternalSecretsTableIsSeeded()
     {
-        var (scratch, composeFile) = await BootstrapStackAsync(nameof(InternalSecretsTableIsSeeded));
+        var (scratch, composeFile) = await dinD.BootstrapAsync(nameof(InternalSecretsTableIsSeeded), TestConfigPaths.DefaultConfig);
 
         var appPassRaw = await dinD.ExecAsync(
             ["sh", "-c",
@@ -238,3 +226,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
             .Because($"internal.secrets should contain seeded rows after bootstrap: got {count.Stdout}");
     }
 }
+
+
+
+

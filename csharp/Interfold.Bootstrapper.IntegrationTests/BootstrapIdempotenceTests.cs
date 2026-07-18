@@ -20,22 +20,14 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class BootstrapIdempotenceTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task SecondBootstrapShortCircuitsDbInit()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(SecondBootstrapShortCircuitsDbInit), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(SecondBootstrapShortCircuitsDbInit), TestConfigPaths.DefaultConfig);
 
         // First bootstrap: full path - prereqs (skipped) -> config -> secrets -> certs -> publish
         // -> db-init -> launch. Brings the postgres + scylla admin work all the way through.
@@ -72,7 +64,7 @@ public class BootstrapIdempotenceTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task SecondBootstrapLeavesContainersHealthy()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(SecondBootstrapLeavesContainersHealthy), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(SecondBootstrapLeavesContainersHealthy), TestConfigPaths.DefaultConfig);
 
         await dinD.RunBootstrapperAsync($"{nameof(SecondBootstrapLeavesContainersHealthy)}-first",
             ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
@@ -114,3 +106,6 @@ public class BootstrapIdempotenceTests(UbuntuDinDFixture dinD)
             .ToHashSet(StringComparer.Ordinal);
     }
 }
+
+
+

@@ -1,5 +1,6 @@
 using Interfold.Contracts.Configuration;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -147,26 +148,26 @@ public static class Extensions
         return builder;
     }
 
-    public static WebApplication MapDefaultEndpoints(this WebApplication app)
+    public static IEndpointRouteBuilder MapDefaultEndpoints(this IEndpointRouteBuilder endpoints)
     {
         // Liveness: no dependency checks
-        app.MapHealthChecks(HealthEndpoints.Live, new HealthCheckOptions
+        endpoints.MapHealthChecks(HealthEndpoints.Live, new HealthCheckOptions
         {
             Predicate = _ => false
         }).AllowAnonymous().ShortCircuit();
 
         // Readiness: checks tagged "ready"
-        app.MapHealthChecks(HealthEndpoints.Ready, new HealthCheckOptions
+        endpoints.MapHealthChecks(HealthEndpoints.Ready, new HealthCheckOptions
         {
             Predicate = check => check.Tags.Contains(HealthCheckTags.Ready)
         }).AllowAnonymous().ShortCircuit();
 
         // Startup: checks tagged "startup" (longer timeout for DB init)
-        app.MapHealthChecks(HealthEndpoints.Startup, new HealthCheckOptions
+        endpoints.MapHealthChecks(HealthEndpoints.Startup, new HealthCheckOptions
         {
             Predicate = check => check.Tags.Contains(HealthCheckTags.Startup)
         }).AllowAnonymous().ShortCircuit();
 
-        return app;
+        return endpoints;
     }
 }

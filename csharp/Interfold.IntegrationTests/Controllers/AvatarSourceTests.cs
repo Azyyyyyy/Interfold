@@ -34,9 +34,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
             principalId);
         await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
-        using var profileRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principalId}");
-        AttachPrincipalAuth(profileRequest, client, principalId);
-        using var profileResponse = await client.SendAsync(profileRequest);
+        using var profileResponse = await client.SendAuthedGetAsync($"/api/systems/{principalId}", principalId);
         var profile = await profileResponse.ReadEnvelopeAsync<PublicSystemReadModel>(HttpStatusCode.OK);
 
         using (Assert.Multiple())
@@ -79,9 +77,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
             principalId);
         await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
-        using var alterRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principalId}/alters/{alterId}");
-        AttachPrincipalAuth(alterRequest, client, principalId);
-        using var alterResponse = await client.SendAsync(alterRequest);
+        using var alterResponse = await client.SendAuthedGetAsync($"/api/systems/{principalId}/alters/{alterId}", principalId);
         var alter = await alterResponse.ReadEnvelopeAsync<BareAlter>(HttpStatusCode.OK);
 
         using (Assert.Multiple())
@@ -200,9 +196,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
             using var uploadResponse = await client.SendAsync(uploadRequest);
             await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
-            using var profileRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principalId}");
-            AttachPrincipalAuth(profileRequest, client, principalId);
-            using var profileResponse = await client.SendAsync(profileRequest);
+            using var profileResponse = await client.SendAuthedGetAsync($"/api/systems/{principalId}", principalId);
             var profile = await profileResponse.ReadEnvelopeAsync<PublicSystemReadModel>(HttpStatusCode.OK);
 
             using (Assert.Multiple())
@@ -239,3 +233,4 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
         }
     }
 }
+

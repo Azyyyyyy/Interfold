@@ -30,18 +30,9 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class MdnsGateTests(UbuntuDinDFixture dinD)
 {
-    private static string MdnsGateConfigPath =>
-        Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.mdns-gate.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task NonInteractiveBootstrapStripsUnresolvableLocalHostsAndContinues()
@@ -56,7 +47,7 @@ public class MdnsGateTests(UbuntuDinDFixture dinD)
         // db-init / launch / compose-up never run).
         var scratch = await dinD.CreateScratchAsync(
             nameof(NonInteractiveBootstrapStripsUnresolvableLocalHostsAndContinues),
-            MdnsGateConfigPath);
+            TestConfigPaths.MdnsGateConfig);
 
         var result = await dinD.RunBootstrapperAsync(
             nameof(NonInteractiveBootstrapStripsUnresolvableLocalHostsAndContinues),
@@ -118,3 +109,6 @@ public class MdnsGateTests(UbuntuDinDFixture dinD)
             .Because("stripped .local entries must not leak into the leaf cert's SAN list");
     }
 }
+
+
+

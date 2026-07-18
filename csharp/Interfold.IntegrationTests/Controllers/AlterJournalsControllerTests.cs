@@ -19,9 +19,7 @@ public class AlterJournalsControllerTests(IWebFactoryFixture fixture) : BaseEndp
         var principal = "parity-alter-journal-empty-list";
         var alterId = await CreateAlterAsync(client, principal, "NoJournalAlter");
 
-        using var listReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/{alterId}/journals");
-        AttachPrincipalAuth(listReq, client, principal);
-        using var listRes = await client.SendAsync(listReq);
+        using var listRes = await client.SendAuthedGetAsync($"/api/systems/me/alters/{alterId}/journals", principal);
 
         var envelope = await listRes.ReadEnvelopeAsync<IReadOnlyList<AlterJournalReadModel>>(HttpStatusCode.OK);
         await Assert.That(envelope.Data.Count).IsEqualTo(0);
@@ -53,16 +51,12 @@ public class AlterJournalsControllerTests(IWebFactoryFixture fixture) : BaseEndp
         }
 
         // GET /api/systems/me/alters/:id/journals  →  200 + {data:[...]}
-        using var listReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/{alterId}/journals");
-        AttachPrincipalAuth(listReq, client, principal);
-        using var listRes = await client.SendAsync(listReq);
+        using var listRes = await client.SendAuthedGetAsync($"/api/systems/me/alters/{alterId}/journals", principal);
         var listEnv = await listRes.ReadEnvelopeAsync<IReadOnlyList<AlterJournalReadModel>>(HttpStatusCode.OK);
         await Assert.That(listEnv.Data.Count).IsGreaterThan(0);
 
         // GET /api/systems/me/alters/journals/:journalId  →  200 + {data:{...}}
-        using var showReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/journals/{entryId}");
-        AttachPrincipalAuth(showReq, client, principal);
-        using var showRes = await client.SendAsync(showReq);
+        using var showRes = await client.SendAuthedGetAsync($"/api/systems/me/alters/journals/{entryId}", principal);
         var showEnv = await showRes.ReadEnvelopeAsync<AlterJournalReadModel>(HttpStatusCode.OK);
         await Assert.That(showEnv.Data.Id).IsEqualTo(entryId);
 
@@ -104,9 +98,8 @@ public class AlterJournalsControllerTests(IWebFactoryFixture fixture) : BaseEndp
         AttachPrincipalAuth(deleteReq, client, principal);
         (await client.SendAsync(deleteReq)).Dispose();
 
-        using var showReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/journals/{entryId}");
-        AttachPrincipalAuth(showReq, client, principal);
-        using var showRes = await client.SendAsync(showReq);
+        using var showRes = await client.SendAuthedGetAsync($"/api/systems/me/alters/journals/{entryId}", principal);
         await Assert.That(showRes.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
 }
+

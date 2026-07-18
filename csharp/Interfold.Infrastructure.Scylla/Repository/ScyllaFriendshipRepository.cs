@@ -157,22 +157,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             }
 
             var removeBatch = new BatchStatement();
-            removeBatch.Add(new SimpleStatement(
-                $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ?",
-                normalizedSystemId,
-                normalizedFriendId));
-            removeBatch.Add(new SimpleStatement(
-                $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ?",
-                normalizedFriendId,
-                normalizedSystemId));
-            removeBatch.Add(new SimpleStatement(
-                $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id WHERE friend_id = ? AND user_id = ?",
-                normalizedFriendId,
-                normalizedSystemId));
-            removeBatch.Add(new SimpleStatement(
-                $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id WHERE friend_id = ? AND user_id = ?",
-                normalizedSystemId,
-                normalizedFriendId));
+            ScyllaFriendshipDenormalizedTable.AddDeleteStatements(removeBatch, normalizedSystemId, normalizedFriendId);
             await session.ExecuteAsync(removeBatch);
 
             return true;
@@ -415,10 +400,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             {
                 SystemId friendId = new(row.GetValue<string>("friend_id"));
                 friendIds.Add(friendId);
-                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ?", normalizedSystemId, friendId.Value));
-                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ?", friendId.Value, normalizedSystemId));
-                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id WHERE friend_id = ? AND user_id = ?", friendId.Value, normalizedSystemId));
-                batch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id WHERE friend_id = ? AND user_id = ?", normalizedSystemId, friendId.Value));
+                ScyllaFriendshipDenormalizedTable.AddDeleteStatements(batch, normalizedSystemId, friendId.Value);
             }
 
             foreach (var row in outgoingRows)
@@ -598,19 +580,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
     {
         var friendLevel = (short)FriendshipLevel.Friend;
         var batch = new BatchStatement();
-        batch.Add(new SimpleStatement(
-            $"INSERT INTO {ScyllaGlobalKeyspace.Name}.friendships (user_id, friend_id, level, since, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()), toTimestamp(now()))",
-            systemId, otherSystemId, friendLevel));
-        batch.Add(new SimpleStatement(
-            $"INSERT INTO {ScyllaGlobalKeyspace.Name}.friendships (user_id, friend_id, level, since, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()), toTimestamp(now()))",
-            otherSystemId, systemId, friendLevel));
-        // Maintain friendships_by_friend_id denormalized table
-        batch.Add(new SimpleStatement(
-            $"INSERT INTO {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id (friend_id, user_id, level, since, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()), toTimestamp(now()))",
-            otherSystemId, systemId, friendLevel));
-        batch.Add(new SimpleStatement(
-            $"INSERT INTO {ScyllaGlobalKeyspace.Name}.friendships_by_friend_id (friend_id, user_id, level, since, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()), toTimestamp(now()))",
-            systemId, otherSystemId, friendLevel));
+        ScyllaFriendshipDenormalizedTable.AddInsertStatements(batch, systemId, otherSystemId, friendLevel);
         // Clear requests in both directions
         batch.Add(new SimpleStatement(
             $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ? AND to_id = ?",

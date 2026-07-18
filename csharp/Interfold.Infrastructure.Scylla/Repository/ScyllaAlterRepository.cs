@@ -433,7 +433,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("pronouns"),
                     row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
-                    ResolveFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
+                    ScyllaSharedQueries.ResolveAlterFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
                     row.GetValue<string?>("proxy_name"),
                     row.GetValue<string?>("alias"),
                     row.GetValue<bool?>("untracked"),
@@ -457,7 +457,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var keyspace = scope.Keyspace;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
             EnsureAlterFieldUdtMapping(session, keyspace);
-            var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
+            var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken);
 
             var query = new SimpleStatement(
                 $"SELECT id, name, avatar_url, avatar_source, color, description, pronouns, pinned, security_level, fields FROM {keyspace}.alters WHERE user_id = ?",
@@ -467,15 +467,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var rows = await session.ExecuteAsync(query);
             return rows
                 .Where(row => row.GetValue<short?>("security_level").FromCode<VisibilityLevel>().CanBeViewedBy(friendshipLevel))
-                .Select(row => new BareAlter(
-                    new(row.GetValue<short>("id")),
-                    row.GetValue<string>("name"),
-                    AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    row.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
-                    HexColor.FromNullable(row.GetValue<string?>("color")),
-                    row.GetValue<string?>("pronouns"),
-                    row.GetValue<string?>("description"),
-                    ResolveGuardedFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions)))
+                .Select(row => AlterRowMappers.MapBareAlter(row, definitions))
                 .OrderBy(x => x.Id.Value)
                 .ToArray();
         }, cancellationToken);
@@ -510,7 +502,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("pronouns"),
                     row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
-                    ResolveFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
+                    ScyllaSharedQueries.ResolveAlterFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
                     row.GetValue<string?>("proxy_name"),
                     row.GetValue<string?>("alias"),
                     row.GetValue<bool?>("untracked"),
@@ -533,7 +525,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var keyspace = scope.Keyspace;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
             EnsureAlterFieldUdtMapping(session, keyspace);
-            var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
+            var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken);
 
             var query = new SimpleStatement(
                 $"SELECT id, name, avatar_url, avatar_source, description, color, pronouns, pinned, security_level, fields FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
@@ -553,16 +545,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 return null;
             }
 
-            return new BareAlter(
-                new(row.GetValue<short>("id")),
-                row.GetValue<string>("name"),
-                AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                row.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
-                HexColor.FromNullable(row.GetValue<string?>("color")),
-                row.GetValue<string?>("pronouns"),
-                row.GetValue<string?>("description"),
-                ResolveGuardedFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions)
-            );
+            return AlterRowMappers.MapBareAlter(row, definitions);
         }, cancellationToken);
     }
 
@@ -593,30 +576,6 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     private static Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, AlterId alterId)
         => ScyllaExistsQueries.RowExistsAsync(session, keyspace, "alters", "id", normalizedSystemId, alterId.Value);
 
-    private Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(
-        SystemId systemId,
-        FriendshipLevel? friendshipLevel,
-        CancellationToken cancellationToken)
-        => AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken);
-
-    private static IReadOnlyList<AlterPublicFieldReadModel> ResolveFields(
-        IEnumerable<AlterFieldUdt>? alterFields,
-        IReadOnlyList<SettingsFieldReadModel> definitions)
-        => ScyllaSharedQueries.ResolveAlterFields(alterFields, definitions);
-
-    // Thin adapter around AlterFieldProjection.ResolveGuardedFields — the shared helper
-    // takes an IReadOnlyDictionary<FieldId, string?> so the same code path serves both
-    // backends. Scylla stores field values as a UDT list; the .ToDictionary here does
-    // the one-time projection from AlterFieldUdt into the domain-shared shape.
-    private static IReadOnlyList<AlterPublicFieldReadModel> ResolveGuardedFields(
-        IEnumerable<AlterFieldUdt>? alterFields,
-        IReadOnlyList<SettingsFieldReadModel> definitions)
-    {
-        var valuesByFieldId = alterFields?
-            .ToDictionary(x => new FieldId(x.Id), x => x.Value);
-        return AlterFieldProjection.ResolveGuardedFields(valuesByFieldId, definitions);
-    }
-
     public static void EnsureAlterFieldUdtMapping(ISession session, string keyspace)
     {
         var key = (System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(session.Cluster), keyspace);
@@ -633,9 +592,4 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         UdtMappings.TryAdd(key, 0);
     }
 
-    public sealed class AlterFieldUdt
-    {
-        public Guid Id { get; set; }
-        public string? Value { get; set; }
-    }
 }

@@ -1,3 +1,5 @@
+using Interfold.Bootstrapper.Cli;
+using Interfold.Bootstrapper.Configuration;
 using TUnit.Core.Exceptions;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -64,4 +66,42 @@ internal static class TestSupport
         ];
         return candidates.FirstOrDefault(File.Exists);
     }
+    public static BootstrapOptions MakeOptions(string[]? updateServices = null)
+    {
+        return new BootstrapOptions(
+            Command: BootstrapCommand.UpdateImages,
+            ConfigPath: null,
+            OutputDir: System.IO.Path.GetFullPath("./deploy"),
+            SkipPrereqs: false,
+            RotateSecrets: false,
+            RotateCerts: false,
+            NonInteractive: false,
+            FaultInject: null,
+            PrintPhaseStatus: false,
+            UpdateServices: updateServices);
+    }
+
+    /// <summary>
+    /// Builds a fresh <see cref="BootstrapConfig"/> with explicit deployment values so the
+    /// derivation inputs are unambiguous, default-shipped ports (5001/8080/8081), and an empty
+    /// <see cref="ApiRuntimeSection"/> so every test starts from the "needs derivation" state.
+    /// </summary>
+    public static BootstrapConfig MakeConfigWithEmptyApiRuntime(
+        bool webHttps = false,
+        params string[] hosts)
+    {
+        var cfg = new BootstrapConfig
+        {
+            Deployment =
+            {
+                Hosts = hosts.Length > 0 ? [.. hosts] : ["api.example.com"],
+                WebHttps = webHttps,
+            },
+        };
+        cfg.ApiRuntime.CallbackBaseUrl = string.Empty;
+        cfg.ApiRuntime.JwtAuthority = string.Empty;
+        cfg.ApiRuntime.CorsAllowedOrigins = [];
+        return cfg;
+    }
 }
+

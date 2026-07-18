@@ -51,10 +51,7 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         await Assert.That(ended.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
         var endAnchor = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeSeconds();
-        using var betweenRequest = new HttpRequestMessage(HttpMethod.Get,
-            $"/api/systems/me/front/between?start={startAnchor}&end={endAnchor}");
-        AttachPrincipalAuth(betweenRequest, client, principal);
-        using var betweenResponse = await client.SendAsync(betweenRequest);
+        using var betweenResponse = await client.SendAuthedGetAsync($"/api/systems/me/front/between?start={startAnchor}&end={endAnchor}", principal);
         var betweenEnv = await betweenResponse.ReadEnvelopeAsync<IReadOnlyList<FrontHistoryReadModel>>(HttpStatusCode.OK);
 
         await Assert.That(betweenEnv.Data.Count).IsGreaterThan(0);
@@ -206,9 +203,7 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         // front regardless of visibility - the only filter ListActiveGuardedAsync applies is
         // for cross-system viewers (friends/trusted/public). We authenticate as `principal`
         // and query `/api/systems/{principal}/fronting`.
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principal}/fronting");
-        AttachPrincipalAuth(req, client, principal);
-        using var res = await client.SendAsync(req);
+        using var res = await client.SendAuthedGetAsync($"/api/systems/{principal}/fronting", principal);
 
         var envelope = await res.ReadEnvelopeAsync<IReadOnlyList<FrontActiveReadModel>>(HttpStatusCode.OK);
 
@@ -219,3 +214,4 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         return envelope.Data.ToDictionary(e => e.Front.AlterId, e => e.Front.Id);
     }
 }
+

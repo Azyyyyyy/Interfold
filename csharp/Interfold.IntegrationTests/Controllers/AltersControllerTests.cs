@@ -46,10 +46,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
             new(fieldPrivate, "PrivateValue"),
         });
 
-        using var nonFriendReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{owner}/alters/{alterId}");
-        AttachPrincipalAuth(nonFriendReq, client, friend);
-
-        using var nonFriendRes = await client.SendAsync(nonFriendReq);
+        using var nonFriendRes = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", friend);
         var nonFriendBody = await nonFriendRes.Content.ReadAsStringAsync();
         using (Assert.Multiple())
         {
@@ -62,10 +59,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
 
         await SendFriendRequestAndAcceptAsync(client, friend, owner);
 
-        using var friendReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{owner}/alters/{alterId}");
-        AttachPrincipalAuth(friendReq, client, friend);
-
-        using var friendRes = await client.SendAsync(friendReq);
+        using var friendRes = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", friend);
         var friendBody = await friendRes.Content.ReadAsStringAsync();
         using (Assert.Multiple())
         {
@@ -79,10 +73,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
         await SendFriendRequestAndAcceptAsync(client, trusted, owner);
         await SetFriendTrustAsync(client, owner, trusted);
 
-        using var trustedReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{owner}/alters/{alterId}");
-        AttachPrincipalAuth(trustedReq, client, trusted);
-
-        using var trustedRes = await client.SendAsync(trustedReq);
+        using var trustedRes = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", trusted);
         var trustedBody = await trustedRes.Content.ReadAsStringAsync();
         using (Assert.Multiple())
         {
@@ -124,10 +115,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
             new(fieldPrivate, "PrivateValue"),
         });
 
-        using var nonFriendReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{owner}/alters/{alterId}");
-        AttachPrincipalAuth(nonFriendReq, client, nonFriend);
-
-        using var nonFriendRes = await client.SendAsync(nonFriendReq);
+        using var nonFriendRes = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", nonFriend);
         var nonFriendBody = await nonFriendRes.Content.ReadAsStringAsync();
         using (Assert.Multiple())
         {
@@ -140,9 +128,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
 
         await SendFriendRequestAndAcceptAsync(client, friend, owner);
 
-        using var friendReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{owner}/alters/{alterId}");
-        AttachPrincipalAuth(friendReq, client, friend);
-        using var friendRes = await client.SendAsync(friendReq);
+        using var friendRes = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", friend);
         var friendBody = await friendRes.Content.ReadAsStringAsync();
         using (Assert.Multiple())
         {
@@ -156,9 +142,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
         await SendFriendRequestAndAcceptAsync(client, trusted, owner);
         await SetFriendTrustAsync(client, owner, trusted);
 
-        using var trustedReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{owner}/alters/{alterId}");
-        AttachPrincipalAuth(trustedReq, client, trusted);
-        using var trustedRes = await client.SendAsync(trustedReq);
+        using var trustedRes = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", trusted);
         var trustedBody = await trustedRes.Content.ReadAsStringAsync();
         using (Assert.Multiple())
         {
@@ -170,75 +154,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
         }
     }
 
-    [Test]
-    public async Task AlterJournal_ListWhenEmpty_ReturnsDataAsEmptyArray()
-    {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
 
-        var principal = "parity-alter-journal-empty-list";
-        var alterId = await CreateAlterAsync(client, principal, "NoJournalAlter");
-
-        using var listReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/{alterId}/journals");
-        AttachPrincipalAuth(listReq, client, principal);
-        using var listRes = await client.SendAsync(listReq);
-        var envelope = await listRes.ReadEnvelopeAsync<IReadOnlyList<AlterJournalReadModel>>(HttpStatusCode.OK);
-        await Assert.That(envelope.Data.Count).IsEqualTo(0);
-    }
-
-    [Test]
-    public async Task AlterJournal_NestedCreate_Returns201WithDataAndReplay()
-    {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
-
-        var principal = "parity-alter-journal";
-        var alterId = await CreateAlterAsync(client, principal, "JournalHolder");
-
-        // POST /api/systems/me/alters/:id/journals  →  201 + {data, replay}
-        using var createRes = await client.SendAsJsonAsync(
-            HttpMethod.Post, $"/api/systems/me/alters/{alterId}/journals",
-            new CreateAlterJournalRequest("NestedParityJournal"),
-            principal);
-        var createEnv = await createRes.ReadEnvelopeAsync<AlterJournalReadModel>(HttpStatusCode.Created);
-        var entryId = createEnv.Data.Id;
-        using (Assert.Multiple())
-        {
-            await Assert.That(entryId).IsNotEqualTo(default(EntryId));
-            await Assert.That(createEnv.Replay.GetValueOrDefault()).IsFalse();
-        }
-
-        // GET list — parity check on the envelope shape (data:[...]).
-        using var listReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/{alterId}/journals");
-        AttachPrincipalAuth(listReq, client, principal);
-        using var listRes = await client.SendAsync(listReq);
-        var listEnv = await listRes.ReadEnvelopeAsync<IReadOnlyList<AlterJournalReadModel>>(HttpStatusCode.OK);
-        await Assert.That(listEnv.Data.Count).IsGreaterThan(0);
-
-        // GET by id
-        using var showReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/journals/{entryId}");
-        AttachPrincipalAuth(showReq, client, principal);
-        using var showRes = await client.SendAsync(showReq);
-        var showEnv = await showRes.ReadEnvelopeAsync<AlterJournalReadModel>(HttpStatusCode.OK);
-        await Assert.That(showEnv.Data.Id).IsEqualTo(entryId);
-
-        // PATCH
-        using var patchRes = await client.SendAsJsonAsync(
-            HttpMethod.Patch, $"/api/systems/me/alters/journals/{entryId}",
-            new UpdateAlterJournalRequest(Title: "UpdatedParityJournal"),
-            principal);
-        await Assert.That(patchRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
-
-        // DELETE
-        using var deleteReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/systems/me/alters/journals/{entryId}");
-        AttachPrincipalAuth(deleteReq, client, principal);
-        using var deleteRes = await client.SendAsync(deleteReq);
-        await Assert.That(deleteRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
-    }
 
     [Test]
     public async Task AlterDelete_CascadesAlterJournalsAndDetachesFromGlobalJournals()
@@ -285,9 +201,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
         }
 
         // Confirm setup: both alters attached before the delete.
-        using var preDeleteReq = new HttpRequestMessage(HttpMethod.Get, $"/api/journals/{globalJournalId}");
-        AttachPrincipalAuth(preDeleteReq, client, principal);
-        using var preDeleteRes = await client.SendAsync(preDeleteReq);
+        using var preDeleteRes = await client.SendAuthedGetAsync($"/api/journals/{globalJournalId}", principal);
         var preDeleteEnv = await preDeleteRes.ReadEnvelopeAsync<JournalReadModel>(HttpStatusCode.OK);
         using (Assert.Multiple())
         {
@@ -301,18 +215,14 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
         await Assert.That(deleteAlterRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
         // Cascade 1: the per-alter journal entry is gone.
-        using var showAlterJournalReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/journals/{alterJournalEntryId}");
-        AttachPrincipalAuth(showAlterJournalReq, client, principal);
-        using var showAlterJournalRes = await client.SendAsync(showAlterJournalReq);
+        using var showAlterJournalRes = await client.SendAuthedGetAsync($"/api/systems/me/alters/journals/{alterJournalEntryId}", principal);
         await Assert.That(showAlterJournalRes.StatusCode)
             .IsEqualTo(HttpStatusCode.NotFound)
             .Because("the alter's journal entry should be cascade-deleted along with the alter.");
 
         // Cascade 2: the global journal still exists, but the deleted alter is no longer in
         // its alter_ids list. The keeper alter must still be attached.
-        using var postDeleteReq = new HttpRequestMessage(HttpMethod.Get, $"/api/journals/{globalJournalId}");
-        AttachPrincipalAuth(postDeleteReq, client, principal);
-        using var postDeleteRes = await client.SendAsync(postDeleteReq);
+        using var postDeleteRes = await client.SendAuthedGetAsync($"/api/journals/{globalJournalId}", principal);
         var postDeleteEnv = await postDeleteRes.ReadEnvelopeAsync<JournalReadModel>(HttpStatusCode.OK);
         using (Assert.Multiple())
         {
@@ -321,34 +231,6 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
         }
     }
 
-    [Test]
-    public async Task AlterJournal_ShowAfterDelete_Returns404()
-    {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
-
-        var principal = "parity-alter-journal-404";
-        var alterId = await CreateAlterAsync(client, principal, "JournalHolder404");
-
-        using var createRes = await client.SendAsJsonAsync(
-            HttpMethod.Post, $"/api/systems/me/alters/{alterId}/journals",
-            new CreateAlterJournalRequest("ToDelete"),
-            principal);
-        var createEnv = await createRes.ReadEnvelopeAsync<AlterJournalReadModel>(HttpStatusCode.Created);
-        var entryId = createEnv.Data.Id;
-
-        using var deleteReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/systems/me/alters/journals/{entryId}");
-        AttachPrincipalAuth(deleteReq, client, principal);
-        using var _ = await client.SendAsync(deleteReq);
-
-        using var showReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/journals/{entryId}");
-        AttachPrincipalAuth(showReq, client, principal);
-        using var showRes = await client.SendAsync(showReq);
-
-        await Assert.That(showRes.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-    }
 
     [Test]
     public async Task AlterCreate_IdempotentReplay_WorksAgainstLiveAdapters()
@@ -385,9 +267,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
 
         // Query a non-existent alter should return 404, not 500
         var principal = "operational-health-test";
-        using var req = new HttpRequestMessage(HttpMethod.Get, "/api/systems/me/alters/9999");
-        AttachPrincipalAuth(req, client, principal);
-        using var res = await client.SendAsync(req);
+        using var res = await client.SendAuthedGetAsync("/api/systems/me/alters/9999", principal);
 
         await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
@@ -405,3 +285,4 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
         });
     }
 }
+

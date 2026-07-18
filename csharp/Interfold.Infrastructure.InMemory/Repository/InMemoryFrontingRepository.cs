@@ -173,12 +173,12 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
                 }
                 else
                 {
-                    bareAlter = new BareAlter(x.AlterId, $"Alter {x.AlterId}", null, null, null, null, null, Array.Empty<AlterPublicFieldReadModel>());
+                    bareAlter = BareAlter.CreatePlaceholder(x.AlterId);
                 }
             }
             else
             {
-                bareAlter = new BareAlter(x.AlterId, $"Alter {x.AlterId}", null, null, null, null, null, Array.Empty<AlterPublicFieldReadModel>());
+                bareAlter = BareAlter.CreatePlaceholder(x.AlterId);
             }
 
             results.Add(new FrontActiveReadModel(
@@ -254,7 +254,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
                 return Task.FromResult<FrontActiveReadModel?>(null);
 
             return Task.FromResult<FrontActiveReadModel?>(new FrontActiveReadModel(
-                new BareAlter(found.AlterId, $"Alter {found.AlterId}", null, null, null, null, null, null!),
+                BareAlter.CreatePlaceholder(found.AlterId),
                 new FrontHistoryReadModel(found.FrontId, found.AlterId, found.Comment, found.StartedAt, null, systemId),
                 primary == found.AlterId));
         }

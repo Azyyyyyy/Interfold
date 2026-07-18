@@ -79,7 +79,7 @@ internal static class RestorePhase
                 "Run `bootstrap` first to generate them.", ex);
         }
 
-        var composeFile = FindComposeFile(options.OutputDir);
+        var composeFile = BootstrapArtifactPaths.FindComposeFile(options.OutputDir);
         if (composeFile is null)
         {
             logger.PhaseFail(Phase, PhaseFailureReasons.NoComposeFile);
@@ -88,7 +88,7 @@ internal static class RestorePhase
         }
         logger.Info($"    using compose file {composeFile}");
 
-        var backupRoot = ResolveBackupRoot(options, config);
+        var backupRoot = BackupPhase.ResolveBackupRoot(options, config);
         var (postgresArchive, scyllaArchive) = ResolveArchives(options, backupRoot, logger);
         if (postgresArchive is null && scyllaArchive is null)
         {
@@ -394,10 +394,8 @@ internal static class RestorePhase
     private static async Task ComposeUpAsync(
         string composeFile, IReadOnlyList<string> services, PhaseLogger logger, CancellationToken ct)
     {
-        var args = new List<string> { "compose", "-f", composeFile, "up", "-d" };
-        args.AddRange(services);
         logger.Info($"    docker compose up -d {string.Join(' ', services)}");
-        var run = await ProcessRunner.RunAsync("docker", args, ct: ct).ConfigureAwait(false);
+        var run = await Util.DockerCompose.UpAsync(composeFile, services, detach: true, build: false, ct: ct).ConfigureAwait(false);
         if (run.ExitCode != 0)
         {
             throw new InvalidOperationException(
@@ -491,7 +489,7 @@ internal static class RestorePhase
         }
     }
 
-    private static string ResolveBackupRoot(BootstrapOptions options, BootstrapConfig config)
+    private static string BackupPhase.ResolveBackupRoot(BootstrapOptions options, BootstrapConfig config)
     {
         // Mirrors BackupPhase.ResolveBackupRoot — kept in sync manually so both phases
         // read the same precedence rules.
@@ -500,5 +498,7 @@ internal static class RestorePhase
         return Path.Combine(options.OutputDir, "backups");
     }
 
-    private static string? FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
+    private static string? BootstrapArtifactPaths.FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
 }
+
+

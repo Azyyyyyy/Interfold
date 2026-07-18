@@ -25,9 +25,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
         _ = await CreateAlterAsync(client, principal, "BatchSelfSeed");
         await EnsurePublicProfileAsync(client, principal, "batch-self");
 
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principal}/batch");
-        AttachPrincipalAuth(req, client, principal);
-        using var res = await client.SendAsync(req);
+        using var res = await client.SendAuthedGetAsync($"/api/systems/{principal}/batch", principal);
         var error = await res.ReadErrorAsync(HttpStatusCode.Forbidden);
         await Assert.That(error.Code).IsEqualTo(ErrorCodes.InvalidEndpoint);
     }
@@ -109,9 +107,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
         AlterId[] visible,
         AlterId[] hidden)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{owner}/fronting");
-        AttachPrincipalAuth(req, client, viewer);
-        using var res = await client.SendAsync(req);
+        using var res = await client.SendAuthedGetAsync($"/api/systems/{owner}/fronting", viewer);
         var envelope = await res.ReadEnvelopeAsync<IReadOnlyList<FrontActiveReadModel>>(HttpStatusCode.OK);
         var visibleAlterIds = envelope.Data.Select(f => f.Alter.Id).ToArray();
 
@@ -209,9 +205,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     /// </summary>
     private static async Task AssertAlterVisibleAsync(HttpClient client, string owner, AlterId alterId, string viewer)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{owner}/alters/{alterId}");
-        AttachPrincipalAuth(req, client, viewer);
-        using var res = await client.SendAsync(req);
+        using var res = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", viewer);
         var envelope = await res.ReadEnvelopeAsync<BareAlter>(HttpStatusCode.OK);
         await Assert.That(envelope.Data.Id).IsEqualTo(alterId)
             .Because($"Expected viewer '{viewer}' to see alter {alterId.Value} in owner '{owner}''s public read; got a different alter id back.");
@@ -225,9 +219,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     /// </summary>
     private static async Task AssertAlterHiddenAsync(HttpClient client, string owner, AlterId alterId, string viewer)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{owner}/alters/{alterId}");
-        AttachPrincipalAuth(req, client, viewer);
-        using var res = await client.SendAsync(req);
+        using var res = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", viewer);
         var error = await res.ReadErrorAsync(HttpStatusCode.NotFound);
         await Assert.That(error.Code).IsEqualTo(ErrorCodes.AlterNotFound)
             .Because($"Expected viewer '{viewer}' to receive alter_not_found for owner '{owner}''s alter {alterId.Value}; got '{error.Code}' with detail '{error.Detail}'.");
@@ -310,9 +302,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     /// </summary>
     private static async Task AssertTagVisibleAsync(HttpClient client, string owner, TagId tagId, string viewer)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{owner}/tags/{tagId}");
-        AttachPrincipalAuth(req, client, viewer);
-        using var res = await client.SendAsync(req);
+        using var res = await client.SendAuthedGetAsync($"/api/systems/{owner}/tags/{tagId}", viewer);
         var envelope = await res.ReadEnvelopeAsync<TagPublicReadModel>(HttpStatusCode.OK);
         await Assert.That(envelope.Data.Id).IsEqualTo(tagId)
             .Because($"Expected viewer '{viewer}' to see tag {tagId} in owner '{owner}''s public read; got a different tag id back.");
@@ -325,9 +315,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     /// </summary>
     private static async Task AssertTagHiddenAsync(HttpClient client, string owner, TagId tagId, string viewer)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{owner}/tags/{tagId}");
-        AttachPrincipalAuth(req, client, viewer);
-        using var res = await client.SendAsync(req);
+        using var res = await client.SendAuthedGetAsync($"/api/systems/{owner}/tags/{tagId}", viewer);
         var error = await res.ReadErrorAsync(HttpStatusCode.NotFound);
         await Assert.That(error.Code).IsEqualTo(ErrorCodes.TagNotFound)
             .Because($"Expected viewer '{viewer}' to receive tag_not_found for owner '{owner}''s tag {tagId}; got '{error.Code}' with detail '{error.Detail}'.");
@@ -344,3 +332,4 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
             .Because($"Expected username seed 204 for '{principal}', got {(int)response.StatusCode}. Body: {await response.Content.ReadAsStringAsync()}");
     }
 }
+

@@ -45,17 +45,9 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task UpdateWithNoChangedImagesIsNoOp()
@@ -64,12 +56,7 @@ public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
         // pre-loaded images. Then run `update-images` — the pull is a no-op (nothing in the
         // fixture points at a mutable registry tag), so the digest diff must be empty and
         // the phase short-circuits without touching the running containers.
-        var scratch = await dinD.CreateScratchAsync(nameof(UpdateWithNoChangedImagesIsNoOp), TestConfigJsonPath);
-
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(UpdateWithNoChangedImagesIsNoOp)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(UpdateWithNoChangedImagesIsNoOp), TestConfigPaths.DefaultConfig);
 
         // Capture the api container ID before the update so we can assert it wasn't
         // recreated (recreate is what makes update-images observable when digests change;
@@ -108,12 +95,7 @@ public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
         // Even on the no-op path we should see fresh archives in {outputDir}/backups/
         // because the backup fires BEFORE the digest diff (so a pull that turns out to
         // be a no-op still leaves a recovery snapshot on disk).
-        var scratch = await dinD.CreateScratchAsync(nameof(UpdatePerformsPreUpdateBackup), TestConfigJsonPath);
-
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(UpdatePerformsPreUpdateBackup)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(UpdatePerformsPreUpdateBackup), TestConfigPaths.DefaultConfig);
 
         // Baseline: no backups exist yet.
         var pgBefore = await dinD.ExecAsync(["sh", "-c",
@@ -145,12 +127,7 @@ public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
         // Escape-hatch flag: --skip-pre-update-backup MUST prevent any backup being taken
         // (the operator has just taken a manual one and doesn't want the duplicate).
         // Pinned so a future refactor that flips the default behaviour gets caught.
-        var scratch = await dinD.CreateScratchAsync(nameof(UpdateWithSkipPreUpdateBackupDoesNotWriteArchives), TestConfigJsonPath);
-
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(UpdateWithSkipPreUpdateBackupDoesNotWriteArchives)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(UpdateWithSkipPreUpdateBackupDoesNotWriteArchives), TestConfigPaths.DefaultConfig);
 
         var update = await dinD.RunBootstrapperAsync(nameof(UpdateWithSkipPreUpdateBackupDoesNotWriteArchives),
             ["update-images", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
@@ -180,7 +157,7 @@ public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
         // docker compose. This is the "operator ran update-images before bootstrap"
         // misuse case — the phase runs several prerequisite checks and any of them
         // gives us the "guide to bootstrap" contract.
-        var scratch = await dinD.CreateScratchAsync(nameof(UpdateWithoutComposeFailsClearly), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(UpdateWithoutComposeFailsClearly), TestConfigPaths.DefaultConfig);
 
         var result = await dinD.RunBootstrapperAsync(nameof(UpdateWithoutComposeFailsClearly),
             ["update-images", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
@@ -194,3 +171,6 @@ public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
             .Because("error must guide the operator to run `bootstrap` first");
     }
 }
+
+
+

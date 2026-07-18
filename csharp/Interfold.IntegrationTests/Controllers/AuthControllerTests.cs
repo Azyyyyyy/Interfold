@@ -70,9 +70,7 @@ public sealed class AuthControllerTests(IWebFactoryFixture fixture) : BaseEndpoi
         var secondEnv = await secondRes.ReadEnvelopeAsync<AlterReadModel>(HttpStatusCode.Created);
         await Assert.That(secondEnv.Replay).IsTrue();
 
-        using var listReq = new HttpRequestMessage(HttpMethod.Get, "/api/systems/me/alters");
-        AttachPrincipalAuth(listReq, client, principalId);
-        using var listRes = await client.SendAsync(listReq);
+        using var listRes = await client.SendAuthedGetAsync("/api/systems/me/alters", principalId);
         var listEnv = await listRes.ReadEnvelopeAsync<IReadOnlyList<AlterReadModel>>(HttpStatusCode.OK);
         await Assert.That(listEnv.Data.Count).IsGreaterThan(0);
     }
@@ -169,3 +167,4 @@ public sealed class AuthControllerTests(IWebFactoryFixture fixture) : BaseEndpoi
         }
     }
 }
+

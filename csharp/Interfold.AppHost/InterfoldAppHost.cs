@@ -810,35 +810,7 @@ public static class InterfoldAppHost
                     .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
                     .WithExternalHttpEndpoints()
                     .WaitFor(msgDbResource)
-                    .PublishAsDockerComposeService((_, service) =>
-                    {
-                        service.Networks = [ComposeNetworks.Scylla, ComposeNetworks.Postgres, ComposeNetworks.Api];
-                        service.Healthcheck = new Healthcheck
-                        {
-                            Test = ["CMD", "curl", "-f", $"http://localhost:{apiContainerHttpPort}{HealthEndpoints.Ready}"],
-                            Interval = "15s",
-                            Timeout = "5s",
-                            Retries = 10,
-                            StartPeriod = "20s"
-                        };
-                        // The admin/seed work runs in the bootstrapper (DatabaseInitPhase) before
-                        // launch, so by the time docker compose up reaches the API the secrets
-                        // table is already populated. We still gate on msg-db being healthy via
-                        // depends_on so a freshly cleaned compose stack doesn't race to start the
-                        // API before postgres opens its listening socket.
-                        if (service.DependsOn.TryGetValue(ComposeServices.Postgres, out var msgDbDep))
-                            msgDbDep.Condition = ComposeDependencyCondition.ServiceHealthy;
-                        // Gate API startup on scylla being CQL-ready, not merely on its container
-                        // having entered the running state. Without this, the bootstrapper's
-                        // `up` command (which doesn't run db-init and therefore doesn't pre-warm
-                        // scylla itself) can race the API into scylla before the cluster has
-                        // finished gossip-bootstrap, producing "connection refused on 9042" and
-                        // a crash on the very first ScyllaMigrationService.StartingAsync call.
-                        if (service.DependsOn.TryGetValue(ComposeServices.ScyllaSingle, out var scyllaDep))
-                            scyllaDep.Condition = ComposeDependencyCondition.ServiceHealthy;
-                        if (service.DependsOn.TryGetValue(ComposeServices.Cassandra, out var cassandraDep))
-                            cassandraDep.Condition = ComposeDependencyCondition.ServiceHealthy;
-                    });
+                    .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort));
                 ConfigureApiCommon(apiContainer);
                 ConfigureApiSelfHostEnv(apiContainer);
                 foreach (var owner in cqlEndpointOwners)
@@ -852,24 +824,7 @@ public static class InterfoldAppHost
                     .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
                     .WithExternalHttpEndpoints()
                     .WaitFor(msgDbResource)
-                    .PublishAsDockerComposeService((_, service) =>
-                    {
-                        service.Networks = [ComposeNetworks.Scylla, ComposeNetworks.Postgres, ComposeNetworks.Api];
-                        service.Healthcheck = new Healthcheck
-                        {
-                            Test = ["CMD", "curl", "-f", $"http://localhost:{apiContainerHttpPort}{HealthEndpoints.Ready}"],
-                            Interval = "15s",
-                            Timeout = "5s",
-                            Retries = 10,
-                            StartPeriod = "20s"
-                        };
-                        if (service.DependsOn.TryGetValue(ComposeServices.Postgres, out var msgDbDep))
-                            msgDbDep.Condition = ComposeDependencyCondition.ServiceHealthy;
-                        if (service.DependsOn.TryGetValue(ComposeServices.ScyllaSingle, out var scyllaDep))
-                            scyllaDep.Condition = ComposeDependencyCondition.ServiceHealthy;
-                        if (service.DependsOn.TryGetValue(ComposeServices.Cassandra, out var cassandraDep))
-                            cassandraDep.Condition = ComposeDependencyCondition.ServiceHealthy;
-                    });
+                    .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort));
                 ConfigureApiCommon(apiProject);
                 foreach (var owner in cqlEndpointOwners)
                     apiProject.WaitFor(owner);
@@ -977,4 +932,41 @@ public static class InterfoldAppHost
         }
     }
 
+    private static void PromoteDependenciesToHealthy(Service service, params string[] dependencyNames)
+    {
+        foreach (var dep in dependencyNames)
+        {
+            if (service.DependsOn.TryGetValue(dep, out var composeDep))
+                composeDep.Condition = ComposeDependencyCondition.ServiceHealthy;
+        }
+    }
+
+    private static Action<Aspire.Hosting.Docker.DockerComposeServiceResource, Aspire.Hosting.Docker.Resources.ComposeNodes.Service> ApiComposeServicePublisher(int apiContainerHttpPort)
+    {
+        return (_, service) =>
+        {
+            service.Networks = [ComposeNetworks.Scylla, ComposeNetworks.Postgres, ComposeNetworks.Api];
+            service.Healthcheck = new Healthcheck
+            {
+                Test = ["CMD", "curl", "-f", $"http://localhost:{apiContainerHttpPort}{HealthEndpoints.Ready}"],
+                Interval = "15s",
+                Timeout = "5s",
+                Retries = 10,
+                StartPeriod = "20s"
+            };
+            // The admin/seed work runs in the bootstrapper (DatabaseInitPhase) before
+            // launch, so by the time docker compose up reaches the API the secrets
+            // table is already populated. We still gate on msg-db being healthy via
+            // depends_on so a freshly cleaned compose stack doesn't race to start the
+            // API before postgres opens its listening socket.
+            
+            // Gate API startup on scylla being CQL-ready, not merely on its container
+            // having entered the running state. Without this, the bootstrapper's
+            // `up` command (which doesn't run db-init and therefore doesn't pre-warm
+            // scylla itself) can race the API into scylla before the cluster has
+            // finished gossip-bootstrap, producing "connection refused on 9042" and
+            // a crash on the very first ScyllaMigrationService.StartingAsync call.
+            PromoteDependenciesToHealthy(service, ComposeServices.Postgres, ComposeServices.ScyllaSingle, ComposeServices.Cassandra);
+        };
+    }
 }

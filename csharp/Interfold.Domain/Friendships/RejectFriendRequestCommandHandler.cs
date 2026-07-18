@@ -51,8 +51,8 @@ public sealed class RejectFriendRequestCommandHandler : ICommandHandler<RejectFr
             }
         }
 
-        var canonicalSourceSystemId = FriendshipIdNormalization.CanonicalizeForPrincipal(
-            command.PrincipalId,
+        var canonicalSourceSystemId = ScopedSystemId.Compose(
+            command.PrincipalId.Region,
             command.Payload.SourceSystemId);
         var canonicalPrincipalId = FriendshipIdNormalization.CanonicalizeForPrincipal(
             canonicalSourceSystemId,

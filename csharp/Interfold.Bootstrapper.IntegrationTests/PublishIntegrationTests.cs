@@ -20,7 +20,6 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class PublishIntegrationTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     /// <summary>
     /// Documented set of keys we expect <c>PublishPhase.BuildEnvReplacements</c> to fill in the
@@ -40,23 +39,12 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
     ];
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task BindMountPathsResolveAbsoluteInComposeEnv()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(BindMountPathsResolveAbsoluteInComposeEnv), TestConfigJsonPath);
-
-        var result = await dinD.RunBootstrapperAsync(nameof(BindMountPathsResolveAbsoluteInComposeEnv),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(BindMountPathsResolveAbsoluteInComposeEnv), TestConfigPaths.DefaultConfig);
 
         var envBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/.env");
         var env = ParseEnv(envBytes);
@@ -86,11 +74,7 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
         // from the production default `ghcr.io/azyyyyyy/interfold-api:latest`. The compose YAML
         // must reference the override - if not, the rest of the pipeline would silently pull
         // from the public registry.
-        var scratch = await dinD.CreateScratchAsync(nameof(CustomApiImageAppearsInGeneratedCompose), TestConfigJsonPath);
-
-        var result = await dinD.RunBootstrapperAsync(nameof(CustomApiImageAppearsInGeneratedCompose),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(CustomApiImageAppearsInGeneratedCompose), TestConfigPaths.DefaultConfig);
 
         var composeBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/docker-compose.yaml");
         var compose = Encoding.UTF8.GetString(composeBytes);
@@ -105,11 +89,7 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task EnvFileContainsAllRequiredKeys()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(EnvFileContainsAllRequiredKeys), TestConfigJsonPath);
-
-        var result = await dinD.RunBootstrapperAsync(nameof(EnvFileContainsAllRequiredKeys),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(EnvFileContainsAllRequiredKeys), TestConfigPaths.DefaultConfig);
 
         var envBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/.env");
         var env = ParseEnv(envBytes);
@@ -160,3 +140,6 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
         return dict;
     }
 }
+
+
+

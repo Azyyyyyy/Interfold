@@ -1,4 +1,5 @@
-﻿using System.Text.Json.Serialization;
+using System;
+using System.Text.Json.Serialization;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 
@@ -9,6 +10,7 @@ namespace Interfold.Contracts.Models;
 public sealed record AlterPublicFieldReadModel(FieldId Id, string Name, FieldType Type, string? Value);
 
 public class BareAlter {
+    public static BareAlter CreatePlaceholder(AlterId id) => new(id, $"Alter {id}", null, null, null, null, null, Array.Empty<AlterPublicFieldReadModel>());
     public BareAlter(
         AlterId id,
         string name,

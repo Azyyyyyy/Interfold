@@ -98,7 +98,7 @@ internal static class BackupPhase
                 "Run `bootstrap` first to generate them.", ex);
         }
 
-        var composeFile = FindComposeFile(options.OutputDir);
+        var composeFile = BootstrapArtifactPaths.FindComposeFile(options.OutputDir);
         if (composeFile is null)
         {
             logger.PhaseFail(Phase, PhaseFailureReasons.NoComposeFile);
@@ -426,7 +426,7 @@ internal static class BackupPhase
         }
     }
 
-    private static string? FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
+    private static string? BootstrapArtifactPaths.FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
 
     /// <summary>
     /// Runs <paramref name="fileName"/> with <paramref name="arguments"/> and streams its
@@ -553,3 +553,4 @@ internal static class BackupRetention
             : ordered.Take(toDeleteCount);
     }
 }
+

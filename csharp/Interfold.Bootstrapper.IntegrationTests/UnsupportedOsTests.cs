@@ -14,19 +14,14 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UnsupportedDistroDinDFixture>(Shared = SharedType.PerTestSession)]
 public class UnsupportedOsTests(UnsupportedDistroDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State != TestState.Failed) return;
-        await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx, teardown: false);
 
     [Test]
     public async Task RefusesToRunOnUnsupportedDistro()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(RefusesToRunOnUnsupportedDistro), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(RefusesToRunOnUnsupportedDistro), TestConfigPaths.DefaultConfig);
 
         var result = await dinD.RunBootstrapperAsync(nameof(RefusesToRunOnUnsupportedDistro),
             ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
@@ -45,3 +40,6 @@ public class UnsupportedOsTests(UnsupportedDistroDinDFixture dinD)
             .Because("a refused run must not leave partial artifacts under the output dir");
     }
 }
+
+
+

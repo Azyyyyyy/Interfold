@@ -6,6 +6,7 @@ using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Configurations;
 using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Images;
+using TUnit.Assertions;
 using TUnit.Core.Interfaces;
 
 namespace Interfold.Bootstrapper.IntegrationTests.Fixtures;
@@ -274,6 +275,36 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
         sb.AppendLine("--- stderr ---");
         sb.AppendLine(result.Stderr);
         return result;
+    }
+
+    /// <summary>
+    /// Drives a full bootstrap against a fresh scratch and returns the in-container compose
+    /// file path. Each test calls this once at the top of its body, then issues its probes.
+    /// </summary>
+    public async Task<(DinDScratch Scratch, string ComposeFile)> BootstrapAsync(string testName, string configPath, params string[] extraArgs)
+    {
+        var scratch = await CreateScratchAsync(testName, configPath);
+        var args = new List<string> { "bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive", "--skip-prereqs" };
+        args.AddRange(extraArgs);
+        var result = await RunBootstrapperAsync(testName, args);
+        await Assert.That(result.ExitCode).IsEqualTo(0)
+            .Because($"bootstrap must succeed before invariants can be checked: {result.Stderr}");
+        return (scratch, $"{scratch.OutputDir}/docker-compose.yaml");
+    }
+
+    /// <summary>
+    /// Drives a publish against a fresh scratch and returns the in-container compose
+    /// file path. Each test calls this once at the top of its body, then issues its probes.
+    /// </summary>
+    public async Task<(DinDScratch Scratch, string ComposeFile)> PublishAsync(string testName, string configPath, params string[] extraArgs)
+    {
+        var scratch = await CreateScratchAsync(testName, configPath);
+        var args = new List<string> { "publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive" };
+        args.AddRange(extraArgs);
+        var result = await RunBootstrapperAsync(testName, args);
+        await Assert.That(result.ExitCode).IsEqualTo(0)
+            .Because($"publish must succeed: {result.Stderr}");
+        return (scratch, $"{scratch.OutputDir}/docker-compose.yaml");
     }
 
     /// <summary>

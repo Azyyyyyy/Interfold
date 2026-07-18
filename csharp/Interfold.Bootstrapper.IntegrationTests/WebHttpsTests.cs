@@ -16,18 +16,9 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class WebHttpsTests(UbuntuDinDFixture dinD)
 {
-    private static string WebHttpsConfigPath =>
-        Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.web-https.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task PublishWithWebHttpsEmitsCertAndTemplateBindMounts()
@@ -36,11 +27,7 @@ public class WebHttpsTests(UbuntuDinDFixture dinD)
         // sources for octocon-web (cert dir + nginx envsubst template) and stamp the NGINX_*
         // env values that drive the template. No `docker compose up` here, so the test runs in
         // single-digit seconds against the shared DinD.
-        var scratch = await dinD.CreateScratchAsync(nameof(PublishWithWebHttpsEmitsCertAndTemplateBindMounts), WebHttpsConfigPath);
-
-        var publish = await dinD.RunBootstrapperAsync(nameof(PublishWithWebHttpsEmitsCertAndTemplateBindMounts),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(publish.ExitCode).IsEqualTo(0).Because(publish.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(PublishWithWebHttpsEmitsCertAndTemplateBindMounts), TestConfigPaths.WebHttpsConfig);
 
         var envBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/.env");
         var env = ParseEnv(envBytes);
@@ -108,7 +95,7 @@ public class WebHttpsTests(UbuntuDinDFixture dinD)
         // paths we passed in. The healthcheck itself probes https://localhost:443/ with `-kf`
         // from inside the container, so a healthy state implies a successful TLS handshake
         // against the bootstrapper-issued leaf cert.
-        var scratch = await dinD.CreateScratchAsync(nameof(WebContainerServesHttpsAfterComposeUp), WebHttpsConfigPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(WebContainerServesHttpsAfterComposeUp), TestConfigPaths.WebHttpsConfig);
 
         // `publish` runs config + secrets + certs + compose-publish (no docker compose up). The
         // certs phase emits /certs/{leaf.crt,leaf.key,leaf.pfx} under the scratch output dir, so
@@ -229,11 +216,7 @@ public class WebHttpsTests(UbuntuDinDFixture dinD)
         // operator-facing failure mode: a `KEY=` line with a blank RHS in the .env will cause
         // `docker compose up` to error out with "invalid mount source". This test confirms the
         // ApplyReplacementsToEnvFile pass actually populated every web-related entry.
-        var scratch = await dinD.CreateScratchAsync(nameof(PublishWithWebHttpsLeavesEnvFilledWithAbsolutePaths), WebHttpsConfigPath);
-
-        var publish = await dinD.RunBootstrapperAsync(nameof(PublishWithWebHttpsLeavesEnvFilledWithAbsolutePaths),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(publish.ExitCode).IsEqualTo(0).Because(publish.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(PublishWithWebHttpsLeavesEnvFilledWithAbsolutePaths), TestConfigPaths.WebHttpsConfig);
 
         var envBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/.env");
         var rawText = Encoding.UTF8.GetString(envBytes);
@@ -270,3 +253,6 @@ public class WebHttpsTests(UbuntuDinDFixture dinD)
         return dict;
     }
 }
+
+
+

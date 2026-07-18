@@ -50,8 +50,8 @@ public sealed class RemoveFriendshipCommandHandler : ICommandHandler<RemoveFrien
             }
         }
 
-        var canonicalFriendSystemId = FriendshipIdNormalization.CanonicalizeForPrincipal(
-            command.PrincipalId,
+        var canonicalFriendSystemId = ScopedSystemId.Compose(
+            command.PrincipalId.Region,
             command.Payload.FriendSystemId);
         var canonicalPrincipalId = FriendshipIdNormalization.CanonicalizeForPrincipal(
             canonicalFriendSystemId,

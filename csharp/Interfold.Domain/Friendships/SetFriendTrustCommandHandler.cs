@@ -50,8 +50,8 @@ public sealed class SetFriendTrustCommandHandler : ICommandHandler<SetFriendTrus
             }
         }
 
-        var canonicalFriendSystemId = FriendshipIdNormalization.CanonicalizeForPrincipal(
-            command.PrincipalId,
+        var canonicalFriendSystemId = ScopedSystemId.Compose(
+            command.PrincipalId.Region,
             command.Payload.FriendSystemId);
 
         var updated = await _repository.SetTrustedAsync(

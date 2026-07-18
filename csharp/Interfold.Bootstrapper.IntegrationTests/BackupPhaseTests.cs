@@ -15,17 +15,9 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class BackupPhaseTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task BackupCreatesPostgresAndScyllaArtifacts()
@@ -33,12 +25,7 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
         // Full bootstrap first so we have a live compose stack to back up. The backup phase
         // depends on the API container + DB containers running (it execs into them via
         // `docker compose exec`).
-        var scratch = await dinD.CreateScratchAsync(nameof(BackupCreatesPostgresAndScyllaArtifacts), TestConfigJsonPath);
-
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(BackupCreatesPostgresAndScyllaArtifacts)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(BackupCreatesPostgresAndScyllaArtifacts), TestConfigPaths.DefaultConfig);
 
         var backup = await dinD.RunBootstrapperAsync(nameof(BackupCreatesPostgresAndScyllaArtifacts),
             ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
@@ -77,12 +64,7 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
         // the two newest survive each iteration. The mtime spacing isn't guaranteed across
         // back-to-back invocations (they happen within the same second), so we use the
         // timestamp encoded in the filename as the secondary ordering.
-        var scratch = await dinD.CreateScratchAsync(nameof(BackupRetentionPrunesOldestPastRetainCount), TestConfigJsonPath);
-
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(BackupRetentionPrunesOldestPastRetainCount)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(BackupRetentionPrunesOldestPastRetainCount), TestConfigPaths.DefaultConfig);
 
         // First two runs: both should survive under retain=2.
         for (var i = 0; i < 2; i++)
@@ -121,12 +103,7 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
     {
         // --component postgres should write a .dump but NOT touch backups/scylla/, and vice
         // versa. Pins the contract so a future refactor that ignores the flag is caught.
-        var scratch = await dinD.CreateScratchAsync(nameof(BackupComponentFlagRestrictsScope), TestConfigJsonPath);
-
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(BackupComponentFlagRestrictsScope)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(BackupComponentFlagRestrictsScope), TestConfigPaths.DefaultConfig);
 
         var pgOnly = await dinD.RunBootstrapperAsync($"{nameof(BackupComponentFlagRestrictsScope)}-pg",
             ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
@@ -151,7 +128,7 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
         // `bootstrap` / `publish`. The phase runs several prerequisite checks and any of
         // them is a legitimate signal — the important contract is that the error names a
         // specific missing artifact and tells the operator to run `bootstrap` first.
-        var scratch = await dinD.CreateScratchAsync(nameof(BackupWithoutComposeFailsClearly), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(BackupWithoutComposeFailsClearly), TestConfigPaths.DefaultConfig);
 
         // Write the config but skip the bootstrap. The scratch's outputDir has only the
         // config file, no compose stack.
@@ -173,3 +150,6 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
             .Because("error must guide the operator to `bootstrap` as the fix");
     }
 }
+
+
+

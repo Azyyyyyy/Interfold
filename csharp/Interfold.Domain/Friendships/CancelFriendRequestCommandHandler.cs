@@ -51,8 +51,8 @@ public sealed class CancelFriendRequestCommandHandler : ICommandHandler<CancelFr
             }
         }
         
-        var canonicalTargetSystemId = FriendshipIdNormalization.CanonicalizeForPrincipal(
-            command.PrincipalId,
+        var canonicalTargetSystemId = ScopedSystemId.Compose(
+            command.PrincipalId.Region,
             command.Payload.TargetSystemId);
 
         var canonicalPrincipalId = FriendshipIdNormalization.CanonicalizeForPrincipal(

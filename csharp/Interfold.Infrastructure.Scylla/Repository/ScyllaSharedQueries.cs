@@ -49,16 +49,16 @@ internal static class ScyllaSharedQueries
     /// emitting one entry per definition (null value when the alter hasn't filled it in).
     /// </summary>
     public static IReadOnlyList<AlterPublicFieldReadModel> ResolveAlterFields(
-        IEnumerable<ScyllaAlterRepository.AlterFieldUdt>? alterFields,
+        IEnumerable<AlterFieldUdt>? alterFields,
         IReadOnlyList<SettingsFieldReadModel> definitions)
     {
         if (definitions.Count == 0)
         {
-            return [];
+            return Array.Empty<AlterPublicFieldReadModel>();
         }
 
         return definitions
-            .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, alterFields?.FirstOrDefault(x => x.Id == def.Id)?.Value))
+            .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, alterFields?.FirstOrDefault(x => x.Id == def.Id.Value)?.Value))
             .ToArray();
     }
 

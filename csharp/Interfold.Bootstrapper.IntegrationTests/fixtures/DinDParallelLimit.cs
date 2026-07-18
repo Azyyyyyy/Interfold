@@ -38,3 +38,4 @@ public sealed class DinDParallelLimit : IParallelLimit
         return DefaultLimit;
     }
 }
+

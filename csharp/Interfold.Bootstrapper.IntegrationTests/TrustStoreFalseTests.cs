@@ -20,18 +20,9 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class TrustStoreFalseTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        // publish-only — no compose up, but still safe to call.
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     // Shares the "ubuntu-trust-install" NotInParallel key with
     // UbuntuBootstrapTests.RootCaInstalledInDebianTrustStore (the positive case) so we never run
@@ -43,7 +34,7 @@ public class TrustStoreFalseTests(UbuntuDinDFixture dinD)
     [NotInParallel("ubuntu-trust-install")]
     public async Task TrustStoreInstallFalseLeavesSystemStoreClean()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(TrustStoreInstallFalseLeavesSystemStoreClean), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(TrustStoreInstallFalseLeavesSystemStoreClean), TestConfigPaths.DefaultConfig);
 
         // Snapshot the trust-store paths BEFORE running publish. The DinD fixture is shared
         // (SharedType.PerTestSession) with UbuntuBootstrapTests.RootCaInstalledInDebianTrustStore,
@@ -85,3 +76,5 @@ public class TrustStoreFalseTests(UbuntuDinDFixture dinD)
             .ToHashSet(StringComparer.Ordinal);
     }
 }
+
+

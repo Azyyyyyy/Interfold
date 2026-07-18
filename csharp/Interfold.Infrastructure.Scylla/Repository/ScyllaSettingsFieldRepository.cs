@@ -308,13 +308,13 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         foreach (var row in rows)
         {
             var alterId = row.GetValue<short>("id");
-            var fields = row.GetValue<IEnumerable<ScyllaAlterRepository.AlterFieldUdt>?>("fields")?.ToList();
-            if (fields is null || fields.Count == 0)
+            var currentFields = row.GetValue<IEnumerable<AlterFieldUdt>?>("fields")?.ToList();
+            if (currentFields is null || currentFields.Count == 0)
             {
                 continue;
             }
 
-            var removedAny = fields.RemoveAll(x => x.Id == fieldId) > 0;
+            var removedAny = currentFields.RemoveAll(x => x.Id == fieldId) > 0;
             if (!removedAny)
             {
                 continue;
@@ -322,7 +322,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.alters SET fields = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
-                fields,
+                currentFields,
                 normalizedSystemId,
                 alterId));
         }

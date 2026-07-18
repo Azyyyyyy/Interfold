@@ -27,22 +27,14 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class DbInitFaultRecoveryTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task PartiallyBootstrappedDbCompletesOnRerun()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(PartiallyBootstrappedDbCompletesOnRerun), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(PartiallyBootstrappedDbCompletesOnRerun), TestConfigPaths.DefaultConfig);
 
         // Run #1: bootstrap halts mid-DatabaseInitPhase, after Postgres admin role creation but
         // before Scylla. Exit code is non-zero because the phase throws to skip Launch (we don't
@@ -103,3 +95,6 @@ public class DbInitFaultRecoveryTests(UbuntuDinDFixture dinD)
             .Because($"after resume, interfold_admin must exist in scylla: {scyllaAdminFinal.Stdout}");
     }
 }
+
+
+

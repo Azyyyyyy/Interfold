@@ -95,6 +95,23 @@ internal static class TestJson
     }
 
     /// <summary>
+    /// Sends a GET request under the specified principal's auth.
+    /// This is the wrapper the built-in <c>HttpClient.GetAsync</c> would give us if
+    /// it exposed a <c>HttpRequestMessage</c> configure hook — the auth attachment mutates
+    /// per-request headers, so we can't use the built-in overloads directly.
+    /// </summary>
+    public static async Task<HttpResponseMessage> SendAuthedGetAsync(
+        this HttpClient client,
+        string path,
+        string principal,
+        CancellationToken ct = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        BaseEndpointTest.AttachPrincipalAuth(request, client, principal);
+        return await client.SendAsync(request, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Sends a JSON body without any auth attachment. Rare — mostly for negative tests that
     /// need to prove an anonymous request 401s. Routes through <see cref="Options"/> for
     /// snake_case consistency.

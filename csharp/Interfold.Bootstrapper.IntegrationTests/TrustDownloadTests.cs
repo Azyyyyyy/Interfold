@@ -20,23 +20,14 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class TrustDownloadTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath =>
-        Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task WellKnownEndpointServesBootstrapperCert()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(WellKnownEndpointServesBootstrapperCert), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(WellKnownEndpointServesBootstrapperCert), TestConfigPaths.DefaultConfig);
 
         // Full `bootstrap`: publish + db-init + launch. LaunchPhase polls /health/ready, so a
         // 0 exit here means the API container is up and ready to serve.
@@ -97,3 +88,6 @@ public class TrustDownloadTests(UbuntuDinDFixture dinD)
             .Because("the .crt route must publish a 60s cacheable Cache-Control directive");
     }
 }
+
+
+

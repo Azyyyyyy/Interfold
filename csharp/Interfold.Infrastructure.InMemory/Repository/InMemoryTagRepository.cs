@@ -100,7 +100,7 @@ public sealed class InMemoryTagRepository : ITagRepository
                return Task.FromResult(false);
 
            var members = _alterMemberships.GetOrAdd((systemKey, tagId), _ => new ConcurrentDictionary<BareAlter, bool>());
-           members[new BareAlter(alterId, "", null, null, null, null, null, null!)] = true;
+           members[BareAlter.CreatePlaceholder(alterId)] = true;
            return Task.FromResult(true);
        }
 

@@ -45,7 +45,7 @@ internal static class DatabaseInitPhase
     {
         logger.PhaseStart(Phase);
 
-        var composeFile = FindComposeFile(options.OutputDir)
+        var composeFile = BootstrapArtifactPaths.FindComposeFile(options.OutputDir)
             ?? throw new InvalidOperationException(
                 $"docker-compose.yaml not found under {options.OutputDir}. Run `bootstrap publish` first.");
         logger.Info($"    using compose file {composeFile}");
@@ -138,7 +138,7 @@ internal static class DatabaseInitPhase
             FcmServiceAccountJson: firebase.ServiceAccountJson);
     }
 
-    private static string? FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
+    private static string? BootstrapArtifactPaths.FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
 
     private static string ResolveScyllaServiceName(BootstrapConfig config)
     {
@@ -170,9 +170,7 @@ internal static class DatabaseInitPhase
         string composeFile, IReadOnlyList<string> services, PhaseLogger logger, CancellationToken ct)
     {
         logger.Info($"    docker compose up -d {string.Join(' ', services)}");
-        var args = new List<string> { "compose", "-f", composeFile, "up", "-d" };
-        args.AddRange(services);
-        var run = await ProcessRunner.RunAsync("docker", args, ct: ct).ConfigureAwait(false);
+        var run = await Util.DockerCompose.UpAsync(composeFile, services, detach: true, build: false, ct: ct).ConfigureAwait(false);
         if (run.ExitCode != 0)
         {
             logger.Error(run.StdErr.Trim());
@@ -230,3 +228,4 @@ internal static class DatabaseInitPhase
         throw new TimeoutException($"scylla did not become ready within 5 minutes.");
     }
 }
+

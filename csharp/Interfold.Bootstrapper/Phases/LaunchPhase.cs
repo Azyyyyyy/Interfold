@@ -23,7 +23,7 @@ internal static class LaunchPhase
         const string Phase = "launch";
         logger.PhaseStart(Phase);
 
-        var composeFile = FindComposeFile(options.OutputDir);
+        var composeFile = BootstrapArtifactPaths.FindComposeFile(options.OutputDir);
         if (composeFile is null)
         {
             logger.PhaseFail(Phase, PhaseFailureReasons.NoComposeFile);
@@ -54,7 +54,7 @@ internal static class LaunchPhase
         }
     }
 
-    private static string? FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
+    private static string? BootstrapArtifactPaths.FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
 
     private static async Task<int> ResolveApiHttpPortAsync(BootstrapOptions options, CancellationToken ct)
     {
@@ -93,8 +93,7 @@ internal static class LaunchPhase
     private static async Task DockerComposeUpAsync(string composeFile, PhaseLogger logger, CancellationToken ct)
     {
         logger.Info("    docker compose up -d ...");
-        var up = await ProcessRunner.RunAsync("docker",
-            ["compose", "-f", composeFile, "up", "-d"], ct: ct).ConfigureAwait(false);
+        var up = await Util.DockerCompose.UpAsync(composeFile, detach: true, build: false, ct: ct).ConfigureAwait(false);
         if (up.ExitCode != 0)
         {
             logger.Error(up.StdErr.Trim());
@@ -158,3 +157,4 @@ internal static class LaunchPhase
         if (!string.IsNullOrWhiteSpace(logs.StdErr)) Console.Error.WriteLine(logs.StdErr);
     }
 }
+

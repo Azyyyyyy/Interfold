@@ -142,9 +142,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
             using var uploadResponse = await client.SendAsync(uploadRequest);
             await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
-            using var profileRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principalId}");
-            AttachPrincipalAuth(profileRequest, client, principalId);
-            using var profileResponse = await client.SendAsync(profileRequest);
+            using var profileResponse = await client.SendAuthedGetAsync($"/api/systems/{principalId}", principalId);
             var profile = await profileResponse.ReadEnvelopeAsync<PublicSystemReadModel>(HttpStatusCode.OK);
 
             using (Assert.Multiple())
@@ -229,9 +227,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
             using var uploadResponse = await client.SendAsync(uploadRequest);
             await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
-            using var publicAlterRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principalId}/alters/{alterId}");
-            AttachPrincipalAuth(publicAlterRequest, client, principalId);
-            using var publicAlterResponse = await client.SendAsync(publicAlterRequest);
+            using var publicAlterResponse = await client.SendAuthedGetAsync($"/api/systems/{principalId}/alters/{alterId}", principalId);
             var publicAlter = await publicAlterResponse.ReadEnvelopeAsync<BareAlter>(HttpStatusCode.OK);
 
             var expectedPrefix = $"{publicBasePath}/{principalId}/{alterId}/";
@@ -246,9 +242,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
             using var deleteRes = await client.SendAsync(deleteReq);
             await Assert.That(deleteRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
-            using var afterDeleteRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/{principalId}/alters/{alterId}");
-            AttachPrincipalAuth(afterDeleteRequest, client, principalId);
-            using var afterDeleteResponse = await client.SendAsync(afterDeleteRequest);
+            using var afterDeleteResponse = await client.SendAuthedGetAsync($"/api/systems/{principalId}/alters/{alterId}", principalId);
             var afterDelete = await afterDeleteResponse.ReadEnvelopeAsync<BareAlter>(HttpStatusCode.OK);
 
             await Assert.That(afterDelete.Data.AvatarUrl).IsNull();
@@ -260,3 +254,4 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         }
     }
 }
+

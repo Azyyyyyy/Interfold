@@ -20,24 +20,16 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class SystemdInstallTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task WritesAllThreeUnitFilesToTargetDir()
     {
         // We don't need a live compose stack for install-service — it only reads the bootstrap
         // config + writes unit files. Skip the full bootstrap to keep the test fast.
-        var scratch = await dinD.CreateScratchAsync(nameof(WritesAllThreeUnitFilesToTargetDir), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(WritesAllThreeUnitFilesToTargetDir), TestConfigPaths.DefaultConfig);
         var unitDir = $"{scratch.Root}/systemd-units";
         await dinD.ExecAsync(["mkdir", "-p", unitDir]);
 
@@ -67,7 +59,7 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
         // Pin the rendered contents: the boot service must use docker compose up -d (not
         // `interfold-bootstrap up`), the backup service must point at the resolved config +
         // outputDir, and the timer must embed the OnCalendar string from the config.
-        var scratch = await dinD.CreateScratchAsync(nameof(UnitFilesContainExpectedTokens), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(UnitFilesContainExpectedTokens), TestConfigPaths.DefaultConfig);
         var unitDir = $"{scratch.Root}/systemd-units";
         await dinD.ExecAsync(["mkdir", "-p", unitDir]);
 
@@ -102,7 +94,7 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
         // interfold-update.service is always rendered alongside the three baseline units.
         // Even when config.update.enabled=false the .service file exists (manual
         // `update-images` invocations use it); only the OnSuccess= drop-in is conditional.
-        var scratch = await dinD.CreateScratchAsync(nameof(WritesUpdateServiceWhenPresentInUnitNames), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(WritesUpdateServiceWhenPresentInUnitNames), TestConfigPaths.DefaultConfig);
         var unitDir = $"{scratch.Root}/systemd-units";
         await dinD.ExecAsync(["mkdir", "-p", unitDir]);
 
@@ -133,7 +125,7 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
         // assert the OnSuccess drop-in appears at the exact path SystemdInstallPhase
         // documents (interfold-backup.service.d/50-chain-update.conf) with the correct
         // OnSuccess= directive.
-        var scratch = await dinD.CreateScratchAsync(nameof(WhenUpdateEnabledDropInIsWritten), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(WhenUpdateEnabledDropInIsWritten), TestConfigPaths.DefaultConfig);
         var unitDir = $"{scratch.Root}/systemd-units";
         await dinD.ExecAsync(["mkdir", "-p", unitDir]);
 
@@ -167,7 +159,7 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
         // even though the .service template it references was rendered. Guards the
         // "manual updates only" default stance so operators who never touch the update
         // section don't wake up to auto-chained updates.
-        var scratch = await dinD.CreateScratchAsync(nameof(WhenUpdateDisabledDropInIsAbsent), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(WhenUpdateDisabledDropInIsAbsent), TestConfigPaths.DefaultConfig);
         var unitDir = $"{scratch.Root}/systemd-units";
         await dinD.ExecAsync(["mkdir", "-p", unitDir]);
 
@@ -192,7 +184,7 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
         // then re-install with update.enabled=false and assert the drop-in was removed.
         // Pins the idempotency contract — flipping the config off must clean up stale
         // drop-ins so a subsequent backup no longer fires the update chain.
-        var scratch = await dinD.CreateScratchAsync(nameof(DropInIsRemovedWhenUpdateFlippedOff), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(DropInIsRemovedWhenUpdateFlippedOff), TestConfigPaths.DefaultConfig);
         var unitDir = $"{scratch.Root}/systemd-units";
         await dinD.ExecAsync(["mkdir", "-p", unitDir]);
 
@@ -265,7 +257,7 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
         // Dockerfile.ubuntu-dind alongside `jq` — a previous incarnation of this test installed
         // it on-demand under `>/dev/null 2>&1` and raced with OverlayUpdateConfigAsync's jq
         // install on `/var/lib/dpkg/lock-frontend`, producing silent exit-100 flakes in CI.
-        var scratch = await dinD.CreateScratchAsync(nameof(SystemdAnalyzeAcceptsRenderedUnits), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(SystemdAnalyzeAcceptsRenderedUnits), TestConfigPaths.DefaultConfig);
         var unitDir = $"{scratch.Root}/systemd-units";
         await dinD.ExecAsync(["mkdir", "-p", unitDir]);
 
@@ -290,3 +282,6 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
             .Because("install-service should report systemd-analyze acceptance for the schedule");
     }
 }
+
+
+

@@ -13,6 +13,7 @@ using Interfold.Api.Services.ImportJobs;
 using Interfold.Api.Services.Secrets;
 using Interfold.Api.Socket;
 using Interfold.Api.Swagger;
+using Interfold.Api.SimplyPlural;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Ids;
@@ -159,8 +160,7 @@ builder.Services.AddTransient<HttpLoggingHandler>();
 builder.Services.AddHttpClient<GoogleOAuthService>();
 builder.Services.AddHttpClient<DiscordOAuthService>();
 builder.Services.AddHttpClient<AppleOAuthService>();
-builder.Services.AddHttpClient(HttpClientNames.SimplyPlural).AddHttpMessageHandler<HttpLoggingHandler>();
-builder.Services.AddSingleton<ISimplyPluralImportService, SimplyPluralImportService>();
+builder.Services.AddSimplyPluralImport();
 
 // Async-import worker stack. The queue itself is registered in
 // AddInterfoldCluster (it's a coordination primitive). Runners are per-kind and
@@ -168,7 +168,6 @@ builder.Services.AddSingleton<ISimplyPluralImportService, SimplyPluralImportServ
 // drains the queue, drives operation-row transitions, and publishes the
 // sp_import_complete / pk_import_complete events that the existing socket pump
 // relays to the WebSocket client.
-builder.Services.AddSingleton<IImportJobRunner, SpImportJobRunner>();
 builder.Services.AddSingleton<IImportJobRunner, PkImportJobRunner>();
 builder.Services.AddHostedService<ImportJobBackgroundService>();
 
