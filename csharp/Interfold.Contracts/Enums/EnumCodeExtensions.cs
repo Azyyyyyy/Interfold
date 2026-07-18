@@ -48,6 +48,19 @@ public static class EnumCodeExtensions
         => EnumCode<TEnum>.FromCode(code);
 
     /// <summary>
+    /// Extension-method form of <see cref="EnumCode{TEnum}.FromCodeOrNull"/>. Callers must
+    /// supply <typeparamref name="TEnum"/> explicitly (<c>code.FromCodeOrNull&lt;VisibilityLevel&gt;()</c>).
+    /// </summary>
+    public static TEnum? FromCodeOrNull<TEnum>(this short? code) where TEnum : struct, Enum
+        => EnumCode<TEnum>.FromCodeOrNull(code);
+
+    /// <summary>
+    /// Non-nullable-receiver counterpart to <see cref="FromCodeOrNull{TEnum}(short?)"/>.
+    /// </summary>
+    public static TEnum? FromCodeOrNull<TEnum>(this short code) where TEnum : struct, Enum
+        => EnumCode<TEnum>.FromCodeOrNull(code);
+
+    /// <summary>
     /// Extension-method form of <see cref="EnumCode{TEnum}.TryFromCode"/>. Callers using
     /// <c>out var</c> need to supply <typeparamref name="TEnum"/> explicitly
     /// (<c>code.TryFromCode&lt;AvatarSource&gt;(out var src)</c>) because

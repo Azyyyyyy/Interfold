@@ -65,7 +65,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         CancellationToken cancellationToken = default
     )
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<AlterId, AlterState>());
         AlterId next = new(_nextIdBySystem.AddOrUpdate(systemKey, (short)1, (_, current) => checked((short)(current + 1))));
 
@@ -80,7 +80,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     public Task<bool> ExistsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var exists = _bySystem.TryGetValue(systemKey, out var store) && store.ContainsKey(alterId);
         return Task.FromResult(exists);
     }
@@ -91,7 +91,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         CancellationToken cancellationToken = default
     )
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(command.AlterId, out var existing))
         {
@@ -174,7 +174,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     public async Task<bool> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         if (!_bySystem.TryGetValue(systemKey, out var store))
         {
@@ -192,7 +192,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     public async Task<IReadOnlyList<AlterReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store))
         {
             return Array.Empty<AlterReadModel>();
@@ -228,8 +228,8 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        var friendshipLevel = await ResolveFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
-        var systemKey = GetSystemKey(systemId);
+        var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
 
         if (!_bySystem.TryGetValue(systemKey, out var store))
@@ -256,7 +256,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     public async Task<AlterReadModel?> GetAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(alterId, out var alter))
         {
             return null;
@@ -287,9 +287,9 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        var friendshipLevel = await ResolveFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
+        var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
         var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(alterId, out var alter))
         {
             return null;
@@ -318,7 +318,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         CancellationToken cancellationToken = default
     )
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         if (!_bySystem.TryGetValue(systemKey, out var store))
         {
@@ -355,16 +355,13 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     internal void RemoveFieldValuesForSystem(SystemId systemId, Guid fieldId)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         RemoveFieldValuesForSystem(fieldId, systemKey);
     }
 
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
     // Delegates to the shared static that also serves the Tag and Fronting repos —
-    // see InMemoryStorageKeys.ResolveFriendshipLevelAsync for the self-check semantics.
-    private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
-        => InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
 
     // Thin adapter around AlterFieldProjection.ResolveGuardedFields — the shared helper
     // takes an IReadOnlyDictionary<FieldId, string?>, which AlterState.Fields already is.
@@ -386,3 +383,6 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             ? Task.FromResult<IReadOnlyList<SettingsFieldReadModel>>(Array.Empty<SettingsFieldReadModel>())
             : AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken);
 }
+
+
+

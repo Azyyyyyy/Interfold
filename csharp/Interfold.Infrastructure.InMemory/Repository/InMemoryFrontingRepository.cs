@@ -44,7 +44,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<bool> IsFrontingAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
@@ -61,7 +61,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         CancellationToken cancellationToken = default
     )
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
@@ -96,7 +96,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<bool> EndAsync(SystemId systemId, AlterId alterId, DateTimeOffset endedAt, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
@@ -128,7 +128,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<bool> SetPrimaryAsync(SystemId systemId, AlterId? alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
@@ -147,7 +147,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public async Task<IReadOnlyList<FrontActiveReadModel>> ListActiveAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         IReadOnlyCollection<FrontState> activeFronts;
         AlterId? primaryId;
 
@@ -195,7 +195,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        var friendshipLevel = await ResolveFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
+        var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
         if (!VisibilityLevel.Public.CanBeViewedBy(friendshipLevel))
         {
             return Array.Empty<FrontActiveReadModel>();
@@ -219,7 +219,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         DateTimeOffset endInclusive,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
@@ -240,7 +240,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<FrontActiveReadModel?> GetActiveByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
@@ -262,7 +262,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<FrontHistoryReadModel?> GetHistoryEntryByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
@@ -289,7 +289,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<bool> DeleteFrontByIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
@@ -316,7 +316,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<bool> UpdateCommentByFrontIdAsync(SystemId systemId, FrontId frontId, string comment, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
@@ -346,7 +346,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
     // Delegates to the shared static that also serves the Alter and Tag repos —
-    // see InMemoryStorageKeys.ResolveFriendshipLevelAsync for the self-check semantics.
-    private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
-        => InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
 }
+
+
+

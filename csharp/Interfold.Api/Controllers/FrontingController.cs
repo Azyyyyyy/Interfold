@@ -52,14 +52,7 @@ public sealed class FrontingController : InterfoldControllerBase
             req.Start.Select(x => new FrontStartItem(x.AlterId, x.Comment)).ToArray(),
             req.End.ToArray());
 
-        var envelope = new CommandEnvelope<BulkUpdateFrontCommand>(
-            OperationIds.FrontBulkUpdate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: payload
-        );
+        var envelope = BuildEnvelope(OperationIds.FrontBulkUpdate, payload);
 
         return CommandNoContent(await _bulkUpdateHandler.HandleAsync(envelope, ct));
     }
@@ -67,12 +60,7 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("start")]
     public async Task<Response<FrontStartedResponse>> Start([FromBody] FrontStartRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<StartFrontCommand>(
-            OperationIds.FrontStart, Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new StartFrontCommand(req.Id, req.Comment)
+        var envelope = BuildEnvelope(OperationIds.FrontStart, new StartFrontCommand(req.Id, req.Comment)
         );
 
         var execution = await _startHandler.HandleAsync(envelope, ct);
@@ -89,12 +77,7 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("end")]
     public async Task<Response> End([FromBody] FrontEndRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<EndFrontCommand>(
-            OperationIds.FrontEnd, Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new EndFrontCommand(req.Id)
+        var envelope = BuildEnvelope(OperationIds.FrontEnd, new EndFrontCommand(req.Id)
         );
 
         return CommandNoContent(await _endHandler.HandleAsync(envelope, ct));
@@ -103,13 +86,7 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("set")]
     public async Task<Response> Set([FromBody] FrontSetRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<SetFrontCommand>(
-            OperationIds.FrontSet,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetFrontCommand(req.Id, req.Comment)
+        var envelope = BuildEnvelope(OperationIds.FrontSet, new SetFrontCommand(req.Id, req.Comment)
         );
 
         return CommandNoContent(await _setHandler.HandleAsync(envelope, ct));
@@ -118,12 +95,7 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("primary")]
     public async Task<Response> Primary([FromBody] FrontPrimaryRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<SetPrimaryFrontCommand>(
-            OperationIds.FrontPrimary, Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetPrimaryFrontCommand(req.Id)
+        var envelope = BuildEnvelope(OperationIds.FrontPrimary, new SetPrimaryFrontCommand(req.Id)
         );
 
         return CommandNoContent(await _primaryHandler.HandleAsync(envelope, ct));
@@ -180,13 +152,7 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpDelete("{id}")]
     public async Task<Response> Delete(FrontId id, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<DeleteFrontByIdCommand>(
-            OperationIds.FrontDelete,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeleteFrontByIdCommand(id)
+        var envelope = BuildEnvelope(OperationIds.FrontDelete, new DeleteFrontByIdCommand(id)
         );
 
         return CommandNoContent(await _deleteByIdHandler.HandleAsync(envelope, ct));
@@ -195,13 +161,7 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("{id}/comment")]
     public async Task<Response> UpdateComment(FrontId id, [FromBody] FrontCommentRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UpdateFrontCommentCommand>(
-            OperationIds.FrontCommentUpdate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdateFrontCommentCommand(id, req.Comment)
+        var envelope = BuildEnvelope(OperationIds.FrontCommentUpdate, new UpdateFrontCommentCommand(id, req.Comment)
         );
 
         return CommandNoContent(await _updateCommentHandler.HandleAsync(envelope, ct));

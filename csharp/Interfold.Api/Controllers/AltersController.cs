@@ -64,12 +64,7 @@ public sealed class AltersController : InterfoldControllerBase
     public async Task<Response<AlterReadModel>> Create([FromBody] CreateAlterRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        var envelope = new CommandEnvelope<CreateAlterCommand>(
-            OperationIds.AlterCreate, Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new CreateAlterCommand(req.Name, DateTimeOffset.UtcNow)
+        var envelope = BuildEnvelope(OperationIds.AlterCreate, new CreateAlterCommand(req.Name, DateTimeOffset.UtcNow)
         );
 
         var execution = await _createHandler.HandleAsync(envelope, ct);
@@ -112,13 +107,7 @@ public sealed class AltersController : InterfoldControllerBase
             UpdatedAt: DateTimeOffset.UtcNow
         );
 
-        var envelope = new CommandEnvelope<UpdateAlterCommand>(
-            OperationIds.AlterUpdate, Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: payload
-        );
+        var envelope = BuildEnvelope(OperationIds.AlterUpdate, payload);
 
         return CommandNoContent(await _updateHandler.HandleAsync(envelope, ct));
     }
@@ -127,12 +116,7 @@ public sealed class AltersController : InterfoldControllerBase
     [HttpDelete("{alterId:int}")]
     public async Task<Response> Delete([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<DeleteAlterCommand>(
-            OperationIds.AlterDelete, Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeleteAlterCommand(alterId)
+        var envelope = BuildEnvelope(OperationIds.AlterDelete, new DeleteAlterCommand(alterId)
         );
         return CommandNoContent(await _deleteHandler.HandleAsync(envelope, ct));
     }
@@ -197,14 +181,7 @@ public sealed class AltersController : InterfoldControllerBase
             UpdatedAt: DateTimeOffset.UtcNow
         );
 
-        var envelope = new CommandEnvelope<UpdateAlterCommand>(
-            OperationIds.AlterAvatarUpload,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: payload
-        );
+        var envelope = BuildEnvelope(OperationIds.AlterAvatarUpload, payload);
 
         var result = CommandNoContent(await _updateHandler.HandleAsync(envelope, ct));
         if (!result.IsSuccess) 
@@ -275,14 +252,7 @@ public sealed class AltersController : InterfoldControllerBase
             UpdatedAt: DateTimeOffset.UtcNow
         );
 
-        var envelope = new CommandEnvelope<UpdateAlterCommand>(
-            OperationIds.AlterAvatarUpload,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: payload
-        );
+        var envelope = BuildEnvelope(OperationIds.AlterAvatarUpload, payload);
 
         var result = CommandNoContent(await _updateHandler.HandleAsync(envelope, ct));
         if (!result.IsSuccess)
@@ -332,14 +302,7 @@ public sealed class AltersController : InterfoldControllerBase
             ClearAvatar: true
         );
 
-        var envelope = new CommandEnvelope<UpdateAlterCommand>(
-            OperationIds.AlterAvatarDelete,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: payload
-        );
+        var envelope = BuildEnvelope(OperationIds.AlterAvatarDelete, payload);
 
         var execution = await _updateHandler.HandleAsync(envelope, ct);
         if (execution.Accepted && currentAvatarSource == AvatarSource.Local)

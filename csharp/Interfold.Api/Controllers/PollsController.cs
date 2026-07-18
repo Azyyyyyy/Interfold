@@ -58,13 +58,7 @@ public sealed class PollsController : InterfoldControllerBase
         // here keeps the hashed payload stable across retries with the same idempotency key
         // (otherwise every call would stamp a fresh DateTime.UtcNow and look like a
         // different request, triggering ConflictDuplicate on every replay).
-        var envelope = new CommandEnvelope<CreatePollCommand>(
-            OperationIds.PollCreate,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new CreatePollCommand(req.Title, req.Description, req.Type ?? PollType.Vote, req.TimeEnd, InsertedAtUtc: default)
+        var envelope = BuildEnvelope(OperationIds.PollCreate, new CreatePollCommand(req.Title, req.Description, req.Type ?? PollType.Vote, req.TimeEnd, InsertedAtUtc: default)
         );
 
         var execution = await _create.HandleAsync(envelope, ct);
@@ -93,13 +87,7 @@ public sealed class PollsController : InterfoldControllerBase
 
         DateTime? resolvedTimeEnd = req.TimeEnd.State == PatchValueState.Value ? req.TimeEnd.Value : null;
 
-        var envelope = new CommandEnvelope<UpdatePollCommand>(
-            OperationIds.PollUpdate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdatePollCommand(id, req.Title, req.Description, resolvedTimeEnd, req.TimeEnd.IsSet, req.Data)
+        var envelope = BuildEnvelope(OperationIds.PollUpdate, new UpdatePollCommand(id, req.Title, req.Description, resolvedTimeEnd, req.TimeEnd.IsSet, req.Data)
         );
 
         return CommandNoContent(await _update.HandleAsync(envelope, ct));
@@ -108,13 +96,7 @@ public sealed class PollsController : InterfoldControllerBase
     [HttpDelete("{id}")]
     public async Task<Response> Delete(PollId id, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<DeletePollCommand>(
-            OperationIds.PollDelete,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeletePollCommand(id)
+        var envelope = BuildEnvelope(OperationIds.PollDelete, new DeletePollCommand(id)
         );
 
         return CommandNoContent(await _delete.HandleAsync(envelope, ct));

@@ -60,21 +60,21 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     public Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         _usernameBySystem[systemKey] = username;
         return Task.FromResult(true);
     }
 
     public Task<bool> UpdateDescriptionAsync(SystemId systemId, string description, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         _descriptionBySystem[systemKey] = description;
         return Task.FromResult(true);
     }
 
     public Task<bool> UpdateAvatarAsync(SystemId systemId, AvatarUrl avatarUrl, AvatarSource source, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         _avatarBySystem[systemKey] = avatarUrl;
         _avatarSourceBySystem[systemKey] = source;
         return Task.FromResult(true);
@@ -82,7 +82,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     public Task<bool> ClearAvatarAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         _avatarBySystem.TryRemove(systemKey, out _);
         _avatarSourceBySystem.TryRemove(systemKey, out _);
         return Task.FromResult(true);
@@ -90,7 +90,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     public Task<LinkToken> GetOrCreateLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var scoped = ResolveScoped(systemId);
         var now = _timeProvider.GetUtcNow();
 
@@ -113,7 +113,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     public Task<LinkToken?> GetLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (!_linkTokenBySystem.TryGetValue(systemKey, out var token))
         {
             return Task.FromResult<LinkToken?>(null);
@@ -151,7 +151,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     public Task<bool> ClearLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (_linkTokenBySystem.TryRemove(systemKey, out var token))
         {
             _systemByLinkToken.TryRemove(token, out _);
@@ -177,29 +177,16 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     // The three FindOrCreate* helpers each write to a distinct pair of dictionaries
     // (discord / email / apple); LinkIdentifier is generic across the identity wrapper.
     public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default)
-        => identity switch
-        {
-            { Discord: { } discordId } => FindOrCreateSystemIdByDiscord(discordId),
-            { Google: { } email } => FindOrCreateSystemIdByEmail(email),
-            { Apple: { } appleId } => FindOrCreateSystemIdByApple(appleId),
-            // Mirrors ScyllaAccountRepository.FindOrCreateSystemIdAsync: an empty
-            // ProviderIdentity is either default(ProviderIdentity) leaking past the
-            // OAuth controllers' extract-or-403 gate, or a new union member added
-            // without a corresponding branch. Fail loud — the previous silent-null
-            // masqueraded as "unknown identity" and hid real bugs.
-            _ => throw new ArgumentOutOfRangeException(nameof(identity), identity,
-                "ProviderIdentity has no Discord/Google/Apple member populated."),
-        };
+        => identity.MatchOrThrow(
+            discordId => FindOrCreateSystemIdByDiscord(discordId),
+            email => FindOrCreateSystemIdByEmail(email),
+            appleId => FindOrCreateSystemIdByApple(appleId));
 
     public Task<AccountLinkResult> LinkIdentityToUserAsync(SystemId systemId, ProviderIdentity identity, CancellationToken cancellationToken = default)
-        => identity switch
-        {
-            { Discord: { } discordId } => Task.FromResult(LinkIdentifier(systemId, discordId, _discordBySystem, _systemByDiscord, static id => id.Value)),
-            { Google: { } email } => Task.FromResult(LinkIdentifier(systemId, email, _emailBySystem, _systemByEmail, static e => e.Value)),
-            { Apple: { } appleId } => Task.FromResult(LinkIdentifier(systemId, appleId, _appleBySystem, _systemByApple, static id => id.Value)),
-            _ => throw new ArgumentOutOfRangeException(nameof(identity), identity,
-                "ProviderIdentity has no Discord/Google/Apple member populated."),
-        };
+        => identity.MatchOrThrow(
+            discordId => Task.FromResult(LinkIdentifier(systemId, discordId, _discordBySystem, _systemByDiscord, static id => id.Value)),
+            email => Task.FromResult(LinkIdentifier(systemId, email, _emailBySystem, _systemByEmail, static e => e.Value)),
+            appleId => Task.FromResult(LinkIdentifier(systemId, appleId, _appleBySystem, _systemByApple, static id => id.Value)));
 
     private Task<SystemId?> FindOrCreateSystemIdByDiscord(DiscordId discordId)
     {
@@ -275,7 +262,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (_discordBySystem.TryRemove(systemKey, out var discordId) && !string.IsNullOrWhiteSpace(discordId.Value))
         {
             _systemByDiscord.TryRemove(discordId.Value, out _);
@@ -286,7 +273,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     public Task<bool> UnlinkEmailAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (_emailBySystem.TryRemove(systemKey, out var email) && !string.IsNullOrWhiteSpace(email.Value))
         {
             _systemByEmail.TryRemove(email.Value, out _);
@@ -297,7 +284,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     public Task<bool> UnlinkAppleAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (_appleBySystem.TryRemove(systemKey, out var appleId) && !string.IsNullOrWhiteSpace(appleId.Value))
         {
             _systemByApple.TryRemove(appleId.Value, out _);
@@ -308,7 +295,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     public Task<bool> DeleteAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         _usernameBySystem.TryRemove(systemKey, out _);
         _descriptionBySystem.TryRemove(systemKey, out _);
@@ -339,7 +326,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     public Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         Username? username = _usernameBySystem.TryGetValue(systemKey, out var u) ? u : null;
         var description = _descriptionBySystem.TryGetValue(systemKey, out var d) ? d : null;
         AvatarUrl? avatarUrl = _avatarBySystem.TryGetValue(systemKey, out var a) ? a : null;
@@ -422,7 +409,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return AccountLinkResult.UserNotFound;
         }
 
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var scopedSystemId = ResolveScoped(systemId);
 
         if (_usernameBySystem.ContainsKey(systemKey) is false &&
@@ -464,3 +451,4 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         _ = _encryptionStates.UpsertAsync(scoped.AsSystemId(), false, null, EncryptionSalt.NewRandom(), CancellationToken.None);
     }
 }
+

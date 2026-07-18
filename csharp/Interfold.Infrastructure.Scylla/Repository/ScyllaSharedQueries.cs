@@ -61,4 +61,15 @@ internal static class ScyllaSharedQueries
             .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, alterFields?.FirstOrDefault(x => x.Id == def.Id)?.Value))
             .ToArray();
     }
+
+    public static async Task<AlterId?> LoadPrimaryFrontAlterAsync(ISession session, string keyspace, string normalizedSystemId)
+    {
+        var primaryRow = (await session.ExecuteAsync(new SimpleStatement(
+            $"SELECT primary_front_alter FROM {keyspace}.users WHERE id = ? LIMIT 1",
+            normalizedSystemId))).FirstOrDefault();
+
+        return primaryRow?.GetValue<short?>("primary_front_alter") is { } primaryShort
+            ? new AlterId(primaryShort)
+            : null;
+    }
 }

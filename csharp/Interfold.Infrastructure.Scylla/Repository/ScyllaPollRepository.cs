@@ -197,17 +197,8 @@ public sealed class ScyllaPollRepository : IPollRepository
         }, cancellationToken);
     }
 
-    private static async Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, Guid pollGuid)
-    {
-        var query = new SimpleStatement(
-            $"SELECT id FROM {keyspace}.polls WHERE user_id = ? AND id = ? LIMIT 1",
-            normalizedSystemId,
-            pollGuid
-        );
-
-        var rows = await session.ExecuteAsync(query);
-        return rows.Any();
-    }
+    private static Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, Guid pollGuid)
+        => ScyllaExistsQueries.RowExistsAsync(session, keyspace, "polls", "id", normalizedSystemId, pollGuid);
 
     // The data blob's confirmed shape (see PollDataJson) keeps per-alter votes in the
     // top-level `responses` array as {"alter_id":<int>,...} entries; deleting an alter

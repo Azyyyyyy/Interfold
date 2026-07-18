@@ -79,13 +79,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
                 System.Net.HttpStatusCode.BadRequest);
         }
 
-        var envelope = new CommandEnvelope<SendFriendRequestCommand>(
-            OperationIds.FriendRequestSend,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SendFriendRequestCommand(id));
+        var envelope = BuildEnvelope(OperationIds.FriendRequestSend, new SendFriendRequestCommand(id));
 
         return CommandNoContent(await _send.HandleAsync(envelope, ct));
     }
@@ -105,13 +99,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
                 System.Net.HttpStatusCode.BadRequest);
         }
 
-        var envelope = new CommandEnvelope<CancelFriendRequestCommand>(
-            OperationIds.FriendRequestCancel,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new CancelFriendRequestCommand(id));
+        var envelope = BuildEnvelope(OperationIds.FriendRequestCancel, new CancelFriendRequestCommand(id));
 
         return CommandNoContent(await _cancel.HandleAsync(envelope, ct));
     }
@@ -129,13 +117,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
                 System.Net.HttpStatusCode.BadRequest);
         }
 
-        var envelope = new CommandEnvelope<AcceptFriendRequestCommand>(
-            OperationIds.FriendRequestAccept,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new AcceptFriendRequestCommand(id));
+        var envelope = BuildEnvelope(OperationIds.FriendRequestAccept, new AcceptFriendRequestCommand(id));
 
         return CommandNoContent(await _accept.HandleAsync(envelope, ct));
     }
@@ -153,13 +135,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
                 System.Net.HttpStatusCode.BadRequest);
         }
 
-        var envelope = new CommandEnvelope<RejectFriendRequestCommand>(
-            OperationIds.FriendRequestReject,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new RejectFriendRequestCommand(id));
+        var envelope = BuildEnvelope(OperationIds.FriendRequestReject, new RejectFriendRequestCommand(id));
 
         return CommandNoContent(await _reject.HandleAsync(envelope, ct));
     }

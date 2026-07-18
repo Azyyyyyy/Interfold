@@ -46,7 +46,7 @@ public sealed class InMemoryTagRepository : ITagRepository
         CancellationToken cancellationToken = default
     )
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<TagId, TagState>());
 
         if (command.ParentTagId is { } parent && parent != TagId.Empty && !store.ContainsKey(parent))
@@ -59,14 +59,14 @@ public sealed class InMemoryTagRepository : ITagRepository
 
     public Task<bool> ExistsAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var exists = _bySystem.TryGetValue(systemKey, out var store) && store.ContainsKey(tagId);
         return Task.FromResult(exists);
     }
 
        public Task<bool> UpdateAsync(SystemId systemId, UpdateTagCommand command, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(command.TagId, out var existing))
                return Task.FromResult(false);
 
@@ -83,7 +83,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<bool> DeleteAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (!_bySystem.TryGetValue(systemKey, out var store))
                return Task.FromResult(false);
 
@@ -95,7 +95,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<bool> AttachAlterAsync(SystemId systemId, TagId tagId, AlterId alterId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (!_bySystem.TryGetValue(systemKey, out var store) || !store.ContainsKey(tagId))
                return Task.FromResult(false);
 
@@ -106,7 +106,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<bool> DetachAlterAsync(SystemId systemId, TagId tagId, AlterId alterId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (!_alterMemberships.TryGetValue((systemKey, tagId), out var members))
                return Task.FromResult(false);
 
@@ -115,7 +115,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<TagId?> GetParentIdAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (_bySystem.TryGetValue(systemKey, out var store) && store.TryGetValue(tagId, out var state))
                return Task.FromResult(state.ParentTagId);
 
@@ -124,7 +124,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<bool> SetParentAsync(SystemId systemId, TagId tagId, TagId parentTagId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (!_bySystem.TryGetValue(systemKey, out var store))
                return Task.FromResult(false);
 
@@ -137,7 +137,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<bool> RemoveParentAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(tagId, out var existing))
                return Task.FromResult(false);
 
@@ -147,7 +147,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<IReadOnlyList<TagReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (!_bySystem.TryGetValue(systemKey, out var store))
                return Task.FromResult<IReadOnlyList<TagReadModel>>(Array.Empty<TagReadModel>());
 
@@ -176,8 +176,8 @@ public sealed class InMemoryTagRepository : ITagRepository
            SystemId? viewerSystemId,
            CancellationToken cancellationToken = default)
        {
-           var friendshipLevel = await ResolveFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
-           var systemKey = GetSystemKey(systemId);
+           var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (!_bySystem.TryGetValue(systemKey, out var store))
                return Array.Empty<TagPublicReadModel>();
 
@@ -202,7 +202,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<TagReadModel?> GetAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(tagId, out var tag))
                return Task.FromResult<TagReadModel?>(null);
 
@@ -225,8 +225,8 @@ public sealed class InMemoryTagRepository : ITagRepository
            SystemId? viewerSystemId,
            CancellationToken cancellationToken = default)
        {
-           var friendshipLevel = await ResolveFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
-           var systemKey = GetSystemKey(systemId);
+           var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(tagId, out var tag))
            {
                return null;
@@ -269,7 +269,8 @@ public sealed class InMemoryTagRepository : ITagRepository
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
     // Delegates to the shared static that also serves the Alter and Fronting repos —
-    // see InMemoryStorageKeys.ResolveFriendshipLevelAsync for the self-check semantics.
-    private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
-        => InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
 }
+
+
+
+

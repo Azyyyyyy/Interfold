@@ -35,7 +35,7 @@ public sealed class InMemoryPollRepository : IPollRepository
 
     public Task<IReadOnlyList<PollReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store))
             return Task.FromResult<IReadOnlyList<PollReadModel>>(Array.Empty<PollReadModel>());
 
@@ -51,7 +51,7 @@ public sealed class InMemoryPollRepository : IPollRepository
 
     public Task<PollReadModel?> GetAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(pollId, out var poll))
             return Task.FromResult<PollReadModel?>(null);
 
@@ -60,7 +60,7 @@ public sealed class InMemoryPollRepository : IPollRepository
 
     public Task<PollId?> CreateAsync(SystemId systemId, CreatePollCommand command, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<PollId, PollState>());
         PollId id = new(Guid.NewGuid());
 
@@ -81,14 +81,14 @@ public sealed class InMemoryPollRepository : IPollRepository
 
     public Task<bool> ExistsAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var exists = _bySystem.TryGetValue(systemKey, out var store) && store.ContainsKey(pollId);
         return Task.FromResult(exists);
     }
 
     public Task<bool> UpdateAsync(SystemId systemId, UpdatePollCommand command, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(command.Id, out var poll))
             return Task.FromResult(false);
 
@@ -103,7 +103,7 @@ public sealed class InMemoryPollRepository : IPollRepository
 
     public Task<bool> DeleteAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store))
             return Task.FromResult(false);
 
@@ -115,7 +115,7 @@ public sealed class InMemoryPollRepository : IPollRepository
     // filters those entries while leaving every other member untouched.
     public Task RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store))
             return Task.CompletedTask;
 
@@ -146,3 +146,4 @@ public sealed class InMemoryPollRepository : IPollRepository
 
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 }
+

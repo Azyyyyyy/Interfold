@@ -97,21 +97,9 @@ public sealed class ScyllaTagRepository : ITagRepository
         CancellationToken cancellationToken = default
     )
     {
-        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
-        {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
-
-            var query = new SimpleStatement(
-                $"SELECT id FROM {keyspace}.tags WHERE user_id = ? AND id = ? LIMIT 1",
-                normalizedSystemId,
-                tagId.Value
-            );
-
-            var rows = await session.ExecuteAsync(query);
-            return rows.Any();
-        }, cancellationToken);
+        return await _scopeResolver.ExecuteAsync(systemId, scope =>
+            ScyllaExistsQueries.RowExistsAsync(scope.Session, scope.Keyspace, "tags", "id", scope.NormalizedSystemId, tagId.Value),
+            cancellationToken);
     }
 
     public async Task<bool> UpdateAsync(

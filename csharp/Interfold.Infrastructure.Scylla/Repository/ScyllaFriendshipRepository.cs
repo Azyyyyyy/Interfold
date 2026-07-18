@@ -445,24 +445,11 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
     }
 
 
-    private static async Task<bool> ExistsFriendshipAsync(ISession session, string userId, string friendId)
-    {
-        var query = new SimpleStatement(
-            $"SELECT friend_id FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
-            userId,
-            friendId);
+    private static Task<bool> ExistsFriendshipAsync(ISession session, string userId, string friendId)
+        => ScyllaExistsQueries.RowExistsAsync(session, ScyllaGlobalKeyspace.Name, "friendships", "friend_id", userId, friendId);
 
-        return (await session.ExecuteAsync(query)).Any();
-    }
-
-    private static async Task<bool> SystemExistsAsync(ISession session, string userId)
-    {
-        var query = new SimpleStatement(
-            $"SELECT user_id FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE user_id = ? LIMIT 1",
-            userId);
-
-        return (await session.ExecuteAsync(query)).Any();
-    }
+    private static Task<bool> SystemExistsAsync(ISession session, string userId)
+        => ScyllaExistsQueries.RowExistsAsync(session, ScyllaGlobalKeyspace.Name, "user_registry", "user_id", userId, userId);
 
     private async Task<SystemId?> ResolveUserIdInScyllaAsync(
         ISession session,
@@ -659,7 +646,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             friendSystemId,
             profileRow?.GetValue<string?>("username") is { } username ? new Username(username) : null,
             AvatarUrl.FromNullable(profileRow?.GetValue<string?>("avatar_url")),
-            profileRow is not null && profileRow.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var profileAvatarSrc) ? profileAvatarSrc : null,
+            profileRow is not null ? profileRow.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>() : null,
             profileRow?.GetValue<string?>("description"),
             profileRow?.GetValue<string?>("discord_id") is { } discordId ? new DiscordId(discordId) : null);
     }
@@ -682,22 +669,17 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         var activeTask = session.ExecuteAsync(new SimpleStatement(
             $"SELECT alter_id, comment FROM {regionalKeyspace}.current_fronts WHERE user_id = ?",
             friendSystemId.Value));
-        var primaryTask = session.ExecuteAsync(new SimpleStatement(
-            $"SELECT primary_front_alter FROM {regionalKeyspace}.users WHERE id = ? LIMIT 1",
-            friendSystemId.Value));
+
         var altersTask = session.ExecuteAsync(new SimpleStatement(
             $"SELECT id, name, avatar_url, avatar_source, pronouns, color, description, extra_images, security_level FROM {regionalKeyspace}.alters WHERE user_id = ?",
             friendSystemId.Value));
 
-        await Task.WhenAll(levelTask, activeTask, primaryTask, altersTask);
+        await Task.WhenAll(levelTask, activeTask, altersTask);
 
         var levelRow = (await levelTask).FirstOrDefault();
         FriendshipLevel? friendshipLevel = levelRow is null ? null : levelRow.GetValue<short>("level").FromCode<FriendshipLevel>();
         var activeRows = await activeTask;
-        var primaryRow = (await primaryTask).FirstOrDefault();
-        var primaryAlterId = primaryRow?.GetValue<short?>("primary_front_alter") is { } primaryShort
-            ? new AlterId(primaryShort)
-            : (AlterId?)null;
+        var primaryAlterId = await ScyllaSharedQueries.LoadPrimaryFrontAlterAsync(session, regionalKeyspace, friendSystemId.Value);
         var alterRows = await altersTask;
 
         var alterMap = alterRows
@@ -707,7 +689,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
                 row => (
                     Name: row.GetValue<string?>("name"),
                     AvatarUrl: AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    AvatarSource: row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : (AvatarSource?)null,
+                    AvatarSource: row.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
                     Pronouns: row.GetValue<string?>("pronouns"),
                     Color: HexColor.FromNullable(row.GetValue<string?>("color")),
                     Description: row.GetValue<string?>("description"),

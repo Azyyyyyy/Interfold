@@ -128,12 +128,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
             // Prefetch primary_front_alter so we know whether ending this front should
             // also clear the primary.
-            var primaryRow = (await session.ExecuteAsync(new SimpleStatement(
-                $"SELECT primary_front_alter FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId))).FirstOrDefault();
-            var primaryAlterId = primaryRow?.GetValue<short?>("primary_front_alter") is { } primaryShort
-                ? new AlterId(primaryShort)
-                : (AlterId?)null;
+            var primaryAlterId = await ScyllaSharedQueries.LoadPrimaryFrontAlterAsync(session, keyspace, normalizedSystemId);
 
             var endBatch = new BatchStatement();
             endBatch.Add(new SimpleStatement(
@@ -219,10 +214,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             // Register UDT mapping before selecting the fields UDT column.
             EnsureAlterFieldUdtMapping(session, keyspace);
 
-            var primaryTask = session.ExecuteAsync(new SimpleStatement(
-                $"SELECT primary_front_alter FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId
-            ));
+
 
             var activeTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT alter_id, id, comment, time_start FROM {keyspace}.current_fronts WHERE user_id = ?",
@@ -233,12 +225,9 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 $"SELECT id, name, avatar_url, avatar_source, description, color, fields, pronouns, pinned FROM {keyspace}.alters WHERE user_id = ?",
                 normalizedSystemId));
 
-            await Task.WhenAll(primaryTask, activeTask, altersTask);
+            await Task.WhenAll(activeTask, altersTask);
 
-            var primaryRow = (await primaryTask).FirstOrDefault();
-            var primaryAlterId = primaryRow?.GetValue<short?>("primary_front_alter") is { } primaryShort
-                ? new AlterId(primaryShort)
-                : (AlterId?)null;
+            var primaryAlterId = await ScyllaSharedQueries.LoadPrimaryFrontAlterAsync(session, keyspace, normalizedSystemId);
             
             var rows = await activeTask;
             var alterRows = await altersTask;
@@ -251,7 +240,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                     new(row.GetValue<short>("id")),
                     row.GetValue<string>("name"),
                     AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
+                    row.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
                     HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("pronouns"),
                     row.GetValue<string?>("description"),
@@ -391,21 +380,16 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 $"SELECT id, name, avatar_url, avatar_source, description, color, fields, pronouns, pinned FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId, alterId));
 
-            var primaryTask = session.ExecuteAsync(new SimpleStatement(
-                $"SELECT primary_front_alter FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId));
 
-            await Task.WhenAll(currentTask, alterTask, primaryTask);
+
+            await Task.WhenAll(currentTask, alterTask);
 
             var currentRow = (await currentTask).FirstOrDefault();
             if (currentRow is null || currentRow.GetValue<Guid>("id") != frontId.Value)
                 return null;
 
             var alterRow = (await alterTask).FirstOrDefault();
-            var primaryRow = (await primaryTask).FirstOrDefault();
-            var primaryAlterId = primaryRow?.GetValue<short?>("primary_front_alter") is { } primaryShort
-                ? new AlterId(primaryShort)
-                : (AlterId?)null;
+            var primaryAlterId = await ScyllaSharedQueries.LoadPrimaryFrontAlterAsync(session, keyspace, normalizedSystemId);
 
             BareAlter alter;
             if (alterRow is null)
@@ -418,7 +402,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                     new(alterRow.GetValue<short>("id")),
                     alterRow.GetValue<string>("name"),
                     AvatarUrl.FromNullable(alterRow.GetValue<string?>("avatar_url")),
-                    alterRow.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
+                    alterRow.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
                     HexColor.FromNullable(alterRow.GetValue<string?>("color")),
                     alterRow.GetValue<string?>("pronouns"),
                     alterRow.GetValue<string?>("description"),
@@ -478,12 +462,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 return false;
             }
 
-            var primaryRow = (await session.ExecuteAsync(new SimpleStatement(
-                $"SELECT primary_front_alter FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId))).FirstOrDefault();
-            var primaryAlterId = primaryRow?.GetValue<short?>("primary_front_alter") is { } primaryShort
-                ? new AlterId(primaryShort)
-                : (AlterId?)null;
+            var primaryAlterId = await ScyllaSharedQueries.LoadPrimaryFrontAlterAsync(session, keyspace, normalizedSystemId);
 
             var endedAt = DateTimeOffset.UtcNow;
 
@@ -546,12 +525,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var frontGuid = frontId.Value;
 
             var currentRow = await GetCurrentFrontRowAsync(session, keyspace, normalizedSystemId, alterId);
-            var primaryRow = (await session.ExecuteAsync(new SimpleStatement(
-                $"SELECT primary_front_alter FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId))).FirstOrDefault();
-            var primaryAlterId = primaryRow?.GetValue<short?>("primary_front_alter") is { } primaryShort
-                ? new AlterId(primaryShort)
-                : (AlterId?)null;
+            var primaryAlterId = await ScyllaSharedQueries.LoadPrimaryFrontAlterAsync(session, keyspace, normalizedSystemId);
 
             // Build batch for all delete/update operations
             var deleteBatch = new BatchStatement();

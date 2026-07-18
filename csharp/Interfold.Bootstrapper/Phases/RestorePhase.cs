@@ -405,27 +405,15 @@ internal static class RestorePhase
         }
     }
 
-    private static async Task WaitForPostgresAsync(
+    private static Task WaitForPostgresAsync(
         string composeFile, PhaseLogger logger, CancellationToken ct)
     {
-        var deadline = DateTime.UtcNow.AddMinutes(5);
-        var attempt = 0;
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-            attempt++;
-            var probe = await ProcessRunner.RunAsync("docker",
-                ["compose", "-f", composeFile, "exec", "-T", ComposeServices.Postgres,
-                 "pg_isready", "-h", "127.0.0.1", "-p", "5432"],
-                ct: ct).ConfigureAwait(false);
-            if (probe.ExitCode == 0)
-            {
-                logger.Info($"    postgres ready after {attempt} probe(s)");
-                return;
-            }
-            await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
-        }
-        throw new TimeoutException("postgres did not report ready within 5 minutes.");
+        return Util.PostgresReadinessProbe.WaitAsync(
+            composeFile,
+            ComposeServices.Postgres,
+            new Interfold.DatabaseBootstrap.PostgresReadinessOptions(TimeSpan.FromMinutes(10), 3, Interfold.Contracts.Configuration.PostgresRoles.Init),
+            logger,
+            ct);
     }
 
     /// <summary>

@@ -317,29 +317,16 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     // internal helpers, so the pattern-match lives once here rather than being duplicated
     // across AuthController and AuthLinkController.
     public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default)
-        => identity switch
-        {
-            { Discord: { } discordId } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken),
-            { Google: { } email } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Email, email.Value, cancellationToken),
-            { Apple: { } appleId } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Apple, appleId.Value, cancellationToken),
-            // ProviderIdentity's static factories always populate exactly one member; a fully-
-            // empty union means either default(ProviderIdentity) reached us (bypassing the
-            // OAuth controllers' extract-or-403 gate) or a new provider member was added to
-            // the union without a corresponding branch here. Both are bugs — surface loudly
-            // instead of silently returning "not found" as if the identity were unknown.
-            _ => throw new ArgumentOutOfRangeException(nameof(identity), identity,
-                "ProviderIdentity has no Discord/Google/Apple member populated."),
-        };
+        => identity.MatchOrThrow(
+            discordId => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken),
+            email => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Email, email.Value, cancellationToken),
+            appleId => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Apple, appleId.Value, cancellationToken));
 
     public Task<AccountLinkResult> LinkIdentityToUserAsync(SystemId systemId, ProviderIdentity identity, CancellationToken cancellationToken = default)
-        => identity switch
-        {
-            { Discord: { } discordId } => LinkIdentityAsync(systemId, ProviderColumn.Discord, discordId.Value, cancellationToken),
-            { Google: { } email } => LinkIdentityAsync(systemId, ProviderColumn.Email, email.Value, cancellationToken),
-            { Apple: { } appleId } => LinkIdentityAsync(systemId, ProviderColumn.Apple, appleId.Value, cancellationToken),
-            _ => throw new ArgumentOutOfRangeException(nameof(identity), identity,
-                "ProviderIdentity has no Discord/Google/Apple member populated."),
-        };
+        => identity.MatchOrThrow(
+            discordId => LinkIdentityAsync(systemId, ProviderColumn.Discord, discordId.Value, cancellationToken),
+            email => LinkIdentityAsync(systemId, ProviderColumn.Email, email.Value, cancellationToken),
+            appleId => LinkIdentityAsync(systemId, ProviderColumn.Apple, appleId.Value, cancellationToken));
 
     public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
         => UnlinkIdentityAsync(systemId, ProviderColumn.Discord, cancellationToken);
@@ -414,7 +401,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 profile.GetValue<string?>("username") is { } username ? new Username(username) : null,
                 profile.GetValue<string?>("description"),
                 AvatarUrl.FromNullable(profile.GetValue<string?>("avatar_url")),
-                profile.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
+                profile.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
                 profile.GetValue<string?>("discord_id") is { } discordId ? new DiscordId(discordId) : null,
                 profile.GetValue<string?>("email") is { } email ? new Email(email) : null,
                 profile.GetValue<string?>("apple_id") is { } appleId ? new AppleId(appleId) : null);

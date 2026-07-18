@@ -142,12 +142,7 @@ public sealed class SettingsController : InterfoldControllerBase
     public async Task<Response> UpdateUsername([FromBody] SettingsUsernameRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        var envelope = new CommandEnvelope<UpdateUsernameCommand>(
-            OperationIds.SettingsUsernameUpdate, Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdateUsernameCommand(req.Username)
+        var envelope = BuildEnvelope(OperationIds.SettingsUsernameUpdate, new UpdateUsernameCommand(req.Username)
         );
 
         return CommandNoContent(await _usernameHandler.HandleAsync(envelope, ct));
@@ -156,13 +151,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("description")]
     public async Task<Response> UpdateDescription([FromBody] SettingsDescriptionRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UpdateDescriptionCommand>(
-            OperationIds.SettingsDescriptionUpdate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdateDescriptionCommand(req.Description)
+        var envelope = BuildEnvelope(OperationIds.SettingsDescriptionUpdate, new UpdateDescriptionCommand(req.Description)
         );
 
         return CommandNoContent(await _descriptionHandler.HandleAsync(envelope, ct));
@@ -174,13 +163,7 @@ public sealed class SettingsController : InterfoldControllerBase
         if (req.Token is not { } pushToken || string.IsNullOrWhiteSpace(pushToken.Value))
             return new ErrorResponse("Invalid push token.", ErrorCodes.InvalidPushToken, System.Net.HttpStatusCode.BadRequest);
 
-        var envelope = new CommandEnvelope<AddPushTokenCommand>(
-            OperationIds.SettingsPushTokenAdd,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new AddPushTokenCommand(pushToken)
+        var envelope = BuildEnvelope(OperationIds.SettingsPushTokenAdd, new AddPushTokenCommand(pushToken)
         );
 
         return CommandNoContent(await _addPushTokenHandler.HandleAsync(envelope, ct));
@@ -192,13 +175,7 @@ public sealed class SettingsController : InterfoldControllerBase
         if (req.Token is not { } pushToken || string.IsNullOrWhiteSpace(pushToken.Value))
             return new ErrorResponse("Invalid push token.", ErrorCodes.InvalidPushToken, System.Net.HttpStatusCode.BadRequest);
 
-        var envelope = new CommandEnvelope<RemovePushTokenCommand>(
-            OperationIds.SettingsPushTokenRemove,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new RemovePushTokenCommand(pushToken)
+        var envelope = BuildEnvelope(OperationIds.SettingsPushTokenRemove, new RemovePushTokenCommand(pushToken)
         );
 
         return CommandNoContent(await _removePushTokenHandler.HandleAsync(envelope, ct));
@@ -210,13 +187,7 @@ public sealed class SettingsController : InterfoldControllerBase
         if (!TryResolveRecoveryCode(req.RecoveryCode.Value, out var recoveryCode, out var decryptionErrorCode))
             return new ErrorResponse("Failed to decrypt recovery code.", decryptionErrorCode, System.Net.HttpStatusCode.BadRequest);
 
-        var envelope = new CommandEnvelope<SetupEncryptionCommand>(
-            OperationIds.SettingsEncryptionSetup,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetupEncryptionCommand(recoveryCode)
+        var envelope = BuildEnvelope(OperationIds.SettingsEncryptionSetup, new SetupEncryptionCommand(recoveryCode)
         );
 
         var execution = await _setupEncryptionHandler.HandleAsync(envelope, ct);
@@ -232,13 +203,7 @@ public sealed class SettingsController : InterfoldControllerBase
         if (!TryResolveRecoveryCode(req.RecoveryCode.Value, out var recoveryCode, out var decryptionErrorCode))
             return new ErrorResponse("Failed to decrypt recovery code.", decryptionErrorCode, System.Net.HttpStatusCode.BadRequest);
 
-        var envelope = new CommandEnvelope<RecoverEncryptionCommand>(
-            OperationIds.SettingsEncryptionRecover,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new RecoverEncryptionCommand(recoveryCode)
+        var envelope = BuildEnvelope(OperationIds.SettingsEncryptionRecover, new RecoverEncryptionCommand(recoveryCode)
         );
 
         var execution = await _recoverEncryptionHandler.HandleAsync(envelope, ct);
@@ -253,13 +218,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("reset-encryption")]
     public async Task<Response> ResetEncryption(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<ResetEncryptionCommand>(
-            OperationIds.SettingsEncryptionReset,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new ResetEncryptionCommand()
+        var envelope = BuildEnvelope(OperationIds.SettingsEncryptionReset, new ResetEncryptionCommand()
         );
 
         return CommandNoContent(await _resetEncryptionHandler.HandleAsync(envelope, ct));
@@ -305,13 +264,7 @@ public sealed class SettingsController : InterfoldControllerBase
         {
         }
 
-        var envelope = new CommandEnvelope<UploadAvatarCommand>(
-            OperationIds.SettingsAvatarUpload,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UploadAvatarCommand(avatarUrl, AvatarSource.Local)
+        var envelope = BuildEnvelope(OperationIds.SettingsAvatarUpload, new UploadAvatarCommand(avatarUrl, AvatarSource.Local)
         );
 
         var result = CommandNoContent(await _uploadAvatarHandler.HandleAsync(envelope, ct));
@@ -367,13 +320,7 @@ public sealed class SettingsController : InterfoldControllerBase
         {
         }
 
-        var envelope = new CommandEnvelope<UploadAvatarCommand>(
-            OperationIds.SettingsAvatarUpload,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UploadAvatarCommand(new(url), AvatarSource.External)
+        var envelope = BuildEnvelope(OperationIds.SettingsAvatarUpload, new UploadAvatarCommand(new(url), AvatarSource.External)
         );
 
         var result = CommandNoContent(await _uploadAvatarHandler.HandleAsync(envelope, ct));
@@ -405,13 +352,7 @@ public sealed class SettingsController : InterfoldControllerBase
         AvatarUrl? currentAvatarUrl = currentProfile?.AvatarUrl;
         var currentAvatarSource = currentProfile?.AvatarSource;
 
-        var envelope = new CommandEnvelope<DeleteAvatarCommand>(
-            OperationIds.SettingsAvatarDelete,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeleteAvatarCommand()
+        var envelope = BuildEnvelope(OperationIds.SettingsAvatarDelete, new DeleteAvatarCommand()
         );
 
         var execution = await _deleteAvatarHandler.HandleAsync(envelope, ct);
@@ -440,13 +381,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("import-pk")]
     public async Task<Response<ImportDispatchResponse>> ImportPk([FromBody] SettingsImportRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<ImportPkCommand>(
-            OperationIds.SettingsImportPk,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new ImportPkCommand(req.Token)
+        var envelope = BuildEnvelope(OperationIds.SettingsImportPk, new ImportPkCommand(req.Token)
         );
 
         return CommandAccepted(
@@ -483,13 +418,7 @@ public sealed class SettingsController : InterfoldControllerBase
             recoveryCode = resolved;
         }
 
-        var envelope = new CommandEnvelope<ImportSpCommand>(
-            OperationIds.SettingsImportSp,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new ImportSpCommand(req.Token, recoveryCode)
+        var envelope = BuildEnvelope(OperationIds.SettingsImportSp, new ImportSpCommand(req.Token, recoveryCode)
         );
 
         return CommandAccepted(
@@ -500,13 +429,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("unlink_discord")]
     public async Task<Response> UnlinkDiscord(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UnlinkDiscordCommand>(
-            OperationIds.SettingsAuthUnlinkDiscord,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UnlinkDiscordCommand()
+        var envelope = BuildEnvelope(OperationIds.SettingsAuthUnlinkDiscord, new UnlinkDiscordCommand()
         );
 
         return CommandNoContent(await _unlinkDiscordHandler.HandleAsync(envelope, ct));
@@ -515,13 +438,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("unlink_email")]
     public async Task<Response> UnlinkEmail(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UnlinkEmailCommand>(
-            OperationIds.SettingsAuthUnlinkEmail,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UnlinkEmailCommand()
+        var envelope = BuildEnvelope(OperationIds.SettingsAuthUnlinkEmail, new UnlinkEmailCommand()
         );
 
         return CommandNoContent(await _unlinkEmailHandler.HandleAsync(envelope, ct));
@@ -531,13 +448,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("unlink_apple")]
     public async Task<Response> UnlinkApple(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UnlinkAppleCommand>(
-            OperationIds.SettingsAuthUnlinkApple,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UnlinkAppleCommand()
+        var envelope = BuildEnvelope(OperationIds.SettingsAuthUnlinkApple, new UnlinkAppleCommand()
         );
 
         return CommandNoContent(await _unlinkAppleHandler.HandleAsync(envelope, ct));
@@ -547,13 +458,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("delete-account")]
     public async Task<Response> DeleteAccount(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<DeleteAccountCommand>(
-            OperationIds.SettingsAccountDelete,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeleteAccountCommand()
+        var envelope = BuildEnvelope(OperationIds.SettingsAccountDelete, new DeleteAccountCommand()
         );
 
         return CommandNoContent(await _deleteAccountHandler.HandleAsync(envelope, ct));
@@ -562,13 +467,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("wipe-alters")]
     public async Task<Response> WipeAlters(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<WipeAltersCommand>(
-            OperationIds.SettingsAltersWipe,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new WipeAltersCommand()
+        var envelope = BuildEnvelope(OperationIds.SettingsAltersWipe, new WipeAltersCommand()
         );
 
         return CommandNoContent(await _wipeAltersHandler.HandleAsync(envelope, ct));
@@ -577,13 +476,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("wipe-tags")]
     public async Task<Response> WipeTags(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<WipeTagsCommand>(
-            OperationIds.SettingsTagsWipe,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new WipeTagsCommand()
+        var envelope = BuildEnvelope(OperationIds.SettingsTagsWipe, new WipeTagsCommand()
         );
 
         return CommandNoContent(await _wipeTagsHandler.HandleAsync(envelope, ct));
@@ -597,13 +490,7 @@ public sealed class SettingsController : InterfoldControllerBase
         // here keeps the hashed payload stable across retries with the same idempotency key
         // (otherwise every call would stamp a fresh DateTime.UtcNow and look like a
         // different request, triggering ConflictDuplicate on every replay).
-        var envelope = new CommandEnvelope<CreateFieldCommand>(
-            OperationIds.SettingsFieldCreate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new CreateFieldCommand(req.Name, req.Type ?? FieldType.Text, req.SecurityLevel ?? VisibilityLevel.Private, req.Locked ?? false, InsertedAtUtc: default)
+        var envelope = BuildEnvelope(OperationIds.SettingsFieldCreate, new CreateFieldCommand(req.Name, req.Type ?? FieldType.Text, req.SecurityLevel ?? VisibilityLevel.Private, req.Locked ?? false, InsertedAtUtc: default)
         );
 
         var execution = await _createFieldHandler.HandleAsync(envelope, ct);
@@ -616,13 +503,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPatch("fields/{id}")]
     public async Task<Response> UpdateField([FromRoute] FieldId id, [FromBody] SettingsUpdateFieldRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UpdateFieldCommand>(
-            OperationIds.SettingsFieldUpdate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdateFieldCommand(id, req.Name, req.SecurityLevel, req.Locked)
+        var envelope = BuildEnvelope(OperationIds.SettingsFieldUpdate, new UpdateFieldCommand(id, req.Name, req.SecurityLevel, req.Locked)
         );
 
         return CommandNoContent(await _updateFieldHandler.HandleAsync(envelope, ct));
@@ -631,13 +512,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpDelete("fields/{id}")]
     public async Task<Response> DeleteField([FromRoute] FieldId id, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<DeleteFieldCommand>(
-            OperationIds.SettingsFieldDelete,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeleteFieldCommand(id)
+        var envelope = BuildEnvelope(OperationIds.SettingsFieldDelete, new DeleteFieldCommand(id)
         );
 
         return CommandNoContent(await _deleteFieldHandler.HandleAsync(envelope, ct));
@@ -646,13 +521,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("fields/{id}/relocate")]
     public async Task<Response> RelocateField([FromRoute] FieldId id, [FromBody] SettingsRelocateFieldRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<RelocateFieldCommand>(
-            OperationIds.SettingsFieldRelocate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new RelocateFieldCommand(id, req.Index)
+        var envelope = BuildEnvelope(OperationIds.SettingsFieldRelocate, new RelocateFieldCommand(id, req.Index)
         );
 
         return CommandNoContent(await _relocateFieldHandler.HandleAsync(envelope, ct));

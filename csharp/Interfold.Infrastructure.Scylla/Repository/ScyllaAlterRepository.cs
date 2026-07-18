@@ -276,10 +276,6 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 normalizedSystemId,
                 alterIdShort));
 
-            var primaryTask = session.ExecuteAsync(new SimpleStatement(
-                $"SELECT primary_front_alter FROM {keyspace}.users WHERE id = ? LIMIT 1",
-                normalizedSystemId));
-
             var tagsTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT tag_id FROM {keyspace}.alter_tags_by_alter WHERE user_id = ? AND alter_id = ?",
                 normalizedSystemId,
@@ -300,7 +296,6 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             await Task.WhenAll(
                 frontsTask,
                 journalEntriesTask,
-                primaryTask,
                 tagsTask,
                 globalJournalAltersTask,
                 removePollsTask,
@@ -309,7 +304,6 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             var frontRows = await frontsTask;
             var journalEntryRows = await journalEntriesTask;
-            var primaryFrontRow = (await primaryTask).FirstOrDefault();
             var membershipRows = await tagsTask;
             var globalJournalAlterRows = await globalJournalAltersTask;
             var aliasRow = (await aliasTask).FirstOrDefault();
@@ -359,9 +353,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             }
 
             // If this alter is currently the primary front, clear it.
-            var currentPrimary = primaryFrontRow?.GetValue<short?>("primary_front_alter") is { } primaryShort
-                ? new AlterId(primaryShort)
-                : (AlterId?)null;
+            var currentPrimary = await ScyllaSharedQueries.LoadPrimaryFrontAlterAsync(session, keyspace, normalizedSystemId);
             if (currentPrimary == new AlterId(alterIdShort))
             {
                 await session.ExecuteAsync(new SimpleStatement(
@@ -437,7 +429,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     row.GetValue<string>("name"),
                     row.GetValue<string?>("description"),
                     AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
+                    row.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
                     HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("pronouns"),
                     row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
@@ -479,7 +471,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     new(row.GetValue<short>("id")),
                     row.GetValue<string>("name"),
                     AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
+                    row.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
                     HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("pronouns"),
                     row.GetValue<string?>("description"),
@@ -514,7 +506,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     row.GetValue<string>("name"),
                     row.GetValue<string?>("description"),
                     AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
+                    row.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
                     HexColor.FromNullable(row.GetValue<string?>("color")),
                     row.GetValue<string?>("pronouns"),
                     row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
@@ -565,7 +557,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 new(row.GetValue<short>("id")),
                 row.GetValue<string>("name"),
                 AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                row.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
+                row.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
                 HexColor.FromNullable(row.GetValue<string?>("color")),
                 row.GetValue<string?>("pronouns"),
                 row.GetValue<string?>("description"),
@@ -598,17 +590,8 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         }, cancellationToken);
     }
 
-    private static async Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, AlterId alterId)
-    {
-        var query = new SimpleStatement(
-            $"SELECT id FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
-            normalizedSystemId,
-            alterId.Value
-        );
-
-        var rows = await session.ExecuteAsync(query);
-        return rows.Any();
-    }
+    private static Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, AlterId alterId)
+        => ScyllaExistsQueries.RowExistsAsync(session, keyspace, "alters", "id", normalizedSystemId, alterId.Value);
 
     private Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(
         SystemId systemId,

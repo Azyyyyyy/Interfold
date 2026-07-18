@@ -258,4 +258,8 @@ public abstract class InterfoldControllerBase : ControllerBase
             _ => new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, HttpStatusCode.InternalServerError, conflict.EntityRef.Value)
         };
     }
+
+    protected CommandEnvelope<TPayload> BuildEnvelope<TPayload>(OperationId operationId, TPayload payload)
+        => new(operationId, Guid.NewGuid(), PrincipalId: PrincipalId, IdempotencyKey: GetIdempotencyKey(),
+               OccurredAt: DateTimeOffset.UtcNow, Payload: payload);
 }

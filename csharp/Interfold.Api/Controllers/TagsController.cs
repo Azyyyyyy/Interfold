@@ -54,13 +54,7 @@ public sealed class TagsController : InterfoldControllerBase
         // here keeps the hashed payload stable across retries with the same idempotency key
         // (otherwise every call would stamp a fresh DateTime.UtcNow and look like a
         // different request, triggering ConflictDuplicate on every replay).
-        var command = new CommandEnvelope<CreateTagCommand>(
-            OperationId: OperationIds.TagCreate,
-            CommandId: Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new CreateTagCommand(body.Name, body.ParentTagId, InsertedAtUtc: default)
+        var command = BuildEnvelope(OperationIds.TagCreate, new CreateTagCommand(body.Name, body.ParentTagId, InsertedAtUtc: default)
         );
 
         var execution = await _create.HandleAsync(command, cancellationToken);
@@ -79,13 +73,7 @@ public sealed class TagsController : InterfoldControllerBase
     [HttpPatch("{id}")]
     public async Task<Response> UpdateTag(TagId id, [FromBody] UpdateTagRequest body, CancellationToken ct)
     {
-        var command = new CommandEnvelope<UpdateTagCommand>(
-            OperationId: OperationIds.TagUpdate,
-            CommandId: Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdateTagCommand(id, body.Name, body.Color, body.Description, body.SecurityLevel)
+        var command = BuildEnvelope(OperationIds.TagUpdate, new UpdateTagCommand(id, body.Name, body.Color, body.Description, body.SecurityLevel)
         );
 
         return CommandNoContent(await _update.HandleAsync(command, ct));
@@ -95,13 +83,7 @@ public sealed class TagsController : InterfoldControllerBase
     [HttpDelete("{id}")]
     public async Task<Response> DeleteTag(TagId id, CancellationToken ct)
     {
-        var command = new CommandEnvelope<DeleteTagCommand>(
-            OperationId: OperationIds.TagDelete,
-            CommandId: Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeleteTagCommand(id)
+        var command = BuildEnvelope(OperationIds.TagDelete, new DeleteTagCommand(id)
         );
 
         return CommandNoContent(await _delete.HandleAsync(command, ct));
@@ -110,13 +92,7 @@ public sealed class TagsController : InterfoldControllerBase
     [HttpPost("{id}/alter")]
     public async Task<Response> AttachAlter(TagId id, [FromBody] TagAlterRequest body, CancellationToken ct)
     {
-        var command = new CommandEnvelope<AttachAlterToTagCommand>(
-            OperationId: OperationIds.TagAttachAlter,
-            CommandId: Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new AttachAlterToTagCommand(id, body.AlterId)
+        var command = BuildEnvelope(OperationIds.TagAttachAlter, new AttachAlterToTagCommand(id, body.AlterId)
         );
 
         return CommandNoContent(await _attachAlter.HandleAsync(command, ct));
@@ -125,13 +101,7 @@ public sealed class TagsController : InterfoldControllerBase
     [HttpDelete("{id}/alter")]
     public async Task<Response> DetachAlter(TagId id, [FromBody] TagAlterRequest body, CancellationToken ct)
     {
-        var command = new CommandEnvelope<DetachAlterFromTagCommand>(
-            OperationId: OperationIds.TagDetachAlter,
-            CommandId: Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DetachAlterFromTagCommand(id, body.AlterId)
+        var command = BuildEnvelope(OperationIds.TagDetachAlter, new DetachAlterFromTagCommand(id, body.AlterId)
         );
 
         return CommandNoContent(await _detachAlter.HandleAsync(command, ct));
@@ -143,13 +113,7 @@ public sealed class TagsController : InterfoldControllerBase
         if (body.ParentTagId is not { } parentTagId || parentTagId == TagId.Empty)
             return new ErrorResponse("Invalid parent tag ID.", ErrorCodes.InvalidParentTagId, System.Net.HttpStatusCode.BadRequest);
 
-        var command = new CommandEnvelope<SetParentTagCommand>(
-            OperationId: OperationIds.TagSetParent,
-            CommandId: Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetParentTagCommand(id, parentTagId)
+        var command = BuildEnvelope(OperationIds.TagSetParent, new SetParentTagCommand(id, parentTagId)
         );
 
         return CommandNoContent(await _setParent.HandleAsync(command, ct));
@@ -158,13 +122,7 @@ public sealed class TagsController : InterfoldControllerBase
     [HttpDelete("{id}/parent")]
     public async Task<Response> RemoveParent(TagId id, CancellationToken ct)
     {
-        var command = new CommandEnvelope<RemoveParentTagCommand>(
-            OperationId: OperationIds.TagRemoveParent,
-            CommandId: Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new RemoveParentTagCommand(id)
+        var command = BuildEnvelope(OperationIds.TagRemoveParent, new RemoveParentTagCommand(id)
         );
 
         return CommandNoContent(await _removeParent.HandleAsync(command, ct));

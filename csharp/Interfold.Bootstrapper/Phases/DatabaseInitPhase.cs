@@ -184,63 +184,14 @@ internal static class DatabaseInitPhase
 
     // -------- Wait loops (transport-specific) --------
 
-    private static async Task WaitForPostgresAsync(string composeFile, PhaseLogger logger, CancellationToken ct)
+    private static Task WaitForPostgresAsync(string composeFile, PhaseLogger logger, CancellationToken ct)
     {
-        // The postgres / timescale entrypoint flow on a fresh data volume is:
-        //   1. initdb  ->  2. start in init mode (Unix socket only)  ->  3. run init.d/
-        //   ->  4. stop (timescaledb-tune.sh signals SIGTERM)  ->  5. start in normal mode.
-        //
-        // The trap to avoid: a `psql SELECT 1` over the Unix socket succeeds during step 3
-        // because the temp server is fully accepting socket connections. If we let the
-        // bootstrap proceed in step 3 then the temp server gets SIGTERMed in step 4 and
-        // anything we ran is still in flight when callers later probe with "the database
-        // system is shutting down" (DbInitFaultRecoveryTests caught exactly this regression).
-        //
-        // The temp server in step 2 only binds the Unix socket — `listen_addresses` is empty
-        // until the normal-mode start in step 5 brings up TCP. So a TCP probe is the only
-        // signal that distinguishes "init in progress" from "normal mode is up": pg_isready
-        // explicitly opens a TCP connection without authenticating, returning exit 0 only
-        // when the listener is actually accepting connections (and non-zero with code 1/2
-        // during the shutdown / restart window between steps 3 and 5). The probe runs inside
-        // the container via `compose exec` so we don't have to thread the host-side mapped
-        // port through here.
-        //
-        // We still require 3 consecutive 0-exits with a 2s delay so a single transient
-        // success during the brief TCP-listen handoff inside step 5 can't sneak through.
-        //
-        // 10 minutes is generous on purpose: on slow Docker-in-Docker hosts the temp-server
-        // shutdown + checkpoint after timescaledb-tune can take several minutes (we already
-        // bump PGCTLTIMEOUT to 300s in the AppHost so the entrypoint doesn't give up early),
-        // and we still need headroom for the second cold start that follows.
-        var deadline = DateTime.UtcNow.AddMinutes(10);
-        var attempt = 0;
-        var consecutiveSuccesses = 0;
-        const int RequiredSuccesses = 3;
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-            attempt++;
-            var probe = await ProcessRunner.RunAsync("docker",
-                ["compose", "-f", composeFile, "exec", "-T", PostgresService,
-                 "pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", PostgresRoles.Init],
-                ct: ct).ConfigureAwait(false);
-            if (probe.ExitCode == 0)
-            {
-                consecutiveSuccesses++;
-                if (consecutiveSuccesses >= RequiredSuccesses)
-                {
-                    logger.Info(
-                        $"    postgres ready after {attempt} probe(s) ({RequiredSuccesses} consecutive TCP pg_isready, normal mode confirmed)");
-                    return;
-                }
-            }
-            else if (consecutiveSuccesses > 0)
-            {
-                consecutiveSuccesses = 0;
-            }
-            await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
-        }
-        throw new TimeoutException($"{PostgresService} did not become ready within 10 minutes.");
+        return Util.PostgresReadinessProbe.WaitAsync(
+            composeFile,
+            PostgresService,
+            new Interfold.DatabaseBootstrap.PostgresReadinessOptions(TimeSpan.FromMinutes(10), 3, PostgresRoles.Init),
+            logger,
+            ct);
     }
 
     private static async Task WaitForScyllaAsync(

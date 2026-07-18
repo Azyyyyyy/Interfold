@@ -61,13 +61,7 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     {
         var principal = PrincipalId;
 
-        var envelope = new CommandEnvelope<CreateAlterJournalEntryCommand>(
-            OperationIds.JournalAlterCreate,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new CreateAlterJournalEntryCommand(alterId, req.Title, DateTimeOffset.UtcNow)
+        var envelope = BuildEnvelope(OperationIds.JournalAlterCreate, new CreateAlterJournalEntryCommand(alterId, req.Title, DateTimeOffset.UtcNow)
         );
 
         var execution = await _create.HandleAsync(envelope, ct);
@@ -86,13 +80,7 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     [HttpPatch("journals/{journalId}")]
     public async Task<Response> Update(EntryId journalId, [FromBody] UpdateAlterJournalRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UpdateAlterJournalEntryCommand>(
-            OperationIds.JournalAlterUpdate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdateAlterJournalEntryCommand(journalId, req.Title, req.Content, req.Color, DateTimeOffset.UtcNow)
+        var envelope = BuildEnvelope(OperationIds.JournalAlterUpdate, new UpdateAlterJournalEntryCommand(journalId, req.Title, req.Content, req.Color, DateTimeOffset.UtcNow)
         );
 
         return CommandNoContent(await _update.HandleAsync(envelope, ct));
@@ -101,13 +89,7 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     [HttpDelete("journals/{journalId}")]
     public async Task<Response> Delete(EntryId journalId, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<DeleteAlterJournalEntryCommand>(
-            OperationIds.JournalAlterDelete,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeleteAlterJournalEntryCommand(journalId)
+        var envelope = BuildEnvelope(OperationIds.JournalAlterDelete, new DeleteAlterJournalEntryCommand(journalId)
         );
 
         return CommandNoContent(await _delete.HandleAsync(envelope, ct));
@@ -131,13 +113,7 @@ public sealed class AlterJournalsController : InterfoldControllerBase
 
     private async Task<Response> SetLockedInternal(EntryId journalId, bool locked, OperationId operationId, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<SetAlterJournalLockedCommand>(
-            operationId,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetAlterJournalLockedCommand(journalId, locked)
+        var envelope = BuildEnvelope(operationId, new SetAlterJournalLockedCommand(journalId, locked)
         );
 
         return CommandNoContent(await _setLocked.HandleAsync(envelope, ct));
@@ -145,13 +121,7 @@ public sealed class AlterJournalsController : InterfoldControllerBase
 
     private async Task<Response> SetPinnedInternal(EntryId journalId, bool pinned, OperationId operationId, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<SetAlterJournalPinnedCommand>(
-            operationId,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetAlterJournalPinnedCommand(journalId, pinned)
+        var envelope = BuildEnvelope(operationId, new SetAlterJournalPinnedCommand(journalId, pinned)
         );
 
         return CommandNoContent(await _setPinned.HandleAsync(envelope, ct));
