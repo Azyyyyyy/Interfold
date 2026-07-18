@@ -14,6 +14,7 @@ using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
+using Interfold.Api.Services;
 
 namespace Interfold.Api.Controllers.Base;
 
@@ -147,6 +148,113 @@ public abstract class InterfoldControllerBase : ControllerBase
         return new AvatarUploadPayload(null, emptyFilePart);
     }
 
+    protected async Task<Response> HandleAvatarUploadAsync(
+        Func<CancellationToken, Task<(AvatarUrl? Url, AvatarSource? Source)>> getExistingAvatarAsync,
+        Func<ScopedSystemId, Stream, CancellationToken, Task<AvatarUrl>> saveToStorageAsync,
+        Func<AvatarUrl, CancellationToken, Task<Response>> updateMetadataAsync,
+        IAvatarStorage avatarStorage,
+        CancellationToken ct)
+    {
+        var principal = PrincipalId;
+        var upload = await ResolveMultipartUploadAsync(ct);
+        var avatarStream = upload.Stream;
+        if (avatarStream is null)
+        {
+            if (upload.EmptyFilePart)
+                return new ErrorResponse("Avatar file is empty.", ErrorCodes.AvatarFileEmpty, HttpStatusCode.BadRequest);
+
+            return new ErrorResponse("No avatar file provided.", ErrorCodes.AvatarFileRequired, HttpStatusCode.BadRequest);
+        }
+
+        AvatarUrl avatarUrl;
+        try
+        {
+            await using (avatarStream)
+            {
+                avatarUrl = await saveToStorageAsync(principal, avatarStream, ct);
+            }
+        }
+        catch
+        {
+            return new ErrorResponse("An error occurred while uploading the file.", ErrorCodes.UnknownError, HttpStatusCode.InternalServerError);
+        }
+
+        AvatarUrl? currentAvatarUrl = null;
+        AvatarSource? currentAvatarSource = null;
+        try
+        {
+            (currentAvatarUrl, currentAvatarSource) = await getExistingAvatarAsync(ct);
+        }
+        catch { }
+
+        var result = await updateMetadataAsync(avatarUrl, ct);
+        if (!result.IsSuccess) return result;
+
+        if (currentAvatarSource == AvatarSource.Local && currentAvatarUrl is not null)
+        {
+            try { await avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct); } catch { }
+        }
+
+        return result;
+    }
+
+    protected async Task<Response> HandleAvatarUrlUploadAsync(
+        string? requestUrl,
+        Func<CancellationToken, Task<(AvatarUrl? Url, AvatarSource? Source)>> getExistingAvatarAsync,
+        Func<AvatarUrl, CancellationToken, Task<Response>> updateMetadataAsync,
+        IAvatarStorage avatarStorage,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(requestUrl))
+            return new ErrorResponse("Avatar URL payload required.", ErrorCodes.AvatarUrlInvalid, HttpStatusCode.BadRequest);
+
+        if (!AvatarUrlValidator.TryNormalize(requestUrl, out var url, out var err))
+            return new ErrorResponse("Invalid avatar URL.", err, HttpStatusCode.BadRequest);
+
+        AvatarUrl? currentAvatarUrl = null;
+        AvatarSource? currentAvatarSource = null;
+        try
+        {
+            (currentAvatarUrl, currentAvatarSource) = await getExistingAvatarAsync(ct);
+        }
+        catch { }
+
+        var result = await updateMetadataAsync(new AvatarUrl(url), ct);
+        if (!result.IsSuccess) return result;
+
+        if (currentAvatarSource == AvatarSource.Local && currentAvatarUrl is not null)
+        {
+            try { await avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct); } catch { }
+        }
+
+        return result;
+    }
+
+    protected async Task<Response> HandleAvatarDeleteAsync(
+        Func<CancellationToken, Task<(AvatarUrl? Url, AvatarSource? Source)>> getExistingAvatarAsync,
+        Func<CancellationToken, Task<Response>> updateMetadataAsync,
+        IAvatarStorage avatarStorage,
+        CancellationToken ct)
+    {
+        AvatarUrl? currentAvatarUrl = null;
+        AvatarSource? currentAvatarSource = null;
+        try
+        {
+            (currentAvatarUrl, currentAvatarSource) = await getExistingAvatarAsync(ct);
+        }
+        catch { }
+
+        var result = await updateMetadataAsync(ct);
+        if (!result.IsSuccess) return result;
+
+        if (currentAvatarSource == AvatarSource.Local && currentAvatarUrl is not null)
+        {
+            try { await avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct); } catch { }
+        }
+
+        return result;
+    }
+
     /// <summary>
     /// Executes a command handler with:
     /// <list type="bullet">
@@ -226,6 +334,31 @@ public abstract class InterfoldControllerBase : ControllerBase
             return new SuccessResponse<TData>(dataSelector(result.Result!), HttpStatusCode.Created, replaySelector?.Invoke(result.Result));
 
         return ConflictToError(result.Conflict!);
+    }
+
+    /// <summary>
+    /// Maps a <see cref="CommandExecutionResult{T}"/> to a 201 Created <see cref="Response{TData}"/>
+    /// by asynchronously fetching the created entity via <paramref name="dataSelector"/>. Returns an
+    /// <see cref="ErrorResponse"/> on conflict or if the entity fetch returns null.
+    /// Optionally sets the Location header if <paramref name="locationSelector"/> is provided.
+    /// </summary>
+    protected async Task<Response<TData>> CommandCreatedAsync<T, TData>(
+        CommandExecutionResult<T> result,
+        Func<T, Task<TData?>> dataSelector,
+        Func<T, string>? locationSelector = null,
+        Func<T?, bool?>? replaySelector = null)
+    {
+        if (!result.Accepted)
+            return ConflictToError(result.Conflict!);
+
+        var data = await dataSelector(result.Result!);
+        if (data is null)
+            return new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, HttpStatusCode.InternalServerError);
+
+        if (locationSelector != null)
+            Response.Headers.Location = locationSelector(result.Result!);
+
+        return new SuccessResponse<TData>(data, HttpStatusCode.Created, replaySelector?.Invoke(result.Result));
     }
 
     /// <summary>

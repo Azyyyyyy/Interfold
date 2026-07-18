@@ -9,10 +9,9 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Tags;
 
-public sealed class CreateTagCommandHandler : ICommandHandler<CreateTagCommand, TagCommandResult>
+public sealed class CreateTagCommandHandler : IdempotentCommandHandler<CreateTagCommand, TagCommandResult>
 {
     private readonly ITagRepository _tagRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public CreateTagCommandHandler(
@@ -20,13 +19,17 @@ public sealed class CreateTagCommandHandler : ICommandHandler<CreateTagCommand, 
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus
     )
-    {
+:base(idempotencyStore)    {
         _tagRepository = tagRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<TagCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.TagCreate;
+
+    protected override TagCommandResult CreateReplayResult(TagCommandResult originalResult) =>
+        originalResult with { Replay = true };
+protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<CreateTagCommand> command,
         CancellationToken cancellationToken = default
     )
@@ -36,26 +39,6 @@ public sealed class CreateTagCommandHandler : ICommandHandler<CreateTagCommand, 
 
         if (command.Payload.Name.Length > 50)
             return RejectInvariant(command, EntityRefs.TagNameTooLong);
-
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            cancellationToken
-        );
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, EntityRefs.TagCreate);
-
-            var replay = CommandSerialization.Deserialize<TagCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-                return CommandExecutionResult<TagCommandResult>.Success(replay with { Replay = true });
-        }
 
         if (command.Payload.ParentTagId is { } parentTagId && parentTagId != TagId.Empty)
         {
@@ -82,17 +65,6 @@ public sealed class CreateTagCommandHandler : ICommandHandler<CreateTagCommand, 
             return RejectInvariant(command, EntityRefs.TagCreateFailed);
 
         var result = new TagCommandResult(command.PrincipalId, tagId.Value, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            payloadHash,
-            CommandSerialization.Hash(resultJson),
-            resultJson,
-            cancellationToken
-        );
 
         await _eventBus.PublishAsync(
             new TagCreatedEvent(command.PrincipalId, tagId.Value),
@@ -100,14 +72,6 @@ public sealed class CreateTagCommandHandler : ICommandHandler<CreateTagCommand, 
 
         return CommandExecutionResult<TagCommandResult>.Success(result);
     }
-
-    private static CommandExecutionResult<TagCommandResult> RejectDuplicate(
-        CommandEnvelope<CreateTagCommand> command,
-        EntityRef entityRef
-    ) =>
-        CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry)
-        );
 
     private static CommandExecutionResult<TagCommandResult> RejectInvariant(
         CommandEnvelope<CreateTagCommand> command,

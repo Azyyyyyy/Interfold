@@ -9,11 +9,10 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Alters;
 
-public sealed class DeleteAlterCommandHandler : ICommandHandler<DeleteAlterCommand, AlterCommandResult>
+public sealed class DeleteAlterCommandHandler : IdempotentCommandHandler<DeleteAlterCommand, AlterCommandResult>
 {
     private readonly IAlterRepository _alterRepository;
     private readonly IJournalRepository _journalRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public DeleteAlterCommandHandler(
@@ -21,39 +20,23 @@ public sealed class DeleteAlterCommandHandler : ICommandHandler<DeleteAlterComma
         IJournalRepository journalRepository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-    {
+:base(idempotencyStore)    {
         _alterRepository = alterRepository;
         _journalRepository = journalRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<AlterCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.AlterDelete;
+
+    protected override AlterCommandResult CreateReplayResult(AlterCommandResult originalResult) =>
+        originalResult with { Replay = true };
+protected override async Task<CommandExecutionResult<AlterCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<DeleteAlterCommand> command,
         CancellationToken cancellationToken = default)
     {
         if (command.Payload.AlterId.Value is < 1 or > 32_767)
             return RejectInvariant(command, EntityRefs.AlterId);
-
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            cancellationToken
-        );
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, EntityRefs.AlterDelete);
-
-            var replay = CommandSerialization.Deserialize<AlterCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-                return CommandExecutionResult<AlterCommandResult>.Success(replay with { Replay = true });
-        }
 
         var exists = await _alterRepository.ExistsAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
         if (!exists)
@@ -73,17 +56,6 @@ public sealed class DeleteAlterCommandHandler : ICommandHandler<DeleteAlterComma
         //TODO: Delete alter image if it exists
 
         var result = new AlterCommandResult(command.PrincipalId, command.Payload.AlterId, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            payloadHash,
-            CommandSerialization.Hash(resultJson),
-            resultJson,
-            cancellationToken
-        );
 
         await _eventBus.PublishAsync(
             new AlterDeletedEvent(command.PrincipalId, command.Payload.AlterId),
@@ -91,19 +63,6 @@ public sealed class DeleteAlterCommandHandler : ICommandHandler<DeleteAlterComma
 
         return CommandExecutionResult<AlterCommandResult>.Success(result);
     }
-
-    private static CommandExecutionResult<AlterCommandResult> RejectDuplicate(
-        CommandEnvelope<DeleteAlterCommand> command,
-        EntityRef entityRef
-    ) =>
-        CommandExecutionResult<AlterCommandResult>.Rejected(
-            new ConflictResult(
-                ConflictCode.ConflictDuplicate,
-                command.OperationId,
-                entityRef,
-                ResolutionHint.NoRetry
-            )
-        );
 
     private static CommandExecutionResult<AlterCommandResult> RejectInvariant(
         CommandEnvelope<DeleteAlterCommand> command,

@@ -9,23 +9,26 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Polls;
 
-public sealed class CreatePollCommandHandler : ICommandHandler<CreatePollCommand, PollCommandResult>
+public sealed class CreatePollCommandHandler : IdempotentCommandHandler<CreatePollCommand, PollCommandResult>
 {
     private readonly IPollRepository _pollRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public CreatePollCommandHandler(
         IPollRepository pollRepository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-    {
+:base(idempotencyStore)    {
         _pollRepository = pollRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<PollCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.PollCreate;
+
+    protected override PollCommandResult CreateReplayResult(PollCommandResult originalResult) =>
+        originalResult with { Replay = true };
+protected override async Task<CommandExecutionResult<PollCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<CreatePollCommand> command,
         CancellationToken cancellationToken = default)
     {
@@ -37,25 +40,6 @@ public sealed class CreatePollCommandHandler : ICommandHandler<CreatePollCommand
 
         if (!string.IsNullOrWhiteSpace(command.Payload.Description) && command.Payload.Description.Length > 2000)
             return RejectInvariant(command, EntityRefs.PollDescriptionTooLong);
-
-        // Poll type is enum-typed; JSON deserialization has already rejected unknown wire
-        // values by the time we get here, so the previous string whitelist is redundant.
-
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId, command.OperationId, command.IdempotencyKey, cancellationToken);
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, EntityRefs.PollCreate);
-
-            var replay = CommandSerialization.Deserialize<PollCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-                return CommandExecutionResult<PollCommandResult>.Success(replay with { Replay = true });
-        }
 
         // Stamp the row with the envelope's OccurredAt rather than honouring whatever
         // InsertedAtUtc the caller put on the payload. The caller (PollsController) sends
@@ -70,20 +54,10 @@ public sealed class CreatePollCommandHandler : ICommandHandler<CreatePollCommand
             return RejectInvariant(command, EntityRefs.PollCreateFailed);
 
         var result = new PollCommandResult(command.PrincipalId, pollId.Value, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId, command.OperationId, command.IdempotencyKey,
-            payloadHash, CommandSerialization.Hash(resultJson), resultJson, cancellationToken);
 
         await _eventBus.PublishAsync(new PollCreatedEvent(command.PrincipalId, pollId.Value), cancellationToken);
         return CommandExecutionResult<PollCommandResult>.Success(result);
     }
-
-    private static CommandExecutionResult<PollCommandResult> RejectDuplicate(
-        CommandEnvelope<CreatePollCommand> command, EntityRef entityRef) =>
-        CommandExecutionResult<PollCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<PollCommandResult> RejectInvariant(
         CommandEnvelope<CreatePollCommand> command, EntityRef entityRef) =>

@@ -125,7 +125,7 @@ public sealed class ScyllaAlterRepositoryUdtNullTests(ScyllaWebFactoryFixture fi
         // "No UDT descriptor found").
         ScyllaAlterRepository.EnsureAlterFieldUdtMapping(session, keyspace);
 
-        var udtWithNullValue = new List<ScyllaAlterRepository.AlterFieldUdt>
+        var udtWithNullValue = new List<AlterFieldUdt>
         {
             new() { Id = fieldId.Value, Value = null },
         };

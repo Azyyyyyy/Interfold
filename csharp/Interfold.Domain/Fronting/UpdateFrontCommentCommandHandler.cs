@@ -9,23 +9,26 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Fronting;
 
-public sealed class UpdateFrontCommentCommandHandler : ICommandHandler<UpdateFrontCommentCommand, FrontCommandResult>
+public sealed class UpdateFrontCommentCommandHandler : IdempotentCommandHandler<UpdateFrontCommentCommand, FrontCommandResult>
 {
     private readonly IFrontingRepository _frontingRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public UpdateFrontCommentCommandHandler(
         IFrontingRepository frontingRepository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-    {
+:base(idempotencyStore)    {
         _frontingRepository = frontingRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<FrontCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.FrontingUpdateComment;
+
+    protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
+        originalResult with { Replay = true };
+protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<UpdateFrontCommentCommand> command,
         CancellationToken cancellationToken = default)
     {
@@ -34,25 +37,6 @@ public sealed class UpdateFrontCommentCommandHandler : ICommandHandler<UpdateFro
 
         if ((command.Payload.Comment?.Length ?? 0) > 50)
             return RejectInvariant(command, EntityRefs.FrontingInvalidComment);
-
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            cancellationToken);
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, EntityRefs.FrontingUpdateComment);
-
-            var replay = CommandSerialization.Deserialize<FrontCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-                return CommandExecutionResult<FrontCommandResult>.Success(replay with { Replay = true });
-        }
 
         var existing = await _frontingRepository.GetActiveByFrontIdAsync(command.PrincipalId, command.Payload.FrontId, cancellationToken);
         if (existing is null)
@@ -68,16 +52,6 @@ public sealed class UpdateFrontCommentCommandHandler : ICommandHandler<UpdateFro
             return RejectInvariant(command, EntityRefs.FrontingUpdateCommentFailed);
 
         var result = new FrontCommandResult(command.PrincipalId, existing.Front.AlterId, command.Payload.FrontId, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            payloadHash,
-            CommandSerialization.Hash(resultJson),
-            resultJson,
-            cancellationToken);
 
         await _eventBus.PublishAsync(new FrontingStateChangedEvent(command.PrincipalId), cancellationToken);
 
@@ -86,12 +60,6 @@ public sealed class UpdateFrontCommentCommandHandler : ICommandHandler<UpdateFro
 
         return CommandExecutionResult<FrontCommandResult>.Success(result);
     }
-
-    private static CommandExecutionResult<FrontCommandResult> RejectDuplicate(
-        CommandEnvelope<UpdateFrontCommentCommand> command,
-        EntityRef entityRef) =>
-        CommandExecutionResult<FrontCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<FrontCommandResult> RejectInvariant(
         CommandEnvelope<UpdateFrontCommentCommand> command,

@@ -60,21 +60,13 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     public async Task<Response<AlterJournalReadModel>> Create([FromRoute][ValidAlterId] AlterId alterId, [FromBody] CreateAlterJournalRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
+        var envelope = BuildEnvelope(OperationIds.JournalAlterCreate, new CreateAlterJournalEntryCommand(alterId, req.Title, DateTimeOffset.UtcNow));
 
-        var envelope = BuildEnvelope(OperationIds.JournalAlterCreate, new CreateAlterJournalEntryCommand(alterId, req.Title, DateTimeOffset.UtcNow)
+        return await CommandCreatedAsync(
+            await _create.HandleAsync(envelope, ct),
+            async (res) => await _journalRepository.GetAlterAsync(principal, res.EntryId, ct),
+            replaySelector: res => res?.Replay
         );
-
-        var execution = await _create.HandleAsync(envelope, ct);
-        if (!execution.Accepted)
-        {
-            return ConflictToError(execution.Conflict!);
-        }
-
-        var entry = await _journalRepository.GetAlterAsync(principal, execution.Result!.EntryId, ct);
-        if (entry is null)
-            return new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, HttpStatusCode.InternalServerError);
-
-        return new SuccessResponse<AlterJournalReadModel>(entry, HttpStatusCode.Created, execution.Result.Replay);
     }
 
     [HttpPatch("journals/{journalId}")]

@@ -22,6 +22,7 @@ public static class ScyllaServiceCollectionExtensions
                 .AddSingleton<IScyllaConfigResolver, ScyllaConfigResolver>()
                 .AddSingleton<IScyllaSessionProvider, ScyllaSessionProvider>()
                 .AddSingleton<IScyllaKeyspaceResolver, ScyllaKeyspaceResolver>()
+                .AddSingleton<IScyllaScopeResolver, ScyllaScopeResolver>()
                 .AddSingleton<IRegionContext, ScyllaUserRegistryRegionContext>()
                 .AddSingleton<IAccountRepository, ScyllaAccountRepository>()
                 .AddSingleton<INotificationTokenRepository, ScyllaNotificationTokenRepository>()

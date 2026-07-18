@@ -9,10 +9,9 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Fronting;
 
-public sealed class SetPrimaryFrontCommandHandler : ICommandHandler<SetPrimaryFrontCommand, FrontCommandResult>
+public sealed class SetPrimaryFrontCommandHandler : IdempotentCommandHandler<SetPrimaryFrontCommand, FrontCommandResult>
 {
     private readonly IFrontingRepository _frontingRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public SetPrimaryFrontCommandHandler(
@@ -20,13 +19,17 @@ public sealed class SetPrimaryFrontCommandHandler : ICommandHandler<SetPrimaryFr
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus
     )
-    {
+:base(idempotencyStore)    {
         _frontingRepository = frontingRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<FrontCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.FrontingPrimary;
+
+    protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
+        originalResult with { Replay = true };
+protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SetPrimaryFrontCommand> command,
         CancellationToken cancellationToken = default
     )
@@ -34,30 +37,6 @@ public sealed class SetPrimaryFrontCommandHandler : ICommandHandler<SetPrimaryFr
         if (command.Payload.AlterId?.Value is < 1 or > 32_767)
         {
             return RejectInvariant(command, EntityRefs.FrontingInvalidAlterId);
-        }
-
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            cancellationToken
-        );
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-            {
-                return RejectDuplicate(command, EntityRefs.FrontingPrimary);
-            }
-
-            var replay = CommandSerialization.Deserialize<FrontCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-            {
-                return CommandExecutionResult<FrontCommandResult>.Success(replay with { Replay = true });
-            }
         }
 
         if (command.Payload.AlterId is { } alterId)
@@ -76,17 +55,6 @@ public sealed class SetPrimaryFrontCommandHandler : ICommandHandler<SetPrimaryFr
         }
 
         var result = new FrontCommandResult(command.PrincipalId, command.Payload.AlterId, FrontId: null, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            payloadHash,
-            CommandSerialization.Hash(resultJson),
-            resultJson,
-            cancellationToken
-        );
 
         await _eventBus.PublishAsync(new FrontingStateChangedEvent(command.PrincipalId), cancellationToken);
         await _eventBus.PublishAsync(new FrontingPrimaryChangedEvent(command.PrincipalId, command.Payload.AlterId), cancellationToken);
@@ -94,19 +62,6 @@ public sealed class SetPrimaryFrontCommandHandler : ICommandHandler<SetPrimaryFr
 
         return CommandExecutionResult<FrontCommandResult>.Success(result);
     }
-
-    private static CommandExecutionResult<FrontCommandResult> RejectDuplicate(
-        CommandEnvelope<SetPrimaryFrontCommand> command,
-        EntityRef entityRef
-    ) =>
-        CommandExecutionResult<FrontCommandResult>.Rejected(
-            new ConflictResult(
-                ConflictCode.ConflictDuplicate,
-                command.OperationId,
-                entityRef,
-                ResolutionHint.NoRetry
-            )
-        );
 
     private static CommandExecutionResult<FrontCommandResult> RejectInvariant(
         CommandEnvelope<SetPrimaryFrontCommand> command,

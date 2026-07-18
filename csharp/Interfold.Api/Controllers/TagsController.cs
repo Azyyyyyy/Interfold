@@ -54,20 +54,13 @@ public sealed class TagsController : InterfoldControllerBase
         // here keeps the hashed payload stable across retries with the same idempotency key
         // (otherwise every call would stamp a fresh DateTime.UtcNow and look like a
         // different request, triggering ConflictDuplicate on every replay).
-        var command = BuildEnvelope(OperationIds.TagCreate, new CreateTagCommand(body.Name, body.ParentTagId, InsertedAtUtc: default)
+        var command = BuildEnvelope(OperationIds.TagCreate, new CreateTagCommand(body.Name, body.ParentTagId, InsertedAtUtc: default));
+
+        return await CommandCreatedAsync(
+            await _create.HandleAsync(command, cancellationToken),
+            async (res) => await _tagRepository.GetAsync(principal, res.TagId, cancellationToken),
+            replaySelector: res => res?.Replay
         );
-
-        var execution = await _create.HandleAsync(command, cancellationToken);
-        if (!execution.Accepted)
-        {
-            return ConflictToError(execution.Conflict!);
-        }
-
-        var tag = await _tagRepository.GetAsync(principal, execution.Result!.TagId, cancellationToken);
-        if (tag is null)
-            return new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, System.Net.HttpStatusCode.InternalServerError);
-
-        return new SuccessResponse<TagReadModel>(tag, System.Net.HttpStatusCode.Created, execution.Result.Replay);
     }
 
     [HttpPatch("{id}")]

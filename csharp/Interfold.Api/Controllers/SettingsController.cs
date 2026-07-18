@@ -228,74 +228,18 @@ public sealed class SettingsController : InterfoldControllerBase
     [Consumes("multipart/form-data")]
     public async Task<Response> UploadAvatarMultipart(CancellationToken ct)
     {
-        var principal = PrincipalId;
-        var upload = await ResolveMultipartUploadAsync(ct);
-        var avatarStream = upload.Stream;
-        if (avatarStream is null)
-        {
-            if (upload.EmptyFilePart)
-                return new ErrorResponse("Avatar file is empty.", ErrorCodes.AvatarFileEmpty, System.Net.HttpStatusCode.BadRequest);
-
-            return new ErrorResponse("No avatar file provided.", ErrorCodes.AvatarFileRequired, System.Net.HttpStatusCode.BadRequest);
-        }
-
-        AvatarUrl avatarUrl;
-        try
-        {
-            await using (avatarStream)
+        return await HandleAvatarUploadAsync(
+            async (c) =>
             {
-                avatarUrl = await _avatarStorage.SaveSystemAvatarAsync(principal, avatarStream, ct);
-            }
-        }
-        catch
-        {
-            return new ErrorResponse("An error occurred while uploading the file.", ErrorCodes.UnknownError, System.Net.HttpStatusCode.InternalServerError);
-        }
-
-        AvatarUrl? currentAvatarUrl = null;
-        AvatarSource? currentAvatarSource = null;
-        try
-        {
-            var currentProfile = await _accountRepository.GetPublicProfileAsync(principal, ct);
-            currentAvatarUrl = currentProfile?.AvatarUrl;
-            currentAvatarSource = currentProfile?.AvatarSource;
-        }
-        catch
-        {
-        }
-
-        var envelope = BuildEnvelope(OperationIds.SettingsAvatarUpload, new UploadAvatarCommand(avatarUrl, AvatarSource.Local)
-        );
-
-        var result = CommandNoContent(await _uploadAvatarHandler.HandleAsync(envelope, ct));
-
-        if (!result.IsSuccess)
-        {
-            return result;
-        }
-
-        // Only the local storage owns the previous bytes; an external URL was never ours
-        // to delete and must be passed through untouched.
-        if (currentAvatarSource == AvatarSource.Local)
-        {
-            try
-            {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
-            }
-            catch
-            {
-                // Avatar metadata was updated successfully; tolerate storage cleanup failures.
-            }
-        }
-
-        return result;
+                var profile = await _accountRepository.GetPublicProfileAsync(PrincipalId, c);
+                return (profile?.AvatarUrl, profile?.AvatarSource);
+            },
+            async (principal, stream, c) => await _avatarStorage.SaveSystemAvatarAsync(principal, stream, c),
+            async (url, c) => CommandNoContent(await _uploadAvatarHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsAvatarUpload, new UploadAvatarCommand(url, AvatarSource.Local)), c)),
+            _avatarStorage,
+            ct);
     }
 
-    /// <summary>
-    /// Sibling action that consumes <c>application/json</c> on the same route + verb.
-    /// ASP.NET Core's <see cref="ConsumesAttribute"/> is an <c>IActionConstraint</c>, so it
-    /// dispatches purely on Content-Type and leaves the multipart action above untouched.
-    /// </summary>
     [HttpPut("avatar")]
     [Consumes("application/json")]
     public async Task<Response> UploadAvatarByUrl([FromBody] AvatarUrlUploadRequest req, CancellationToken ct)
@@ -303,72 +247,30 @@ public sealed class SettingsController : InterfoldControllerBase
         if (req is null)
             return new ErrorResponse("Avatar URL payload required.", ErrorCodes.AvatarUrlInvalid, System.Net.HttpStatusCode.BadRequest);
 
-        if (!AvatarUrlValidator.TryNormalize(req.Url.Value, out var url, out var err))
-            return new ErrorResponse("Invalid avatar URL.", err, System.Net.HttpStatusCode.BadRequest);
-
-        var principal = PrincipalId;
-
-        AvatarUrl? currentAvatarUrl = null;
-        AvatarSource? currentAvatarSource = null;
-        try
-        {
-            var currentProfile = await _accountRepository.GetPublicProfileAsync(principal, ct);
-            currentAvatarUrl = currentProfile?.AvatarUrl;
-            currentAvatarSource = currentProfile?.AvatarSource;
-        }
-        catch
-        {
-        }
-
-        var envelope = BuildEnvelope(OperationIds.SettingsAvatarUpload, new UploadAvatarCommand(new(url), AvatarSource.External)
-        );
-
-        var result = CommandNoContent(await _uploadAvatarHandler.HandleAsync(envelope, ct));
-
-        if (!result.IsSuccess)
-        {
-            return result;
-        }
-
-        if (currentAvatarSource == AvatarSource.Local)
-        {
-            try
+        return await HandleAvatarUrlUploadAsync(
+            req.Url.Value,
+            async (c) =>
             {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
-            }
-            catch
-            {
-            }
-        }
-
-        return result;
+                var profile = await _accountRepository.GetPublicProfileAsync(PrincipalId, c);
+                return (profile?.AvatarUrl, profile?.AvatarSource);
+            },
+            async (url, c) => CommandNoContent(await _uploadAvatarHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsAvatarUpload, new UploadAvatarCommand(url, AvatarSource.External)), c)),
+            _avatarStorage,
+            ct);
     }
 
     [HttpDelete("avatar")]
     public async Task<Response> DeleteAvatar(CancellationToken ct)
     {
-        var principal = PrincipalId;
-        var currentProfile = await _accountRepository.GetPublicProfileAsync(principal, ct);
-        AvatarUrl? currentAvatarUrl = currentProfile?.AvatarUrl;
-        var currentAvatarSource = currentProfile?.AvatarSource;
-
-        var envelope = BuildEnvelope(OperationIds.SettingsAvatarDelete, new DeleteAvatarCommand()
-        );
-
-        var execution = await _deleteAvatarHandler.HandleAsync(envelope, ct);
-        if (execution.Accepted && currentAvatarSource == AvatarSource.Local)
-        {
-            try
+        return await HandleAvatarDeleteAsync(
+            async (c) =>
             {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
-            }
-            catch
-            {
-                // Avatar metadata was cleared successfully; tolerate storage cleanup failures.
-            }
-        }
-
-        return CommandNoContent(execution);
+                var profile = await _accountRepository.GetPublicProfileAsync(PrincipalId, c);
+                return (profile?.AvatarUrl, profile?.AvatarSource);
+            },
+            async (c) => CommandNoContent(await _deleteAvatarHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsAvatarDelete, new DeleteAvatarCommand()), c)),
+            _avatarStorage,
+            ct);
     }
 
     /// <summary>

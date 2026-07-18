@@ -63,20 +63,13 @@ public sealed class JournalsController : InterfoldControllerBase
     public async Task<Response<JournalReadModel>> Create([FromBody] CreateGlobalJournalRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        var envelope = BuildEnvelope(OperationIds.JournalGlobalCreate, new CreateGlobalJournalEntryCommand(req.Title)
+        var envelope = BuildEnvelope(OperationIds.JournalGlobalCreate, new CreateGlobalJournalEntryCommand(req.Title));
+
+        return await CommandCreatedAsync(
+            await _create.HandleAsync(envelope, ct),
+            async (res) => await _journalRepository.GetGlobalAsync(principal, res.EntryId, ct),
+            replaySelector: res => res?.Replay
         );
-
-        var execution = await _create.HandleAsync(envelope, ct);
-        if (!execution.Accepted)
-        {
-            return ConflictToError(execution.Conflict!);
-        }
-
-        var entry = await _journalRepository.GetGlobalAsync(principal, execution.Result!.EntryId, ct);
-        if (entry is null)
-            return new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, System.Net.HttpStatusCode.InternalServerError);
-
-        return new SuccessResponse<JournalReadModel>(entry, System.Net.HttpStatusCode.Created, execution.Result.Replay);
     }
 
     [HttpPatch("{id}")]

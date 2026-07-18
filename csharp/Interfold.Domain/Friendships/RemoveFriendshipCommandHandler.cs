@@ -10,45 +10,29 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Friendships;
 
-public sealed class RemoveFriendshipCommandHandler : ICommandHandler<RemoveFriendshipCommand, FriendshipCommandResult>
+public sealed class RemoveFriendshipCommandHandler : IdempotentCommandHandler<RemoveFriendshipCommand, FriendshipCommandResult>
 {
     private readonly IFriendshipRepository _repository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public RemoveFriendshipCommandHandler(
         IFriendshipRepository repository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-    {
+:base(idempotencyStore)    {
         _repository = repository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<FriendshipCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.FriendshipRemove;
+
+    protected override FriendshipCommandResult CreateReplayResult(FriendshipCommandResult originalResult) =>
+        originalResult with { Replay = true };
+protected override async Task<CommandExecutionResult<FriendshipCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<RemoveFriendshipCommand> command,
         CancellationToken cancellationToken = default)
     {
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId, command.OperationId, command.IdempotencyKey, cancellationToken);
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-            {
-                return RejectDuplicate(command, EntityRefs.FriendshipRemove);
-            }
-
-            var replay = CommandSerialization.Deserialize<FriendshipCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-            {
-                return CommandExecutionResult<FriendshipCommandResult>.Success(replay with { Replay = true });
-            }
-        }
 
         var canonicalFriendSystemId = ScopedSystemId.Compose(
             command.PrincipalId.Region,
@@ -73,17 +57,6 @@ public sealed class RemoveFriendshipCommandHandler : ICommandHandler<RemoveFrien
             FriendshipAction.Removed,
             Replay: false);
 
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            payloadHash,
-            CommandSerialization.Hash(resultJson),
-            resultJson,
-            cancellationToken);
-
         await _eventBus.PublishAsync(new FriendshipRemovedEvent(
             canonicalPrincipalId,
             canonicalFriendSystemId), cancellationToken);
@@ -94,12 +67,6 @@ public sealed class RemoveFriendshipCommandHandler : ICommandHandler<RemoveFrien
 
         return CommandExecutionResult<FriendshipCommandResult>.Success(result);
     }
-
-    private static CommandExecutionResult<FriendshipCommandResult> RejectDuplicate(
-        CommandEnvelope<RemoveFriendshipCommand> command,
-        EntityRef entityRef)
-        => CommandExecutionResult<FriendshipCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<FriendshipCommandResult> RejectInvariant(
         CommandEnvelope<RemoveFriendshipCommand> command,

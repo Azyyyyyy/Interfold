@@ -9,41 +9,29 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Polls;
 
-public sealed class DeletePollCommandHandler : ICommandHandler<DeletePollCommand, PollCommandResult>
+public sealed class DeletePollCommandHandler : IdempotentCommandHandler<DeletePollCommand, PollCommandResult>
 {
     private readonly IPollRepository _pollRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public DeletePollCommandHandler(
         IPollRepository pollRepository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-    {
+:base(idempotencyStore)    {
         _pollRepository = pollRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<PollCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.PollDelete;
+
+    protected override PollCommandResult CreateReplayResult(PollCommandResult originalResult) =>
+        originalResult with { Replay = true };
+protected override async Task<CommandExecutionResult<PollCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<DeletePollCommand> command,
         CancellationToken cancellationToken = default)
     {
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId, command.OperationId, command.IdempotencyKey, cancellationToken);
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, EntityRefs.PollDelete);
-
-            var replay = CommandSerialization.Deserialize<PollCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-                return CommandExecutionResult<PollCommandResult>.Success(replay with { Replay = true });
-        }
 
         var exists = await _pollRepository.ExistsAsync(command.PrincipalId, command.Payload.PollId, cancellationToken);
         if (!exists)
@@ -54,20 +42,10 @@ public sealed class DeletePollCommandHandler : ICommandHandler<DeletePollCommand
             return RejectInvariant(command, EntityRefs.PollDeleteFailed);
 
         var result = new PollCommandResult(command.PrincipalId, command.Payload.PollId, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId, command.OperationId, command.IdempotencyKey,
-            payloadHash, CommandSerialization.Hash(resultJson), resultJson, cancellationToken);
 
         await _eventBus.PublishAsync(new PollDeletedEvent(command.PrincipalId, command.Payload.PollId), cancellationToken);
         return CommandExecutionResult<PollCommandResult>.Success(result);
     }
-
-    private static CommandExecutionResult<PollCommandResult> RejectDuplicate(
-        CommandEnvelope<DeletePollCommand> command, EntityRef entityRef) =>
-        CommandExecutionResult<PollCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<PollCommandResult> RejectInvariant(
         CommandEnvelope<DeletePollCommand> command, EntityRef entityRef) =>

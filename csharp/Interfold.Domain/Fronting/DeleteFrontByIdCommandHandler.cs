@@ -1,4 +1,4 @@
-﻿using Interfold.Contracts;
+using Interfold.Contracts;
 using Interfold.Contracts.Events;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
@@ -10,47 +10,31 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Fronting;
 
-public sealed class DeleteFrontByIdCommandHandler : ICommandHandler<DeleteFrontByIdCommand, FrontCommandResult>
+public sealed class DeleteFrontByIdCommandHandler : IdempotentCommandHandler<DeleteFrontByIdCommand, FrontCommandResult>
 {
     private readonly IFrontingRepository _frontingRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public DeleteFrontByIdCommandHandler(
         IFrontingRepository frontingRepository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-    {
+:base(idempotencyStore)    {
         _frontingRepository = frontingRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<FrontCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.FrontingDelete;
+
+    protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
+        originalResult with { Replay = true };
+protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<DeleteFrontByIdCommand> command,
         CancellationToken cancellationToken = default)
     {
         if (command.Payload.FrontId == FrontId.Empty)
             return RejectInvariant(command, EntityRefs.FrontingInvalidFrontId);
-
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            cancellationToken);
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, EntityRefs.FrontingDelete);
-
-            var replay = CommandSerialization.Deserialize<FrontCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-                return CommandExecutionResult<FrontCommandResult>.Success(replay with { Replay = true });
-        }
 
         var existing = await _frontingRepository.GetActiveByFrontIdAsync(command.PrincipalId, command.Payload.FrontId, cancellationToken);
         FrontHistoryReadModel? existingHistory = null;
@@ -74,16 +58,6 @@ public sealed class DeleteFrontByIdCommandHandler : ICommandHandler<DeleteFrontB
 
         var alterId = existing?.Front.AlterId ?? existingHistory!.AlterId;
         var result = new FrontCommandResult(command.PrincipalId, alterId, command.Payload.FrontId, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            payloadHash,
-            CommandSerialization.Hash(resultJson),
-            resultJson,
-            cancellationToken);
 
         if (existing is not null)
             await _eventBus.PublishAsync(new FrontingStateChangedEvent(command.PrincipalId), cancellationToken);
@@ -91,12 +65,6 @@ public sealed class DeleteFrontByIdCommandHandler : ICommandHandler<DeleteFrontB
 
         return CommandExecutionResult<FrontCommandResult>.Success(result);
     }
-
-    private static CommandExecutionResult<FrontCommandResult> RejectDuplicate(
-        CommandEnvelope<DeleteFrontByIdCommand> command,
-        EntityRef entityRef) =>
-        CommandExecutionResult<FrontCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<FrontCommandResult> RejectInvariant(
         CommandEnvelope<DeleteFrontByIdCommand> command,

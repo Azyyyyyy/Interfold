@@ -1,4 +1,4 @@
-﻿using Interfold.Contracts;
+using Interfold.Contracts;
 using Interfold.Contracts.Events;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
@@ -9,23 +9,26 @@ using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Domain.Fronting;
 
-public sealed class SetFrontCommandHandler : ICommandHandler<SetFrontCommand, FrontCommandResult>
+public sealed class SetFrontCommandHandler : IdempotentCommandHandler<SetFrontCommand, FrontCommandResult>
 {
     private readonly IFrontingRepository _frontingRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public SetFrontCommandHandler(
         IFrontingRepository frontingRepository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-    {
+:base(idempotencyStore)    {
         _frontingRepository = frontingRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<FrontCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.FrontingSet;
+
+    protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
+        originalResult with { Replay = true };
+protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SetFrontCommand> command,
         CancellationToken cancellationToken = default)
     {
@@ -34,25 +37,6 @@ public sealed class SetFrontCommandHandler : ICommandHandler<SetFrontCommand, Fr
 
         if ((command.Payload.Comment?.Length ?? 0) > 50)
             return RejectInvariant(command, EntityRefs.FrontingInvalidComment);
-
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            cancellationToken);
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, EntityRefs.FrontingSet);
-
-            var replay = CommandSerialization.Deserialize<FrontCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-                return CommandExecutionResult<FrontCommandResult>.Success(replay with { Replay = true });
-        }
 
         // "Set" semantics: after this completes, the target alter is the sole fronter.
         // The previous implementation rejected with `fronting:already_fronting` whenever the
@@ -113,16 +97,6 @@ public sealed class SetFrontCommandHandler : ICommandHandler<SetFrontCommand, Fr
         await _frontingRepository.SetPrimaryAsync(command.PrincipalId, null, cancellationToken);
 
         var result = new FrontCommandResult(command.PrincipalId, command.Payload.AlterId, frontId, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            payloadHash,
-            CommandSerialization.Hash(resultJson),
-            resultJson,
-            cancellationToken);
 
         await _eventBus.PublishAsync(new FrontingStateChangedEvent(command.PrincipalId), cancellationToken);
 
@@ -154,12 +128,6 @@ public sealed class SetFrontCommandHandler : ICommandHandler<SetFrontCommand, Fr
 
         return CommandExecutionResult<FrontCommandResult>.Success(result);
     }
-
-    private static CommandExecutionResult<FrontCommandResult> RejectDuplicate(
-        CommandEnvelope<SetFrontCommand> command,
-        EntityRef entityRef) =>
-        CommandExecutionResult<FrontCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<FrontCommandResult> RejectInvariant(
         CommandEnvelope<SetFrontCommand> command,
