@@ -169,7 +169,7 @@ public class BaseEndpointTest
     /// <c>AltersController.Create</c> serialises, so the test picks up any read-model
     /// contract drift at deserialisation time.
     /// </summary>
-    internal static async Task<AlterId> CreateAlterAsync(HttpClient client, string principal, string name)
+    internal static async Task<AlterId> CreateAlterAsync(HttpClient client, string principal, string name, VisibilityLevel visibility = VisibilityLevel.Public)
     {
         await EnsureUserExistsAsync(client, principal);
 
@@ -178,6 +178,12 @@ public class BaseEndpointTest
             new CreateAlterRequest(name),
             principal);
         var envelope = await res.ReadEnvelopeAsync<AlterReadModel>(HttpStatusCode.Created);
+        
+        if (visibility != VisibilityLevel.Private)
+        {
+            await SetAlterSecurityLevelAsync(client, principal, envelope.Data.Id, visibility);
+        }
+        
         return envelope.Data.Id;
     }
 

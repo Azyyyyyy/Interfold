@@ -223,6 +223,8 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
 
             var alterId = ReadTrailingAlterIdFromLocation(createResponse);
 
+            await SetAlterSecurityLevelAsync(client, principalId, alterId, VisibilityLevel.Public);
+
             using var uploadRequest = BuildMultipartUploadRequest(client, $"/api/systems/me/alters/{alterId}/avatar", principalId, "avatar-alter.png", "image/png");
             using var uploadResponse = await client.SendAsync(uploadRequest);
             await Assert.That(uploadResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);

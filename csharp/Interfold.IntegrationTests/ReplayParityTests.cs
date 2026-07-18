@@ -29,6 +29,7 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
         yield return "settings-lifecycle.trace.json";
         yield return "journal-lifecycle.trace.json";
         yield return "friendship-lifecycle.trace.json";
+        yield return "fronting-visibility.trace.json";
     }
     
     [Test]
@@ -164,6 +165,18 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
                 && replayProp.GetBoolean();
 
             await Assert.That(actualReplay == step.ExpectedReplay.Value).IsTrue();
+        }
+
+        if (!string.IsNullOrEmpty(step.ExpectedJsonContains))
+        {
+            await Assert.That(body).Contains(step.ExpectedJsonContains)
+                .Because($"[{fixtureFileName}] Step '{step.Name}': expected body to contain '{step.ExpectedJsonContains}'");
+        }
+
+        if (!string.IsNullOrEmpty(step.ExpectedJsonNotContains))
+        {
+            await Assert.That(body).DoesNotContain(step.ExpectedJsonNotContains)
+                .Because($"[{fixtureFileName}] Step '{step.Name}': expected body to NOT contain '{step.ExpectedJsonNotContains}'");
         }
 
         // Capture fields for subsequent steps.

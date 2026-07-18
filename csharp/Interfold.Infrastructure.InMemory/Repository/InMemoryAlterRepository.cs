@@ -24,11 +24,11 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         public string? ProxyName { get; set; }
         public string Name { get; set; } = string.Empty;
         // Match Scylla insert semantics: ScyllaAlterRepository.CreateAsync stamps
-        // security_level = (short)VisibilityLevel.Public on the INSERT, so new alters are
-        // world-readable until the owner tightens visibility explicitly. Kept as a plain
+        // security_level = (short)VisibilityLevel.Private on the INSERT, so new alters are
+        // private until the owner opens visibility explicitly. Kept as a plain
         // field default here so a bare `new AlterState()` in tests mirrors what the API
         // would see after a real create.
-        public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Public;
+        public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Private;
         // Keyed on FieldId (Guid-backed record-struct → value-based equality on Guid).
         public Dictionary<FieldId, string?> Fields { get; } = new();
         public bool Untracked { get; set; }

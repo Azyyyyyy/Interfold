@@ -29,15 +29,17 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     private readonly IRegionContext _regionContext;
     private readonly IFriendshipRepository? _friendships;
+    private readonly IAlterRepository? _alters;
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<AlterId, FrontState>> _activeBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, List<FrontHistoryState>> _historyBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, AlterId?> _primaryBySystem = new();
     private readonly object _sync = new();
 
-    public InMemoryFrontingRepository(IRegionContext regionContext, IFriendshipRepository friendships)
+    public InMemoryFrontingRepository(IRegionContext regionContext, IFriendshipRepository friendships, IAlterRepository? alters = null)
     {
         _regionContext = regionContext;
         _friendships = friendships;
+        _alters = alters;
     }
 
     public Task<bool> IsFrontingAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
@@ -143,27 +145,49 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         }
     }
 
-    public Task<IReadOnlyList<FrontActiveReadModel>> ListActiveAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<FrontActiveReadModel>> ListActiveAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
+        IReadOnlyCollection<FrontState> activeFronts;
+        AlterId? primaryId;
 
         lock (_sync)
         {
             if (!_activeBySystem.TryGetValue(systemKey, out var set))
-                return Task.FromResult<IReadOnlyList<FrontActiveReadModel>>(Array.Empty<FrontActiveReadModel>());
+                return Array.Empty<FrontActiveReadModel>();
 
-            _primaryBySystem.TryGetValue(systemKey, out var primary);
-
-            var results = set.Values
-                .Select(x => new FrontActiveReadModel(
-                    new BareAlter(x.AlterId, $"Alter {x.AlterId}", null, null, null, null, null, null!),
-                    new FrontHistoryReadModel(x.FrontId, x.AlterId, x.Comment, x.StartedAt, null, systemId),
-                    primary == x.AlterId))
-                .OrderByDescending(x => x.Front.TimeStart)
-                .ToArray();
-
-            return Task.FromResult<IReadOnlyList<FrontActiveReadModel>>(results);
+            activeFronts = set.Values.ToArray();
+            _primaryBySystem.TryGetValue(systemKey, out primaryId);
         }
+
+        var results = new List<FrontActiveReadModel>(activeFronts.Count);
+        foreach (var x in activeFronts.OrderByDescending(f => f.StartedAt))
+        {
+            BareAlter bareAlter;
+            if (_alters is not null)
+            {
+                var alterModel = await _alters.GetAsync(systemId, x.AlterId, cancellationToken);
+                if (alterModel is not null)
+                {
+                    bareAlter = new BareAlter(x.AlterId, alterModel.Name, alterModel.AvatarUrl, alterModel.AvatarSource, alterModel.Color, alterModel.Pronouns, alterModel.Description, alterModel.Fields ?? Array.Empty<AlterPublicFieldReadModel>());
+                }
+                else
+                {
+                    bareAlter = new BareAlter(x.AlterId, $"Alter {x.AlterId}", null, null, null, null, null, Array.Empty<AlterPublicFieldReadModel>());
+                }
+            }
+            else
+            {
+                bareAlter = new BareAlter(x.AlterId, $"Alter {x.AlterId}", null, null, null, null, null, Array.Empty<AlterPublicFieldReadModel>());
+            }
+
+            results.Add(new FrontActiveReadModel(
+                bareAlter,
+                new FrontHistoryReadModel(x.FrontId, x.AlterId, x.Comment, x.StartedAt, null, systemId),
+                primaryId == x.AlterId));
+        }
+
+        return results;
     }
 
     public async Task<IReadOnlyList<FrontActiveReadModel>> ListActiveGuardedAsync(
@@ -177,7 +201,16 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
             return Array.Empty<FrontActiveReadModel>();
         }
 
-        return await ListActiveAsync(systemId, cancellationToken);
+        var all = await ListActiveAsync(systemId, cancellationToken);
+        if (all.Count == 0 || _alters is null)
+        {
+            return all;
+        }
+
+        var guardedAlters = await _alters.ListGuardedAsync(systemId, viewerSystemId, cancellationToken);
+        var visibleIds = guardedAlters.Select(a => a.Id).ToHashSet();
+
+        return all.Where(front => visibleIds.Contains(front.Alter.Id)).ToArray();
     }
 
     public Task<IReadOnlyList<FrontHistoryReadModel>> ListHistoryBetweenAsync(

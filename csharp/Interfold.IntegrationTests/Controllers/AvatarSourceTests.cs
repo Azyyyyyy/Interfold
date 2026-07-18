@@ -71,6 +71,8 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         var alterId = ReadTrailingAlterIdFromLocation(createResponse);
 
+        await SetAlterSecurityLevelAsync(client, principalId, alterId, VisibilityLevel.Public);
+
         using var uploadResponse = await client.SendAsJsonAsync(
             HttpMethod.Put, $"/api/systems/me/alters/{alterId}/avatar",
             new AvatarUrlUploadRequest(new AvatarUrl(ExternalAlterAvatar)),

@@ -64,16 +64,14 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             // ScyllaAlterRepositoryUdtNullTests.GetGuardedAsync_NullSecurityLevelOnRow_ThrowsAfterStrictFlip)
             // requires that every API-written row carries a declared VisibilityLevel member;
             // omitting the column here made AltersController.Create's read-back throw
-            // ArgumentOutOfRangeException on the very next call, 500-ing the create. Public
-            // matches InMemoryAlterRepository.AlterState.VisibilityLevel's default so the
-            // two backends stay behaviourally interchangeable.
+            // ArgumentOutOfRangeException on the very next call, 500-ing the create.
             var insert = new SimpleStatement(
                 $"INSERT INTO {keyspace}.alters (user_id, id, name, alias, security_level, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 normalizedSystemId,
                 next,
                 command.Name,
                 null,
-                (short)VisibilityLevel.Public,
+                (short)VisibilityLevel.Private,
                 createdAt,
                 createdAt
             );
