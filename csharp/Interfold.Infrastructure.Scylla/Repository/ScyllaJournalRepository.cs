@@ -12,26 +12,29 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 public sealed class ScyllaJournalRepository : IJournalRepository
 {
     private readonly IScyllaSessionProvider _sessionProvider;
+    private readonly IScyllaScopeResolver _scopeResolver;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
 
     public ScyllaJournalRepository(
         IScyllaSessionProvider sessionProvider,
+        IScyllaScopeResolver scopeResolver,
         IScyllaKeyspaceResolver keyspaceResolver,
         IOptions<PersistenceConfiguration> options)
     {
         _sessionProvider = sessionProvider;
+        _scopeResolver = scopeResolver;
         _keyspaceResolver = keyspaceResolver;
         _options = options.Value;
     }
 
     public async Task<EntryId?> CreateGlobalAsync(SystemId systemId, CreateGlobalJournalEntryCommand command, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync<EntryId?>(async () =>
+        return await _scopeResolver.ExecuteAsync<EntryId?>(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             var entryId = Guid.NewGuid();
 
             var insert = new SimpleStatement(
@@ -47,16 +50,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
 
             await session.ExecuteAsync(insert);
             return new(entryId);
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> ExistsGlobalAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.global_journals WHERE user_id = ? AND id = ? LIMIT 1",
@@ -66,16 +69,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
 
             var rows = await session.ExecuteAsync(query);
             return rows.Any();
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> UpdateGlobalAsync(SystemId systemId, UpdateGlobalJournalEntryCommand command, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var exists = await ExistsGlobalAsync(systemId, command.EntryId, cancellationToken);
             if (!exists)
@@ -122,16 +125,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             }
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> DeleteGlobalAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var exists = await ExistsGlobalAsync(systemId, entryId, cancellationToken);
             if (!exists)
@@ -151,16 +154,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             await session.ExecuteAsync(deleteBatch);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> SetGlobalLockedAsync(SystemId systemId, EntryId entryId, bool locked, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var exists = await ExistsGlobalAsync(systemId, entryId, cancellationToken);
             if (!exists)
@@ -175,16 +178,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             await session.ExecuteAsync(upsert);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> SetGlobalPinnedAsync(SystemId systemId, EntryId entryId, bool pinned, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var exists = await ExistsGlobalAsync(systemId, entryId, cancellationToken);
             if (!exists)
@@ -199,16 +202,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             await session.ExecuteAsync(upsert);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> AttachGlobalAlterAsync(SystemId systemId, EntryId entryId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var exists = await ExistsGlobalAsync(systemId, entryId, cancellationToken);
             if (!exists)
@@ -223,16 +226,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             await session.ExecuteAsync(insert);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> DetachGlobalAlterAsync(SystemId systemId, EntryId entryId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var edgeExistsQuery = new SimpleStatement(
                 $"SELECT alter_id FROM {keyspace}.global_journal_alters WHERE user_id = ? AND global_journal_id = ? AND alter_id = ? LIMIT 1",
@@ -254,16 +257,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             await session.ExecuteAsync(delete);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<EntryId?> CreateAlterAsync(SystemId systemId, CreateAlterJournalEntryCommand command, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync<EntryId?>(async () =>
+        return await _scopeResolver.ExecuteAsync<EntryId?>(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             var entryId = Guid.NewGuid();
 
             var timestamp = command.CreatedAt.ToUniversalTime();
@@ -301,16 +304,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             batch.Add(insertLookup);
             await session.ExecuteAsync(batch);
             return new(entryId);
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<AlterJournalRef?> GetAlterRefAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT id, alter_id FROM {keyspace}.alter_journals WHERE user_id = ? AND id = ? ALLOW FILTERING",
@@ -322,7 +325,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             return row is null
                 ? null
                 : new AlterJournalRef(new(row.GetValue<Guid>("id")), new(row.GetValue<short>("alter_id")));
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> UpdateAlterAsync(SystemId systemId, UpdateAlterJournalEntryCommand command, CancellationToken cancellationToken = default)
@@ -471,11 +474,11 @@ public sealed class ScyllaJournalRepository : IJournalRepository
 
     public async Task<IReadOnlyList<AlterJournalReadModel>> ListAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, alter_id, title, content, color, pinned, locked, inserted_at, updated_at FROM {keyspace}.alter_journals_by_alter WHERE user_id = ? AND alter_id = ?",
@@ -498,16 +501,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                     row.GetValue<DateTime>("updated_at")))
                 .OrderByDescending(e => e.InsertedAt)
                 .ToArray();
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<AlterJournalReadModel?> GetAlterAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, alter_id, title, content, color, pinned, locked, inserted_at, updated_at FROM {keyspace}.alter_journals WHERE user_id = ? AND id = ? ALLOW FILTERING",
@@ -529,16 +532,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                     row.GetValue<bool>("pinned"),
                     row.GetValue<DateTime>("inserted_at"),
                     row.GetValue<DateTime>("updated_at"));
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<IReadOnlyList<JournalReadModel>> ListGlobalAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var entriesQuery = new SimpleStatement(
                 $"SELECT id, user_id, title, content, color, pinned, locked, inserted_at, updated_at FROM {keyspace}.global_journals WHERE user_id = ?",
@@ -576,16 +579,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             return (IReadOnlyList<JournalReadModel>)result
                 .OrderByDescending(e => e.Id.Value.ToString("N"), StringComparer.Ordinal)
                 .ToArray();
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<JournalReadModel?> GetGlobalAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var entryQuery = new SimpleStatement(
                 $"SELECT id, user_id, title, content, color, pinned, locked, inserted_at, updated_at FROM {keyspace}.global_journals WHERE user_id = ? AND id = ? LIMIT 1",
@@ -616,16 +619,16 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 entryRow.GetValue<DateTime>("inserted_at"),
                 entryRow.GetValue<DateTime>("updated_at"),
                 alterIds);
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<int> DeleteAllForAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             // Step 1: list every per-alter journal entry id for this alter via the by-alter
             // view (the partition key is (user_id, alter_id), so this is one single-partition
@@ -688,6 +691,6 @@ public sealed class ScyllaJournalRepository : IJournalRepository
 
             await session.ExecuteAsync(batch);
             return entryIds.Length;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 }

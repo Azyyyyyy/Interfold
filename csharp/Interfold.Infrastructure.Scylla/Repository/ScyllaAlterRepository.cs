@@ -17,6 +17,7 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 public sealed class ScyllaAlterRepository : IAlterRepository
 {
     private readonly IScyllaSessionProvider _sessionProvider;
+    private readonly IScyllaScopeResolver _scopeResolver;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly ISettingsFieldRepository _settingsFields;
     private readonly IPollRepository _pollRepository;
@@ -26,6 +27,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
     public ScyllaAlterRepository(
         IScyllaSessionProvider sessionProvider,
+        IScyllaScopeResolver scopeResolver,
         IScyllaKeyspaceResolver keyspaceResolver,
         ISettingsFieldRepository settingsFields,
         IPollRepository pollRepository,
@@ -34,6 +36,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     )
     {
         _sessionProvider = sessionProvider;
+        _scopeResolver = scopeResolver;
         _keyspaceResolver = keyspaceResolver;
         _settingsFields = settingsFields;
         _pollRepository = pollRepository;
@@ -43,11 +46,11 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
     public async Task<AlterId?> CreateAsync(SystemId systemId, CreateAlterCommand command, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync<AlterId?>(async () =>
+        return await _scopeResolver.ExecuteAsync<AlterId?>(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var nextIdQuery = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.alters WHERE user_id = ? ORDER BY id DESC LIMIT 1",
@@ -78,16 +81,16 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             await session.ExecuteAsync(insert);
             return new(next);
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task<bool> ExistsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
@@ -97,16 +100,16 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             var rows = await session.ExecuteAsync(query);
             return rows.Any();
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task<bool> UpdateAsync(SystemId systemId, UpdateAlterCommand command, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             var updatedAt = command.UpdatedAt.ToUniversalTime();
 
             var batch = new BatchStatement();
@@ -219,7 +222,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             await session.ExecuteAsync(batch);
 
             return true;
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     private void UpdateIfNotNull(BatchStatement batch, string keyspace, UpdateAlterCommand command, string field, object? value, string normalizedSystemId, DateTimeOffset updatedAt)
@@ -238,11 +241,11 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
     public async Task<bool> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             var alterIdShort = alterId.Value;
 
             var exists = await ExistsAsync(session, keyspace, normalizedSystemId, alterId);
@@ -408,16 +411,16 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             }
 
             return true;
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task<IReadOnlyList<AlterReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
             EnsureAlterFieldUdtMapping(session, keyspace);
@@ -447,7 +450,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 ))
                 .OrderBy(x => x.Id.Value)
                 .ToArray();
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task<IReadOnlyList<BareAlter>> ListGuardedAsync(
@@ -455,11 +458,11 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
             EnsureAlterFieldUdtMapping(session, keyspace);
             var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
@@ -483,16 +486,16 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     ResolveGuardedFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions)))
                 .OrderBy(x => x.Id.Value)
                 .ToArray();
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task<AlterReadModel?> GetAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
             EnsureAlterFieldUdtMapping(session, keyspace);
@@ -522,7 +525,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                     row.GetValue<bool?>("archived"),
                     row.GetValue<bool?>("pinned")
                 );
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task<BareAlter?> GetGuardedAsync(
@@ -531,11 +534,11 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
             EnsureAlterFieldUdtMapping(session, keyspace);
             var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
@@ -568,7 +571,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 row.GetValue<string?>("description"),
                 ResolveGuardedFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions)
             );
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task<bool> AliasTakenByOtherAsync(
@@ -578,11 +581,11 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         CancellationToken cancellationToken = default
     )
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT id, alias FROM {keyspace}.alters WHERE user_id = ? AND alias = ?",
@@ -592,7 +595,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             var rows = await session.ExecuteAsync(query);
             return rows.Any(row => row.GetValue<short>("id") != alterId.Value);
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     private static async Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, AlterId alterId)

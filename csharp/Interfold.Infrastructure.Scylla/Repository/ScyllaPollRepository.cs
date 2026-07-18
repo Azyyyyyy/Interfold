@@ -15,26 +15,29 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 public sealed class ScyllaPollRepository : IPollRepository
 {
     private readonly IScyllaSessionProvider _sessionProvider;
+    private readonly IScyllaScopeResolver _scopeResolver;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
 
     public ScyllaPollRepository(
         IScyllaSessionProvider sessionProvider,
+        IScyllaScopeResolver scopeResolver,
         IScyllaKeyspaceResolver keyspaceResolver,
         IOptions<PersistenceConfiguration> options)
     {
         _sessionProvider = sessionProvider;
+        _scopeResolver = scopeResolver;
         _keyspaceResolver = keyspaceResolver;
         _options = options.Value;
     }
 
     public async Task<IReadOnlyList<PollReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, title, description, type, data, time_end, inserted_at, updated_at FROM {keyspace}.polls WHERE user_id = ?",
@@ -46,16 +49,16 @@ public sealed class ScyllaPollRepository : IPollRepository
             // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
             // to the historic string-backed PollId — Guid.CompareTo bytewise reorders differently.
             return rows.Select(ToReadModel).OrderBy(p => p.Id.Value.ToString("N"), StringComparer.Ordinal).ToList();
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<PollReadModel?> GetAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, title, description, type, data, time_end, inserted_at, updated_at FROM {keyspace}.polls WHERE user_id = ? AND id = ? LIMIT 1",
@@ -65,16 +68,16 @@ public sealed class ScyllaPollRepository : IPollRepository
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             return row is null ? null : ToReadModel(row);
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<PollId?> CreateAsync(SystemId systemId, CreatePollCommand command, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync<PollId?>(async () =>
+        return await _scopeResolver.ExecuteAsync<PollId?>(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             var pollGuid = Guid.NewGuid();
 
             var insert = new SimpleStatement(
@@ -91,16 +94,16 @@ public sealed class ScyllaPollRepository : IPollRepository
 
             await session.ExecuteAsync(insert);
             return new(pollGuid);
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> ExistsAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.polls WHERE user_id = ? AND id = ? LIMIT 1",
@@ -110,16 +113,16 @@ public sealed class ScyllaPollRepository : IPollRepository
 
             var rows = await session.ExecuteAsync(query);
             return rows.Any();
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> UpdateAsync(SystemId systemId, UpdatePollCommand command, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var exists = await ExistsAsync(session, keyspace, normalizedSystemId, command.Id.Value);
             if (!exists)
@@ -169,16 +172,16 @@ public sealed class ScyllaPollRepository : IPollRepository
             }
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> DeleteAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var exists = await ExistsAsync(session, keyspace, normalizedSystemId, pollId.Value);
             if (!exists)
@@ -191,7 +194,7 @@ public sealed class ScyllaPollRepository : IPollRepository
             );
             await session.ExecuteAsync(delete);
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     private static async Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, Guid pollGuid)

@@ -53,27 +53,30 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     private readonly ConcurrentDictionary<LinkToken, LinkTokenEntry> _systemByLinkToken = new();
 
     private readonly IScyllaSessionProvider _sessionProvider;
+    private readonly IScyllaScopeResolver _scopeResolver;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
 
     public ScyllaAccountRepository(
         IScyllaSessionProvider sessionProvider,
+        IScyllaScopeResolver scopeResolver,
         IScyllaKeyspaceResolver keyspaceResolver,
         IOptions<PersistenceConfiguration> options
     )
     {
         _sessionProvider = sessionProvider;
+        _scopeResolver = scopeResolver;
         _keyspaceResolver = keyspaceResolver;
         _options = options.Value;
     }
 
     public async Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             // Read old username to maintain lookup table
             var oldRow = (await session.ExecuteAsync(new SimpleStatement(
@@ -130,16 +133,16 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             await session.ExecuteAsync(batch);
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> UpdateDescriptionAsync(SystemId systemId, string description, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var statement = new SimpleStatement(
                 $"UPDATE {keyspace}.users SET description = ?, updated_at = toTimestamp(now()) WHERE id = ?",
@@ -149,16 +152,16 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             await session.ExecuteAsync(statement);
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> UpdateAvatarAsync(SystemId systemId, AvatarUrl avatarUrl, AvatarSource source, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var statement = new SimpleStatement(
                 $"UPDATE {keyspace}.users SET avatar_url = ?, avatar_source = ?, updated_at = toTimestamp(now()) WHERE id = ?",
@@ -169,16 +172,16 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             await session.ExecuteAsync(statement);
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> ClearAvatarAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             // Null both columns together so observers can never see a half-cleared state.
             var statement = new SimpleStatement(
@@ -190,7 +193,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             await session.ExecuteAsync(statement);
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public Task<LinkToken> GetOrCreateLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
@@ -349,11 +352,11 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
     public async Task<bool> DeleteAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             // Fetch identity fields to clean up lookup tables
             var userRow = (await session.ExecuteAsync(new SimpleStatement(
@@ -384,16 +387,16 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             await session.ExecuteAsync(deleteBatch);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var profileQuery = new SimpleStatement(
                 $"SELECT username, avatar_url, avatar_source, description, discord_id, email, apple_id FROM {keyspace}.users WHERE id = ? LIMIT 1",
@@ -415,7 +418,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 profile.GetValue<string?>("discord_id") is { } discordId ? new DiscordId(discordId) : null,
                 profile.GetValue<string?>("email") is { } email ? new Email(email) : null,
                 profile.GetValue<string?>("apple_id") is { } appleId ? new AppleId(appleId) : null);
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     // Returns the scoped `{region}:{userId}` composite wrapped in a SystemId — in-process

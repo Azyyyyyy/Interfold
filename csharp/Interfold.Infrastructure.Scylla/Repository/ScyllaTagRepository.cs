@@ -14,18 +14,21 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 public sealed class ScyllaTagRepository : ITagRepository
 {
     private readonly IScyllaSessionProvider _sessionProvider;
+    private readonly IScyllaScopeResolver _scopeResolver;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
     private readonly IAlterRepository _alterRepository;
 
     public ScyllaTagRepository(
         IScyllaSessionProvider sessionProvider,
+        IScyllaScopeResolver scopeResolver,
         IScyllaKeyspaceResolver keyspaceResolver,
         IOptions<PersistenceConfiguration> options,
         IAlterRepository alterRepository
     )
     {
         _sessionProvider = sessionProvider;
+        _scopeResolver = scopeResolver;
         _keyspaceResolver = keyspaceResolver;
         _options = options.Value;
         _alterRepository = alterRepository;
@@ -37,11 +40,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         CancellationToken cancellationToken = default
     )
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync<TagId?>(async () =>
+        return await _scopeResolver.ExecuteAsync<TagId?>(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             Guid? parentTagId = null;
 
             if (command.ParentTagId is { } requestedParentTagId && requestedParentTagId != TagId.Empty)
@@ -85,7 +88,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             await session.ExecuteAsync(insert);
             return new(tagGuid);
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> ExistsAsync(
@@ -94,11 +97,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         CancellationToken cancellationToken = default
     )
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.tags WHERE user_id = ? AND id = ? LIMIT 1",
@@ -108,7 +111,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             var rows = await session.ExecuteAsync(query);
             return rows.Any();
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> UpdateAsync(
@@ -117,11 +120,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         CancellationToken cancellationToken = default
     )
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var exists = await ExistsAsync(systemId, command.TagId, cancellationToken);
             if (!exists)
@@ -172,16 +175,16 @@ public sealed class ScyllaTagRepository : ITagRepository
             await session.ExecuteAsync(update);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> DeleteAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var exists = await ExistsAsync(systemId, tagId, cancellationToken);
             if (!exists)
@@ -216,7 +219,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             await session.ExecuteAsync(deleteBatch);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> AttachAlterAsync(
@@ -226,11 +229,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         CancellationToken cancellationToken = default
     )
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var tagExists = await ExistsAsync(systemId, tagId, cancellationToken);
             if (!tagExists)
@@ -254,7 +257,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             await session.ExecuteAsync(insert);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> DetachAlterAsync(
@@ -264,11 +267,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         CancellationToken cancellationToken = default
     )
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var edgeExistsQuery = new SimpleStatement(
                 $"SELECT alter_id FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ? AND alter_id = ? LIMIT 1",
@@ -299,7 +302,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             await session.ExecuteAsync(delete);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<TagId?> GetParentIdAsync(
@@ -308,11 +311,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         CancellationToken cancellationToken = default
     )
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync<TagId?>(async () =>
+        return await _scopeResolver.ExecuteAsync<TagId?>(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT parent_tag_id FROM {keyspace}.tags WHERE user_id = ? AND id = ? LIMIT 1",
@@ -322,7 +325,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             return ToTagId(row?.GetValue<Guid?>("parent_tag_id"));
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> SetParentAsync(
@@ -332,11 +335,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         CancellationToken cancellationToken = default
     )
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var childExists = await ExistsAsync(systemId, tagId, cancellationToken);
             var parentExists = await ExistsAsync(systemId, parentTagId, cancellationToken);
@@ -354,7 +357,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             await session.ExecuteAsync(update);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> RemoveParentAsync(
@@ -363,11 +366,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         CancellationToken cancellationToken = default
     )
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var exists = await ExistsAsync(systemId, tagId, cancellationToken);
             if (!exists)
@@ -384,16 +387,16 @@ public sealed class ScyllaTagRepository : ITagRepository
             await session.ExecuteAsync(update);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<IReadOnlyList<TagReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT id, name, color, description, parent_tag_id, inserted_at, updated_at, security_level, user_id FROM {keyspace}.tags WHERE user_id = ?",
@@ -424,7 +427,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
             // to the historic string-backed TagId — Guid.CompareTo bytewise reorders differently.
             return tags.OrderBy(x => x.Id.Value.ToString("N"), StringComparer.Ordinal).ToArray();
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<IReadOnlyList<TagPublicReadModel>> ListGuardedAsync(
@@ -432,11 +435,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
             var hydrationConcurrency = _options.HydrationMaxConcurrency;
 
@@ -481,16 +484,16 @@ public sealed class ScyllaTagRepository : ITagRepository
             }
 
             return tags.OrderBy(x => x.Id.Value.ToString("N"), StringComparer.Ordinal).ToArray();
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<TagReadModel?> GetAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
 
             var query = new SimpleStatement(
                 $"SELECT id, name, color, description, parent_tag_id, inserted_at, updated_at, security_level, user_id FROM {keyspace}.tags WHERE user_id = ? AND id = ? LIMIT 1",
@@ -516,7 +519,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
                 row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
                 new(row.GetValue<string>("user_id")));
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<TagPublicReadModel?> GetGuardedAsync(
@@ -525,11 +528,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
             var hydrationConcurrency = _options.HydrationMaxConcurrency;
 
@@ -572,7 +575,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
                 visibility,
                 new(row.GetValue<string>("user_id")));
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     private static async Task<IReadOnlyList<AlterId>> GetAlterIdsAsync(ISession session, string keyspace, string normalizedSystemId, Guid tagId)

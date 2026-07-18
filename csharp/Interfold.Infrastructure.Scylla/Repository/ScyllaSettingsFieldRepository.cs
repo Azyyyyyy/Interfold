@@ -14,27 +14,30 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 {
     private readonly IScyllaSessionProvider _sessionProvider;
+    private readonly IScyllaScopeResolver _scopeResolver;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
     private static readonly ConcurrentDictionary<(int ClusterId, string Keyspace), byte> UdtMappings = new();
 
     public ScyllaSettingsFieldRepository(
         IScyllaSessionProvider sessionProvider,
+        IScyllaScopeResolver scopeResolver,
         IScyllaKeyspaceResolver keyspaceResolver,
         IOptions<PersistenceConfiguration> options)
     {
         _sessionProvider = sessionProvider;
+        _scopeResolver = scopeResolver;
         _keyspaceResolver = keyspaceResolver;
         _options = options.Value;
     }
 
     public async Task<IReadOnlyList<SettingsFieldReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             EnsureFieldUdtMapping(session, keyspace);
 
             var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
@@ -55,7 +58,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 .ToArray();
 
             return (IReadOnlyList<SettingsFieldReadModel>)result;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<FieldId?> CreateAsync(
@@ -67,11 +70,11 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         DateTime insertedAtUtc,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync<FieldId?>(async () =>
+        return await _scopeResolver.ExecuteAsync<FieldId?>(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             EnsureFieldUdtMapping(session, keyspace);
 
             var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId) ?? [];
@@ -85,7 +88,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 normalizedSystemId));
 
             return new(fieldId);
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> UpdateAsync(
@@ -96,11 +99,11 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         bool? locked,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             EnsureFieldUdtMapping(session, keyspace);
 
             var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
@@ -148,16 +151,16 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 normalizedSystemId));
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> DeleteAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             EnsureFieldUdtMapping(session, keyspace);
 
             var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
@@ -183,16 +186,16 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             await session.ExecuteAsync(batch);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> RelocateAsync(SystemId systemId, FieldId fieldId, int index, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var session = scope.Session;
+            var normalizedSystemId = scope.NormalizedSystemId;
+            var keyspace = scope.Keyspace;
             EnsureFieldUdtMapping(session, keyspace);
 
             var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
@@ -220,7 +223,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 normalizedSystemId));
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     private static async Task<List<UserFieldUdt>?> LoadFieldsAsync(ISession session, string keyspace, string normalizedSystemId)
