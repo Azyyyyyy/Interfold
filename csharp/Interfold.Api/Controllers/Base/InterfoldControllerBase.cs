@@ -22,6 +22,9 @@ namespace Interfold.Api.Controllers.Base;
 [Authorize]
 public abstract class InterfoldControllerBase : ControllerBase
 {
+    [FromServices]
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
+
     /// <summary>
     /// The authenticated principal for the current request as a
     /// <see cref="ScopedSystemId"/>. The middleware guarantees the value is present and
@@ -394,5 +397,5 @@ public abstract class InterfoldControllerBase : ControllerBase
 
     protected CommandEnvelope<TPayload> BuildEnvelope<TPayload>(OperationId operationId, TPayload payload)
         => new(operationId, Guid.NewGuid(), PrincipalId: PrincipalId, IdempotencyKey: GetIdempotencyKey(),
-               OccurredAt: DateTimeOffset.UtcNow, Payload: payload);
+               OccurredAt: TimeProvider.GetUtcNow(), Payload: payload);
 }

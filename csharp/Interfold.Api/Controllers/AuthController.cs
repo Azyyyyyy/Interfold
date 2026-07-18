@@ -118,7 +118,7 @@ public sealed class AuthController : OAuthControllerBase
             Guid.NewGuid(),
             ScopedSystemId.ParseScoped("nam:auth"),
             GetIdempotencyKey(),
-            DateTimeOffset.UtcNow,
+            TimeProvider.GetUtcNow(),
             new AuthenticateOAuthCommand(typedIdentity)
         );
 
@@ -169,26 +169,24 @@ public sealed class AuthController : OAuthControllerBase
         // Set expiry to 100 years in the future. This is practically permanent
         // but avoids DateTimeOffset.MaxValue which can cause int64 overflow on validation.
         // If a token is compromised, it can be revoked explicitly via POST /auth/revoke.
-        var now = DateTimeOffset.UtcNow;
+        var now = TimeProvider.GetUtcNow();
         var expiresAt = now.AddYears(100);
 
         var token = AuthHelper.CreateToken(authConfig, expiresAt, now, jti, systemId);
-        
+
         // Record the issued token for revocation tracking
-        var nowRecord = DateTimeOffset.UtcNow;
         var envelope = new CommandEnvelope<RecordAuthTokenCommand>(
             OperationIds.AuthOAuthCallback,
             Guid.NewGuid(),
             ScopedSystemId.ParseScoped(systemId.Value),
             GetIdempotencyKey(),
-            nowRecord,
+            TimeProvider.GetUtcNow(),
             new RecordAuthTokenCommand(jti, systemId, expiresAt)
         );
 
-        var recordResult = await _recordTokenHandler.HandleAsync(envelope, HttpContext.RequestAborted);
+        await _recordTokenHandler.HandleAsync(envelope, HttpContext.RequestAborted);
 
         // JWS Compact Serialization: base64url(header).base64url(payload).base64url(signature)
         return token;
     }
-    
 }

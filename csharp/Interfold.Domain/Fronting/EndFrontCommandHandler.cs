@@ -13,15 +13,17 @@ public sealed class EndFrontCommandHandler : IdempotentCommandHandler<EndFrontCo
 {
     private readonly IFrontingRepository _frontingRepository;
     private readonly IClusterEventBus _eventBus;
+    private readonly TimeProvider _timeProvider;
 
     public EndFrontCommandHandler(
         IFrontingRepository frontingRepository,
         IIdempotencyStore idempotencyStore,
-        IClusterEventBus eventBus
-    )
-:base(idempotencyStore)    {
+        IClusterEventBus eventBus,
+        TimeProvider timeProvider) : base(idempotencyStore)
+    {
         _frontingRepository = frontingRepository;
         _eventBus = eventBus;
+        _timeProvider = timeProvider;
     }
 
 
@@ -29,10 +31,11 @@ public sealed class EndFrontCommandHandler : IdempotentCommandHandler<EndFrontCo
 
     protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
         originalResult with { Replay = true };
-protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync (
-        CommandEnvelope<EndFrontCommand> command,
-        CancellationToken cancellationToken = default
-    )
+
+    protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync(
+            CommandEnvelope<EndFrontCommand> command,
+            CancellationToken cancellationToken = default
+        )
     {
         if (command.Payload.AlterId.Value is < 1 or > 32_767)
         {
@@ -49,7 +52,7 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
         var endedFrontWasPrimary = activeFronts.Any(front =>
             front.Alter.Id == command.Payload.AlterId && front.Primary);
 
-        var ended = await _frontingRepository.EndAsync(command.PrincipalId, command.Payload.AlterId, DateTimeOffset.UtcNow, cancellationToken);
+        var ended = await _frontingRepository.EndAsync(command.PrincipalId, command.Payload.AlterId, _timeProvider.GetUtcNow(), cancellationToken);
         if (!ended)
         {
             return RejectInvariant(command, EntityRefs.FrontingEndFailed);

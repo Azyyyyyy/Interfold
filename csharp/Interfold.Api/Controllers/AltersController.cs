@@ -64,7 +64,7 @@ public sealed class AltersController : InterfoldControllerBase
     public async Task<Response<AlterReadModel>> Create([FromBody] CreateAlterRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        var envelope = BuildEnvelope(OperationIds.AlterCreate, new CreateAlterCommand(req.Name, DateTimeOffset.UtcNow));
+        var envelope = BuildEnvelope(OperationIds.AlterCreate, new CreateAlterCommand(req.Name, TimeProvider.GetUtcNow()));
 
         return await CommandCreatedAsync(
             await _createHandler.HandleAsync(envelope, ct),
@@ -97,7 +97,7 @@ public sealed class AltersController : InterfoldControllerBase
             Untracked: req.Untracked,
             Archived: req.Archived,
             Pinned: req.Pinned,
-            UpdatedAt: DateTimeOffset.UtcNow
+            UpdatedAt: TimeProvider.GetUtcNow()
         );
 
         var envelope = BuildEnvelope(OperationIds.AlterUpdate, payload);
@@ -127,7 +127,7 @@ public sealed class AltersController : InterfoldControllerBase
             async (principal, stream, c) => await _avatarStorage.SaveAlterAvatarAsync(principal, alterId, stream, c),
             async (url, c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarUpload, new UpdateAlterCommand(
                 AlterId: alterId,
-                Name: null, Description: null, AvatarUrl: url, AvatarSource: AvatarSource.Local, Color: null, Pronouns: null, SecurityLevel: null, Fields: null, ProxyName: null, Alias: null, Untracked: null, Archived: null, Pinned: null, UpdatedAt: DateTimeOffset.UtcNow)), c)),
+                Name: null, Description: null, AvatarUrl: url, AvatarSource: AvatarSource.Local, Color: null, Pronouns: null, SecurityLevel: null, Fields: null, ProxyName: null, Alias: null, Untracked: null, Archived: null, Pinned: null, UpdatedAt: TimeProvider.GetUtcNow())), c)),
             _avatarStorage,
             ct);
     }
@@ -152,7 +152,7 @@ public sealed class AltersController : InterfoldControllerBase
             },
             async (url, c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarUpload, new UpdateAlterCommand(
                 AlterId: alterId,
-                Name: null, Description: null, AvatarUrl: url, AvatarSource: AvatarSource.External, Color: null, Pronouns: null, SecurityLevel: null, Fields: null, ProxyName: null, Alias: null, Untracked: null, Archived: null, Pinned: null, UpdatedAt: DateTimeOffset.UtcNow)), c)),
+                Name: null, Description: null, AvatarUrl: url, AvatarSource: AvatarSource.External, Color: null, Pronouns: null, SecurityLevel: null, Fields: null, ProxyName: null, Alias: null, Untracked: null, Archived: null, Pinned: null, UpdatedAt: TimeProvider.GetUtcNow())), c)),
             _avatarStorage,
             ct);
     }
@@ -168,7 +168,7 @@ public sealed class AltersController : InterfoldControllerBase
             },
             async (c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarDelete, new UpdateAlterCommand(
                 AlterId: alterId,
-                Name: null, Description: null, AvatarUrl: null, AvatarSource: null, Color: null, Pronouns: null, SecurityLevel: null, Fields: null, ProxyName: null, Alias: null, Untracked: null, Archived: null, Pinned: null, UpdatedAt: DateTimeOffset.UtcNow, ClearAvatar: true)), c)),
+                Name: null, Description: null, AvatarUrl: null, AvatarSource: null, Color: null, Pronouns: null, SecurityLevel: null, Fields: null, ProxyName: null, Alias: null, Untracked: null, Archived: null, Pinned: null, UpdatedAt: TimeProvider.GetUtcNow(), ClearAvatar: true)), c)),
             _avatarStorage,
             ct);
     }

@@ -13,15 +13,17 @@ public sealed class StartFrontCommandHandler : IdempotentCommandHandler<StartFro
 {
     private readonly IFrontingRepository _frontingRepository;
     private readonly IClusterEventBus _eventBus;
+    private readonly TimeProvider _timeProvider;
 
     public StartFrontCommandHandler(
         IFrontingRepository frontingRepository,
         IIdempotencyStore idempotencyStore,
-        IClusterEventBus eventBus
-    )
-:base(idempotencyStore)    {
+        IClusterEventBus eventBus,
+        TimeProvider timeProvider) : base(idempotencyStore)
+    {
         _frontingRepository = frontingRepository;
         _eventBus = eventBus;
+        _timeProvider = timeProvider;
     }
 
 
@@ -29,10 +31,11 @@ public sealed class StartFrontCommandHandler : IdempotentCommandHandler<StartFro
 
     protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
         originalResult with { Replay = true };
-protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync (
-        CommandEnvelope<StartFrontCommand> command,
-        CancellationToken cancellationToken = default
-    )
+
+    protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync(
+            CommandEnvelope<StartFrontCommand> command,
+            CancellationToken cancellationToken = default
+        )
     {
         if (command.Payload.AlterId.Value is < 1 or > 32_767)
         {
@@ -59,7 +62,7 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
             command.PrincipalId,
             command.Payload.AlterId,
             command.Payload.Comment,
-            DateTimeOffset.UtcNow,
+            _timeProvider.GetUtcNow(),
             cancellationToken
         );
 

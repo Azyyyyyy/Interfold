@@ -60,7 +60,7 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     public async Task<Response<AlterJournalReadModel>> Create([FromRoute][ValidAlterId] AlterId alterId, [FromBody] CreateAlterJournalRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        var envelope = BuildEnvelope(OperationIds.JournalAlterCreate, new CreateAlterJournalEntryCommand(alterId, req.Title, DateTimeOffset.UtcNow));
+        var envelope = BuildEnvelope(OperationIds.JournalAlterCreate, new CreateAlterJournalEntryCommand(alterId, req.Title, TimeProvider.GetUtcNow()));
 
         return await CommandCreatedAsync(
             await _create.HandleAsync(envelope, ct),
@@ -72,7 +72,7 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     [HttpPatch("journals/{journalId}")]
     public async Task<Response> Update(EntryId journalId, [FromBody] UpdateAlterJournalRequest req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.JournalAlterUpdate, new UpdateAlterJournalEntryCommand(journalId, req.Title, req.Content, req.Color, DateTimeOffset.UtcNow)
+        var envelope = BuildEnvelope(OperationIds.JournalAlterUpdate, new UpdateAlterJournalEntryCommand(journalId, req.Title, req.Content, req.Color, TimeProvider.GetUtcNow())
         );
 
         return CommandNoContent(await _update.HandleAsync(envelope, ct));

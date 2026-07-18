@@ -13,14 +13,17 @@ public sealed class BulkUpdateFrontCommandHandler : IdempotentCommandHandler<Bul
 {
     private readonly IFrontingRepository _frontingRepository;
     private readonly IClusterEventBus _eventBus;
+    private readonly TimeProvider _timeProvider;
 
     public BulkUpdateFrontCommandHandler(
         IFrontingRepository frontingRepository,
         IIdempotencyStore idempotencyStore,
-        IClusterEventBus eventBus)
-:base(idempotencyStore)    {
+        IClusterEventBus eventBus,
+        TimeProvider timeProvider) : base(idempotencyStore)
+    {
         _frontingRepository = frontingRepository;
         _eventBus = eventBus;
+        _timeProvider = timeProvider;
     }
 
 
@@ -28,9 +31,10 @@ public sealed class BulkUpdateFrontCommandHandler : IdempotentCommandHandler<Bul
 
     protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
         originalResult with { Replay = true };
-protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync (
-        CommandEnvelope<BulkUpdateFrontCommand> command,
-        CancellationToken cancellationToken = default)
+
+    protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync(
+            CommandEnvelope<BulkUpdateFrontCommand> command,
+            CancellationToken cancellationToken = default)
     {
         if (command.Payload.Start.Any(x => x.AlterId.Value is < 1 or > 32_767) ||
             command.Payload.End.Any(x => x.Value is < 1 or > 32_767))
@@ -41,14 +45,14 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
 
         foreach (var alterId in command.Payload.End)
         {
-            await _frontingRepository.EndAsync(command.PrincipalId, alterId, DateTimeOffset.UtcNow, cancellationToken);
+            await _frontingRepository.EndAsync(command.PrincipalId, alterId, _timeProvider.GetUtcNow(), cancellationToken);
         }
 
         foreach (var item in command.Payload.Start)
         {
             var alreadyFronting = await _frontingRepository.IsFrontingAsync(command.PrincipalId, item.AlterId, cancellationToken);
             if (!alreadyFronting)
-                await _frontingRepository.StartAsync(command.PrincipalId, item.AlterId, item.Comment, DateTimeOffset.UtcNow, cancellationToken);
+                await _frontingRepository.StartAsync(command.PrincipalId, item.AlterId, item.Comment, _timeProvider.GetUtcNow(), cancellationToken);
         }
 
         var result = new FrontCommandResult(command.PrincipalId, null, null, Replay: false);

@@ -13,14 +13,17 @@ public sealed class SetFrontCommandHandler : IdempotentCommandHandler<SetFrontCo
 {
     private readonly IFrontingRepository _frontingRepository;
     private readonly IClusterEventBus _eventBus;
+    private readonly TimeProvider _timeProvider;
 
     public SetFrontCommandHandler(
         IFrontingRepository frontingRepository,
         IIdempotencyStore idempotencyStore,
-        IClusterEventBus eventBus)
-:base(idempotencyStore)    {
+        IClusterEventBus eventBus,
+        TimeProvider timeProvider) : base(idempotencyStore)
+    {
         _frontingRepository = frontingRepository;
         _eventBus = eventBus;
+        _timeProvider = timeProvider;
     }
 
 
@@ -28,9 +31,10 @@ public sealed class SetFrontCommandHandler : IdempotentCommandHandler<SetFrontCo
 
     protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
         originalResult with { Replay = true };
-protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync (
-        CommandEnvelope<SetFrontCommand> command,
-        CancellationToken cancellationToken = default)
+
+    protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync(
+            CommandEnvelope<SetFrontCommand> command,
+            CancellationToken cancellationToken = default)
     {
         if (command.Payload.AlterId.Value is < 1 or > 32_767)
             return RejectInvariant(command, EntityRefs.FrontingInvalidAlterId);
@@ -62,7 +66,7 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
         var others = active.Where(f => f.Alter.Id != command.Payload.AlterId).ToArray();
         var primaryWasPresent = active.Any(f => f.Primary);
 
-        var endedAt = DateTimeOffset.UtcNow;
+        var endedAt = _timeProvider.GetUtcNow();
         foreach (var other in others)
         {
             // Best-effort: a single end failure shouldn't poison the whole set. The repo's
@@ -83,7 +87,7 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
                 command.PrincipalId,
                 command.Payload.AlterId,
                 command.Payload.Comment,
-                DateTimeOffset.UtcNow,
+                _timeProvider.GetUtcNow(),
                 cancellationToken);
 
             if (started is null)

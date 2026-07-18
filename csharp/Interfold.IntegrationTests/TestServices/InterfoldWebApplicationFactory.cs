@@ -1,4 +1,4 @@
-﻿using Interfold.Api.Services;
+using Interfold.Api.Services;
 using Interfold.Api.Socket;
 using Interfold.Domain.Abstractions;
 using Interfold.Infrastructure;
@@ -210,6 +210,10 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
             x.Replace(ServiceDescriptor.Singleton<IHttpClientFactory, TestHttpClientFactory>());
             // Replace only the rate limiter with one backed by FakeTimeProvider.
             x.Replace(ServiceDescriptor.Singleton(new SocketJoinRateLimiter(TimeProvider)));
+            // Wire the factory's FakeTimeProvider as the singleton TimeProvider so all
+            // injected TimeProvider references (controllers, domain handlers) use a
+            // pinned clock — idempotency hashes are stable across retries in tests.
+            x.Replace(ServiceDescriptor.Singleton<TimeProvider>(TimeProvider));
             // See EventBus property comment - register the eagerly created bus as the singleton
             // for both the interface and the concrete type so every service-provider root the
             // factory may construct hands back the SAME instance.
