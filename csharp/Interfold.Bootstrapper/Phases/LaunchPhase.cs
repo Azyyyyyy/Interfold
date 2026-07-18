@@ -54,8 +54,6 @@ internal static class LaunchPhase
         }
     }
 
-    private static string? BootstrapArtifactPaths.FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
-
     private static async Task<int> ResolveApiHttpPortAsync(BootstrapOptions options, CancellationToken ct)
     {
         // Re-read the persisted bootstrap config so this phase is self-sufficient when invoked as

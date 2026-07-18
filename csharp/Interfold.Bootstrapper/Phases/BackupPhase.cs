@@ -426,8 +426,6 @@ internal static class BackupPhase
         }
     }
 
-    private static string? BootstrapArtifactPaths.FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
-
     /// <summary>
     /// Runs <paramref name="fileName"/> with <paramref name="arguments"/> and streams its
     /// stdout directly into <paramref name="destinationPath"/>. Throws if the process exits

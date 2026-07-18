@@ -587,15 +587,6 @@ internal static class UpdateImagesPhase
             .FirstOrDefault();
     }
 
-    private static string BackupPhase.ResolveBackupRoot(BootstrapOptions options, BootstrapConfig config)
-    {
-        // Mirrors BackupPhase.ResolveBackupRoot; kept in sync manually because both phases
-        // read the same option precedence rules.
-        if (!string.IsNullOrWhiteSpace(options.BackupDirOverride)) return Path.GetFullPath(options.BackupDirOverride);
-        if (!string.IsNullOrWhiteSpace(config.Backup.Directory)) return Path.GetFullPath(config.Backup.Directory);
-        return Path.Combine(options.OutputDir, "backups");
-    }
-
     private static void PruneOldArchives(string backupRoot, int retainCount, PhaseLogger logger)
     {
         // Reuses BackupRetention.Prune (pure logic, unit-tested separately in
@@ -621,7 +612,6 @@ internal static class UpdateImagesPhase
         }
     }
 
-    private static string? BootstrapArtifactPaths.FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
 }
 
 

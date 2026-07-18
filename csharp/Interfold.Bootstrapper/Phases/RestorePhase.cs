@@ -489,16 +489,6 @@ internal static class RestorePhase
         }
     }
 
-    private static string BackupPhase.ResolveBackupRoot(BootstrapOptions options, BootstrapConfig config)
-    {
-        // Mirrors BackupPhase.ResolveBackupRoot — kept in sync manually so both phases
-        // read the same precedence rules.
-        if (!string.IsNullOrWhiteSpace(options.BackupDirOverride)) return Path.GetFullPath(options.BackupDirOverride);
-        if (!string.IsNullOrWhiteSpace(config.Backup.Directory)) return Path.GetFullPath(config.Backup.Directory);
-        return Path.Combine(options.OutputDir, "backups");
-    }
-
-    private static string? BootstrapArtifactPaths.FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
 }
 
 

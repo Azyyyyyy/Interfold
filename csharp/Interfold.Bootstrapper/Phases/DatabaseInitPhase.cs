@@ -138,8 +138,6 @@ internal static class DatabaseInitPhase
             FcmServiceAccountJson: firebase.ServiceAccountJson);
     }
 
-    private static string? BootstrapArtifactPaths.FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
-
     private static string ResolveScyllaServiceName(BootstrapConfig config)
     {
         // 'cassandra' mode uses an entirely different image / container alias (see
