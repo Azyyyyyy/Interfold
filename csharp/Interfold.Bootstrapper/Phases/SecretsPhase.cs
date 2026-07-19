@@ -1,8 +1,8 @@
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
+using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -95,7 +95,7 @@ internal static partial class SecretsPhase
             {
                 logger.Info("    backfilled missing fields into existing secrets.json");
                 await PersistAsync(existing, secretsPath, ct).ConfigureAwait(false);
-                ChmodUserOnly(secretsPath, logger);
+                UnixFilePermissions.SetOwnerOnly(secretsPath, logger);
             }
             return existing;
         }
@@ -130,7 +130,7 @@ internal static partial class SecretsPhase
             secrets.LeafPfxPassword = preservedLeafPfxPassword;
         }
         await PersistAsync(secrets, secretsPath, ct).ConfigureAwait(false);
-        ChmodUserOnly(secretsPath, logger);
+        UnixFilePermissions.SetOwnerOnly(secretsPath, logger);
 
         logger.PhaseDone(Phase);
         return secrets;
@@ -240,33 +240,4 @@ internal static partial class SecretsPhase
         await File.WriteAllTextAsync(path, json, ct).ConfigureAwait(false);
     }
 
-    private static void ChmodUserOnly(string path, PhaseLogger logger)
-    {
-        // 0600 = owner read/write only. Matches the existing convention in scripts/generate-encryption-keypair.sh.
-        const int s_IRUSR_IWUSR = 0x180; // 0o600
-        Chmod(path, s_IRUSR_IWUSR, "0600", logger);
-    }
-
-    private static void Chmod(string path, int mode, string modeDisplay, PhaseLogger logger)
-    {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
-            !RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            // Windows ACLs don't translate to a Unix mode; we expect Linux for production self-hosting.
-            return;
-        }
-
-        var rc = NativeMethods.chmod(path, mode);
-        if (rc != 0)
-        {
-            var err = Marshal.GetLastPInvokeError();
-            logger.Warn($"chmod({path}, {modeDisplay}) failed: errno={err} (file written but permissions not adjusted)");
-        }
-    }
-
-    private static partial class NativeMethods
-    {
-        [LibraryImport("libc", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]
-        internal static partial int chmod(string path, int mode);
-    }
 }
