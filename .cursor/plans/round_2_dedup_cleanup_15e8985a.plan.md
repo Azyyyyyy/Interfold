@@ -37,7 +37,7 @@ todos:
     status: completed
   - id: c3-ws-pair
     content: "C3: WebSocketHarness.ConnectPairAndJoinAsync (7 sites, ~42 LOC)"
-    status: pending
+    status: completed
   - id: c4-makeconfig
     content: "C4: TestSupport.MakeConfig(...) + sweep 5 file-local OptionsFor (~30-70 LOC)"
     status: pending
@@ -127,7 +127,7 @@ The prior in-flight change set from Round 1 (`IScyllaScopeResolver`, `BuildEnvel
 
 ## Progress (as of 2026-07-19)
 
-**Waves A + B are complete; C1 + C2 done.** All 17 commits are on branch `dedup`:
+**Waves A + B are complete; C1, C2, C3 done.** All 18 commits are on branch `dedup`:
 
 - A1 `37f4ce6` `fix(infra): fix InMemoryFrontingRepository delete parity`
 - A2 `d78b5f1` `fix(scylla): eliminate nested retry on ScyllaJournalRepository alter writers`
@@ -145,8 +145,9 @@ The prior in-flight change set from Round 1 (`IScyllaScopeResolver`, `BuildEnvel
 - B8 `7c039ed` `refactor(scylla): extract ScyllaFrontingDenormalizedTable batch builder`
 - C1 `d863855` `refactor(bootstrapper-it): add RunOnScratchAsync helper and sweep ~40 sites`
 - C2 `4cd69ec` `refactor(inmemory-accounts): extract FindOrCreateIdentifier + UnlinkIdentifier generics`
+- C3 `3145097` `refactor(integration-tests): add WebSocketHarness.ConnectPairAndJoinAsync + sweep 7 sites`
 
-**Remaining work: Wave C (14 bullets) + Wave D (13 bullets).** Wave E stays as guardrails throughout. Wave A, Wave B, C1, and C2 sections below are kept for historical reference — do NOT re-execute them.
+**Remaining work: Wave C (13 bullets) + Wave D (13 bullets).** Wave E stays as guardrails throughout. Wave A, Wave B, C1, C2, and C3 sections below are kept for historical reference — do NOT re-execute them.
 
 ### Wave C grep re-verification (2026-07-19)
 
@@ -230,8 +231,16 @@ Round-1 B7 shipped `LinkIdentifier<T>` on InMemoryAccountRepository but left `Fi
 - Unit coverage: added `InMemoryAccountRepositoryIdentityRegressionTests` with 8 tests — one auto-provision-idempotency test per provider (Discord/Email/Apple), email case-insensitivity (guards the `StringComparer.OrdinalIgnoreCase` invariant through the generic dispatch), Unlink round-trip via `TryFindSystemIdByDiscordIdAsync`, Unlink idempotency on empty user, **dict-pair isolation** (UnlinkDiscord must not touch email/apple maps — this is the specific refactor risk the pin catches), and DeleteAsync scrubs-all-three. `ProvisionAllThreeIdentitiesAsync` test helper documents the pre-existing constraint that `LinkIdentityToUserAsync` requires a username/description/avatar/linkToken to be set before it will accept a second identity (auto-provisioned OAuth-only users are treated as `UserNotFound` by the link path).
 - Net: −42 LOC on InMemoryAccountRepository.cs (79 insertions, 121 deletions). 373/373 unit tests still green.
 
-### C3. `WebSocketHarness.ConnectPairAndJoinAsync` — 7 sites (two-party sister of D7)
+### C3. `WebSocketHarness.ConnectPairAndJoinAsync` — 7 sites (two-party sister of D11's `ConnectAndJoinAsync`)
 7 verbatim 8-line sender/recipient connect+join blocks in [csharp/Interfold.IntegrationTests/Endpoints/WebSocketTests.cs](csharp/Interfold.IntegrationTests/Endpoints/WebSocketTests.cs) at lines 297-309, 352-363, 443-454, 511-522, 582-593, 689-700, and one two-system variant near 815. Return a tuple `(senderWs, recipientWs, senderToken, recipientToken)` — the names are load-bearing for assertion readability. ~42 LOC.
+
+**Done 2026-07-19 · commit `3145097`.** Shape landed:
+- New file `csharp/Interfold.IntegrationTests/TestServices/WebSocketHarness.cs` with `ConnectPairAndJoinAsync(IWebFactoryFixture fixture, string firstSystemId, string secondSystemId, CancellationToken)` returning `(WebSocket FirstWs, WebSocket SecondWs, string FirstToken, string SecondToken)`. Names are **neutral** (`First`/`Second`) rather than the plan's `sender`/`recipient` — one of the 7 sites uses A/B semantics (mutual friend request) and the neutral tuple lets each caller re-alias at the destructure (`using var senderWs = pair.FirstWs;` / `using var wsA = pair.FirstWs;`) so downstream assertions keep the semantic names either way.
+- Caller pattern is 3 lines (tuple assign + two `using var` re-binds) vs 10 lines before. Tokens are dropped at the destructure at every site because none of the 7 test bodies reference the tokens after the join step; if a future site needs them, `pair.FirstToken`/`pair.SecondToken` are still there.
+- Helper is fail-fast on the join step: if either `phx_join` throws, both sockets are disposed inside the harness's `catch` block before the exception rethrows so a partial-setup failure can't leak a live socket into the test session.
+- `WebSocketHarness` currently reaches into `WebSocketTests.WebSocketBasePath` / `WebSocketTests.JoinTopicAsync` (both `internal static`, same assembly). When D11 adds the single-party `ConnectAndJoinAsync` sister, those two primitives should relocate into `WebSocketHarness` and the reach-back is dropped.
+- Spot-check: InMemory-fixture variant of `PushesFriendRequestReceived_ToRecipientSystem` passes on the refactor (7 min including Aspire cold start).
+- Net: WebSocketTests.cs −62 LOC (21 ins, 83 del); WebSocketHarness.cs +~90 LOC (~30 code, rest docstring).
 
 ### C4. `TestSupport.MakeConfig(...)` — close C4 tail
 Round-1 C4 promoted `MakeOptions` but the generic `MakeConfig(DatabaseMode mode = DatabaseMode.Scylla, Action<BootstrapConfig>? tweak = null)` was never added. Add it and sweep the 5 file-local `OptionsFor` copies (`EmbeddedSupportFilesTests.cs:25-34`, `CertificateGenerationTests.cs:20-29`, `SecretsBackfillTests.cs:18-27`, `ConfigMdnsGateTests.cs:35-44`, `ConfigPreFillMdnsCheckTests.cs:31-40` — the last two are byte-identical). Also sweep the untouched `BackupCommandBuildingTests` / `SystemdUnitRenderingTests` helpers the Round-1 plan listed. ~30–70 LOC.
