@@ -234,7 +234,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
                 x.Color,
                 x.Pronouns,
                 x.Description,
-                ResolveGuardedFields(x, definitions)))
+                AlterFieldProjection.ResolveGuardedFields(x.Fields, definitions)))
             .ToArray();
 
         return rows;
@@ -280,7 +280,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             alter.Color,
             alter.Pronouns,
             alter.Description,
-            ResolveGuardedFields(alter, definitions));
+            AlterFieldProjection.ResolveGuardedFields(alter.Fields, definitions));
     }
 
     public Task<bool> AliasTakenByOtherAsync(
@@ -331,16 +331,6 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         RemoveFieldValuesForSystem(fieldId, systemKey);
     }
 
-    // Thin adapter around AlterFieldProjection.ResolveGuardedFields — the shared helper
-    // takes an IReadOnlyDictionary<FieldId, string?>, which AlterState.Fields already is.
-    // AlterState is a private nested type, so keeping this per-repo wrapper preserves
-    // the "callers hand in an AlterState" ergonomics without leaking the storage shape
-    // into the shared domain helper.
-    private static IReadOnlyList<AlterPublicFieldReadModel> ResolveGuardedFields(
-        AlterState alter,
-        IReadOnlyList<SettingsFieldReadModel> definitions)
-        => AlterFieldProjection.ResolveGuardedFields(alter.Fields, definitions);
-
     private static AlterReadModel MapAlterReadModel(
         AlterState alter,
         IReadOnlyList<SettingsFieldReadModel> definitions)
@@ -354,7 +344,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             alter.Color,
             alter.Pronouns,
             alter.VisibilityLevel,
-            ResolveGuardedFields(alter, definitions),
+            AlterFieldProjection.ResolveGuardedFields(alter.Fields, definitions),
             alter.ProxyName,
             alter.Alias,
             alter.Untracked,
@@ -362,8 +352,12 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             alter.Pinned);
     }
 
-    // _settingsFields is nullable historically (see the constructor); the shared helper
-    // wants a non-null repo so the null-check stays here at the InMemory boundary.
+    /// <summary>
+    /// InMemory-specific adapter around <see cref="AlterFieldProjection.ResolveVisibleDefinitionsAsync"/>
+    /// that folds the null-<c>_settingsFields</c> branch (nullable historically — see the
+    /// constructor) into an empty-list short-circuit so the shared domain helper can keep
+    /// its non-null repository contract.
+    /// </summary>
     private Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(
         SystemId systemId,
         FriendshipLevel? friendshipLevel,
