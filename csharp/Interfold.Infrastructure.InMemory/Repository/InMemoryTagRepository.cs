@@ -153,20 +153,10 @@ public sealed class InMemoryTagRepository : ITagRepository
 
            // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
            // to the historic string-backed TagId — Guid.CompareTo bytewise reorders differently.
-           var rows = store.Values
-               .OrderBy(x => x.TagId.Value.ToString("N"), StringComparer.Ordinal)
-               .Select(x => new TagReadModel(
-                   x.TagId,
-                   x.Name,
-                   x.Color,
-                   x.Description,
-                   x.ParentTagId,
-                   GetAlterIds(systemKey, x.TagId),
-                   x.InsertedAt,
-                   x.UpdatedAt,
-                   x.SecurityLevel,
-                   systemId))
-               .ToArray();
+            var rows = store.Values
+                .OrderBy(x => x.TagId.Value.ToString("N"), StringComparer.Ordinal)
+                .Select(x => MapTagReadModel(x, GetAlterIds(systemKey, x.TagId), systemId))
+                .ToArray();
 
            return Task.FromResult<IReadOnlyList<TagReadModel>>(rows);
        }
@@ -184,17 +174,7 @@ public sealed class InMemoryTagRepository : ITagRepository
            var rows = store.Values
                .Where(x => x.SecurityLevel.CanBeViewedBy(friendshipLevel))
                .OrderBy(x => x.TagId.Value.ToString("N"), StringComparer.Ordinal)
-               .Select(x => new TagPublicReadModel(
-                   x.TagId,
-                   x.Name,
-                   x.Color,
-                   x.Description,
-                   x.ParentTagId,
-                   GetAlters(systemKey, x.TagId),
-                   x.InsertedAt,
-                   x.UpdatedAt,
-                   x.SecurityLevel,
-                   systemId))
+               .Select(x => MapTagPublicReadModel(x, GetAlters(systemKey, x.TagId), systemId))
                .ToArray();
 
            return rows;
@@ -206,17 +186,7 @@ public sealed class InMemoryTagRepository : ITagRepository
            if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(tagId, out var tag))
                return Task.FromResult<TagReadModel?>(null);
 
-           return Task.FromResult<TagReadModel?>(new TagReadModel(
-               tag.TagId,
-               tag.Name,
-               tag.Color,
-               tag.Description,
-               tag.ParentTagId,
-               GetAlterIds(systemKey, tag.TagId),
-               tag.InsertedAt,
-               tag.UpdatedAt,
-               tag.SecurityLevel,
-               systemId));
+           return Task.FromResult<TagReadModel?>(MapTagReadModel(tag, GetAlterIds(systemKey, tag.TagId), systemId));
        }
 
        public async Task<TagPublicReadModel?> GetGuardedAsync(
@@ -237,17 +207,7 @@ public sealed class InMemoryTagRepository : ITagRepository
                return null;
            }
 
-           return new TagPublicReadModel(
-               tag.TagId,
-               tag.Name,
-               tag.Color,
-               tag.Description,
-               tag.ParentTagId,
-               GetAlters(systemKey, tag.TagId),
-               tag.InsertedAt,
-               tag.UpdatedAt,
-               tag.SecurityLevel,
-               systemId);
+            return MapTagPublicReadModel(tag, GetAlters(systemKey, tag.TagId), systemId);
        }
 
     private IReadOnlyList<AlterId> GetAlterIds(ScopedSystemId systemKey, TagId tagId)
@@ -268,9 +228,37 @@ public sealed class InMemoryTagRepository : ITagRepository
 
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
+    private static TagReadModel MapTagReadModel(TagState tag, IReadOnlyList<AlterId> alterIds, SystemId systemId)
+    {
+        return new TagReadModel(
+            tag.TagId,
+            tag.Name,
+            tag.Color,
+            tag.Description,
+            tag.ParentTagId,
+            alterIds,
+            tag.InsertedAt,
+            tag.UpdatedAt,
+            tag.SecurityLevel,
+            systemId
+        );
+    }
+
+    private static TagPublicReadModel MapTagPublicReadModel(TagState tag, IReadOnlyList<BareAlter> alters, SystemId systemId)
+    {
+        return new TagPublicReadModel(
+            tag.TagId,
+            tag.Name,
+            tag.Color,
+            tag.Description,
+            tag.ParentTagId,
+            alters,
+            tag.InsertedAt,
+            tag.UpdatedAt,
+            tag.SecurityLevel,
+            systemId
+        );
+    }
+
     // Delegates to the shared static that also serves the Alter and Fronting repos —
 }
-
-
-
-

@@ -396,19 +396,8 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             foreach (var row in rows)
             {
-                TagId tagId = new(row.GetValue<Guid>("id"));
                 var alterIds = await GetAlterIdsAsync(session, keyspace, normalizedSystemId, row.GetValue<Guid>("id"));
-                tags.Add(new TagReadModel(
-                    tagId,
-                    row.GetValue<string>("name"),
-                    HexColor.FromNullable(row.GetValue<string?>("color")),
-                    row.GetValue<string?>("description"),
-                    ToTagId(row.GetValue<Guid?>("parent_tag_id")),
-                    alterIds,
-                    row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
-                    row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
-                    row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
-                    new(row.GetValue<string>("user_id"))));
+                tags.Add(TagRowMappers.MapTagReadModel(row, alterIds));
             }
 
             // VERIFIED: 2026-03-17 Elixir tags.ex get_tags() has no explicit sort → database order (ascending). Matches C# OrderBy.
@@ -447,7 +436,6 @@ public sealed class ScyllaTagRepository : ITagRepository
                     continue;
                 }
 
-                TagId tagId = new(row.GetValue<Guid>("id"));
                 var alterIds = await GetGuardedAlterIdsAsync(session, keyspace, normalizedSystemId, row.GetValue<Guid>("id"), friendshipLevel);
                 var alters = alterIds.Count == 0
                     ? Array.Empty<BareAlter>()
@@ -458,17 +446,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                             cancellationToken))
                         .Where(x => x != null)
                         .ToArray();
-                tags.Add(new TagPublicReadModel(
-                    tagId,
-                    row.GetValue<string>("name"),
-                    HexColor.FromNullable(row.GetValue<string?>("color")),
-                    row.GetValue<string?>("description"),
-                    ToTagId(row.GetValue<Guid?>("parent_tag_id")),
-                    alters!,
-                    row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
-                    row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
-                    visibility,
-                    new(row.GetValue<string>("user_id"))));
+                tags.Add(TagRowMappers.MapTagPublicReadModel(row, alters!));
             }
 
             return tags.OrderBy(x => x.Id.Value.ToString("N"), StringComparer.Ordinal).ToArray();
@@ -496,17 +474,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             }
 
             var alterIds = await GetAlterIdsAsync(session, keyspace, normalizedSystemId, tagId.Value);           
-            return new TagReadModel(
-                new(row.GetValue<Guid>("id")),
-                row.GetValue<string>("name"),
-                HexColor.FromNullable(row.GetValue<string?>("color")),
-                row.GetValue<string?>("description"),
-                ToTagId(row.GetValue<Guid?>("parent_tag_id")),
-                alterIds,
-                row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
-                row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
-                row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
-                new(row.GetValue<string>("user_id")));
+            return TagRowMappers.MapTagReadModel(row, alterIds);
         }, cancellationToken);
     }
 
@@ -552,17 +520,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                         cancellationToken))
                     .Where(x => x != null)
                     .ToArray();
-            return new TagPublicReadModel(
-                new(row.GetValue<Guid>("id")),
-                row.GetValue<string>("name"),
-                HexColor.FromNullable(row.GetValue<string?>("color")),
-                row.GetValue<string?>("description"),
-                ToTagId(row.GetValue<Guid?>("parent_tag_id")),
-                alters!,
-                row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
-                row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
-                visibility,
-                new(row.GetValue<string>("user_id")));
+            return TagRowMappers.MapTagPublicReadModel(row, alters!);
         }, cancellationToken);
     }
 
