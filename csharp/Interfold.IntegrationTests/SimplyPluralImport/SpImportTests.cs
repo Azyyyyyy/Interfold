@@ -9,6 +9,7 @@ using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions;
+using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory;
@@ -1137,7 +1138,7 @@ public sealed class SpImportTests : BaseEndpointTest
             .OnGet($"/v1/polls/{sysId}", pollsJson ?? "[]");
     }
 
-    private static async Task<(SpImportResult Result, IFrontingRepository FrontingRepo, IPollRepository PollRepo, ISettingsFieldRepository FieldRepo, ITagRepository TagRepo, CapturingLogger Logger)> RunImportAsync(
+    private static async Task<(ImportJobOutcome Result, IFrontingRepository FrontingRepo, IPollRepository PollRepo, ISettingsFieldRepository FieldRepo, ITagRepository TagRepo, CapturingLogger Logger)> RunImportAsync(
         TestServices.StubSpHandler stub,
         SystemId systemId)
     {

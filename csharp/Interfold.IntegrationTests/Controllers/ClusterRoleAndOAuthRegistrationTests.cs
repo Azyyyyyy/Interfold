@@ -1,5 +1,6 @@
 using System.Net;
 using Interfold.Api.Models;
+using Interfold.Contracts;
 using Interfold.Contracts.Enums;
 using Interfold.IntegrationTests.TestServices;
 
@@ -21,7 +22,7 @@ public sealed class ClusterRoleAndOAuthRegistrationTests : BaseEndpointTest
     [Test]
     public async Task NodeRole_ReturnsPrimary_WhenOctoconNodeGroupIsPrimary()
     {
-        using var factory = new InterfoldWebApplicationFactory("inmemory")
+        using var factory = new InterfoldWebApplicationFactory(PersistenceMode.InMemory)
             .WithConfiguration("OCTOCON_NODE_GROUP", "primary");
         using var client = factory.CreateClient();
 
@@ -38,7 +39,7 @@ public sealed class ClusterRoleAndOAuthRegistrationTests : BaseEndpointTest
     [Test]
     public async Task NodeRole_ReturnsPrimary_WhenFlyProcessGroupIsPrimary()
     {
-        using var factory = new InterfoldWebApplicationFactory("inmemory")
+        using var factory = new InterfoldWebApplicationFactory(PersistenceMode.InMemory)
             .WithConfiguration("FLY_PROCESS_GROUP", "primary");
         using var client = factory.CreateClient();
 
@@ -51,7 +52,7 @@ public sealed class ClusterRoleAndOAuthRegistrationTests : BaseEndpointTest
     [Test]
     public async Task NodeRole_FlyProcessGroup_TakesPrecedenceOver_OctoconNodeGroup()
     {
-        using var factory = new InterfoldWebApplicationFactory("inmemory")
+        using var factory = new InterfoldWebApplicationFactory(PersistenceMode.InMemory)
             .WithConfiguration("OCTOCON_NODE_GROUP", "primary")
             .WithConfiguration("FLY_PROCESS_GROUP", "sidecar");
         using var client = factory.CreateClient();
@@ -75,7 +76,7 @@ public sealed class ClusterRoleAndOAuthRegistrationTests : BaseEndpointTest
         // signal); the test pins it here so the scheme registers and the controller issues
         // a real challenge. Because scheme registration is a one-shot startup step rather
         // than IOptionsMonitor-bound, this test owns its own factory.
-        using var factory = new InterfoldWebApplicationFactory("inmemory")
+        using var factory = new InterfoldWebApplicationFactory(PersistenceMode.InMemory)
             .WithConfiguration("OCTOCON_GOOGLE_OAUTH_CLIENT_ID", "test-client-id");
 
         using var client = TestClient.NoRedirect(factory);

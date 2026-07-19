@@ -9,6 +9,7 @@ using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Domain;
 using Interfold.Domain.Abstractions;
+using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Options;
 using Interfold.Contracts;
@@ -81,7 +82,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
     public bool? WaitForAvatars { get; set; }
     
-    public async Task<SpImportResult> ImportAsync(
+    public async Task<ImportJobOutcome> ImportAsync(
         SystemId systemId,
         ImportToken spToken,
         RecoveryCode? recoveryKey,
@@ -109,7 +110,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         // 1. Fetch system data
         var systemData = await FetchAsync<SpEntity<SpSystemContent>>(httpClient, SpApiPaths.Me(), cancellationToken);
         if (systemData is null)
-            return new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "Failed to fetch system data from Simply Plural.");
+            return new ImportJobOutcome(false, 0, ImportErrorCode.SpImportFailed, "Failed to fetch system data from Simply Plural.");
 
         var spSystemId = systemData.Id;
         var description = systemData.Content.Desc;
@@ -164,7 +165,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         }
 
         _logger.LogInformation("Simply Plural import complete for system {SystemId}: {AlterCount} alters imported", systemId, alterCount);
-        return new SpImportResult(true, alterCount);
+        return new ImportJobOutcome(true, alterCount);
     }
 
     private async Task<(Dictionary<string, FieldId> FieldMapping, List<FieldId> CreatedFieldIds)> ImportCustomFieldsAsync(
@@ -759,20 +760,20 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     // at the outer guard, and the tuple's second slot is EncryptionKeyMaterial? so the
     // caller assigns straight into a typed nullable local rather than encoding "no derived
     // key" through an empty-string sentinel + IsNullOrWhiteSpace gate.
-    private async Task<(SpImportResult Result, EncryptionKeyMaterial? DerivedKey)> ValidateEncryptionKeyAsync(SystemId systemId, RecoveryCode recoveryCode, CancellationToken ct)
+    private async Task<(ImportJobOutcome Result, EncryptionKeyMaterial? DerivedKey)> ValidateEncryptionKeyAsync(SystemId systemId, RecoveryCode recoveryCode, CancellationToken ct)
     {
         var state = await _encryptionStateRepository.GetAsync(systemId, ct);
         if (state is not { Initialized: true, KeyChecksum: { } keyChecksum, Salt: { } salt }
             || string.IsNullOrWhiteSpace(keyChecksum.Value))
-            return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "Encryption is not initialized for this system."), null);
+            return (new ImportJobOutcome(false, 0, ImportErrorCode.SpImportFailed, "Encryption is not initialized for this system."), null);
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
         var key = EncryptionKey.DeriveKey(pepper, systemId, recoveryCode, salt);
         var checksum = EncryptionKey.DeriveChecksum(key);
         if (checksum != keyChecksum)
-            return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "The provided encryption key is invalid."), null);
+            return (new ImportJobOutcome(false, 0, ImportErrorCode.SpImportFailed, "The provided encryption key is invalid."), null);
 
-        return (new SpImportResult(true, 0), key);
+        return (new ImportJobOutcome(true, 0), key);
     }
 
     /// <summary>

@@ -8,6 +8,7 @@ using Interfold.Infrastructure.Scylla;
 using Microsoft.AspNetCore.Hosting;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
@@ -44,7 +45,16 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
 
     public FakeTimeProvider TimeProvider { get; } = new();
     public string DisplayName { get; private set; }
-    private readonly string _persistenceType;
+
+    /// <summary>
+    /// Persistence backend this factory was constructed for. Typed as
+    /// <see cref="Contracts.PersistenceMode"/> so tests that need to layer additional
+    /// configuration onto a sibling factory (e.g. per-test private-factory branches that
+    /// spin up a Primary-node clone of the shared fixture's runtime) can read the mode
+    /// without a fixture-type switch — the enum is the single source of truth and the
+    /// wire spelling comes back through <see cref="Enums.EnumWireExtensions.ToWire{TEnum}"/>.
+    /// </summary>
+    public PersistenceMode PersistenceMode { get; }
 
     /// <summary>
     /// Test-only hook: when non-null, every <see cref="HttpClient"/> manufactured by
@@ -69,11 +79,12 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
     public ConcurrentQueue<RecordedHttpCall>? OutboundHttpUriRecorder { get; set; }
 
     public InterfoldWebApplicationFactory(
-        string persistenceType,
+        PersistenceMode persistenceMode,
         string? displayName = null,
         bool seedInMemorySecretsFromFactoryConfig = true)
     {
-        _persistenceType = persistenceType;
+        PersistenceMode = persistenceMode;
+        var persistenceType = persistenceMode.ToWire();
         DisplayName = displayName ?? persistenceType;
         _configProvider.Set("OCTOCON_PERSISTENCE", persistenceType);
 
@@ -98,8 +109,7 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
         // form and must NOT be shadowed by the FactoryConfigurationProvider seeds below — that
         // would mask any regression in the real env-var ingestion path (which is exactly the bug
         // the test exists to catch).
-        if (seedInMemorySecretsFromFactoryConfig &&
-            string.Equals(persistenceType, "inmemory", StringComparison.OrdinalIgnoreCase))
+        if (seedInMemorySecretsFromFactoryConfig && persistenceMode == PersistenceMode.InMemory)
         {
             _configProvider.Set("OCTOCON_INMEMORY_SECRETS_SEED:ENCRYPTION_PEPPER",           "TEST");
             _configProvider.Set("OCTOCON_INMEMORY_SECRETS_SEED:AUTH_JWT_ES256_PRIVATE_PEM",  TestDbCredentials.JwtEs256PrivateKeyPem);
@@ -244,7 +254,7 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
             // `OCTOCON_INMEMORY_SECRETS_SEED__*` env vars) — the same IConfiguration lookup
             // an external container runner triggers via real env vars, so tests exercise the
             // published code path end-to-end.
-            if (!string.Equals(_persistenceType, "inmemory", StringComparison.OrdinalIgnoreCase))
+            if (PersistenceMode != PersistenceMode.InMemory)
             {
                 RemoveHostedService<PostgresMigrationService>(x);
                 RemoveHostedService<ScyllaMigrationService>(x);

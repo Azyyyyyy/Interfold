@@ -80,10 +80,12 @@ public class DbInitFaultRecoveryTests(UbuntuDinDFixture dinD)
             .Because("the postgres state probe should surface the short-circuit on rerun");
 
         // Final state: scylla admin must now exist, locking the original cassandra default.
+        // Resolve the password C#-side and pass it through CqlshAsync's `password` parameter —
+        // the same shape sibling tests in DbInitSecurityInvariantsTests use, and immune to
+        // the JSON-writer drift the shell `grep | sed` variant would silently break under.
+        var scyllaAdminPassword = await dinD.ReadSecretsFieldAsync(scratch, "scyllaAdminPassword");
         var scyllaAdminFinal = await dinD.CqlshAsync(
-            composeFile, "interfold_admin",
-            $"\"$(grep scyllaAdminPassword {scratch.SecretsJsonPath} | sed -E 's/.*\\\"([^\\\"]+)\\\".*$/\\1/' | tail -1)\"",
-            "\"LIST ROLES\"");
+            composeFile, "interfold_admin", scyllaAdminPassword, "\"LIST ROLES\"");
         await Assert.That(scyllaAdminFinal.Stdout.Contains("interfold_admin")).IsTrue()
             .Because($"after resume, interfold_admin must exist in scylla: {scyllaAdminFinal.Stdout}");
     }

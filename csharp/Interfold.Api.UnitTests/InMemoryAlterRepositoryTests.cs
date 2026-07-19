@@ -4,8 +4,7 @@ using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
-using Interfold.Domain.Abstractions;
-using Interfold.Infrastructure.InMemory;
+using Interfold.Api.UnitTests.Support;
 using Interfold.Infrastructure.InMemory.Repository;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -29,17 +28,6 @@ public sealed class InMemoryAlterRepositoryTests
     private static readonly SystemId TrustedId = new("trstd01");
     private static readonly SystemId StrangerId = new("stngr01");
 
-    /// <summary>
-    /// Fixed region so the tests don't depend on <see cref="InMemoryRegionContext"/>'s
-    /// hash-routing (which would land each principal in a different keyspace and break
-    /// the "everything talks to the same store" precondition the visibility tests need).
-    /// </summary>
-    private sealed class FixedRegionContext : IRegionContext
-    {
-        public ScyllaKeyspace CurrentRegion => ScyllaKeyspace.Nam;
-        public ScyllaKeyspace ResolveUserRegion(SystemId systemId) => CurrentRegion;
-    }
-
     private sealed record TestHarness(
         InMemoryAlterRepository Alters,
         InMemoryFriendshipRepository Friendships,
@@ -47,7 +35,10 @@ public sealed class InMemoryAlterRepositoryTests
 
     private static TestHarness BuildHarness()
     {
-        var region = new FixedRegionContext();
+        // Fixed region so the tests don't depend on InMemoryRegionContext's hash-routing
+        // (which would land each principal in a different keyspace and break the
+        // "everything talks to the same store" precondition the visibility tests need).
+        var region = new FixedRegionContext(ScyllaKeyspace.Nam);
         var friendships = new InMemoryFriendshipRepository();
         // The SettingsField repo takes an IServiceProvider used only for the cascade
         // delete of alter field values. Our tests never delete field definitions, so

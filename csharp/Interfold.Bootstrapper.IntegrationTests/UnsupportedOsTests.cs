@@ -33,9 +33,11 @@ public class UnsupportedOsTests(UnsupportedDistroDinDFixture dinD)
             .Because("error message should explicitly identify the unsupported distro");
 
         // Filesystem state must be untouched - secrets/certs/compose should not exist.
+        // wc -l returns the number of lines from `ls`, which is 0 when none of the paths
+        // exist. Assert on the parsed count, not the ExecResult itself.
         var any = await dinD.ExecAsync(
             ["sh", "-c", $"ls {scratch.OutputDir}/secrets {scratch.OutputDir}/certs {scratch.OutputDir}/docker-compose.yaml 2>/dev/null | wc -l"]);
-        await Assert.That(any).IsEqualTo(0)
+        await Assert.That(int.Parse(any.Stdout.Trim())).IsEqualTo(0)
             .Because("a refused run must not leave partial artifacts under the output dir");
     }
 }

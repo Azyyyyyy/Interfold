@@ -90,12 +90,10 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
         var (scratch, composeFile) = await dinD.BootstrapAsync(nameof(InterfoldPostgresUserIsDmlOnly), TestConfigPaths.DefaultConfig);
 
         // Read the app user's password from the persisted secrets file (the only place it lives
-        // outside the cluster after a successful bootstrap).
-        var appPassRaw = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"grep '\"postgresPassword\"' {scratch.SecretsJsonPath} " +
-             "| sed -E 's/.*\"postgresPassword\"[^\"]*\"([^\"]+)\".*/\\1/'"]);
-        var appPass = appPassRaw.Stdout.Trim();
+        // outside the cluster after a successful bootstrap). ReadSecretsFieldAsync parses the
+        // file in-process via JsonDocument so it stays correct even if SecretsPhase.PersistAsync
+        // switches to prettified/reordered JSON — the same rationale as the sibling call at L165.
+        var appPass = await dinD.ReadSecretsFieldAsync(scratch, "postgresPassword");
         await Assert.That(appPass).IsNotEmpty()
             .Because("interfold password should be readable from secrets.json");
 
@@ -114,16 +112,13 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
     {
         var (scratch, composeFile) = await dinD.BootstrapAsync(nameof(InterfoldScyllaUserIsNonSuperuser), TestConfigPaths.DefaultConfig);
 
-        // Read scyllaAdminPassword from THIS test's secrets.json. `/opt/scratch/*/secrets.json | head -1`
-        // would pick the alphabetically-first scratch dir (which is a sibling test's, since the
-        // class shares one DinD container and TearDownComposeAsync deliberately leaves scratch
-        // dirs in place for failure-artifact capture) and produce a "Bad credentials" auth error
-        // every time this test isn't the first alphabetically.
-        var adminPassRaw = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"grep '\"scyllaAdminPassword\"' {scratch.SecretsJsonPath} " +
-             "| sed -E 's/.*\"scyllaAdminPassword\"[^\"]*\"([^\"]+)\".*/\\1/'"]);
-        var adminPass = adminPassRaw.Stdout.Trim();
+        // Read scyllaAdminPassword from THIS test's secrets.json. Explicitly using scratch
+        // (per-test dir) — `/opt/scratch/*/secrets.json | head -1` would pick the
+        // alphabetically-first scratch dir (which is a sibling test's, since the class shares
+        // one DinD container and TearDownComposeAsync deliberately leaves scratch dirs in place
+        // for failure-artifact capture) and produce a "Bad credentials" auth error every time
+        // this test isn't the first alphabetically.
+        var adminPass = await dinD.ReadSecretsFieldAsync(scratch, "scyllaAdminPassword");
         await Assert.That(adminPass).IsNotEmpty()
             .Because("scyllaAdminPassword must be persisted in secrets.json");
 
@@ -180,11 +175,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
     {
         var (scratch, composeFile) = await dinD.BootstrapAsync(nameof(InternalSecretsTableIsSeeded), TestConfigPaths.DefaultConfig);
 
-        var appPassRaw = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"grep '\"postgresPassword\"' {scratch.SecretsJsonPath} " +
-             "| sed -E 's/.*\"postgresPassword\"[^\"]*\"([^\"]+)\".*/\\1/'"]);
-        var appPass = appPassRaw.Stdout.Trim();
+        var appPass = await dinD.ReadSecretsFieldAsync(scratch, "postgresPassword");
 
         // The app user has SELECT on internal.secrets - we use it (not admin) so we also
         // implicitly confirm the grant from BootstrapPostgresAsync still applies.

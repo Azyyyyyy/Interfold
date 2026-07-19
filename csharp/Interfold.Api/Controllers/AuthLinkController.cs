@@ -2,14 +2,11 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Mvc;
-using Interfold.Domain.Abstractions;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Operations;
 using Interfold.Api.Services;
 using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Events;
 using Interfold.Contracts.Models.Read;
-using Interfold.Domain.Abstractions.Repository;
 using Interfold.Api.Controllers.Base;
 using Interfold.Api.Models;
 using Interfold.Contracts;
@@ -48,6 +45,24 @@ public sealed class AuthLinkController : OAuthControllerBase
     {
         if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
             return UnsupportedProviderResponse(provider);
+
+        // Fail-fast: the client is contractually required to pass redirect_uri on Begin so
+        // the callback (which reads it back from the octocon_link_redirect_uri cookie) can
+        // route the user home after the OAuth round-trip. Detecting it upfront avoids the
+        // full challenge round-trip landing in the 400 branch of RedirectWithSocketEventAsync
+        // — the client sees the same error code, just before the browser leaves for the
+        // provider. Sibling AuthController.Begin has the same contract; the check lives here
+        // as a per-endpoint guard rather than base-class middleware because only the Begin
+        // shape carries the redirect_uri query param.
+        var redirectUri = Request.Query[OAuthQueryKeys.RedirectUri].ToString();
+        if (string.IsNullOrWhiteSpace(redirectUri))
+        {
+            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.QueryAuthLinkRequest.Value;
+            return BadRequest(new ErrorResponse(
+                "Missing client-supplied redirect_uri.",
+                ErrorCodes.MissingRedirectUri,
+                detail: "Pass redirect_uri on GET /auth/link/{provider} so the link callback knows where to send the result."));
+        }
 
         StoreQueryCookie(LinkTokenCookieName, OAuthQueryKeys.LinkToken);
         StoreRedirectUriCookie(RedirectUriCookieName);
@@ -92,7 +107,21 @@ public sealed class AuthLinkController : OAuthControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
         }
 
-        var commandResult = await _linkHandler.HandleAsync(BuildEnvelope(OperationIds.AuthLinkCallback, new LinkOAuthIdentityCommand(linkToken.Value, typedIdentity)), HttpContext.RequestAborted);
+        // This endpoint is [AllowAnonymous] (the caller is a browser mid-OAuth-round-trip,
+        // not an authenticated principal), so InterfoldPrincipalMiddleware doesn't populate
+        // HttpContext.Items — BuildEnvelope would throw. Follow the sibling pattern from
+        // AuthController.Callback: hand-build the envelope with the synthetic "nam:auth"
+        // principal. The command handler resolves the real system id off the link token
+        // itself (ResolveSystemIdByLinkTokenAsync), so command.PrincipalId is never read.
+        var envelope = new CommandEnvelope<LinkOAuthIdentityCommand>(
+            OperationIds.AuthLinkCallback,
+            Guid.NewGuid(),
+            ScopedSystemId.ParseScoped("nam:auth"),
+            GetIdempotencyKey(),
+            TimeProvider.GetUtcNow(),
+            new LinkOAuthIdentityCommand(linkToken.Value, typedIdentity)
+        );
+        var commandResult = await _linkHandler.HandleAsync(envelope, HttpContext.RequestAborted);
         if (!commandResult.Accepted || commandResult.Result is null)
         {
             Response.Cookies.Delete(LinkTokenCookieName);

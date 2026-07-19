@@ -271,9 +271,18 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
         return string.Empty;
     }
 
-    public async Task<int> CountFilesAsync(string globExpr, CancellationToken ct = default)
+    /// <summary>
+    /// Counts files matching a glob under the scratch's output dir. The <paramref name="relativePathOrGlob"/>
+    /// is joined onto <see cref="DinDScratch.OutputDir"/> in-container — passing
+    /// <c>"{scratch.OutputDir}/backups/postgres/*.dump"</c> is a bug (the literal <c>{scratch.OutputDir}</c>
+    /// string reaches <c>ls</c> and matches nothing), so this signature takes the scratch as a first-class
+    /// parameter to eliminate that footgun (see sibling <see cref="ReadSecretsFieldAsync"/>). Callers pass
+    /// the trailing relative path only, e.g. <c>"backups/postgres/*.dump"</c>.
+    /// </summary>
+    public async Task<int> CountFilesAsync(DinDScratch scratch, string relativePathOrGlob, CancellationToken ct = default)
     {
-        var exec = await ExecAsync(["sh", "-c", $"ls -1 {globExpr} 2>/dev/null | wc -l"], ct).ConfigureAwait(false);
+        var fullPath = $"{scratch.OutputDir}/{relativePathOrGlob.TrimStart('/')}";
+        var exec = await ExecAsync(["sh", "-c", $"ls -1 {fullPath} 2>/dev/null | wc -l"], ct).ConfigureAwait(false);
         return int.TryParse(exec.Stdout.Trim(), out var count) ? count : 0;
     }
 
