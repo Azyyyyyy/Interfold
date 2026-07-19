@@ -58,8 +58,8 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
         // before returning). Route through Compose one more time so we still hand the
         // event publisher a ScopedSystemId if a repo path ever emits a bare id — the
         // principal's region is the safe fallback for the same-region friendship case.
-        var targetScopedId = ScopedSystemId.Compose(
-            command.PrincipalId.Region,
+        var targetScopedId = FriendshipCommandNormalization.ComposePeerId(
+            command.PrincipalId,
             targetSystemId);
 
         var outcome = await _repository.SendRequestAsync(
@@ -84,22 +84,14 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
 
         var action = outcome is SendFriendRequestOutcome.Accepted ? FriendshipAction.Accepted : FriendshipAction.Sent;
 
-        var result = new FriendshipCommandResult(
-            command.PrincipalId,
-            targetSystemId,
-            action,
-            Replay: false);
-
         //TODO: Check this path sends the required events
         if (outcome is SendFriendRequestOutcome.Accepted)
         {
-            await _eventBus.PublishAsync(new FriendshipAddedEvent(
+            await FriendshipEventFlow.PublishFriendshipAddedBothWaysAsync(
+                _eventBus,
                 command.PrincipalId,
-                targetSystemId), cancellationToken);
-
-            await _eventBus.PublishAsync(new FriendshipAddedEvent(
                 targetScopedId,
-                command.PrincipalId), cancellationToken);
+                cancellationToken);
 
             await _eventBus.PublishAsync(new FriendRequestRemovedToEvent(
                 targetScopedId,
@@ -116,7 +108,7 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
                 command.PrincipalId), cancellationToken);
         }
 
-        return CommandExecutionResult<FriendshipCommandResult>.Success(result);
+        return FriendshipCommandFlow.Success(command.PrincipalId, targetSystemId, action);
     }
 
 }

@@ -1,8 +1,6 @@
 using Interfold.Contracts;
-using Interfold.Contracts.Events;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
-using Interfold.Contracts.Models.Read;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
@@ -31,37 +29,36 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
         CommandEnvelope<DeleteFrontByIdCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (command.Payload.FrontId == FrontId.Empty)
-            return RejectInvariant(command, EntityRefs.FrontingInvalidFrontId);
+        var (resolution, rejection) = await FrontingCommandFlow.ResolveFrontByIdAfterValidationOrRejectAsync(
+            command,
+            _frontingRepository,
+            command.Payload.FrontId,
+            cancellationToken);
+        if (rejection is not null)
+            return rejection;
 
-        var existing = await _frontingRepository.GetActiveByFrontIdAsync(command.PrincipalId, command.Payload.FrontId, cancellationToken);
-        FrontHistoryReadModel? existingHistory = null;
-        if (existing is null)
+        if (resolution!.WasActive)
         {
-            existingHistory = await _frontingRepository.GetHistoryEntryByFrontIdAsync(command.PrincipalId, command.Payload.FrontId, cancellationToken);
-            if (existingHistory is null)
-                return RejectInvariant(command, EntityRefs.FrontingNoFront);
+            if (await FrontingCommandFlow.ExecuteMutationOrRejectAsync(
+                command,
+                ct => _frontingRepository.EndByFrontIdAsync(command.PrincipalId, command.Payload.FrontId, ct),
+                EntityRefs.FrontingDeleteFailed,
+                cancellationToken) is { } deleteReject)
+                return deleteReject;
         }
 
-        if (existing is not null)
-        {
-            var deleted = await _frontingRepository.EndByFrontIdAsync(command.PrincipalId, command.Payload.FrontId, cancellationToken);
-            if (!deleted)
-                return RejectInvariant(command, EntityRefs.FrontingDeleteFailed);
-        }
+        if (await FrontingCommandFlow.ExecuteMutationOrRejectAsync(
+            command,
+            ct => _frontingRepository.DeleteFrontByIdAsync(command.PrincipalId, command.Payload.FrontId, ct),
+            EntityRefs.FrontingDeleteFailed,
+            cancellationToken) is { } historyDeleteReject)
+            return historyDeleteReject;
 
-        var deletedFromHistory = await _frontingRepository.DeleteFrontByIdAsync(command.PrincipalId, command.Payload.FrontId, cancellationToken);
-        if (!deletedFromHistory)
-            return RejectInvariant(command, EntityRefs.FrontingDeleteFailed);
+        var alterId = resolution.AlterId;
 
-        var alterId = existing?.Front.AlterId ?? existingHistory!.AlterId;
-        var result = new FrontCommandResult(command.PrincipalId, alterId, command.Payload.FrontId, Replay: false);
+        await FrontingCommandFlow.PublishDeletedAsync(_eventBus, command.PrincipalId, command.Payload.FrontId, resolution.WasActive, cancellationToken);
 
-        if (existing is not null)
-            await _eventBus.PublishAsync(new FrontingStateChangedEvent(command.PrincipalId), cancellationToken);
-        await _eventBus.PublishAsync(new FrontDeletedEvent(command.PrincipalId, command.Payload.FrontId), cancellationToken);
-
-        return CommandExecutionResult<FrontCommandResult>.Success(result);
+        return FrontingCommandFlow.Success(command.PrincipalId, alterId, command.Payload.FrontId);
     }
 
 }

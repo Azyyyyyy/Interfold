@@ -1,5 +1,4 @@
 using Interfold.Contracts;
-using Interfold.Contracts.Events;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
@@ -35,38 +34,30 @@ public sealed class EndFrontCommandHandler : IdempotentCommandHandler<EndFrontCo
             CancellationToken cancellationToken = default
         )
     {
-        if (RejectIfAlterIdOutOfRange(command, command.Payload.AlterId, EntityRefs.FrontingInvalidAlterId) is { } rangeReject)
-            return rangeReject;
-
-        var fronting = await _frontingRepository.IsFrontingAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
-        if (!fronting)
-        {
-            return RejectInvariant(command, EntityRefs.FrontingNotFronting);
-        }
+        if (await FrontingCommandFlow.RejectIfInvalidOrNotFrontingAsync(command, _frontingRepository, command.Payload.AlterId, cancellationToken) is { } notFrontingReject)
+            return notFrontingReject;
 
         var activeFronts = await _frontingRepository.ListActiveAsync(command.PrincipalId, cancellationToken);
         var endedFrontWasPrimary = activeFronts.Any(front =>
             front.Alter.Id == command.Payload.AlterId && front.Primary);
 
-        var ended = await _frontingRepository.EndAsync(command.PrincipalId, command.Payload.AlterId, _timeProvider.GetUtcNow(), cancellationToken);
-        if (!ended)
-        {
-            return RejectInvariant(command, EntityRefs.FrontingEndFailed);
-        }
-
-        var result = new FrontCommandResult(command.PrincipalId, command.Payload.AlterId, FrontId: null, Replay: false);
-
-        await _eventBus.PublishAsync(new FrontingStateChangedEvent(command.PrincipalId), cancellationToken);
+        if (await FrontingCommandFlow.ExecuteMutationOrRejectAsync(
+            command,
+            ct => _frontingRepository.EndAsync(command.PrincipalId, command.Payload.AlterId, _timeProvider.GetUtcNow(), ct),
+            EntityRefs.FrontingEndFailed,
+            cancellationToken) is { } endReject)
+            return endReject;
 
         // Emit granular event for socket layer to handle fronting_ended
-        await _eventBus.PublishAsync(new FrontingEndedEvent(command.PrincipalId, command.Payload.AlterId), cancellationToken);
+        await FrontingCommandFlow.PublishStateChangedAndEndedAsync(_eventBus, command.PrincipalId, command.Payload.AlterId, cancellationToken);
 
-        if (endedFrontWasPrimary)
-        {
-            await _eventBus.PublishAsync(new FrontingPrimaryChangedEvent(command.PrincipalId, null), cancellationToken);
-        }
+        await FrontingCommandFlow.PublishPrimaryClearedIfNeededAsync(
+            _eventBus,
+            command.PrincipalId,
+            endedFrontWasPrimary,
+            cancellationToken);
 
-        return CommandExecutionResult<FrontCommandResult>.Success(result);
+        return FrontingCommandFlow.Success(command.PrincipalId, command.Payload.AlterId, frontId: null);
     }
 
 }

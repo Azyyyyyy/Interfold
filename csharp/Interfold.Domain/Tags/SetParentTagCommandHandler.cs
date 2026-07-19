@@ -40,18 +40,13 @@ protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteC
             return RejectInvariant(command, EntityRefs.TagCycle);
 
         // SetParentAsync returns false if tag or parent tag does not exist.
-        var set = await _tagRepository.SetParentAsync(
-            command.PrincipalId, payload.TagId, payload.ParentTagId, cancellationToken);
-
-        if (!set) return RejectInvariant(command, EntityRefs.TagNotFound);
-
-        var result = new TagCommandResult(command.PrincipalId, payload.TagId, Replay: false);
-
-        await _eventBus.PublishAsync(
-            new TagUpdatedEvent(command.PrincipalId, payload.TagId),
+        return await TagCommandFlow.ExecuteTagMutationAsync(
+            command,
+            payload.TagId,
+            ct => _tagRepository.SetParentAsync(command.PrincipalId, payload.TagId, payload.ParentTagId, ct),
+            EntityRefs.TagNotFound,
+            _eventBus,
             cancellationToken);
-
-        return CommandExecutionResult<TagCommandResult>.Success(result);
     }
 
     /// <summary>

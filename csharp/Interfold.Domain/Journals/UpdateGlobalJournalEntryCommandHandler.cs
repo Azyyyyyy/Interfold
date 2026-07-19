@@ -36,18 +36,14 @@ protected override async Task<CommandExecutionResult<GlobalJournalCommandResult>
         if (command.Payload.Title is not null && command.Payload.Title.Length > 250)
             return RejectInvariant(command, EntityRefs.JournalTitleTooLong);
 
-        var exists = await _journalRepository.ExistsGlobalAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
-        if (!exists)
-            return RejectInvariant(command, EntityRefs.JournalNotFound);
-
-        var updated = await _journalRepository.UpdateGlobalAsync(command.PrincipalId, command.Payload, cancellationToken);
-        if (!updated)
-            return RejectInvariant(command, EntityRefs.JournalUpdateFailed);
-
-        var result = new GlobalJournalCommandResult(command.PrincipalId, command.Payload.EntryId, Replay: false);
-
-        await _eventBus.PublishAsync(new GlobalJournalEntryUpdatedEvent(command.PrincipalId, command.Payload.EntryId), cancellationToken);
-        return CommandExecutionResult<GlobalJournalCommandResult>.Success(result);
+        return await GlobalJournalCommandFlow.ExecuteUpdateAsync(
+            command,
+            command.Payload.EntryId,
+            _journalRepository,
+            _eventBus,
+            ct => _journalRepository.UpdateGlobalAsync(command.PrincipalId, command.Payload, ct),
+            EntityRefs.JournalUpdateFailed,
+            cancellationToken);
     }
 
 }

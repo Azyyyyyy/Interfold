@@ -39,18 +39,14 @@ protected override async Task<CommandExecutionResult<AlterJournalCommandResult>>
         if (command.Payload.Content is not null && command.Payload.Content.Length > 50_000)
             return RejectInvariant(command, EntityRefs.JournalContentTooLong);
 
-        var alterRef = await _journalRepository.GetAlterRefAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
-        if (alterRef is null)
-            return RejectInvariant(command, EntityRefs.JournalNotFound);
-
-        var updated = await _journalRepository.UpdateAlterAsync(command.PrincipalId, command.Payload, cancellationToken);
-        if (!updated)
-            return RejectInvariant(command, EntityRefs.JournalUpdateFailed);
-
-        var result = new AlterJournalCommandResult(command.PrincipalId, command.Payload.EntryId, alterRef.AlterId, Replay: false);
-
-        await _eventBus.PublishAsync(new AlterJournalEntryUpdatedEvent(command.PrincipalId, command.Payload.EntryId), cancellationToken);
-        return CommandExecutionResult<AlterJournalCommandResult>.Success(result);
+        return await AlterJournalCommandFlow.ExecuteExistingEntryMutationAsync(
+            command,
+            command.Payload.EntryId,
+            _journalRepository,
+            ct => _journalRepository.UpdateAlterAsync(command.PrincipalId, command.Payload, ct),
+            EntityRefs.JournalUpdateFailed,
+            ct => _eventBus.PublishAsync(new AlterJournalEntryUpdatedEvent(command.PrincipalId, command.Payload.EntryId), ct),
+            cancellationToken);
     }
 
 }

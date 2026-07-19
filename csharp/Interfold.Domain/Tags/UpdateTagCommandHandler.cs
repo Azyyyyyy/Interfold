@@ -32,22 +32,19 @@ protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteC
     {
         var payload = command.Payload;
 
-        if (payload.Name is null && payload.Color is null && payload.Description is null && payload.SecurityLevel is null)
+        if (TagCommandValidation.HasNoMutableFields(payload))
             return RejectInvariant(command, EntityRefs.TagNoFields);
 
-        if (payload.Name is not null && payload.Name.Length > 50)
-            return RejectInvariant(command, EntityRefs.TagNameTooLong);
+        if (TagCommandValidation.GetNameValidationError(payload.Name) is { } validationError)
+            return RejectInvariant(command, validationError);
 
-        var found = await _tagRepository.UpdateAsync(command.PrincipalId, payload, cancellationToken);
-        if (!found) return RejectInvariant(command, EntityRefs.TagNotFound);
-
-        var result = new TagCommandResult(command.PrincipalId, payload.TagId, Replay: false);
-
-        await _eventBus.PublishAsync(
-            new TagUpdatedEvent(command.PrincipalId, payload.TagId),
+        return await TagCommandFlow.ExecuteTagMutationAsync(
+            command,
+            payload.TagId,
+            ct => _tagRepository.UpdateAsync(command.PrincipalId, payload, ct),
+            EntityRefs.TagNotFound,
+            _eventBus,
             cancellationToken);
-
-        return CommandExecutionResult<TagCommandResult>.Success(result);
     }
 
 }

@@ -33,12 +33,11 @@ protected override async Task<CommandExecutionResult<AlterCommandResult>> Execut
         CommandEnvelope<DeleteAlterCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (RejectIfAlterIdOutOfRange(command, command.Payload.AlterId, EntityRefs.AlterId) is { } rangeReject)
+        if (AlterCommandFlow.RejectIfInvalidAlterId(command, command.Payload.AlterId, EntityRefs.AlterId) is { } rangeReject)
             return rangeReject;
 
-        var exists = await _alterRepository.ExistsAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
-        if (!exists)
-            return RejectInvariant(command, EntityRefs.AlterNotFound);
+        if (await AlterCommandFlow.RejectIfAlterNotFoundAsync(command, _alterRepository, command.Payload.AlterId, EntityRefs.AlterNotFound, cancellationToken) is { } notFoundReject)
+            return notFoundReject;
 
         // Cascade BEFORE the alter row itself is removed so a journal-cleanup failure
         // leaves the alter intact (caller can retry); the inverse order would orphan the
@@ -47,19 +46,15 @@ protected override async Task<CommandExecutionResult<AlterCommandResult>> Execut
         // deleting the global journal itself (multiple alters can share a group journal).
         await _journalRepository.DeleteAllForAlterAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
 
-        var deleted = await _alterRepository.DeleteAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
-        if (!deleted)
-            return RejectInvariant(command, EntityRefs.AlterDeleteFailed);
-
         //TODO: Delete alter image if it exists
 
-        var result = new AlterCommandResult(command.PrincipalId, command.Payload.AlterId, Replay: false);
-
-        await _eventBus.PublishAsync(
-            new AlterDeletedEvent(command.PrincipalId, command.Payload.AlterId),
+        return await AlterCommandFlow.ExecuteMutationAsync(
+            command,
+            command.Payload.AlterId,
+            ct => _alterRepository.DeleteAsync(command.PrincipalId, command.Payload.AlterId, ct),
+            EntityRefs.AlterDeleteFailed,
+            ct => _eventBus.PublishAsync(new AlterDeletedEvent(command.PrincipalId, command.Payload.AlterId), ct),
             cancellationToken);
-
-        return CommandExecutionResult<AlterCommandResult>.Success(result);
     }
 
 }

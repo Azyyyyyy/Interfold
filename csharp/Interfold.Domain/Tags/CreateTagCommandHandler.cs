@@ -35,8 +35,8 @@ protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteC
         if (RejectIfBlank(command, command.Payload.Name, EntityRefs.TagNameRequired) is { } blankReject)
             return blankReject;
 
-        if (command.Payload.Name.Length > 50)
-            return RejectInvariant(command, EntityRefs.TagNameTooLong);
+        if (TagCommandValidation.GetNameValidationError(command.Payload.Name) is { } validationError)
+            return RejectInvariant(command, validationError);
 
         if (command.Payload.ParentTagId is { } parentTagId && parentTagId != TagId.Empty)
         {
@@ -55,20 +55,14 @@ protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteC
         // the envelope just before the repo call. The SP import bypasses this handler and
         // sets InsertedAtUtc itself from the decoded ObjectId, so it isn't affected here.
         var insertedAtUtc = (command.OccurredAt ?? DateTimeOffset.UtcNow).UtcDateTime;
-        var tagId = await _tagRepository.CreateAsync(
-            command.PrincipalId,
-            command.Payload with { InsertedAtUtc = insertedAtUtc },
+        return await TagCommandFlow.ExecuteCreateAsync(
+            command,
+            _eventBus,
+            ct => _tagRepository.CreateAsync(
+                command.PrincipalId,
+                command.Payload with { InsertedAtUtc = insertedAtUtc },
+                ct),
             cancellationToken);
-        if (tagId is null)
-            return RejectInvariant(command, EntityRefs.TagCreateFailed);
-
-        var result = new TagCommandResult(command.PrincipalId, tagId.Value, Replay: false);
-
-        await _eventBus.PublishAsync(
-            new TagCreatedEvent(command.PrincipalId, tagId.Value),
-            cancellationToken);
-
-        return CommandExecutionResult<TagCommandResult>.Success(result);
     }
 
 }

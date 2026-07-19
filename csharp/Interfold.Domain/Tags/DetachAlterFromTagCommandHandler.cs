@@ -35,21 +35,16 @@ protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteC
     {
         var payload = command.Payload;
 
-        var alterExists = await _alterRepository.ExistsAsync(command.PrincipalId, payload.AlterId, cancellationToken);
-        if (!alterExists) return RejectInvariant(command, EntityRefs.TagAlterNotFound);
+        if (await TagCommandFlow.RejectIfAlterNotFoundAsync(command, payload.AlterId, _alterRepository, cancellationToken) is { } rejection)
+            return rejection;
 
-        var detached = await _tagRepository.DetachAlterAsync(
-            command.PrincipalId, payload.TagId, payload.AlterId, cancellationToken);
-
-        if (!detached) return RejectInvariant(command, EntityRefs.TagNotFound);
-
-        var result = new TagCommandResult(command.PrincipalId, payload.TagId, Replay: false);
-
-        await _eventBus.PublishAsync(
-            new TagUpdatedEvent(command.PrincipalId, payload.TagId),
+        return await TagCommandFlow.ExecuteTagMutationAsync(
+            command,
+            payload.TagId,
+            ct => _tagRepository.DetachAlterAsync(command.PrincipalId, payload.TagId, payload.AlterId, ct),
+            EntityRefs.TagNotFound,
+            _eventBus,
             cancellationToken);
-
-        return CommandExecutionResult<TagCommandResult>.Success(result);
     }
 
 }

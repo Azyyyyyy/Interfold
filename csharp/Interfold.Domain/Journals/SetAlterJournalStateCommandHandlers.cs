@@ -31,19 +31,14 @@ public sealed class SetAlterJournalLockedCommandHandler : IdempotentCommandHandl
         CommandEnvelope<SetAlterJournalLockedCommand> command,
         CancellationToken cancellationToken = default)
     {
-        var alterRef = await _journalRepository.GetAlterRefAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
-        if (alterRef is null)
-            return RejectInvariant(command, EntityRefs.JournalNotFound);
-
-        var updated = await _journalRepository.SetAlterLockedAsync(
-            command.PrincipalId, command.Payload.EntryId, command.Payload.Locked, cancellationToken);
-        if (!updated)
-            return RejectInvariant(command, EntityRefs.JournalUpdateFailed);
-
-        var result = new AlterJournalCommandResult(command.PrincipalId, command.Payload.EntryId, alterRef.AlterId, Replay: false);
-
-        await _eventBus.PublishAsync(new AlterJournalEntryUpdatedEvent(command.PrincipalId, command.Payload.EntryId), cancellationToken);
-        return CommandExecutionResult<AlterJournalCommandResult>.Success(result);
+        return await AlterJournalCommandFlow.ExecuteExistingEntryMutationAsync(
+            command,
+            command.Payload.EntryId,
+            _journalRepository,
+            ct => _journalRepository.SetAlterLockedAsync(command.PrincipalId, command.Payload.EntryId, command.Payload.Locked, ct),
+            EntityRefs.JournalUpdateFailed,
+            ct => _eventBus.PublishAsync(new AlterJournalEntryUpdatedEvent(command.PrincipalId, command.Payload.EntryId), ct),
+            cancellationToken);
     }
 }
 
@@ -69,18 +64,13 @@ public sealed class SetAlterJournalPinnedCommandHandler : IdempotentCommandHandl
         CommandEnvelope<SetAlterJournalPinnedCommand> command,
         CancellationToken cancellationToken = default)
     {
-        var alterRef = await _journalRepository.GetAlterRefAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
-        if (alterRef is null)
-            return RejectInvariant(command, EntityRefs.JournalNotFound);
-
-        var updated = await _journalRepository.SetAlterPinnedAsync(
-            command.PrincipalId, command.Payload.EntryId, command.Payload.Pinned, cancellationToken);
-        if (!updated)
-            return RejectInvariant(command, EntityRefs.JournalUpdateFailed);
-
-        var result = new AlterJournalCommandResult(command.PrincipalId, command.Payload.EntryId, alterRef.AlterId, Replay: false);
-
-        await _eventBus.PublishAsync(new AlterJournalEntryUpdatedEvent(command.PrincipalId, command.Payload.EntryId), cancellationToken);
-        return CommandExecutionResult<AlterJournalCommandResult>.Success(result);
+        return await AlterJournalCommandFlow.ExecuteExistingEntryMutationAsync(
+            command,
+            command.Payload.EntryId,
+            _journalRepository,
+            ct => _journalRepository.SetAlterPinnedAsync(command.PrincipalId, command.Payload.EntryId, command.Payload.Pinned, ct),
+            EntityRefs.JournalUpdateFailed,
+            ct => _eventBus.PublishAsync(new AlterJournalEntryUpdatedEvent(command.PrincipalId, command.Payload.EntryId), ct),
+            cancellationToken);
     }
 }

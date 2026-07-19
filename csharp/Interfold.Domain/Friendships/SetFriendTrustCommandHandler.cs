@@ -32,26 +32,20 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
         CancellationToken cancellationToken = default)
     {
 
-        var canonicalFriendSystemId = ScopedSystemId.Compose(
-            command.PrincipalId.Region,
+        var canonicalFriendSystemId = FriendshipCommandNormalization.ComposePeerId(
+            command.PrincipalId,
             command.Payload.FriendSystemId);
 
-        var updated = await _repository.SetTrustedAsync(
-            command.PrincipalId,
-            canonicalFriendSystemId,
-            command.Payload.Trusted,
-            cancellationToken);
-
-        if (!updated)
-        {
-            return RejectInvariant(command, EntityRefs.FriendshipNotFound);
-        }
-
-        var result = new FriendshipCommandResult(
-            command.PrincipalId,
-            canonicalFriendSystemId,
-            command.Payload.Trusted ? FriendshipAction.Trusted : FriendshipAction.Untrusted,
-            Replay: false);
+        if (await FriendshipCommandFlow.ExecuteMutationOrRejectAsync(
+                command,
+                ct => _repository.SetTrustedAsync(
+                    command.PrincipalId,
+                    canonicalFriendSystemId,
+                    command.Payload.Trusted,
+                    ct),
+                EntityRefs.FriendshipNotFound,
+                cancellationToken) is { } trustReject)
+            return trustReject;
 
         if (command.Payload.Trusted)
         {
@@ -66,7 +60,10 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
                 cancellationToken);
         }
 
-        return CommandExecutionResult<FriendshipCommandResult>.Success(result);
+        return FriendshipCommandFlow.Success(
+            command.PrincipalId,
+            canonicalFriendSystemId,
+            command.Payload.Trusted ? FriendshipAction.Trusted : FriendshipAction.Untrusted);
     }
 
 }

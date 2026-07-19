@@ -30,33 +30,32 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
         CommandEnvelope<UpdateFrontCommentCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (command.Payload.FrontId == FrontId.Empty)
-            return RejectInvariant(command, EntityRefs.FrontingInvalidFrontId);
+        if (FrontingCommandFlow.RejectIfInvalidComment(command, command.Payload.Comment) is { } invalidCommentReject)
+            return invalidCommentReject;
 
-        if (!FrontId.IsValidComment(command.Payload.Comment))
-            return RejectInvariant(command, EntityRefs.FrontingInvalidComment);
-
-        var existing = await _frontingRepository.GetActiveByFrontIdAsync(command.PrincipalId, command.Payload.FrontId, cancellationToken);
-        if (existing is null)
-            return RejectInvariant(command, EntityRefs.FrontingNoFront);
-
-        var updated = await _frontingRepository.UpdateCommentByFrontIdAsync(
-            command.PrincipalId,
+        var (existing, rejection) = await FrontingCommandFlow.GetActiveFrontByIdAfterValidationOrRejectAsync(
+            command,
+            _frontingRepository,
             command.Payload.FrontId,
-            command.Payload.Comment ?? string.Empty,
             cancellationToken);
+        if (rejection is not null)
+            return rejection;
 
-        if (!updated)
-            return RejectInvariant(command, EntityRefs.FrontingUpdateCommentFailed);
-
-        var result = new FrontCommandResult(command.PrincipalId, existing.Front.AlterId, command.Payload.FrontId, Replay: false);
-
-        await _eventBus.PublishAsync(new FrontingStateChangedEvent(command.PrincipalId), cancellationToken);
+        if (await FrontingCommandFlow.ExecuteMutationOrRejectAsync(
+                command,
+                ct => _frontingRepository.UpdateCommentByFrontIdAsync(
+                    command.PrincipalId,
+                    command.Payload.FrontId,
+                    command.Payload.Comment ?? string.Empty,
+                    ct),
+                EntityRefs.FrontingUpdateCommentFailed,
+                cancellationToken) is { } updateReject)
+            return updateReject;
 
         // Emit granular event for socket layer to handle front_updated
-        await _eventBus.PublishAsync(new FrontCommentUpdatedEvent(command.PrincipalId, command.Payload.FrontId), cancellationToken);
+        await FrontingCommandFlow.PublishStateChangedAndCommentUpdatedAsync(_eventBus, command.PrincipalId, command.Payload.FrontId, cancellationToken);
 
-        return CommandExecutionResult<FrontCommandResult>.Success(result);
+        return FrontingCommandFlow.Success(command.PrincipalId, existing!.Front.AlterId, command.Payload.FrontId);
     }
 
 }

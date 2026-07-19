@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Domain.Settings;
 using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Fronting;
@@ -34,29 +35,21 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
     {
         if (command.Payload.AlterId is { } alterId)
         {
-            if (RejectIfAlterIdOutOfRange(command, alterId, EntityRefs.FrontingInvalidAlterId) is { } rangeReject)
-                return rangeReject;
-
-            var fronting = await _frontingRepository.IsFrontingAsync(command.PrincipalId, alterId, cancellationToken);
-            if (!fronting)
-            {
-                return RejectInvariant(command, EntityRefs.FrontingNotFronting);
-            }
+            if (await FrontingCommandFlow.RejectIfInvalidOrNotFrontingAsync(command, _frontingRepository, alterId, cancellationToken) is { } notFrontingReject)
+                return notFrontingReject;
         }
 
-        var set = await _frontingRepository.SetPrimaryAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
-        if (!set)
-        {
-            return RejectInvariant(command, EntityRefs.FrontingPrimaryFailed);
-        }
+        if (await FrontingCommandFlow.ExecuteMutationOrRejectAsync(
+            command,
+            ct => _frontingRepository.SetPrimaryAsync(command.PrincipalId, command.Payload.AlterId, ct),
+            EntityRefs.FrontingPrimaryFailed,
+            cancellationToken) is { } setReject)
+            return setReject;
 
-        var result = new FrontCommandResult(command.PrincipalId, command.Payload.AlterId, FrontId: null, Replay: false);
+        await FrontingCommandFlow.PublishStateChangedAndPrimaryChangedAsync(_eventBus, command.PrincipalId, command.Payload.AlterId, cancellationToken);
+        await SettingsCommandHelper.PublishProfileUpdatedAsync(_eventBus, command.PrincipalId, includeUsername: false, cancellationToken);
 
-        await _eventBus.PublishAsync(new FrontingStateChangedEvent(command.PrincipalId), cancellationToken);
-        await _eventBus.PublishAsync(new FrontingPrimaryChangedEvent(command.PrincipalId, command.Payload.AlterId), cancellationToken);
-        await _eventBus.PublishAsync(new SettingsProfileUpdatedEvent(command.PrincipalId, false), cancellationToken);
-
-        return CommandExecutionResult<FrontCommandResult>.Success(result);
+        return FrontingCommandFlow.Success(command.PrincipalId, command.Payload.AlterId, frontId: null);
     }
 
 }

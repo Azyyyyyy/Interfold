@@ -35,24 +35,14 @@ public sealed class StartFrontCommandHandler : IdempotentCommandHandler<StartFro
             CancellationToken cancellationToken = default
         )
     {
-        if (RejectIfAlterIdOutOfRange(command, command.Payload.AlterId, EntityRefs.FrontingInvalidAlterId) is { } rangeReject)
+        if (FrontingCommandFlow.RejectIfInvalidAlterId(command, command.Payload.AlterId) is { } rangeReject)
             return rangeReject;
 
-        if (!FrontId.IsValidComment(command.Payload.Comment))
-        {
-            return RejectInvariant(command, EntityRefs.FrontingInvalidComment);
-        }
+        if (FrontingCommandFlow.RejectIfInvalidComment(command, command.Payload.Comment) is { } invalidCommentReject)
+            return invalidCommentReject;
 
-        var alreadyFronting = await _frontingRepository.IsFrontingAsync(
-            command.PrincipalId,
-            command.Payload.AlterId,
-            cancellationToken
-        );
-
-        if (alreadyFronting)
-        {
-            return RejectInvariant(command, EntityRefs.FrontingAlreadyFronting);
-        }
+        if (await FrontingCommandFlow.RejectIfAlreadyFrontingAsync(command, _frontingRepository, command.Payload.AlterId, cancellationToken) is { } alreadyFrontingReject)
+            return alreadyFrontingReject;
 
         var frontId = await _frontingRepository.StartAsync(
             command.PrincipalId,
@@ -62,19 +52,14 @@ public sealed class StartFrontCommandHandler : IdempotentCommandHandler<StartFro
             cancellationToken
         );
 
-        if (frontId is null)
-        {
-            return RejectInvariant(command, EntityRefs.FrontingStartFailed);
-        }
-
-        var result = new FrontCommandResult(command.PrincipalId, command.Payload.AlterId, frontId, Replay: false);
-
-        await _eventBus.PublishAsync(new FrontingStateChangedEvent(command.PrincipalId), cancellationToken);
+        var (startedFrontId, startedFrontRejection) = FrontingCommandFlow.GetStartedFrontIdOrReject(command, frontId);
+        if (startedFrontRejection is not null)
+            return startedFrontRejection;
 
         // Emit granular event for socket layer to handle fronting_started
-        await _eventBus.PublishAsync(new FrontingStartedEvent(command.PrincipalId, frontId.Value), cancellationToken);
+        await FrontingCommandFlow.PublishStateChangedAndStartedAsync(_eventBus, command.PrincipalId, startedFrontId!.Value, cancellationToken);
 
-        return CommandExecutionResult<FrontCommandResult>.Success(result);
+        return FrontingCommandFlow.Success(command.PrincipalId, command.Payload.AlterId, startedFrontId);
     }
 
 }

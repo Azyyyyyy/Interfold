@@ -32,7 +32,7 @@ protected override async Task<CommandExecutionResult<AlterCommandResult>> Execut
         CancellationToken cancellationToken = default
     )
     {
-        if (RejectIfAlterIdOutOfRange(command, command.Payload.AlterId, EntityRefs.AlterId) is { } rangeReject)
+        if (AlterCommandFlow.RejectIfInvalidAlterId(command, command.Payload.AlterId, EntityRefs.AlterId) is { } rangeReject)
             return rangeReject;
 
         if (!HasAnyMutableField(command.Payload))
@@ -48,11 +48,8 @@ protected override async Task<CommandExecutionResult<AlterCommandResult>> Execut
             return RejectInvariant(command, EntityRefs.AlterAvatarSourceRequired);
         }
 
-        var exists = await _alterRepository.ExistsAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
-        if (!exists)
-        {
-            return RejectInvariant(command, EntityRefs.AlterNotFound);
-        }
+        if (await AlterCommandFlow.RejectIfAlterNotFoundAsync(command, _alterRepository, command.Payload.AlterId, EntityRefs.AlterNotFound, cancellationToken) is { } notFoundReject)
+            return notFoundReject;
 
         if (!string.IsNullOrWhiteSpace(command.Payload.Alias))
         {
@@ -69,19 +66,13 @@ protected override async Task<CommandExecutionResult<AlterCommandResult>> Execut
             }
         }
 
-        var updated = await _alterRepository.UpdateAsync(command.PrincipalId, command.Payload, cancellationToken);
-        if (!updated)
-        {
-            return RejectInvariant(command, EntityRefs.AlterUpdateFailed);
-        }
-
-        var result = new AlterCommandResult(command.PrincipalId, command.Payload.AlterId, Replay: false);
-
-        await _eventBus.PublishAsync(
-            new AlterUpdatedEvent(command.PrincipalId, command.Payload.AlterId),
+        return await AlterCommandFlow.ExecuteMutationAsync(
+            command,
+            command.Payload.AlterId,
+            ct => _alterRepository.UpdateAsync(command.PrincipalId, command.Payload, ct),
+            EntityRefs.AlterUpdateFailed,
+            ct => _eventBus.PublishAsync(new AlterUpdatedEvent(command.PrincipalId, command.Payload.AlterId), ct),
             cancellationToken);
-
-        return CommandExecutionResult<AlterCommandResult>.Success(result);
     }
 
     private static bool HasAnyMutableField(UpdateAlterCommand payload) =>

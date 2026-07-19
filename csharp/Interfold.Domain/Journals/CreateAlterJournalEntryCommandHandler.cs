@@ -33,27 +33,28 @@ protected override async Task<CommandExecutionResult<AlterJournalCommandResult>>
         CommandEnvelope<CreateAlterJournalEntryCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (RejectIfAlterIdOutOfRange(command, command.Payload.AlterId, EntityRefs.AlterId) is { } rangeReject)
-            return rangeReject;
-
         if (RejectIfBlank(command, command.Payload.Title, EntityRefs.JournalTitleRequired) is { } blankReject)
             return blankReject;
 
         if (command.Payload.Title.Length > 100)
             return RejectInvariant(command, EntityRefs.JournalTitleTooLong);
 
-        var alterExists = await _alterRepository.ExistsAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
-        if (!alterExists)
-            return RejectInvariant(command, EntityRefs.JournalAlterNotFound);
+        if (await AlterJournalCommandFlow.RejectIfInvalidOrMissingAlterAsync<CreateAlterJournalEntryCommand, AlterJournalCommandResult>(
+                command,
+                command.Payload.AlterId,
+                _alterRepository,
+                EntityRefs.AlterId,
+                EntityRefs.JournalAlterNotFound,
+                cancellationToken) is { } alterReject)
+            return alterReject;
 
-        var entryId = await _journalRepository.CreateAlterAsync(command.PrincipalId, command.Payload, cancellationToken);
-        if (entryId is null)
-            return RejectInvariant(command, EntityRefs.JournalCreateFailed);
-
-        var result = new AlterJournalCommandResult(command.PrincipalId, entryId.Value, command.Payload.AlterId, Replay: false);
-
-        await _eventBus.PublishAsync(new AlterJournalEntryCreatedEvent(command.PrincipalId, entryId.Value), cancellationToken);
-        return CommandExecutionResult<AlterJournalCommandResult>.Success(result);
+        return await AlterJournalCommandFlow.ExecuteCreateAsync(
+            command,
+            _eventBus,
+            ct => _journalRepository.CreateAlterAsync(command.PrincipalId, command.Payload, ct),
+            command.Payload.AlterId,
+            EntityRefs.JournalCreateFailed,
+            cancellationToken);
     }
 
 }

@@ -32,16 +32,13 @@ protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteC
     {
         var tagId = command.Payload.TagId;
 
-        var found = await _tagRepository.DeleteAsync(command.PrincipalId, tagId, cancellationToken);
-        if (!found) return RejectInvariant(command, EntityRefs.TagNotFound);
-
-        var result = new TagCommandResult(command.PrincipalId, tagId, Replay: false);
-
-        await _eventBus.PublishAsync(
-            new TagDeletedEvent(command.PrincipalId, tagId),
+        return await TagCommandFlow.ExecuteTagMutationAsync(
+            command,
+            tagId,
+            ct => _tagRepository.DeleteAsync(command.PrincipalId, tagId, ct),
+            EntityRefs.TagNotFound,
+            ct => _eventBus.PublishAsync(new TagDeletedEvent(command.PrincipalId, tagId), ct),
             cancellationToken);
-
-        return CommandExecutionResult<TagCommandResult>.Success(result);
     }
 
 }

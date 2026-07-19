@@ -33,26 +33,23 @@ protected override async Task<CommandExecutionResult<GlobalJournalCommandResult>
         CommandEnvelope<DetachAlterFromGlobalJournalCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (RejectIfAlterIdOutOfRange(command, command.Payload.AlterId, EntityRefs.AlterId) is { } rangeReject)
-            return rangeReject;
+        if (await AlterJournalCommandFlow.RejectIfInvalidOrMissingAlterAsync<DetachAlterFromGlobalJournalCommand, GlobalJournalCommandResult>(
+                command,
+                command.Payload.AlterId,
+                _alterRepository,
+                EntityRefs.AlterId,
+                EntityRefs.JournalAlterNotFound,
+                cancellationToken) is { } alterReject)
+            return alterReject;
 
-        var alterExists = await _alterRepository.ExistsAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
-        if (!alterExists)
-            return RejectInvariant(command, EntityRefs.JournalAlterNotFound);
-
-        var exists = await _journalRepository.ExistsGlobalAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
-        if (!exists)
-            return RejectInvariant(command, EntityRefs.JournalNotFound);
-
-        var detached = await _journalRepository.DetachGlobalAlterAsync(
-            command.PrincipalId, command.Payload.EntryId, command.Payload.AlterId, cancellationToken);
-        if (!detached)
-            return RejectInvariant(command, EntityRefs.JournalDetachFailed);
-
-        var result = new GlobalJournalCommandResult(command.PrincipalId, command.Payload.EntryId, Replay: false);
-
-        await _eventBus.PublishAsync(new GlobalJournalEntryUpdatedEvent(command.PrincipalId, command.Payload.EntryId), cancellationToken);
-        return CommandExecutionResult<GlobalJournalCommandResult>.Success(result);
+        return await GlobalJournalCommandFlow.ExecuteUpdateAsync(
+            command,
+            command.Payload.EntryId,
+            _journalRepository,
+            _eventBus,
+            ct => _journalRepository.DetachGlobalAlterAsync(command.PrincipalId, command.Payload.EntryId, command.Payload.AlterId, ct),
+            EntityRefs.JournalDetachFailed,
+            cancellationToken);
     }
 
 }

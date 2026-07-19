@@ -30,19 +30,14 @@ protected override async Task<CommandExecutionResult<AlterJournalCommandResult>>
         CommandEnvelope<DeleteAlterJournalEntryCommand> command,
         CancellationToken cancellationToken = default)
     {
-
-        var alterRef = await _journalRepository.GetAlterRefAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
-        if (alterRef is null)
-            return RejectInvariant(command, EntityRefs.JournalNotFound);
-
-        var deleted = await _journalRepository.DeleteAlterAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
-        if (!deleted)
-            return RejectInvariant(command, EntityRefs.JournalDeleteFailed);
-
-        var result = new AlterJournalCommandResult(command.PrincipalId, command.Payload.EntryId, alterRef.AlterId, Replay: false);
-
-        await _eventBus.PublishAsync(new AlterJournalEntryDeletedEvent(command.PrincipalId, command.Payload.EntryId), cancellationToken);
-        return CommandExecutionResult<AlterJournalCommandResult>.Success(result);
+        return await AlterJournalCommandFlow.ExecuteExistingEntryMutationAsync(
+            command,
+            command.Payload.EntryId,
+            _journalRepository,
+            ct => _journalRepository.DeleteAlterAsync(command.PrincipalId, command.Payload.EntryId, ct),
+            EntityRefs.JournalDeleteFailed,
+            ct => _eventBus.PublishAsync(new AlterJournalEntryDeletedEvent(command.PrincipalId, command.Payload.EntryId), ct),
+            cancellationToken);
     }
 
 }

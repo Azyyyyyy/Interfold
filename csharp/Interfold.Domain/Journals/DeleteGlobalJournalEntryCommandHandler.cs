@@ -30,19 +30,14 @@ protected override async Task<CommandExecutionResult<GlobalJournalCommandResult>
         CommandEnvelope<DeleteGlobalJournalEntryCommand> command,
         CancellationToken cancellationToken = default)
     {
-
-        var exists = await _journalRepository.ExistsGlobalAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
-        if (!exists)
-            return RejectInvariant(command, EntityRefs.JournalNotFound);
-        
-        var deleted = await _journalRepository.DeleteGlobalAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
-        if (!deleted)
-            return RejectInvariant(command, EntityRefs.JournalDeleteFailed);
-
-        var result = new GlobalJournalCommandResult(command.PrincipalId, command.Payload.EntryId, Replay: false);
-
-        await _eventBus.PublishAsync(new GlobalJournalEntryDeletedEvent(command.PrincipalId, command.Payload.EntryId), cancellationToken);
-        return CommandExecutionResult<GlobalJournalCommandResult>.Success(result);
+        return await GlobalJournalCommandFlow.ExecuteDeleteAsync(
+            command,
+            command.Payload.EntryId,
+            _journalRepository,
+            _eventBus,
+            ct => _journalRepository.DeleteGlobalAsync(command.PrincipalId, command.Payload.EntryId, ct),
+            EntityRefs.JournalDeleteFailed,
+            cancellationToken);
     }
 
 }

@@ -1,5 +1,4 @@
 using Interfold.Contracts;
-using Interfold.Contracts.Events;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
@@ -34,11 +33,11 @@ public sealed class SetFrontCommandHandler : IdempotentCommandHandler<SetFrontCo
             CommandEnvelope<SetFrontCommand> command,
             CancellationToken cancellationToken = default)
     {
-        if (RejectIfAlterIdOutOfRange(command, command.Payload.AlterId, EntityRefs.FrontingInvalidAlterId) is { } rangeReject)
+        if (FrontingCommandFlow.RejectIfInvalidAlterId(command, command.Payload.AlterId) is { } rangeReject)
             return rangeReject;
 
-        if (!FrontId.IsValidComment(command.Payload.Comment))
-            return RejectInvariant(command, EntityRefs.FrontingInvalidComment);
+        if (FrontingCommandFlow.RejectIfInvalidComment(command, command.Payload.Comment) is { } invalidCommentReject)
+            return invalidCommentReject;
 
         // "Set" semantics: after this completes, the target alter is the sole fronter.
         // The previous implementation rejected with `fronting:already_fronting` whenever the
@@ -64,14 +63,13 @@ public sealed class SetFrontCommandHandler : IdempotentCommandHandler<SetFrontCo
         var others = active.Where(f => f.Alter.Id != command.Payload.AlterId).ToArray();
         var primaryWasPresent = active.Any(f => f.Primary);
 
-        var endedAt = _timeProvider.GetUtcNow();
-        foreach (var other in others)
-        {
-            // Best-effort: a single end failure shouldn't poison the whole set. The repo's
-            // EndAsync returns false when there's no live row for the alter (race: another
-            // request ended it between ListActive and EndAsync) - we silently move on.
-            await _frontingRepository.EndAsync(command.PrincipalId, other.Front.AlterId, endedAt, cancellationToken);
-        }
+        var operationTime = _timeProvider.GetUtcNow();
+        await FrontingCommandFlow.EndAltersBestEffortAsync(
+            _frontingRepository,
+            command.PrincipalId,
+            others.Select(other => other.Front.AlterId),
+            operationTime,
+            cancellationToken);
 
         FrontId frontId;
         if (targetActive is not null)
@@ -85,50 +83,45 @@ public sealed class SetFrontCommandHandler : IdempotentCommandHandler<SetFrontCo
                 command.PrincipalId,
                 command.Payload.AlterId,
                 command.Payload.Comment,
-                _timeProvider.GetUtcNow(),
+                operationTime,
                 cancellationToken);
 
-            if (started is null)
-                return RejectInvariant(command, EntityRefs.FrontingStartFailed);
+            var (startedFrontId, startedFrontRejection) = FrontingCommandFlow.GetStartedFrontIdOrReject(command, started);
+            if (startedFrontRejection is not null)
+                return startedFrontRejection;
 
-            frontId = started.Value;
+            frontId = startedFrontId!.Value;
         }
 
         // "set" semantics: after the call there's a single fronter, so any primary designation
         // is moot. Clear unconditionally (no-op when there wasn't one).
         await _frontingRepository.SetPrimaryAsync(command.PrincipalId, null, cancellationToken);
 
-        var result = new FrontCommandResult(command.PrincipalId, command.Payload.AlterId, frontId, Replay: false);
-
-        await _eventBus.PublishAsync(new FrontingStateChangedEvent(command.PrincipalId), cancellationToken);
-
         // Per-alter FrontingEndedEvent for every alter that was ended by this set. Clients
         // listening on the socket layer rely on this to clear those alters from their
         // local "currently fronting" view.
-        foreach (var other in others)
-        {
-            await _eventBus.PublishAsync(
-                new FrontingEndedEvent(command.PrincipalId, other.Front.AlterId),
-                cancellationToken);
-        }
+        await FrontingCommandFlow.PublishEndedForAltersAsync(
+            _eventBus,
+            command.PrincipalId,
+            others.Select(other => other.Front.AlterId),
+            cancellationToken);
 
         // FrontingPrimaryChangedEvent only fires when primary actually transitioned away from
         // a real value - emitting it unconditionally would spam clients with no-op events
         // every time `set` is called against a no-primary state.
-        if (primaryWasPresent)
-        {
-            await _eventBus.PublishAsync(
-                new FrontingPrimaryChangedEvent(command.PrincipalId, null),
-                cancellationToken);
-        }
+        await FrontingCommandFlow.PublishPrimaryClearedIfNeededAsync(
+            _eventBus,
+            command.PrincipalId,
+            primaryWasPresent,
+            cancellationToken);
 
         // Emit granular event for socket layer to handle fronting_set. Always fires - even
         // when the target was already the only fronter (idempotent "set" returns success
         // with the existing front id; the client may have called this to recover from a
         // desync and should still receive the event).
-        await _eventBus.PublishAsync(new FrontingSetEvent(command.PrincipalId, frontId), cancellationToken);
+        await FrontingCommandFlow.PublishStateChangedAndSetAsync(_eventBus, command.PrincipalId, frontId, cancellationToken);
 
-        return CommandExecutionResult<FrontCommandResult>.Success(result);
+        return FrontingCommandFlow.Success(command.PrincipalId, command.Payload.AlterId, frontId);
     }
 
 }

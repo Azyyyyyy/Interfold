@@ -30,20 +30,14 @@ protected override async Task<CommandExecutionResult<GlobalJournalCommandResult>
         CommandEnvelope<SetGlobalJournalLockedCommand> command,
         CancellationToken cancellationToken = default)
     {
-
-        var exists = await _journalRepository.ExistsGlobalAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
-        if (!exists)
-            return RejectInvariant(command, EntityRefs.JournalNotFound);
-
-        var updated = await _journalRepository.SetGlobalLockedAsync(
-            command.PrincipalId, command.Payload.EntryId, command.Payload.Locked, cancellationToken);
-        if (!updated)
-            return RejectInvariant(command, EntityRefs.JournalUpdateFailed);
-
-        var result = new GlobalJournalCommandResult(command.PrincipalId, command.Payload.EntryId, Replay: false);
-
-        await _eventBus.PublishAsync(new GlobalJournalEntryUpdatedEvent(command.PrincipalId, command.Payload.EntryId), cancellationToken);
-        return CommandExecutionResult<GlobalJournalCommandResult>.Success(result);
+        return await GlobalJournalCommandFlow.ExecuteUpdateAsync(
+            command,
+            command.Payload.EntryId,
+            _journalRepository,
+            _eventBus,
+            ct => _journalRepository.SetGlobalLockedAsync(command.PrincipalId, command.Payload.EntryId, command.Payload.Locked, ct),
+            EntityRefs.JournalUpdateFailed,
+            cancellationToken);
     }
 
 }

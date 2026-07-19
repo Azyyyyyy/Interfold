@@ -34,20 +34,13 @@ protected override async Task<CommandExecutionResult<AlterCommandResult>> Execut
     {
         if (RejectIfBlank(command, command.Payload.Name, EntityRefs.AlterName) is { } blankReject)
             return blankReject;
-        
-        var alterId = await _alterRepository.CreateAsync(command.PrincipalId, command.Payload, cancellationToken);
-        if (alterId is null)
-        {
-            return RejectInvariant(command, EntityRefs.AlterCreate);
-        }
 
-        var result = new AlterCommandResult(command.PrincipalId, alterId.Value, Replay: false);
-
-        await _eventBus.PublishAsync(
-            new AlterCreatedEvent(command.PrincipalId, alterId.Value),
+        return await AlterCommandFlow.ExecuteCreateAsync(
+            command,
+            ct => _alterRepository.CreateAsync(command.PrincipalId, command.Payload, ct),
+            EntityRefs.AlterCreate,
+            (alterId, ct) => _eventBus.PublishAsync(new AlterCreatedEvent(command.PrincipalId, alterId), ct),
             cancellationToken);
-
-        return CommandExecutionResult<AlterCommandResult>.Success(result);
     }
 
 }

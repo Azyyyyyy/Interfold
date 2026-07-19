@@ -31,17 +31,13 @@ protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteC
         CancellationToken cancellationToken = default)
     {
         var tagId = command.Payload.TagId;
-
-        var found = await _tagRepository.RemoveParentAsync(command.PrincipalId, tagId, cancellationToken);
-        if (!found) return RejectInvariant(command, EntityRefs.TagNotFound);
-
-        var result = new TagCommandResult(command.PrincipalId, tagId, Replay: false);
-
-        await _eventBus.PublishAsync(
-            new TagUpdatedEvent(command.PrincipalId, tagId),
+        return await TagCommandFlow.ExecuteTagMutationAsync(
+            command,
+            tagId,
+            ct => _tagRepository.RemoveParentAsync(command.PrincipalId, tagId, ct),
+            EntityRefs.TagNotFound,
+            _eventBus,
             cancellationToken);
-
-        return CommandExecutionResult<TagCommandResult>.Success(result);
     }
 
 }

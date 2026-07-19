@@ -33,11 +33,11 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
         CancellationToken cancellationToken = default)
     {
         
-        var canonicalTargetSystemId = ScopedSystemId.Compose(
-            command.PrincipalId.Region,
+        var canonicalTargetSystemId = FriendshipCommandNormalization.ComposePeerId(
+            command.PrincipalId,
             command.Payload.TargetSystemId);
 
-        var canonicalPrincipalId = FriendshipIdNormalization.CanonicalizeForPrincipal(
+        var canonicalPrincipalId = FriendshipCommandNormalization.CanonicalPrincipalForPeer(
             command.Payload.TargetSystemId,
             command.PrincipalId);
 
@@ -46,26 +46,16 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
             canonicalTargetSystemId,
             cancellationToken);
 
-        if (outcome.ToRejectionEntityRef() is { } er)
-        {
-            return RejectInvariant(command, er);
-        }
+        if (FriendshipCommandFlow.RejectIfMutationOutcomeFailed(command, outcome) is { } rejection)
+            return rejection;
 
-        var result = new FriendshipCommandResult(
-            command.PrincipalId,
-            canonicalTargetSystemId,
-            FriendshipAction.Cancelled,
-            Replay: false);
-
-        await _eventBus.PublishAsync(new FriendRequestRemovedToEvent(
+        await FriendshipEventFlow.PublishRequestRemovedToThenFromAsync(
+            _eventBus,
             canonicalPrincipalId,
-            canonicalTargetSystemId), cancellationToken);
-
-        await _eventBus.PublishAsync(new FriendRequestRemovedFromEvent(
             canonicalTargetSystemId,
-            canonicalPrincipalId), cancellationToken);
+            cancellationToken);
 
-        return CommandExecutionResult<FriendshipCommandResult>.Success(result);
+        return FriendshipCommandFlow.Success(command.PrincipalId, canonicalTargetSystemId, FriendshipAction.Cancelled);
     }
 
 }
