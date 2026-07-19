@@ -32,18 +32,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     {
         using var client = TestClient.NoRedirect(fixture);
 
-        var owner = "fronting-visibility-owner";
-        var nonFriend = "fronting-visibility-nonfriend";
-        var friend = "fronting-visibility-friend";
-        var trusted = "fronting-visibility-trusted";
-
-        _ = await CreateAlterAsync(client, nonFriend, "SeedNonFriend");
-        _ = await CreateAlterAsync(client, friend, "SeedFriend");
-        _ = await CreateAlterAsync(client, trusted, "SeedTrusted");
-        await EnsureUserExistsAsync(client, owner, "fronting-owner");
-        await EnsureUserExistsAsync(client, nonFriend, "fronting-nonfriend");
-        await EnsureUserExistsAsync(client, friend, "fronting-friend");
-        await EnsureUserExistsAsync(client, trusted, "fronting-trusted");
+        var (owner, nonFriend, friend, trusted) = await SeedVisibilityQuartetAsync(client, "fronting-visibility");
 
         var alterPublic = await CreateAlterAsync(client, owner, "VisPublic");
         var alterFriends = await CreateAlterAsync(client, owner, "VisFriends");
@@ -140,18 +129,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     {
         using var client = TestClient.NoRedirect(fixture);
 
-        var owner = "alters-visibility-owner";
-        var nonFriend = "alters-visibility-nonfriend";
-        var friend = "alters-visibility-friend";
-        var trusted = "alters-visibility-trusted";
-
-        _ = await CreateAlterAsync(client, nonFriend, "SeedNonFriend");
-        _ = await CreateAlterAsync(client, friend, "SeedFriend");
-        _ = await CreateAlterAsync(client, trusted, "SeedTrusted");
-        await EnsureUserExistsAsync(client, owner, "alters-owner");
-        await EnsureUserExistsAsync(client, nonFriend, "alters-nonfriend");
-        await EnsureUserExistsAsync(client, friend, "alters-friend");
-        await EnsureUserExistsAsync(client, trusted, "alters-trusted");
+        var (owner, nonFriend, friend, trusted) = await SeedVisibilityQuartetAsync(client, "alters-visibility");
 
         var alterPublic = await CreateAlterAsync(client, owner, "VisPublic");
         var alterFriends = await CreateAlterAsync(client, owner, "VisFriends");
@@ -233,18 +211,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     {
         using var client = TestClient.NoRedirect(fixture);
 
-        var owner = "tags-visibility-owner";
-        var nonFriend = "tags-visibility-nonfriend";
-        var friend = "tags-visibility-friend";
-        var trusted = "tags-visibility-trusted";
-
-        _ = await CreateAlterAsync(client, nonFriend, "SeedNonFriend");
-        _ = await CreateAlterAsync(client, friend, "SeedFriend");
-        _ = await CreateAlterAsync(client, trusted, "SeedTrusted");
-        await EnsureUserExistsAsync(client, owner, "tags-owner");
-        await EnsureUserExistsAsync(client, nonFriend, "tags-nonfriend");
-        await EnsureUserExistsAsync(client, friend, "tags-friend");
-        await EnsureUserExistsAsync(client, trusted, "tags-trusted");
+        var (owner, nonFriend, friend, trusted) = await SeedVisibilityQuartetAsync(client, "tags-visibility");
 
         var tagPublic = await CreateTagAsync(client, owner, "TagPublic");
         var tagFriends = await CreateTagAsync(client, owner, "TagFriends");

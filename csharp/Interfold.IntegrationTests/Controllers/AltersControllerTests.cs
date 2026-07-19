@@ -16,85 +16,37 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
     public async Task FieldSecurityLevelByRelationship_AppliesCorrectly()
     {
         using var client = TestClient.NoRedirect(fixture);
-
-        var owner = "parity-guarded-fields-owner";
-        var nonFriend = "parity-guarded-fields-nonfriend";
-        var friend = "parity-guarded-fields-friend";
-        var trusted = "parity-guarded-fields-trusted";
-
-        await EnsureUserExistsAsync(client, owner);
-        _ = await CreateAlterAsync(client, nonFriend, "SeedNonFriend");
-        _ = await CreateAlterAsync(client, friend, "SeedFriend");
-        _ = await CreateAlterAsync(client, trusted, "SeedTrusted");
-
-        var fieldPublic = await CreateSettingsFieldAsync(client, owner, "FieldPublic", FieldType.Text, VisibilityLevel.Public);
-        var fieldFriends = await CreateSettingsFieldAsync(client, owner, "FieldFriends", FieldType.Text, VisibilityLevel.FriendsOnly);
-        var fieldTrusted = await CreateSettingsFieldAsync(client, owner, "FieldTrusted", FieldType.Text, VisibilityLevel.TrustedOnly);
-        var fieldPrivate = await CreateSettingsFieldAsync(client, owner, "FieldPrivate", FieldType.Text, VisibilityLevel.Private);
-
-        var alterId = await CreateAlterAsync(client, owner, "GuardedFieldsAlter");
-        await SetAlterSecurityLevelAsync(client, owner, alterId, VisibilityLevel.Public);
-        await UpdateAlterFieldsAsync(client, owner, alterId, new UpdateAlterFieldRequest[]
-        {
-            new(fieldPublic, "PublicValue"),
-            new(fieldFriends, "FriendsValue"),
-            new(fieldTrusted, "TrustedValue"),
-            new(fieldPrivate, "PrivateValue"),
-        });
-
-        using var nonFriendRes = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", nonFriend);
-        var nonFriendBody = await nonFriendRes.Content.ReadAsStringAsync();
-        using (Assert.Multiple())
-        {
-            await Assert.That(nonFriendRes.StatusCode).IsEqualTo(HttpStatusCode.OK);
-            await Assert.That(nonFriendBody).Contains("PublicValue");
-            await Assert.That(nonFriendBody).DoesNotContain("FriendsValue");
-            await Assert.That(nonFriendBody).DoesNotContain("TrustedValue");
-            await Assert.That(nonFriendBody).DoesNotContain("PrivateValue");
-        }
-
-        await SendFriendRequestAndAcceptAsync(client, friend, owner);
-
-        using var friendRes = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", friend);
-        var friendBody = await friendRes.Content.ReadAsStringAsync();
-        using (Assert.Multiple())
-        {
-            await Assert.That(friendRes.StatusCode).IsEqualTo(HttpStatusCode.OK);
-            await Assert.That(friendBody).Contains("PublicValue");
-            await Assert.That(friendBody).Contains("FriendsValue");
-            await Assert.That(friendBody).DoesNotContain("TrustedValue");
-            await Assert.That(friendBody).DoesNotContain("PrivateValue");
-        }
-
-        await SendFriendRequestAndAcceptAsync(client, trusted, owner);
-        await SetFriendTrustAsync(client, owner, trusted);
-
-        using var trustedRes = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", trusted);
-        var trustedBody = await trustedRes.Content.ReadAsStringAsync();
-        using (Assert.Multiple())
-        {
-            await Assert.That(trustedRes.StatusCode).IsEqualTo(HttpStatusCode.OK);
-            await Assert.That(trustedBody).Contains("PublicValue");
-            await Assert.That(trustedBody).Contains("FriendsValue");
-            await Assert.That(trustedBody).Contains("TrustedValue");
-            await Assert.That(trustedBody).DoesNotContain("PrivateValue");
-        }
+        await RunFieldVisibilityScenarioAsync(client, "parity-guarded-fields");
     }
 
     [Test]
     public async Task CustomFields_FieldSecurityLevelByRelationship_AppliesCorrectly()
     {
+        // Uses the plain (redirect-following) client rather than TestClient.NoRedirect(fixture);
+        // the mirror test above pins the no-redirect codepath, this one pins the default
+        // HttpClient shape. The shared body doesn't hit any redirect endpoints, so both clients
+        // should surface identical results — a divergence here would surface a redirect-behaviour
+        // regression in the guarded read path.
         using var client = fixture.Factory.CreateClient();
+        await RunFieldVisibilityScenarioAsync(client, "settings-guarded-fields");
+    }
 
-        var owner = "settings-guarded-fields-owner";
-        var nonFriend = "settings-guarded-fields-nonfriend";
-        var friend = "settings-guarded-fields-friend";
-        var trusted = "settings-guarded-fields-trusted";
-
-        await EnsureUserExistsAsync(client, owner);
-        _ = await CreateAlterAsync(client, nonFriend, "SeedNonFriend");
-        _ = await CreateAlterAsync(client, friend, "SeedFriend");
-        _ = await CreateAlterAsync(client, trusted, "SeedTrusted");
+    /// <summary>
+    /// Shared 60-line body for the two field-visibility tests. Seeds the quartet, mints four
+    /// per-visibility settings fields on the owner, creates a public alter, populates the four
+    /// custom-field values, then asserts each viewer level (non-friend / friend / trusted) sees
+    /// the exact expected slice of values in the guarded alter read.
+    /// </summary>
+    /// <remarks>
+    /// Both callers pin the *same* server behaviour with a different client (no-redirect vs
+    /// default). Extracted so a future assertion tweak (adding a fifth visibility level,
+    /// renaming the field marker strings) lands in one place instead of drifting between the
+    /// two entry points — which is exactly how the line-45 <c>friend → nonFriend</c> bug slipped
+    /// into the tree before this refactor.
+    /// </remarks>
+    private static async Task RunFieldVisibilityScenarioAsync(HttpClient client, string prefix)
+    {
+        var (owner, nonFriend, friend, trusted) = await SeedVisibilityQuartetAsync(client, prefix);
 
         var fieldPublic = await CreateSettingsFieldAsync(client, owner, "FieldPublic", FieldType.Text, VisibilityLevel.Public);
         var fieldFriends = await CreateSettingsFieldAsync(client, owner, "FieldFriends", FieldType.Text, VisibilityLevel.FriendsOnly);

@@ -150,6 +150,49 @@ public class BaseEndpointTest
     // -----------------------------------------------------------------------
 
     /// <summary>
+    /// Seeds the four-viewer visibility quartet used by every "public read gated by relationship"
+    /// integration test (`AltersController` field-visibility, `PublicSystemsController` alter/tag/
+    /// fronting visibility, etc.). Every quartet-shaped test previously hand-rolled the same
+    /// eight setup lines with slight drift:
+    /// <list type="bullet">
+    ///   <item>3 × <see cref="CreateAlterAsync"/> for the three viewer principals (a seed alter
+    ///         per viewer forces the row into existence — without it, `_alters.ListGuardedAsync`
+    ///         short-circuits before the relationship gate ever runs).</item>
+    ///   <item>4 × <see cref="EnsureUserExistsAsync"/> so every principal has a public profile
+    ///         and the friend-request / trust flow has both ends of the edge to point at.</item>
+    /// </list>
+    /// <para>
+    /// Deliberately unifies to the "seed all four" shape rather than the previous
+    /// <c>AltersControllerTests</c> shape (which only seeded the owner). Skipping the viewer
+    /// user-exists seeds masks a class of test-side race where the friend-request accept below
+    /// tries to resolve a viewer id that has no profile row yet.
+    /// </para>
+    /// </summary>
+    /// <param name="client">Authed HTTP client (typically <c>TestClient.NoRedirect(fixture)</c>).</param>
+    /// <param name="prefix">Short slug baked into every principal id and username so parallel
+    /// tests don't collide (e.g. <c>"alters-visibility"</c> → <c>alters-visibility-owner</c>,
+    /// <c>alters-visibility-nonfriend</c>, …).</param>
+    /// <returns>The four principal ids: <c>Owner</c>, <c>NonFriend</c>, <c>Friend</c>, <c>Trusted</c>.</returns>
+    internal static async Task<(string Owner, string NonFriend, string Friend, string Trusted)>
+        SeedVisibilityQuartetAsync(HttpClient client, string prefix)
+    {
+        var owner = $"{prefix}-owner";
+        var nonFriend = $"{prefix}-nonfriend";
+        var friend = $"{prefix}-friend";
+        var trusted = $"{prefix}-trusted";
+
+        _ = await CreateAlterAsync(client, nonFriend, "SeedNonFriend");
+        _ = await CreateAlterAsync(client, friend, "SeedFriend");
+        _ = await CreateAlterAsync(client, trusted, "SeedTrusted");
+        await EnsureUserExistsAsync(client, owner);
+        await EnsureUserExistsAsync(client, nonFriend);
+        await EnsureUserExistsAsync(client, friend);
+        await EnsureUserExistsAsync(client, trusted);
+
+        return (owner, nonFriend, friend, trusted);
+    }
+
+    /// <summary>
     /// Ensures a public profile exists for <paramref name="principal"/> by issuing a username
     /// update. Required for endpoints that gate access on <c>GetPublicProfileAsync</c>
     /// returning non-null. Sends <see cref="SettingsUsernameRequest"/>; the API accepts
