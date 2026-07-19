@@ -46,6 +46,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     private readonly IAvatarStorage _avatarStorage;
     private readonly IEncryptionStateRepository _encryptionStateRepository;
     private readonly IOptionsMonitor<AuthenticationConfiguration> _authOptions;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<SimplyPluralImportService> _logger;
 
     public SimplyPluralImportService(
@@ -58,7 +59,10 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         IPollRepository pollRepository,
         IJournalRepository journalRepository,
         IAvatarStorage avatarStorage,
-        ILogger<SimplyPluralImportService> logger, IEncryptionStateRepository encryptionStateRepository, IOptionsMonitor<AuthenticationConfiguration> authConfig)
+        ILogger<SimplyPluralImportService> logger,
+        IEncryptionStateRepository encryptionStateRepository,
+        IOptionsMonitor<AuthenticationConfiguration> authConfig,
+        TimeProvider timeProvider)
     {
         _httpClientFactory = httpClientFactory;
         _alterRepository = alterRepository;
@@ -72,6 +76,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         _logger = logger;
         _encryptionStateRepository = encryptionStateRepository;
         _authOptions = authConfig;
+        _timeProvider = timeProvider;
     }
 
     public bool? WaitForAvatars { get; set; }
@@ -256,7 +261,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             }
             else
             {
-                createdAt = DateTimeOffset.UtcNow;
+                createdAt = _timeProvider.GetUtcNow();
                 _logger.LogWarning(
                     "SP alter {SpMemberId} for system {SystemId} has no date and non-decodable id; using import time as created date.",
                     uuid, systemId);
@@ -457,7 +462,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         const long startEpoch = 1_420_070_400_000;
         const int monthInterval = 6;
         var chunkSizeMs = (long)monthInterval * 30 * 24 * 60 * 60 * 1000;
-        var endTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var endTimeMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         var numberOfChunks = (int)Math.Ceiling((double)(endTimeMs - startEpoch) / chunkSizeMs);
 
         var seenFrontIds = new HashSet<string>();
@@ -597,7 +602,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             }
             else
             {
-                insertedAt = DateTime.UtcNow;
+                insertedAt = _timeProvider.GetUtcNow().UtcDateTime;
                 _logger.LogWarning(
                     "SP poll {PollId} for system {SystemId} has non-decodable id and no lastOperationTime; using import time as inserted_at.",
                     poll.Id, systemId);
@@ -662,7 +667,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 }
                 else
                 {
-                    createdAt = DateTimeOffset.UtcNow;
+                    createdAt = _timeProvider.GetUtcNow();
                     _logger.LogWarning(
                         "SP note {SpNoteId} for system {SystemId} alter {AlterId} has no date and non-decodable id; using import time as created date.",
                         note.Id, systemId, alterId);
@@ -878,7 +883,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                         Untracked: null,
                         Archived: null,
                         Pinned: null,
-                        UpdatedAt: DateTimeOffset.UtcNow
+                        UpdatedAt: _timeProvider.GetUtcNow()
                     ), cancellationToken);
                 }
             }

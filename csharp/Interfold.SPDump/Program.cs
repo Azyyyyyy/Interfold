@@ -26,6 +26,11 @@ var services = new ServiceCollection();
 services.AddLogging(builder => builder.AddConsole());
 services.AddSingleton<IConfiguration>(new ConfigurationManager());
 
+// TimeProvider — SimplyPluralImportService (registered below via AddSimplyPluralImportCore)
+// takes it via constructor injection so its "used import time as created date" fallback
+// paths can be time-frozen in tests.
+services.AddSingleton(TimeProvider.System);
+
 // Register InMemory persistence support
 InMemoryServiceCollectionExtensions.Register();
 services.AddInterfoldPersistence(PersistenceMode.InMemory, cfg =>

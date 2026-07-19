@@ -84,6 +84,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
     var pollRepository = context.RequestServices.GetRequiredService<IPollRepository>();
     var journalRepository = context.RequestServices.GetRequiredService<IJournalRepository>();
     var encryptionStateRepository = context.RequestServices.GetRequiredService<IEncryptionStateRepository>();
+    var timeProvider = context.RequestServices.GetRequiredService<TimeProvider>();
     var requestOrigin = $"{context.Request.Scheme}://{context.Request.Host}";
 
     // The per-socket event pump is started on the first successful phx_join (see below).
@@ -242,7 +243,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                         sendGate,
                         pushCts.Token,
                         requestOrigin: requestOrigin,
-                        logger: logger);
+                        logger: logger,
+                        timeProvider: timeProvider);
 
                     socketPushTask = SocketEventPumpRunner.RunAllAsync(
                         eventBus,

@@ -1156,6 +1156,8 @@ public sealed class SpImportTests : BaseEndpointTest
 
         services.AddOptions<AuthenticationConfiguration>();
         services.AddSingleton<IAvatarStorage, NullAvatarStorage>();
+        // SimplyPluralImportService takes TimeProvider via ctor injection (R2-C15).
+        services.AddSingleton(TimeProvider.System);
 
         services.AddHttpClient(HttpClientNames.SimplyPlural)
             .ConfigurePrimaryHttpMessageHandler(() => stub);

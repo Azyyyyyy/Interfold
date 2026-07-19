@@ -16,7 +16,8 @@ public sealed class SocketPushContext
         SemaphoreSlim sendGate,
         CancellationToken cancellationToken,
         string? requestOrigin = null,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        TimeProvider? timeProvider = null)
     {
         Socket = socket;
         JoinedScopedSystemId = joinedScopedSystemId;
@@ -27,6 +28,7 @@ public sealed class SocketPushContext
         CancellationToken = cancellationToken;
         RequestOrigin = requestOrigin;
         Logger = logger;
+        TimeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public WebSocket Socket { get; }
@@ -60,6 +62,16 @@ public sealed class SocketPushContext
     public string? RequestOrigin { get; }
 
     public ILogger? Logger { get; }
+
+    /// <summary>
+    /// Time source for socket event handlers that need to synthesize a "now"-ish timestamp
+    /// (e.g. <c>FriendshipSocketEventHandlers</c>'s fallback placeholder models when the
+    /// authoritative row hasn't landed yet). Defaults to <see cref="TimeProvider.System"/>
+    /// so callers that construct the context without wiring one (unit-test scaffolds) keep
+    /// working; production paths inject the DI-registered singleton so time-freezing tests
+    /// stay possible.
+    /// </summary>
+    public TimeProvider TimeProvider { get; }
 
     public bool TryGetSystemTopic(SystemId systemId, out string topic, out string? joinRef, out bool asArray)
     {

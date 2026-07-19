@@ -21,7 +21,7 @@ public static class FriendshipSocketEventHandlers
         var qualified = friendship is null
             ? new FriendshipReadModel(
                 new FriendProfileReadModel(evt.SystemId, new Username(string.Empty), null, null, string.Empty, new DiscordId(string.Empty)),
-                new FriendshipModel(FriendshipLevel.Friend, DateTimeOffset.UtcNow),
+                new FriendshipModel(FriendshipLevel.Friend, context.TimeProvider.GetUtcNow()),
                 [])
             : AvatarUrlQualifier.QualifyFriendship(friendship, context.RequestOrigin);
         
@@ -87,7 +87,7 @@ public static class FriendshipSocketEventHandlers
 
         var payload = matched is null
             ? new FriendRequestSocketPayload(
-                new FriendshipRequestModel(DateTimeOffset.UtcNow),
+                new FriendshipRequestModel(context.TimeProvider.GetUtcNow()),
                 new FriendProfileReadModel(otherSystemId, new Username(string.Empty), null, null, string.Empty, new DiscordId(string.Empty)))
             : new FriendRequestSocketPayload(
                 matched.Request,
