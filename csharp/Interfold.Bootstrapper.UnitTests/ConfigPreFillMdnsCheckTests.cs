@@ -28,16 +28,11 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// </summary>
 public sealed class ConfigPreFillMdnsCheckTests
 {
-    private static BootstrapOptions OptionsFor(bool nonInteractive) => new(
-        Command: BootstrapCommand.Bootstrap,
-        ConfigPath: null,
-        OutputDir: "./deploy",
-        SkipPrereqs: true,
-        RotateSecrets: false,
-        RotateCerts: false,
-        NonInteractive: nonInteractive,
-        FaultInject: null,
-        PrintPhaseStatus: false);
+    private static BootstrapOptions OptionsFor(bool nonInteractive) => TestSupport.MakeOptions(
+        command: BootstrapCommand.Bootstrap,
+        outputDir: "./deploy",
+        skipPrereqs: true,
+        nonInteractive: nonInteractive);
 
     /// <summary>
     /// Ensures <see cref="Console.IsInputRedirected"/> is true so the banner takes the "no

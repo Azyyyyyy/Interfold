@@ -1,5 +1,6 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
+using Interfold.Contracts.Enums;
 using TUnit.Core.Exceptions;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -66,19 +67,66 @@ internal static class TestSupport
         ];
         return candidates.FirstOrDefault(File.Exists);
     }
-    public static BootstrapOptions MakeOptions(string[]? updateServices = null)
+    /// <summary>
+    /// Builds a <see cref="BootstrapOptions"/> for unit tests. Every parameter has a
+    /// unit-test-friendly default (no host mutation, no prompts, no rotation) so a caller
+    /// only names the dimensions their test actually cares about. Prefer this over
+    /// hand-rolling <c>new BootstrapOptions(...)</c> in test files: it stops the record's
+    /// positional constructor from leaking into every fixture and gives us one place to
+    /// add new required parameters when the record grows.
+    /// </summary>
+    /// <remarks>
+    /// The <paramref name="outputDir"/> default (<c>null</c>) resolves to
+    /// <c>Path.GetFullPath("./deploy")</c>. Callers that write to disk MUST pass an
+    /// explicit scratch directory — the shared default is a working-directory-relative
+    /// path shared across the test process and is not safe for file I/O.
+    /// </remarks>
+    public static BootstrapOptions MakeOptions(
+        BootstrapCommand command = BootstrapCommand.UpdateImages,
+        string? outputDir = null,
+        bool skipPrereqs = false,
+        bool rotateSecrets = false,
+        bool rotateCerts = false,
+        bool nonInteractive = false,
+        string? faultInject = null,
+        bool printPhaseStatus = false,
+        string? backupDirOverride = null,
+        string[]? updateServices = null,
+        string? configPath = null)
     {
         return new BootstrapOptions(
-            Command: BootstrapCommand.UpdateImages,
-            ConfigPath: null,
-            OutputDir: System.IO.Path.GetFullPath("./deploy"),
-            SkipPrereqs: false,
-            RotateSecrets: false,
-            RotateCerts: false,
-            NonInteractive: false,
-            FaultInject: null,
-            PrintPhaseStatus: false,
+            Command: command,
+            ConfigPath: configPath,
+            OutputDir: outputDir ?? System.IO.Path.GetFullPath("./deploy"),
+            SkipPrereqs: skipPrereqs,
+            RotateSecrets: rotateSecrets,
+            RotateCerts: rotateCerts,
+            NonInteractive: nonInteractive,
+            FaultInject: faultInject,
+            PrintPhaseStatus: printPhaseStatus,
+            BackupDirOverride: backupDirOverride,
             UpdateServices: updateServices);
+    }
+
+    /// <summary>
+    /// Builds a fresh <see cref="BootstrapConfig"/> at its property-initialiser defaults with
+    /// an optional <see cref="DatabaseMode"/> override and an optional post-construction
+    /// tweak for the handful of fields a specific test cares about. Use this instead of
+    /// <c>new BootstrapConfig { ... }</c> in test files so we get one place to add scaffolding
+    /// (e.g. deterministic host / port seeding) when the config record grows.
+    /// </summary>
+    /// <remarks>
+    /// Default <see cref="DatabaseMode"/> is <see cref="DatabaseMode.Single"/> to match
+    /// <see cref="BootstrapConfig.DatabaseMode"/>'s own property initialiser; the enum
+    /// has no <c>Scylla</c> member (Single/Multi/Cassandra are the three shipped modes).
+    /// </remarks>
+    public static BootstrapConfig MakeConfig(
+        DatabaseMode mode = DatabaseMode.Single,
+        Action<BootstrapConfig>? tweak = null)
+    {
+        var config = new BootstrapConfig { DatabaseMode = mode };
+        tweak?.Invoke(config);
+        return config;
     }
 
     /// <summary>

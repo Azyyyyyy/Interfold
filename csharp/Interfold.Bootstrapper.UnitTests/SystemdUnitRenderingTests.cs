@@ -160,12 +160,10 @@ public sealed class SystemdUnitRenderingTests
         // lands at the systemd-conventional path and contains the OnSuccess= directive.
         using var scratch = TestSupport.NewScratchDir("interfold-dropin");
         var tmp = scratch.Path;
-        var logger = new PhaseLogger(
-            new BootstrapOptions(
-                Command: BootstrapCommand.InstallService,
-                ConfigPath: null, OutputDir: tmp,
-                SkipPrereqs: false, RotateSecrets: false, RotateCerts: false,
-                NonInteractive: true, FaultInject: null, PrintPhaseStatus: false));
+        var logger = new PhaseLogger(TestSupport.MakeOptions(
+            command: BootstrapCommand.InstallService,
+            outputDir: tmp,
+            nonInteractive: true));
 
         await SystemdInstallPhase.WriteBackupOnSuccessDropInAsync(tmp, logger, CancellationToken.None);
 
@@ -187,12 +185,10 @@ public sealed class SystemdUnitRenderingTests
         // the file (or the directory) is missing.
         using var scratch = TestSupport.NewScratchDir("interfold-dropin-abs");
         var tmp = scratch.Path;
-        var logger = new PhaseLogger(
-            new BootstrapOptions(
-                Command: BootstrapCommand.InstallService,
-                ConfigPath: null, OutputDir: tmp,
-                SkipPrereqs: false, RotateSecrets: false, RotateCerts: false,
-                NonInteractive: true, FaultInject: null, PrintPhaseStatus: false));
+        var logger = new PhaseLogger(TestSupport.MakeOptions(
+            command: BootstrapCommand.InstallService,
+            outputDir: tmp,
+            nonInteractive: true));
 
         SystemdInstallPhase.RemoveBackupOnSuccessDropInIfPresent(tmp, logger);
 
@@ -216,12 +212,10 @@ public sealed class SystemdUnitRenderingTests
         var dropInPath = Path.Combine(dropInDir, SystemdInstallPhase.BackupOnSuccessDropInFile);
         await File.WriteAllTextAsync(dropInPath, "[Unit]\nOnSuccess=interfold-update.service\n");
 
-        var logger = new PhaseLogger(
-            new BootstrapOptions(
-                Command: BootstrapCommand.InstallService,
-                ConfigPath: null, OutputDir: tmp,
-                SkipPrereqs: false, RotateSecrets: false, RotateCerts: false,
-                NonInteractive: true, FaultInject: null, PrintPhaseStatus: false));
+        var logger = new PhaseLogger(TestSupport.MakeOptions(
+            command: BootstrapCommand.InstallService,
+            outputDir: tmp,
+            nonInteractive: true));
 
         SystemdInstallPhase.RemoveBackupOnSuccessDropInIfPresent(tmp, logger);
 

@@ -22,16 +22,11 @@ public sealed class EmbeddedSupportFilesTests
 {
     private const string ResourcePrefix = "support/";
 
-    private static BootstrapOptions OptionsFor() => new(
-        Command: BootstrapCommand.Bootstrap,
-        ConfigPath: null,
-        OutputDir: Path.GetTempPath(),
-        SkipPrereqs: true,
-        RotateSecrets: false,
-        RotateCerts: false,
-        NonInteractive: true,
-        FaultInject: null,
-        PrintPhaseStatus: false);
+    private static BootstrapOptions OptionsFor() => TestSupport.MakeOptions(
+        command: BootstrapCommand.Bootstrap,
+        outputDir: Path.GetTempPath(),
+        skipPrereqs: true,
+        nonInteractive: true);
 
     private static string MakeScratchDir()
     {

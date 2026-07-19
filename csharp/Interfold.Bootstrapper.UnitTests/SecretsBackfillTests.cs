@@ -15,16 +15,13 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// </summary>
 public sealed class SecretsBackfillTests
 {
-    private static BootstrapOptions OptionsFor(string outputDir, bool rotateSecrets = false) => new(
-        Command: BootstrapCommand.Bootstrap,
-        ConfigPath: null,
-        OutputDir: outputDir,
-        SkipPrereqs: true,
-        RotateSecrets: rotateSecrets,
-        RotateCerts: false,
-        NonInteractive: true,
-        FaultInject: null,
-        PrintPhaseStatus: false);
+    private static BootstrapOptions OptionsFor(string outputDir, bool rotateSecrets = false) =>
+        TestSupport.MakeOptions(
+            command: BootstrapCommand.Bootstrap,
+            outputDir: outputDir,
+            skipPrereqs: true,
+            rotateSecrets: rotateSecrets,
+            nonInteractive: true);
 
     /// <summary>Creates an isolated scratch output directory and returns its path.</summary>
     private static string MakeScratchDir()

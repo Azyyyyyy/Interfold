@@ -17,16 +17,11 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// </summary>
 public sealed class CertificateGenerationTests
 {
-    private static BootstrapOptions OptionsFor(string outputDir) => new(
-        Command: BootstrapCommand.Bootstrap,
-        ConfigPath: null,
-        OutputDir: outputDir,
-        SkipPrereqs: true,
-        RotateSecrets: false,
-        RotateCerts: false,
-        NonInteractive: true,
-        FaultInject: null,
-        PrintPhaseStatus: false);
+    private static BootstrapOptions OptionsFor(string outputDir) => TestSupport.MakeOptions(
+        command: BootstrapCommand.Bootstrap,
+        outputDir: outputDir,
+        skipPrereqs: true,
+        nonInteractive: true);
 
     // Default to trustStoreInstall=false so unit tests stay hermetic. With the previous default
     // of `true`, CertificatePhase.InstallToTrustStoreAsync would File.Copy the generated root CA
