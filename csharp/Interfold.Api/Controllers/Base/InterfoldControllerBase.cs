@@ -62,6 +62,44 @@ public abstract class InterfoldControllerBase : ControllerBase
     }
 
     /// <summary>
+    /// Returns a 400 <see cref="ErrorResponse"/> naming <paramref name="code"/> when
+    /// <paramref name="target"/> refers to the current principal; otherwise
+    /// <see langword="null"/>. Wraps
+    /// <see cref="ScopedSystemId.RepresentsSameUserAs(SystemId)"/> so raw and
+    /// same-region-scoped shapes both self-reject — a bare byte compare would miss the
+    /// raw-route case and let a request slip through with the generic downstream error
+    /// instead of the per-op <c>Cannot*Self</c> code.
+    /// </summary>
+    /// <remarks>
+    /// Callers use the null-conditional pattern so the guard reads as a fast return:
+    /// <code>
+    /// if (RejectIfSelf(id, "You cannot friend yourself.", ErrorCodes.CannotSendSelf) is { } reject)
+    ///     return reject;
+    /// </code>
+    /// Only usable when the self-reject shape is a 400 <c>BadRequest</c>. Endpoints that
+    /// reject self-access with a 403 (<c>PublicSystemsController</c>) or that fold the
+    /// self-check into a shared parameterised helper (<c>FriendsController.SetTrustInternal</c>)
+    /// keep hand-rolling the check.
+    /// </remarks>
+    protected ErrorResponse? RejectIfSelf(SystemId target, string message, ErrorCode code)
+        => PrincipalId.RepresentsSameUserAs(target)
+            ? new ErrorResponse(message, code, HttpStatusCode.BadRequest)
+            : null;
+
+    /// <summary>
+    /// <see cref="FriendLookup"/> overload for endpoints whose route binds a lookup
+    /// (id-or-username) instead of a bare <see cref="SystemId"/>. <c>Kind.Id</c>
+    /// delegates to the <see cref="SystemId"/> primitive; <c>Kind.Username</c> always
+    /// returns <see langword="false"/> because deciding "is username X me?" requires a
+    /// registry hop — the downstream command handler's post-resolution guard takes over
+    /// for that case.
+    /// </summary>
+    protected ErrorResponse? RejectIfSelf(FriendLookup target, string message, ErrorCode code)
+        => PrincipalId.RepresentsSameUserAs(target)
+            ? new ErrorResponse(message, code, HttpStatusCode.BadRequest)
+            : null;
+
+    /// <summary>
     /// Source-aware avatar qualification: prepends the server origin only when the avatar
     /// is locally hosted (<see cref="AvatarSource.Local"/>). External URLs pass through
     /// verbatim; a null / blank input returns unchanged. Non-avatar callers that need

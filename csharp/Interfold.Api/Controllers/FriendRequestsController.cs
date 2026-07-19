@@ -64,20 +64,14 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     [HttpPut("{id}")]
     public async Task<Response> Send(FriendLookup id, CancellationToken ct)
     {
-        var principal = PrincipalId;
         // Semantic self-check via the FriendLookup overload — catches the "client
         // sent their own id" fast-path case without a repository hop. The overload
         // fires for both Kind.Id (delegates to the SystemId primitive so raw and
         // same-region-scoped inputs both self-reject) and Kind.Username (trivially
         // returns false — deciding "is alice me?" requires a registry lookup, so
         // SendFriendRequestCommandHandler's post-resolution guard takes over).
-        if (principal.RepresentsSameUserAs(id))
-        {
-            return new ErrorResponse(
-                "You cannot send a friend request to yourself.",
-                ErrorCodes.CannotSendSelf,
-                System.Net.HttpStatusCode.BadRequest);
-        }
+        if (RejectIfSelf(id, "You cannot send a friend request to yourself.", ErrorCodes.CannotSendSelf) is { } reject)
+            return reject;
 
         return await DispatchNoContentAsync(_send, OperationIds.FriendRequestSend, new SendFriendRequestCommand(id), ct);
     }
@@ -85,17 +79,11 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     [HttpDelete("{id}")]
     public async Task<Response> Cancel(SystemId id, CancellationToken ct)
     {
-        var principal = PrincipalId;
         // Semantic self-check — CancelFriendRequestCommandHandler has no downstream
         // self-guard, so a bare byte compare would let a raw-id self-cancel return the
         // generic friend_request:not_requested error instead of cannot_cancel_self.
-        if (principal.RepresentsSameUserAs(id))
-        {
-            return new ErrorResponse(
-                "You cannot cancel a friend request to yourself.",
-                ErrorCodes.CannotCancelSelf,
-                System.Net.HttpStatusCode.BadRequest);
-        }
+        if (RejectIfSelf(id, "You cannot cancel a friend request to yourself.", ErrorCodes.CannotCancelSelf) is { } reject)
+            return reject;
 
         return await DispatchNoContentAsync(_cancel, OperationIds.FriendRequestCancel, new CancelFriendRequestCommand(id), ct);
     }
@@ -103,15 +91,8 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     [HttpPost("{id}/accept")]
     public async Task<Response> Accept(SystemId id, CancellationToken ct)
     {
-        var principal = PrincipalId;
-        // Semantic self-check — see Cancel handler for the same rationale.
-        if (principal.RepresentsSameUserAs(id))
-        {
-            return new ErrorResponse(
-                "You cannot accept a friend request from yourself.",
-                ErrorCodes.CannotAcceptSelf,
-                System.Net.HttpStatusCode.BadRequest);
-        }
+        if (RejectIfSelf(id, "You cannot accept a friend request from yourself.", ErrorCodes.CannotAcceptSelf) is { } reject)
+            return reject;
 
         return await DispatchNoContentAsync(_accept, OperationIds.FriendRequestAccept, new AcceptFriendRequestCommand(id), ct);
     }
@@ -119,15 +100,8 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     [HttpPost("{id}/reject")]
     public async Task<Response> Reject(SystemId id, CancellationToken ct)
     {
-        var principal = PrincipalId;
-        // Semantic self-check — see Cancel handler for the same rationale.
-        if (principal.RepresentsSameUserAs(id))
-        {
-            return new ErrorResponse(
-                "You cannot reject a friend request from yourself.",
-                ErrorCodes.CannotRejectSelf,
-                System.Net.HttpStatusCode.BadRequest);
-        }
+        if (RejectIfSelf(id, "You cannot reject a friend request from yourself.", ErrorCodes.CannotRejectSelf) is { } reject)
+            return reject;
 
         return await DispatchNoContentAsync(_reject, OperationIds.FriendRequestReject, new RejectFriendRequestCommand(id), ct);
     }

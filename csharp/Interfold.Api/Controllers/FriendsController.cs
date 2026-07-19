@@ -39,19 +39,15 @@ public sealed class FriendsController : InterfoldControllerBase
     [HttpGet("{id}")]
     public async Task<Response<FriendshipReadModel>> Show(SystemId id, CancellationToken ct)
     {
-        var principal = PrincipalId;
-        // RepresentsSameUserAs is the semantic self-check; a bare `principal == id`
-        // byte compare would miss the raw route shape and let /api/friends/{rawId} slip
-        // past this guard.
-        if (principal.RepresentsSameUserAs(id))
-        {
-            return new ErrorResponse(
+        // Semantic self-check — a bare byte compare would miss the raw route shape and
+        // let /api/friends/{rawId} slip past this guard.
+        if (RejectIfSelf(
+                id,
                 "I'm pretty sure you don't count as your own friend. (Cannot view friendship status for self.)",
-                ErrorCodes.CannotViewOwnFriendship,
-                System.Net.HttpStatusCode.BadRequest);
-        }
+                ErrorCodes.CannotViewOwnFriendship) is { } reject)
+            return reject;
 
-        var friendship = await _repository.GetFriendshipAsync(principal, id, ct);
+        var friendship = await _repository.GetFriendshipAsync(PrincipalId, id, ct);
         return friendship is null
             ? new ErrorResponse("You are not friends with that system.", ErrorCodes.FriendshipNotFound, System.Net.HttpStatusCode.NotFound)
             : QualifyFriendship(friendship);
@@ -71,15 +67,12 @@ public sealed class FriendsController : InterfoldControllerBase
     [HttpDelete("{id}")]
     public async Task<Response> Delete(SystemId id, CancellationToken ct)
     {
-        var principal = PrincipalId;
         // Semantic self-check — see Show handler for the same rationale.
-        if (principal.RepresentsSameUserAs(id))
-        {
-            return new ErrorResponse(
+        if (RejectIfSelf(
+                id,
                 "I'm pretty sure you don't count as your own friend. (Cannot delete friendship with self.)",
-                ErrorCodes.CannotDeleteOwnFriendship,
-                System.Net.HttpStatusCode.BadRequest);
-        }
+                ErrorCodes.CannotDeleteOwnFriendship) is { } reject)
+            return reject;
 
         return await DispatchNoContentAsync(_remove, OperationIds.FriendDelete, new RemoveFriendshipCommand(id), ct);
     }
