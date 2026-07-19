@@ -492,64 +492,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var senderWs = pair.FirstWs;
         using var recipientWs = pair.SecondWs;
 
-        // Send friend request
-        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
-
-        await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.RequestSent);
-
-        var recipientReceived = await ReceivedPhxFrame.ReceiveEventFrameAsync(recipientWs, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
-        await Assert.That(recipientReceived).IsNotNull().Because("Expected friend_request_received before accept.");
-
-        // Accept friend request
-        var acceptFrame = PhxEndpointFrame.Build("system:" + recipientSystemId, "POST", "/api/friend-requests/" + senderSystemId + "/accept", new object(), "3");
-
-        await recipientWs.SendAsync(acceptFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        _ = await ReceivedPhxFrame.ReceiveEventFrameAsync(recipientWs, token, SocketEventNames.Friendships.Added);
-
-        _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.Added);
-
-        // Trust friend
-        var trustFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "POST", "/api/friends/" + recipientSystemId + "/trust", new object(), "4");
-
-        await senderWs.SendAsync(trustFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (trustAck, trustPush) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            senderWs, token, SocketEventNames.Friendships.Trusted);
-
-        using (Assert.Multiple())
-        {
-            await Assert.That(trustAck).IsNotNull().Because("Expected endpoint ack on sender socket for trust.");
-            await Assert.That(trustPush).IsNotNull().Because("Expected friend_trusted push on sender socket after trust.");
-        }
-
-        if (trustPush is not null)
-        {
-            await Assert.That(trustPush.Event).IsEqualTo(SocketEventNames.Friendships.Trusted)
-                .Because("Expected friend_trusted event on sender socket.");
-        }
-
-        // Untrust friend
-        var untrustFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "POST", "/api/friends/" + recipientSystemId + "/untrust", new object(), "5");
-
-        await senderWs.SendAsync(untrustFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (untrustAck, untrustPush) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            senderWs, token, SocketEventNames.Friendships.Untrusted);
-
-        using (Assert.Multiple())
-        {
-            await Assert.That(untrustAck).IsNotNull().Because("Expected endpoint ack on sender socket for untrust.");
-            await Assert.That(untrustPush).IsNotNull().Because("Expected friend_untrusted push on sender socket after untrust.");
-        }
-
-        if (untrustPush is not null)
-        {
-            await Assert.That(untrustPush.Event).IsEqualTo(SocketEventNames.Friendships.Untrusted)
-                .Because("Expected friend_untrusted event on sender socket.");
-        }
+        await FriendTrustUntrustFlow.RunAsync(senderWs, senderSystemId, recipientWs, recipientSystemId, token);
 
         await senderWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
         await recipientWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
