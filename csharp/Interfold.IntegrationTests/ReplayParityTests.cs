@@ -25,6 +25,7 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
         yield return "alter-lifecycle.trace.json";
         yield return "tag-lifecycle.trace.json";
         yield return "fronting-lifecycle.trace.json";
+        yield return "fronting-delete-parity.trace.json";
         yield return "poll-lifecycle.trace.json";
         yield return "settings-lifecycle.trace.json";
         yield return "journal-lifecycle.trace.json";

@@ -302,7 +302,9 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
             history.Remove(entry);
 
-            if (_activeBySystem.TryGetValue(systemKey, out var active) && active.ContainsKey(entry.AlterId))
+            if (_activeBySystem.TryGetValue(systemKey, out var active)
+                && active.TryGetValue(entry.AlterId, out var frontState)
+                && frontState.FrontId == entry.FrontId)
             {
                 active.TryRemove(entry.AlterId, out _);
 
