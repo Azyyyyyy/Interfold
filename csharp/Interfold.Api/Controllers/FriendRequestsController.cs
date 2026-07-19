@@ -38,18 +38,8 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     public async Task<Response<FriendRequestIndexReadModel>> Index(CancellationToken ct)
     {
         var requests = await _repository.GetFriendRequestsAsync(PrincipalId, ct);
-        var incoming = requests.Incoming
-            .Select(x => x with
-            {
-                System = x.System with { AvatarUrl = QualifyAvatar(x.System.AvatarUrl, x.System.AvatarSource) }
-            })
-            .ToArray();
-        var outgoing = requests.Outgoing
-            .Select(x => x with
-            {
-                System = x.System with { AvatarUrl = QualifyAvatar(x.System.AvatarUrl, x.System.AvatarSource) }
-            })
-            .ToArray();
+        var incoming = requests.Incoming.Select(QualifyFriendRequest).ToArray();
+        var outgoing = requests.Outgoing.Select(QualifyFriendRequest).ToArray();
 
         // Same wire shape as the previous anonymous object: {"data":{"incoming":[…],"outgoing":[…]}}.
         return new SuccessResponse<FriendRequestIndexReadModel>(new FriendRequestIndexReadModel(incoming, outgoing));

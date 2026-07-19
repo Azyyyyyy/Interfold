@@ -110,6 +110,24 @@ public abstract class InterfoldControllerBase : ControllerBase
         => AvatarUrlQualifier.QualifyAvatar(url, source, Request.Scheme, Request.Host);
 
     /// <summary>
+    /// Convenience: qualifies both the friend's avatar and every fronting alter's avatar
+    /// against the current request's origin. Callers use this instead of hand-rolling the
+    /// <c>friendship with { Friend = ..., Fronting = ... }</c> record-update expression at
+    /// every friendship-shaped endpoint.
+    /// </summary>
+    protected FriendshipReadModel QualifyFriendship(FriendshipReadModel friendship)
+        => AvatarUrlQualifier.QualifyFriendship(friendship, Request.Scheme, Request.Host);
+
+    /// <summary>
+    /// Convenience: qualifies the requester/requestee profile's avatar against the
+    /// current request's origin. Callers use this instead of the
+    /// <c>x with { System = x.System with { AvatarUrl = QualifyAvatar(...) } }</c>
+    /// lambda inside <c>Select</c>.
+    /// </summary>
+    protected FriendRequestReadModel QualifyFriendRequest(FriendRequestReadModel request)
+        => AvatarUrlQualifier.QualifyFriendRequest(request, Request.Scheme, Request.Host);
+
+    /// <summary>
     /// Reads a multipart/form-data request body and returns the first file part as an
     /// <see cref="AvatarUploadPayload"/>. Non-multipart requests, empty bodies, boundary
     /// parse failures, and mid-read <see cref="IOException"/>s all resolve to

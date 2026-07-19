@@ -23,7 +23,7 @@ public static class FriendshipSocketEventHandlers
                 new FriendProfileReadModel(evt.SystemId, new Username(string.Empty), null, null, string.Empty, new DiscordId(string.Empty)),
                 new FriendshipModel(FriendshipLevel.Friend, DateTimeOffset.UtcNow),
                 [])
-            : QualifyFriendship(friendship, context);
+            : AvatarUrlQualifier.QualifyFriendship(friendship, context.RequestOrigin);
         
         await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Friendships.Added, qualified);
     }
@@ -158,29 +158,4 @@ public static class FriendshipSocketEventHandlers
         await context.SendIfJoinedAsync(targetSystemId, eventName, payload);
     }
 
-    private static FriendshipReadModel QualifyFriendship(FriendshipReadModel friendship, SocketPushContext context)
-    {
-        return friendship with
-        {
-            Friend = friendship.Friend with
-            {
-                AvatarUrl = AvatarUrlQualifier.QualifyAvatar(
-                    friendship.Friend.AvatarUrl,
-                    friendship.Friend.AvatarSource,
-                    context.RequestOrigin)
-            },
-            Fronting = friendship.Fronting
-                .Select(f => f with
-                {
-                    Alter = f.Alter with
-                    {
-                        AvatarUrl = AvatarUrlQualifier.QualifyAvatar(
-                            f.Alter.AvatarUrl,
-                            f.Alter.AvatarSource,
-                            context.RequestOrigin)
-                    }
-                })
-                .ToArray()
-        };
-    }
 }

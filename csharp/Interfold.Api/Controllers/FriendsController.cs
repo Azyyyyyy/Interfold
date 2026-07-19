@@ -36,6 +36,7 @@ public sealed class FriendsController : InterfoldControllerBase
         return new SuccessResponse<IReadOnlyList<FriendshipReadModel>>(qualified);
     }
 
+
     [HttpGet("{id}")]
     public async Task<Response<FriendshipReadModel>> Show(SystemId id, CancellationToken ct)
     {
@@ -51,17 +52,6 @@ public sealed class FriendsController : InterfoldControllerBase
         return friendship is null
             ? new ErrorResponse("You are not friends with that system.", ErrorCodes.FriendshipNotFound, System.Net.HttpStatusCode.NotFound)
             : QualifyFriendship(friendship);
-    }
-
-    private FriendshipReadModel QualifyFriendship(FriendshipReadModel friendship)
-    {
-        return friendship with
-        {
-            Friend = friendship.Friend with { AvatarUrl = QualifyAvatar(friendship.Friend.AvatarUrl, friendship.Friend.AvatarSource) },
-            Fronting = friendship.Fronting
-                .Select(f => f with { Alter = f.Alter with { AvatarUrl = QualifyAvatar(f.Alter.AvatarUrl, f.Alter.AvatarSource) } })
-                .ToArray()
-        };
     }
 
     [HttpDelete("{id}")]

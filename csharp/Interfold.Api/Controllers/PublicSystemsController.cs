@@ -132,13 +132,7 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         var friendship = friendshipTask.Result;
         if (friendship is not null)
         {
-            friendship = friendship with
-            {
-                Friend = friendship.Friend with { AvatarUrl = QualifyAvatar(friendship.Friend.AvatarUrl, friendship.Friend.AvatarSource) },
-                Fronting = friendship.Fronting
-                    .Select(f => f with { Alter = f.Alter with { AvatarUrl = QualifyAvatar(f.Alter.AvatarUrl, f.Alter.AvatarSource) } })
-                    .ToList()
-            };
+            friendship = QualifyFriendship(friendship);
         }
 
         return new PublicSystemBatchReadModel(
