@@ -244,13 +244,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                     FrontId frontId = new(row.GetValue<Guid>("id"));
                     AlterId alterId = new(row.GetValue<short>("alter_id"));
                     var timeStart = row.GetValue<DateTimeOffset?>("time_start") ?? DateTimeOffset.UtcNow;
-                    var front = new FrontHistoryReadModel(
-                        frontId,
-                        alterId,
-                        row.GetValue<string?>("comment"),
-                        timeStart,
-                        null,
-                        new(normalizedSystemId));
+                    var front = FrontingRowMappers.MapFrontHistoryReadModel(row, new(normalizedSystemId));
 
                     if (!alterById.TryGetValue(alterId, out var alter))
                     {
@@ -319,13 +313,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
             var historicalRows = await session.ExecuteAsync(historyQuery);
             var historical = historicalRows
-                .Select(row => new FrontHistoryReadModel(
-                    new(row.GetValue<Guid>("id")),
-                    new(row.GetValue<short>("alter_id")),
-                    row.GetValue<string?>("comment"),
-                    row.GetValue<DateTimeOffset>("time_start"),
-                    row.GetValue<DateTimeOffset?>("time_end"),
-                    new(normalizedSystemId)))
+                .Select(row => FrontingRowMappers.MapFrontHistoryReadModel(row, new(normalizedSystemId), row.GetValue<DateTimeOffset?>("time_end")))
                 .Where(x => x.TimeEnd != null)
                 .ToList();
 
@@ -388,14 +376,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 alter = AlterRowMappers.MapBareAlter(alterRow, definitions);
             }
 
-            var timeStart = currentRow.GetValue<DateTimeOffset?>("time_start") ?? DateTimeOffset.UtcNow;
-            var front = new FrontHistoryReadModel(
-                new(frontId.Value),
-                new(alterId),
-                currentRow.GetValue<string?>("comment"),
-                timeStart,
-                null,
-                new(normalizedSystemId));
+            var front = FrontingRowMappers.MapFrontHistoryReadModel(currentRow, new(normalizedSystemId));
 
             return new FrontActiveReadModel(alter, front, primaryAlterId == new AlterId(alterId));
         }, cancellationToken);
@@ -417,13 +398,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             if (row is null)
                 return null;
 
-            return new FrontHistoryReadModel(
-                new(row.GetValue<Guid>("id")),
-                new(row.GetValue<short>("alter_id")),
-                row.GetValue<string?>("comment"),
-                row.GetValue<DateTimeOffset>("time_start"),
-                row.GetValue<DateTimeOffset?>("time_end"),
-                new(normalizedSystemId));
+            return FrontingRowMappers.MapFrontHistoryReadModel(row, new(normalizedSystemId), row.GetValue<DateTimeOffset?>("time_end"));
         }, cancellationToken);
     }
 
