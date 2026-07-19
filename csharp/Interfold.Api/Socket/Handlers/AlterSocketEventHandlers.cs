@@ -2,6 +2,7 @@ using Interfold.Api.Helpers;
 using Interfold.Contracts;
 using Interfold.Contracts.Events;
 using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
 using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Socket.Handlers;
@@ -19,20 +20,13 @@ public static class AlterSocketEventHandlers
         await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Alters.Deleted, new AlterDeletedSocketPayload(evt.AlterId));
     }
 
-    private static async Task HandleUpsertAsync(SystemId systemId, AlterId alterId, string eventName, SocketPushContext context, IAlterRepository alterRepository)
-    {
-        if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        var alter = await alterRepository.GetAsync(systemId, alterId, context.CancellationToken).ConfigureAwait(false);
-        if (alter is null)
-        {
-            return;
-        }
-
-        alter.AvatarUrl = AvatarUrlQualifier.QualifyAvatar(alter.AvatarUrl, alter.AvatarSource, context.RequestOrigin);
-        await context.SendAsync(topic, joinRef, asArray, eventName, new AlterSocketPayload(alter));
-    }
+    private static Task HandleUpsertAsync(SystemId systemId, AlterId alterId, string eventName, SocketPushContext context, IAlterRepository alterRepository)
+        => context.PushIfJoinedAsync<AlterReadModel, AlterSocketPayload>(
+            systemId, eventName,
+            ct => alterRepository.GetAsync(systemId, alterId, ct),
+            alter =>
+            {
+                alter.AvatarUrl = AvatarUrlQualifier.QualifyAvatar(alter.AvatarUrl, alter.AvatarSource, context.RequestOrigin);
+                return new AlterSocketPayload(alter);
+            });
 }

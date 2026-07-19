@@ -59,8 +59,4 @@ protected override async Task<CommandExecutionResult<PollCommandResult>> Execute
         return CommandExecutionResult<PollCommandResult>.Success(result);
     }
 
-    private static CommandExecutionResult<PollCommandResult> RejectInvariant(
-        CommandEnvelope<CreatePollCommand> command, EntityRef entityRef) =>
-        CommandExecutionResult<PollCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

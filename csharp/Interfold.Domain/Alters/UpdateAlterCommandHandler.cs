@@ -104,16 +104,4 @@ protected override async Task<CommandExecutionResult<AlterCommandResult>> Execut
         payload.Archived is not null ||
         payload.Pinned is not null;
 
-    private static CommandExecutionResult<AlterCommandResult> RejectInvariant(
-        CommandEnvelope<UpdateAlterCommand> command,
-        EntityRef entityRef
-    ) =>
-        CommandExecutionResult<AlterCommandResult>.Rejected(
-            new ConflictResult(
-                ConflictCode.ConflictInvariant,
-                command.OperationId,
-                entityRef,
-                ResolutionHint.ManualMergeRequired
-            )
-        );
 }

@@ -417,37 +417,13 @@ internal static class BackupPhase
         IDictionary<string, string?>? environment, string destinationPath,
         CancellationToken ct, bool compress = false)
     {
-        var psi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = fileName,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (var a in arguments) psi.ArgumentList.Add(a);
-        if (environment is not null)
-        {
-            foreach (var kvp in environment)
+        await ProcessStreamRunner.RunAsync(
+            fileName, arguments, environment,
+            redirectStandardInput: false,
+            forwardStdout: false,
+            async proc =>
             {
-                psi.Environment[kvp.Key] = kvp.Value;
-            }
-        }
-
-        using var proc = new System.Diagnostics.Process { StartInfo = psi };
-        var stderr = new System.Text.StringBuilder();
-        proc.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
-
-        if (!proc.Start())
-        {
-            throw new InvalidOperationException($"Failed to start process '{fileName}'.");
-        }
-        proc.BeginErrorReadLine();
-
-        try
-        {
-            await using (var fs = File.Create(destinationPath))
-            {
+                await using var fs = File.Create(destinationPath);
                 if (compress)
                 {
                     // CompressionLevel.Fastest keeps CPU well below the docker-cp / disk
@@ -462,20 +438,8 @@ internal static class BackupPhase
                 {
                     await proc.StandardOutput.BaseStream.CopyToAsync(fs, ct).ConfigureAwait(false);
                 }
-            }
-            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
-            throw;
-        }
-
-        if (proc.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                $"{fileName} {string.Join(' ', arguments)} exited {proc.ExitCode}: {stderr.ToString().Trim()}");
-        }
+            },
+            ct);
     }
 
     private static string FormatBytes(long bytes)

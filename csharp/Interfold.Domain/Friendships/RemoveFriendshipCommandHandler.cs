@@ -68,9 +68,4 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
         return CommandExecutionResult<FriendshipCommandResult>.Success(result);
     }
 
-    private static CommandExecutionResult<FriendshipCommandResult> RejectInvariant(
-        CommandEnvelope<RemoveFriendshipCommand> command,
-        EntityRef entityRef)
-        => CommandExecutionResult<FriendshipCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

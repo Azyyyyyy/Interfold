@@ -1,6 +1,7 @@
 using Interfold.Contracts;
 using Interfold.Contracts.Events;
 using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Socket.Handlers;
@@ -18,19 +19,9 @@ public static class PollSocketEventHandlers
         await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Polls.Deleted, new PollDeletedSocketPayload(evt.PollId));
     }
 
-    private static async Task HandleUpsertAsync(SystemId systemId, PollId pollId, string eventName, SocketPushContext context, IPollRepository pollRepository)
-    {
-        if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        var poll = await pollRepository.GetAsync(systemId, pollId, context.CancellationToken).ConfigureAwait(false);
-        if (poll is null)
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, eventName, new PollSocketPayload(poll));
-    }
+    private static Task HandleUpsertAsync(SystemId systemId, PollId pollId, string eventName, SocketPushContext context, IPollRepository pollRepository)
+        => context.PushIfJoinedAsync<PollReadModel, PollSocketPayload>(
+            systemId, eventName,
+            ct => pollRepository.GetAsync(systemId, pollId, ct),
+            poll => new PollSocketPayload(poll));
 }

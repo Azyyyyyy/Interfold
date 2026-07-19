@@ -47,8 +47,4 @@ protected override async Task<CommandExecutionResult<GlobalJournalCommandResult>
         return CommandExecutionResult<GlobalJournalCommandResult>.Success(result);
     }
 
-    private static CommandExecutionResult<GlobalJournalCommandResult> RejectInvariant(
-        CommandEnvelope<DeleteGlobalJournalEntryCommand> command, EntityRef entityRef) =>
-        CommandExecutionResult<GlobalJournalCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

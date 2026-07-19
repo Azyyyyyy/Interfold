@@ -64,16 +64,4 @@ protected override async Task<CommandExecutionResult<AlterCommandResult>> Execut
         return CommandExecutionResult<AlterCommandResult>.Success(result);
     }
 
-    private static CommandExecutionResult<AlterCommandResult> RejectInvariant(
-        CommandEnvelope<DeleteAlterCommand> command,
-        EntityRef entityRef
-    ) =>
-        CommandExecutionResult<AlterCommandResult>.Rejected(
-            new ConflictResult(
-                ConflictCode.ConflictInvariant,
-                command.OperationId,
-                entityRef,
-                ResolutionHint.ManualMergeRequired
-            )
-        );
 }

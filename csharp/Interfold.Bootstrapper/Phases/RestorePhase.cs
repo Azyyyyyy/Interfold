@@ -395,40 +395,13 @@ internal static class RestorePhase
         IDictionary<string, string?>? environment, string sourcePath, bool decompress,
         CancellationToken ct)
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = fileName,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (var a in arguments) psi.ArgumentList.Add(a);
-        if (environment is not null)
-        {
-            foreach (var kvp in environment)
+        await ProcessStreamRunner.RunAsync(
+            fileName, arguments, environment,
+            redirectStandardInput: true,
+            forwardStdout: true,
+            async proc =>
             {
-                psi.Environment[kvp.Key] = kvp.Value;
-            }
-        }
-
-        using var proc = new Process { StartInfo = psi };
-        var stderr = new System.Text.StringBuilder();
-        proc.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
-        proc.OutputDataReceived += (_, e) => { if (e.Data is not null) Console.WriteLine(e.Data); };
-
-        if (!proc.Start())
-        {
-            throw new InvalidOperationException($"Failed to start process '{fileName}'.");
-        }
-        proc.BeginErrorReadLine();
-        proc.BeginOutputReadLine();
-
-        try
-        {
-            await using (var src = File.OpenRead(sourcePath))
-            {
+                await using var src = File.OpenRead(sourcePath);
                 if (decompress)
                 {
                     await using var gz = new GZipStream(src, CompressionMode.Decompress, leaveOpen: false);
@@ -440,20 +413,8 @@ internal static class RestorePhase
                 }
                 await proc.StandardInput.BaseStream.FlushAsync(ct).ConfigureAwait(false);
                 proc.StandardInput.Close();
-            }
-            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
-            throw;
-        }
-
-        if (proc.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                $"{fileName} {string.Join(' ', arguments)} exited {proc.ExitCode}: {stderr.ToString().Trim()}");
-        }
+            },
+            ct);
     }
 
 }

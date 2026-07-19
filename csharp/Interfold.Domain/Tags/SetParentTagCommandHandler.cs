@@ -72,8 +72,4 @@ protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteC
         return false;
     }
 
-    private static CommandExecutionResult<TagCommandResult> RejectInvariant(
-        CommandEnvelope<SetParentTagCommand> command, EntityRef entityRef) =>
-        CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

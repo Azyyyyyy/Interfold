@@ -1,6 +1,7 @@
 using Interfold.Contracts;
 using Interfold.Contracts.Events;
 using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Socket.Handlers;
@@ -18,19 +19,9 @@ public static class TagSocketEventHandlers
         await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Tags.Deleted, new TagDeletedSocketPayload(evt.TagId));
     }
 
-    private static async Task HandleUpsertAsync(SystemId systemId, TagId tagId, string eventName, SocketPushContext context, ITagRepository tagRepository)
-    {
-        if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        var tag = await tagRepository.GetAsync(systemId, tagId, context.CancellationToken).ConfigureAwait(false);
-        if (tag is null)
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, eventName, new TagSocketPayload(tag));
-    }
+    private static Task HandleUpsertAsync(SystemId systemId, TagId tagId, string eventName, SocketPushContext context, ITagRepository tagRepository)
+        => context.PushIfJoinedAsync<TagReadModel, TagSocketPayload>(
+            systemId, eventName,
+            ct => tagRepository.GetAsync(systemId, tagId, ct),
+            tag => new TagSocketPayload(tag));
 }

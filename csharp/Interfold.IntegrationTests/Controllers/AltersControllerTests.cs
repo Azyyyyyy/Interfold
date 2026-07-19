@@ -42,7 +42,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
             new(fieldPrivate, "PrivateValue"),
         });
 
-        using var nonFriendRes = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", friend);
+        using var nonFriendRes = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", nonFriend);
         var nonFriendBody = await nonFriendRes.Content.ReadAsStringAsync();
         using (Assert.Multiple())
         {

@@ -120,4 +120,25 @@ public sealed class SocketPushContext
             return Task.CompletedTask;
         return SendAsync(topic, joinRef, asArray, eventName, payload);
     }
+
+    /// <summary>
+    /// Fetches an entity and, when present, wraps it into a socket payload and sends it on
+    /// the joined system topic. Silently no-ops when the socket hasn't joined the target
+    /// topic or when <paramref name="fetch"/> returns <see langword="null"/>.
+    /// </summary>
+    public async Task PushIfJoinedAsync<TEntity, TPayload>(
+        SystemId systemId,
+        string eventName,
+        Func<CancellationToken, Task<TEntity?>> fetch,
+        Func<TEntity, TPayload> wrap)
+    {
+        if (!TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
+            return;
+
+        var entity = await fetch(CancellationToken).ConfigureAwait(false);
+        if (entity is null)
+            return;
+
+        await SendAsync(topic, joinRef, asArray, eventName, wrap(entity));
+    }
 }

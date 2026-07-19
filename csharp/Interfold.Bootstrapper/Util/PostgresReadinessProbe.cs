@@ -71,4 +71,31 @@ internal static class PostgresReadinessProbe
         }
         throw new TimeoutException($"{service} did not become ready within {options.Timeout.TotalMinutes} minutes.");
     }
+
+    /// <summary>
+    /// Deadline-based readiness probe that returns <c>null</c> on success or an error
+    /// message on timeout — suitable for callers that aggregate multiple tier-health
+    /// results rather than letting a timeout propagate as an exception.
+    /// </summary>
+    public static async Task<string?> TryWaitUntilAsync(
+        string composeFile,
+        string service,
+        DateTime deadline,
+        PhaseLogger logger,
+        CancellationToken ct)
+    {
+        var remaining = deadline - DateTime.UtcNow;
+        if (remaining <= TimeSpan.Zero)
+            return $"postgres ({service}) did not report ready within the health-check budget";
+
+        try
+        {
+            await WaitAsync(composeFile, service, remaining, logger, ct).ConfigureAwait(false);
+            return null;
+        }
+        catch (TimeoutException)
+        {
+            return $"postgres ({service}) did not report ready within the health-check budget";
+        }
+    }
 }

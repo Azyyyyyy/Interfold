@@ -157,49 +157,27 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         }, cancellationToken);
     }
 
-    public async Task<bool> SetGlobalLockedAsync(SystemId systemId, EntryId entryId, bool locked, CancellationToken cancellationToken = default)
+    public Task<bool> SetGlobalLockedAsync(SystemId systemId, EntryId entryId, bool locked, CancellationToken cancellationToken = default)
+        => SetGlobalFlagAsync(systemId, entryId, "locked", locked, cancellationToken);
+
+    public Task<bool> SetGlobalPinnedAsync(SystemId systemId, EntryId entryId, bool pinned, CancellationToken cancellationToken = default)
+        => SetGlobalFlagAsync(systemId, entryId, "pinned", pinned, cancellationToken);
+
+    private async Task<bool> SetGlobalFlagAsync(SystemId systemId, EntryId entryId, string column, bool value, CancellationToken cancellationToken)
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
-
             var exists = await ExistsGlobalAsync(systemId, entryId, cancellationToken);
             if (!exists)
                 return false;
 
             var upsert = new SimpleStatement(
-                $"UPDATE {keyspace}.global_journals SET locked = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
-                locked,
-                normalizedSystemId,
+                $"UPDATE {scope.Keyspace}.global_journals SET {column} = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
+                value,
+                scope.NormalizedSystemId,
                 entryId.Value
             );
-            await session.ExecuteAsync(upsert);
-
-            return true;
-        }, cancellationToken);
-    }
-
-    public async Task<bool> SetGlobalPinnedAsync(SystemId systemId, EntryId entryId, bool pinned, CancellationToken cancellationToken = default)
-    {
-        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
-        {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
-
-            var exists = await ExistsGlobalAsync(systemId, entryId, cancellationToken);
-            if (!exists)
-                return false;
-
-            var upsert = new SimpleStatement(
-                $"UPDATE {keyspace}.global_journals SET pinned = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
-                pinned,
-                normalizedSystemId,
-                entryId.Value
-            );
-            await session.ExecuteAsync(upsert);
+            await scope.Session.ExecuteAsync(upsert);
 
             return true;
         }, cancellationToken);
@@ -408,7 +386,13 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         }, cancellationToken);
     }
 
-    public async Task<bool> SetAlterLockedAsync(SystemId systemId, EntryId entryId, bool locked, CancellationToken cancellationToken = default)
+    public Task<bool> SetAlterLockedAsync(SystemId systemId, EntryId entryId, bool locked, CancellationToken cancellationToken = default)
+        => SetAlterFlagAsync(systemId, entryId, "locked", locked, cancellationToken);
+
+    public Task<bool> SetAlterPinnedAsync(SystemId systemId, EntryId entryId, bool pinned, CancellationToken cancellationToken = default)
+        => SetAlterFlagAsync(systemId, entryId, "pinned", pinned, cancellationToken);
+
+    private async Task<bool> SetAlterFlagAsync(SystemId systemId, EntryId entryId, string column, bool value, CancellationToken cancellationToken)
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
@@ -418,32 +402,11 @@ public sealed class ScyllaJournalRepository : IJournalRepository
 
             var batch = new BatchStatement();
             batch.Add(new SimpleStatement(
-                $"UPDATE {scope.Keyspace}.alter_journals SET locked = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ? AND alter_id = ?",
-                locked, scope.NormalizedSystemId, reference.EntryId.Value, reference.AlterId.Value));
+                $"UPDATE {scope.Keyspace}.alter_journals SET {column} = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ? AND alter_id = ?",
+                value, scope.NormalizedSystemId, reference.EntryId.Value, reference.AlterId.Value));
             batch.Add(new SimpleStatement(
-                $"UPDATE {scope.Keyspace}.alter_journals_by_alter SET locked = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND alter_id = ? AND id = ?",
-                locked, scope.NormalizedSystemId, reference.AlterId.Value, reference.EntryId.Value));
-            await scope.Session.ExecuteAsync(batch);
-
-            return true;
-        }, cancellationToken);
-    }
-
-    public async Task<bool> SetAlterPinnedAsync(SystemId systemId, EntryId entryId, bool pinned, CancellationToken cancellationToken = default)
-    {
-        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
-        {
-            var reference = await GetAlterRefCoreAsync(scope, entryId, cancellationToken);
-            if (reference is null)
-                return false;
-
-            var batch = new BatchStatement();
-            batch.Add(new SimpleStatement(
-                $"UPDATE {scope.Keyspace}.alter_journals SET pinned = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ? AND alter_id = ?",
-                pinned, scope.NormalizedSystemId, reference.EntryId.Value, reference.AlterId.Value));
-            batch.Add(new SimpleStatement(
-                $"UPDATE {scope.Keyspace}.alter_journals_by_alter SET pinned = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND alter_id = ? AND id = ?",
-                pinned, scope.NormalizedSystemId, reference.AlterId.Value, reference.EntryId.Value));
+                $"UPDATE {scope.Keyspace}.alter_journals_by_alter SET {column} = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND alter_id = ? AND id = ?",
+                value, scope.NormalizedSystemId, reference.AlterId.Value, reference.EntryId.Value));
             await scope.Session.ExecuteAsync(batch);
 
             return true;

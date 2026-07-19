@@ -64,9 +64,4 @@ protected override async Task<CommandExecutionResult<EncryptionCommandResult>> E
         return CommandExecutionResult<EncryptionCommandResult>.Success(result);
     }
 
-    private static CommandExecutionResult<EncryptionCommandResult> RejectInvariant(
-        CommandEnvelope<SetupEncryptionCommand> command,
-        EntityRef entityRef) =>
-        CommandExecutionResult<EncryptionCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

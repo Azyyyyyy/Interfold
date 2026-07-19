@@ -73,16 +73,4 @@ public sealed class EndFrontCommandHandler : IdempotentCommandHandler<EndFrontCo
         return CommandExecutionResult<FrontCommandResult>.Success(result);
     }
 
-    private static CommandExecutionResult<FrontCommandResult> RejectInvariant(
-        CommandEnvelope<EndFrontCommand> command,
-        EntityRef entityRef
-    ) =>
-        CommandExecutionResult<FrontCommandResult>.Rejected(
-            new ConflictResult(
-                ConflictCode.ConflictInvariant,
-                command.OperationId,
-                entityRef,
-                ResolutionHint.ManualMergeRequired
-            )
-        );
 }

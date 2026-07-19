@@ -80,4 +80,17 @@ public abstract class IdempotentCommandHandler<TPayload, TResult> : ICommandHand
                 ResolutionHint.NoRetry
             )
         );
+
+    protected static CommandExecutionResult<TResult> RejectInvariant(
+        CommandEnvelope<TPayload> command,
+        EntityRef entityRef
+    ) =>
+        CommandExecutionResult<TResult>.Rejected(
+            new ConflictResult(
+                ConflictCode.ConflictInvariant,
+                command.OperationId,
+                entityRef,
+                ResolutionHint.ManualMergeRequired
+            )
+        );
 }

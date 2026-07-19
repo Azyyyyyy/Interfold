@@ -388,28 +388,9 @@ internal static class UpdateImagesPhase
         return null;
     }
 
-    private static async Task<string?> WaitForPostgresReadyAsync(
+    private static Task<string?> WaitForPostgresReadyAsync(
         string composeFile, DateTime deadline, PhaseLogger logger, CancellationToken ct)
-    {
-        var attempt = 0;
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-            attempt++;
-            var probe = await ProcessRunner.RunAsync("docker",
-                ["compose", "-f", composeFile, "exec", "-T", ComposeServices.Postgres,
-                 "pg_isready", "-h", "127.0.0.1", "-p", "5432"],
-                ct: ct).ConfigureAwait(false);
-            if (probe.ExitCode == 0)
-            {
-                logger.Info($"    postgres ready after {attempt} probe(s)");
-                return null;
-            }
-            try { await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false); }
-            catch (OperationCanceledException) { throw; }
-        }
-        return $"postgres ({ComposeServices.Postgres}) did not report ready within the health-check budget";
-    }
+        => PostgresReadinessProbe.TryWaitUntilAsync(composeFile, ComposeServices.Postgres, deadline, logger, ct);
 
     private static async Task<string?> WaitForScyllaReadyAsync(
         string composeFile, string service, DateTime deadline, PhaseLogger logger, CancellationToken ct)

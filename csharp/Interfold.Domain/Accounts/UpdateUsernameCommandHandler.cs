@@ -61,16 +61,4 @@ protected override async Task<CommandExecutionResult<AccountCommandResult>> Exec
         return CommandExecutionResult<AccountCommandResult>.Success(result);
     }
 
-    private static CommandExecutionResult<AccountCommandResult> RejectInvariant(
-        CommandEnvelope<UpdateUsernameCommand> command,
-        EntityRef entityRef
-    ) =>
-        CommandExecutionResult<AccountCommandResult>.Rejected(
-            new ConflictResult(
-                ConflictCode.ConflictInvariant,
-                command.OperationId,
-                entityRef,
-                ResolutionHint.ManualMergeRequired
-            )
-        );
 }
