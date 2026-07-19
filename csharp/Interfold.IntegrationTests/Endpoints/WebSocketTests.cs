@@ -294,19 +294,10 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
     {
         var senderSystemId = UniqueId("sys-friend-sender");
         var recipientSystemId = UniqueId("sys-friend-recipient");
-        var wsClientFactory = fixture.Factory.Server.CreateWebSocketClient();
 
-        string senderSocketToken = await CreateRandomToken(fixture.Factory, senderSystemId);
-        string recipientSocketToken = await CreateRandomToken(fixture.Factory, recipientSystemId);
-
-        var senderSocketUri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={senderSocketToken}");
-        var recipientSocketUri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={recipientSocketToken}");
-
-        using var senderWs = await wsClientFactory.ConnectAsync(senderSocketUri, token);
-        using var recipientWs = await wsClientFactory.ConnectAsync(recipientSocketUri, token);
-
-        await JoinTopicAsync(senderWs, $"system:{senderSystemId}", senderSocketToken, token);
-        await JoinTopicAsync(recipientWs, $"system:{recipientSystemId}", recipientSocketToken, token);
+        var pair = await WebSocketHarness.ConnectPairAndJoinAsync(fixture, senderSystemId, recipientSystemId, token);
+        using var senderWs = pair.FirstWs;
+        using var recipientWs = pair.SecondWs;
 
         var sendRequestFrame = new PhxFrame<PhxEndpointPayload> {
             Topic = "system:" + senderSystemId,
@@ -349,18 +340,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var senderSystemId = UniqueId("sys-accept-sender");
         var recipientSystemId = UniqueId("sys-accept-recipient");
 
-        var wsClientFactory = fixture.Factory.Server.CreateWebSocketClient();
-        string senderSocketToken = await CreateRandomToken(fixture.Factory, senderSystemId);
-        string recipientSocketToken = await CreateRandomToken(fixture.Factory, recipientSystemId);
-
-        var senderSocketUri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={senderSocketToken}");
-        var recipientSocketUri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={recipientSocketToken}");
-
-        using var senderWs = await wsClientFactory.ConnectAsync(senderSocketUri, token);
-        using var recipientWs = await wsClientFactory.ConnectAsync(recipientSocketUri, token);
-
-        await JoinTopicAsync(senderWs, $"system:{senderSystemId}", senderSocketToken, token);
-        await JoinTopicAsync(recipientWs, $"system:{recipientSystemId}", recipientSocketToken, token);
+        var pair = await WebSocketHarness.ConnectPairAndJoinAsync(fixture, senderSystemId, recipientSystemId, token);
+        using var senderWs = pair.FirstWs;
+        using var recipientWs = pair.SecondWs;
 
         var sendRequestFrame = new PhxFrame<PhxEndpointPayload> {
             Topic = "system:" + senderSystemId,
@@ -440,18 +422,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var senderSystemId = UniqueId("sys-reject-sender");
         var recipientSystemId = UniqueId("sys-reject-recipient");
 
-        var wsClientFactory = fixture.Factory.Server.CreateWebSocketClient();
-        string senderSocketToken = await CreateRandomToken(fixture.Factory, senderSystemId);
-        string recipientSocketToken = await CreateRandomToken(fixture.Factory, recipientSystemId);
-
-        var senderSocketUri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={senderSocketToken}");
-        var recipientSocketUri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={recipientSocketToken}");
-
-        using var senderWs = await wsClientFactory.ConnectAsync(senderSocketUri, token);
-        using var recipientWs = await wsClientFactory.ConnectAsync(recipientSocketUri, token);
-
-        await JoinTopicAsync(senderWs, $"system:{senderSystemId}", senderSocketToken, token);
-        await JoinTopicAsync(recipientWs, $"system:{recipientSystemId}", recipientSocketToken, token);
+        var pair = await WebSocketHarness.ConnectPairAndJoinAsync(fixture, senderSystemId, recipientSystemId, token);
+        using var senderWs = pair.FirstWs;
+        using var recipientWs = pair.SecondWs;
 
         var sendRequestFrame = new PhxFrame<PhxEndpointPayload> {
             Topic = "system:" + senderSystemId,
@@ -508,18 +481,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var senderSystemId = UniqueId("sys-cancel-sender");
         var recipientSystemId = UniqueId("sys-cancel-recipient");
 
-        var wsClientFactory = fixture.Factory.Server.CreateWebSocketClient();
-        string senderSocketToken = await CreateRandomToken(fixture.Factory, senderSystemId);
-        string recipientSocketToken = await CreateRandomToken(fixture.Factory, recipientSystemId);
-
-        var senderSocketUri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={senderSocketToken}");
-        var recipientSocketUri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={recipientSocketToken}");
-
-        using var senderWs = await wsClientFactory.ConnectAsync(senderSocketUri, token);
-        using var recipientWs = await wsClientFactory.ConnectAsync(recipientSocketUri, token);
-
-        await JoinTopicAsync(senderWs, $"system:{senderSystemId}", senderSocketToken, token);
-        await JoinTopicAsync(recipientWs, $"system:{recipientSystemId}", recipientSocketToken, token);
+        var pair = await WebSocketHarness.ConnectPairAndJoinAsync(fixture, senderSystemId, recipientSystemId, token);
+        using var senderWs = pair.FirstWs;
+        using var recipientWs = pair.SecondWs;
 
         var sendRequestFrame = new PhxFrame<PhxEndpointPayload> {
             Topic = "system:" + senderSystemId,
@@ -579,18 +543,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var senderSystemId = UniqueId("sys-remove-sender");
         var recipientSystemId = UniqueId("sys-remove-recipient");
 
-        var wsClientFactory = fixture.Factory.Server.CreateWebSocketClient();
-        string senderSocketToken = await CreateRandomToken(fixture.Factory, senderSystemId);
-        string recipientSocketToken = await CreateRandomToken(fixture.Factory, recipientSystemId);
-
-        var senderSocketUri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={senderSocketToken}");
-        var recipientSocketUri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={recipientSocketToken}");
-
-        using var senderWs = await wsClientFactory.ConnectAsync(senderSocketUri, token);
-        using var recipientWs = await wsClientFactory.ConnectAsync(recipientSocketUri, token);
-
-        await JoinTopicAsync(senderWs, $"system:{senderSystemId}", senderSocketToken, token);
-        await JoinTopicAsync(recipientWs, $"system:{recipientSystemId}", recipientSocketToken, token);
+        var pair = await WebSocketHarness.ConnectPairAndJoinAsync(fixture, senderSystemId, recipientSystemId, token);
+        using var senderWs = pair.FirstWs;
+        using var recipientWs = pair.SecondWs;
 
         // Send friend request
         var sendRequestFrame = new PhxFrame<PhxEndpointPayload> {
@@ -686,18 +641,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var senderSystemId = UniqueId("sys-trust-sender");
         var recipientSystemId = UniqueId("sys-trust-recipient");
 
-        var wsClientFactory = fixture.Factory.Server.CreateWebSocketClient();
-        string senderSocketToken = await CreateRandomToken(fixture.Factory, senderSystemId);
-        string recipientSocketToken = await CreateRandomToken(fixture.Factory, recipientSystemId);
-
-        var senderSocketUri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={senderSocketToken}");
-        var recipientSocketUri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={recipientSocketToken}");
-
-        using var senderWs = await wsClientFactory.ConnectAsync(senderSocketUri, token);
-        using var recipientWs = await wsClientFactory.ConnectAsync(recipientSocketUri, token);
-
-        await JoinTopicAsync(senderWs, $"system:{senderSystemId}", senderSocketToken, token);
-        await JoinTopicAsync(recipientWs, $"system:{recipientSystemId}", recipientSocketToken, token);
+        var pair = await WebSocketHarness.ConnectPairAndJoinAsync(fixture, senderSystemId, recipientSystemId, token);
+        using var senderWs = pair.FirstWs;
+        using var recipientWs = pair.SecondWs;
 
         // Send friend request
         var sendRequestFrame = new PhxFrame<PhxEndpointPayload> {
@@ -811,18 +757,10 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
     {
         var systemAId = UniqueId("sys-mutual-a");
         var systemBId = UniqueId("sys-mutual-b");
-        
-        var wsClientFactory = fixture.Factory.Server.CreateWebSocketClient();
-        string socketTokenA = await CreateRandomToken(fixture.Factory, systemAId);
-        string socketTokenB = await CreateRandomToken(fixture.Factory, systemBId);
 
-        var socketUriA = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={socketTokenA}");
-        var socketUriB = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={socketTokenB}");
-        using var wsA = await wsClientFactory.ConnectAsync(socketUriA, token);
-        using var wsB = await wsClientFactory.ConnectAsync(socketUriB, token);
-
-        await JoinTopicAsync(wsA, $"system:{systemAId}", socketTokenA, token);
-        await JoinTopicAsync(wsB, $"system:{systemBId}", socketTokenB, token);
+        var pair = await WebSocketHarness.ConnectPairAndJoinAsync(fixture, systemAId, systemBId, token);
+        using var wsA = pair.FirstWs;
+        using var wsB = pair.SecondWs;
 
         // A sends friend request to B
         var sendAFrame = new PhxFrame<PhxEndpointPayload> {
