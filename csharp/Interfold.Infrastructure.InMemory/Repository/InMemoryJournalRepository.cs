@@ -341,8 +341,6 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     private (ScopedSystemId System, EntryId EntryId) GetEntryKey(SystemId systemId, EntryId entryId)
         => (InMemoryStorageKeys.ForSystem(_regionContext, systemId), entryId);
 
-    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-
     private static AlterJournalReadModel MapAlterJournalReadModel(AlterEntryState entry)
     {
         return new AlterJournalReadModel(

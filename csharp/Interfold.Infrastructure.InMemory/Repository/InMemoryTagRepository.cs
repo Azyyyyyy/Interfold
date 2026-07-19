@@ -226,8 +226,6 @@ public sealed class InMemoryTagRepository : ITagRepository
         return members.Keys.OrderBy(x => x.Id.Value).ToArray();
     }
 
-    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-
     private static TagReadModel MapTagReadModel(TagState tag, IReadOnlyList<AlterId> alterIds, SystemId systemId)
     {
         return new TagReadModel(

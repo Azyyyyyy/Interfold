@@ -158,7 +158,5 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
             fields[i] = fields[i] with { Index = i };
         }
     }
-
-    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 }
 

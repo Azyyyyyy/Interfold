@@ -345,9 +345,6 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         }
     }
 
-    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-
-    // Delegates to the shared static that also serves the Alter and Tag repos —
 }
 
 

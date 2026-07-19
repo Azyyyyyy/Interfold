@@ -331,10 +331,6 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         RemoveFieldValuesForSystem(fieldId, systemKey);
     }
 
-    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-
-    // Delegates to the shared static that also serves the Tag and Fronting repos —
-
     // Thin adapter around AlterFieldProjection.ResolveGuardedFields — the shared helper
     // takes an IReadOnlyDictionary<FieldId, string?>, which AlterState.Fields already is.
     // AlterState is a private nested type, so keeping this per-repo wrapper preserves

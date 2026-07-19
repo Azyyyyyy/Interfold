@@ -339,8 +339,6 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
             Since = now
         };
     }
-
-    private static SystemId Normalize(SystemId systemId) => InMemoryStorageKeys.Normalize(systemId);
 }
 
 

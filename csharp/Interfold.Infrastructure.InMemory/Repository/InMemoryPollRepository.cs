@@ -143,7 +143,5 @@ public sealed class InMemoryPollRepository : IPollRepository
             state.InsertedAt,
             state.UpdatedAt
         );
-
-    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 }
 
