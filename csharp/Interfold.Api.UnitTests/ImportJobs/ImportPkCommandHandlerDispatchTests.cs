@@ -148,28 +148,4 @@ public sealed class ImportPkCommandHandlerDispatchTests
         OccurredAt: DateTimeOffset.UtcNow,
         Payload: new ImportSpCommand(new("synthetic-sp-token"), RecoveryCode: null));
 
-    private sealed class CapturingQueue : IImportJobQueue, IAsyncDisposable
-    {
-        private readonly InProcessImportJobQueue _inner;
-        private readonly List<ImportJobItem> _enqueued = new();
-        private readonly object _gate = new();
-
-        public CapturingQueue(InProcessImportJobQueue inner) { _inner = inner; }
-
-        public IReadOnlyList<ImportJobItem> Enqueued
-        {
-            get { lock (_gate) return _enqueued.ToArray(); }
-        }
-
-        public ValueTask EnqueueAsync(ImportJobItem item, CancellationToken cancellationToken = default)
-        {
-            lock (_gate) _enqueued.Add(item);
-            return _inner.EnqueueAsync(item, cancellationToken);
-        }
-
-        public IAsyncEnumerable<ImportJobItem> ReadAllAsync(CancellationToken cancellationToken = default)
-            => _inner.ReadAllAsync(cancellationToken);
-
-        public ValueTask DisposeAsync() => _inner.DisposeAsync();
-    }
 }
