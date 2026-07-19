@@ -82,12 +82,7 @@ public static class SettingsSocketEventHandlers
 
     private static async Task HandleSignalAsync(SystemId systemId, string eventName, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, eventName, new EmptyPayload());
+        await context.SendIfJoinedAsync(systemId, eventName, new EmptyPayload());
     }
 
     public static Task HandleAsync(SettingsDiscordAccountLinkedEvent evt, SocketPushContext context)
@@ -101,11 +96,6 @@ public static class SettingsSocketEventHandlers
 
     private static async Task SendLinkedAsync(SystemId systemId, string eventName, ISocketPayload payload, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, eventName, payload);
+        await context.SendIfJoinedAsync(systemId, eventName, payload);
     }
 }

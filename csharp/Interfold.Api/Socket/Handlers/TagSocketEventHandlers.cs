@@ -15,12 +15,7 @@ public static class TagSocketEventHandlers
 
     public static async Task HandleAsync(TagDeletedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Tags.Deleted, new TagDeletedSocketPayload(evt.TagId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Tags.Deleted, new TagDeletedSocketPayload(evt.TagId));
     }
 
     private static async Task HandleUpsertAsync(SystemId systemId, TagId tagId, string eventName, SocketPushContext context, ITagRepository tagRepository)

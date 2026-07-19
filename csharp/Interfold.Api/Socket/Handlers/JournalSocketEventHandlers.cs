@@ -15,12 +15,7 @@ public static class JournalSocketEventHandlers
 
     public static async Task HandleAsync(GlobalJournalEntryDeletedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Journals.GlobalDeleted, new EntryDeletedSocketPayload(evt.EntryId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Journals.GlobalDeleted, new EntryDeletedSocketPayload(evt.EntryId));
     }
 
     public static async Task HandleAsync(AlterJournalEntryCreatedEvent evt, SocketPushContext context, IJournalRepository journalRepository)
@@ -31,12 +26,7 @@ public static class JournalSocketEventHandlers
 
     public static async Task HandleAsync(AlterJournalEntryDeletedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Journals.AlterDeleted, new EntryDeletedSocketPayload(evt.EntryId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Journals.AlterDeleted, new EntryDeletedSocketPayload(evt.EntryId));
     }
 
     private static async Task HandleGlobalUpsertAsync(SystemId systemId, EntryId entryId, string eventName, SocketPushContext context, IJournalRepository journalRepository)

@@ -15,12 +15,7 @@ public static class PollSocketEventHandlers
 
     public static async Task HandleAsync(PollDeletedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Polls.Deleted, new PollDeletedSocketPayload(evt.PollId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Polls.Deleted, new PollDeletedSocketPayload(evt.PollId));
     }
 
     private static async Task HandleUpsertAsync(SystemId systemId, PollId pollId, string eventName, SocketPushContext context, IPollRepository pollRepository)

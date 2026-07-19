@@ -16,12 +16,7 @@ public static class AlterSocketEventHandlers
 
     public static async Task HandleAsync(AlterDeletedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Alters.Deleted, new AlterDeletedSocketPayload(evt.AlterId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Alters.Deleted, new AlterDeletedSocketPayload(evt.AlterId));
     }
 
     private static async Task HandleUpsertAsync(SystemId systemId, AlterId alterId, string eventName, SocketPushContext context, IAlterRepository alterRepository)

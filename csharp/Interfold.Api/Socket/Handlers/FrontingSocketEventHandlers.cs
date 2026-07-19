@@ -24,12 +24,7 @@ public static class FrontingSocketEventHandlers
 
     public static async Task HandleAsync(FrontingEndedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Fronting.Ended, new AlterIdSocketPayload(evt.AlterId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Fronting.Ended, new AlterIdSocketPayload(evt.AlterId));
     }
 
     public static async Task HandleAsync(FrontingSetEvent evt, SocketPushContext context, IFrontingRepository frontingRepository)
@@ -77,21 +72,11 @@ public static class FrontingSocketEventHandlers
 
     public static async Task HandleAsync(FrontingPrimaryChangedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Fronting.PrimaryChanged, new AlterIdSocketPayload(evt.AlterId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Fronting.PrimaryChanged, new AlterIdSocketPayload(evt.AlterId));
     }
 
     public static async Task HandleAsync(FrontDeletedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Fronting.Deleted, new FrontIdSocketPayload(evt.FrontId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Fronting.Deleted, new FrontIdSocketPayload(evt.FrontId));
     }
 }

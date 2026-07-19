@@ -95,4 +95,17 @@ public sealed class SocketPushContext
             asArray,
             CancellationToken,
             SendGate);
+
+    /// <summary>
+    /// Sends <paramref name="payload"/> to the socket's system topic only when the socket
+    /// has joined that topic; silently no-ops otherwise. Use this in event handlers that
+    /// consist of nothing but the four-line topic-guard followed by a single
+    /// <see cref="SendAsync{TPayload}"/> call, collapsing both lines into one expression.
+    /// </summary>
+    public Task SendIfJoinedAsync<TPayload>(SystemId targetSystemId, string eventName, TPayload payload)
+    {
+        if (!TryGetSystemTopic(targetSystemId, out var topic, out var joinRef, out var asArray))
+            return Task.CompletedTask;
+        return SendAsync(topic, joinRef, asArray, eventName, payload);
+    }
 }

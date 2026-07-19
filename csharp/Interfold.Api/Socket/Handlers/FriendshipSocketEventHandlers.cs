@@ -148,11 +148,6 @@ public static class FriendshipSocketEventHandlers
 
     private static async Task SendAsync(SystemId targetSystemId, string eventName, string payloadKey, SystemId payloadValue, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(targetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
         ISocketPayload payload = payloadKey switch
         {
             SocketPayloadPropertyKeys.FriendId => new FriendIdSocketPayload(payloadValue),
@@ -160,7 +155,7 @@ public static class FriendshipSocketEventHandlers
             _ => throw new InvalidOperationException($"Unrecognized socket payload key '{payloadKey}'.")
         };
 
-        await context.SendAsync(topic, joinRef, asArray, eventName, payload);
+        await context.SendIfJoinedAsync(targetSystemId, eventName, payload);
     }
 
     private static FriendshipReadModel QualifyFriendship(FriendshipReadModel friendship, SocketPushContext context)
