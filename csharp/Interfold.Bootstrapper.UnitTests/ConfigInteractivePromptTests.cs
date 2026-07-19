@@ -968,18 +968,14 @@ public sealed class ConfigInteractivePromptTests
     }
     """;
 
-    private static string NewFirebaseWizardTempDir()
-    {
-        var path = Path.Combine(Path.GetTempPath(), "firebase-wizard-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
-        return path;
-    }
+
 
     [Test]
     public async Task FirebaseAutoDetectBranchPopulatesAllFourPathsFromFolder()
     {
         // End-to-end drive of the scanner → wizard → config wiring on the auto-detect branch.
-        var folder = NewFirebaseWizardTempDir();
+        using var scratch = TestSupport.NewScratchDir("firebase-wizard");
+        var folder = scratch.Path;
         var android = Path.Combine(folder, "google-services.json");
         var ios = Path.Combine(folder, "GoogleService-Info.plist");
         var web = Path.Combine(folder, "firebase-web-config.json");
@@ -1008,7 +1004,8 @@ public sealed class ConfigInteractivePromptTests
     public async Task FirebasePerFileBranchWritesFourExplicitPaths()
     {
         // Per-file branch: four sequential TextPrompts, each guarded by File.Exists.
-        var folder = NewFirebaseWizardTempDir();
+        using var scratch = TestSupport.NewScratchDir("firebase-wizard");
+        var folder = scratch.Path;
         var android = Path.Combine(folder, "google-services.json");
         var ios = Path.Combine(folder, "GoogleService-Info.plist");
         var web = Path.Combine(folder, "firebase-web-config.json");

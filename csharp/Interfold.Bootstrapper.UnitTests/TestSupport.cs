@@ -103,5 +103,40 @@ internal static class TestSupport
         cfg.ApiRuntime.CorsAllowedOrigins = [];
         return cfg;
     }
-}
 
+    /// <summary>
+    /// Represents a temporary scratch directory that is automatically deleted when disposed.
+    /// </summary>
+    public sealed class ScratchDir : IDisposable
+    {
+        public string Path { get; }
+
+        public ScratchDir(string prefix)
+        {
+            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), prefix + "-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path);
+        }
+
+        public void Dispose()
+        {
+            TryDeleteDir(Path);
+        }
+    }
+
+    public static ScratchDir NewScratchDir(string prefix) => new(prefix);
+
+    public static void TryDeleteDir(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup
+        }
+    }
+}

@@ -75,7 +75,7 @@ public sealed class SecretsBackfillTests
         }
         finally
         {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
+            TestSupport.TryDeleteDir(outputDir);
         }
     }
 
@@ -100,7 +100,7 @@ public sealed class SecretsBackfillTests
         }
         finally
         {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
+            TestSupport.TryDeleteDir(outputDir);
         }
     }
 
@@ -125,7 +125,7 @@ public sealed class SecretsBackfillTests
         }
         finally
         {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
+            TestSupport.TryDeleteDir(outputDir);
         }
     }
 
@@ -154,7 +154,7 @@ public sealed class SecretsBackfillTests
         }
         finally
         {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
+            TestSupport.TryDeleteDir(outputDir);
         }
     }
 
@@ -181,7 +181,7 @@ public sealed class SecretsBackfillTests
         }
         finally
         {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
+            TestSupport.TryDeleteDir(outputDir);
         }
     }
 
@@ -206,7 +206,7 @@ public sealed class SecretsBackfillTests
         }
         finally
         {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
+            TestSupport.TryDeleteDir(outputDir);
         }
     }
 
@@ -232,7 +232,7 @@ public sealed class SecretsBackfillTests
         }
         finally
         {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
+            TestSupport.TryDeleteDir(outputDir);
         }
     }
 
@@ -257,7 +257,7 @@ public sealed class SecretsBackfillTests
         }
         finally
         {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
+            TestSupport.TryDeleteDir(outputDir);
         }
     }
 
@@ -282,7 +282,7 @@ public sealed class SecretsBackfillTests
         }
         finally
         {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
+            TestSupport.TryDeleteDir(outputDir);
         }
     }
 }

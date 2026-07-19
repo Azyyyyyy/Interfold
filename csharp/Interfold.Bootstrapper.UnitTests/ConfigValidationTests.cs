@@ -879,55 +879,41 @@ public sealed class ConfigValidationTests
         // handling are caught at unit speed instead of via a full DinD spin-up. We drive the
         // `publish` command (not `bootstrap`) so the prereqs phase is skipped — this keeps the
         // test runnable on Windows / macOS as well as Linux.
-        var tmpDir = Path.Combine(Path.GetTempPath(), "interfold-cfg-malformed-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tmpDir);
-        try
-        {
-            var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
-            await File.WriteAllTextAsync(configPath, "{ this is not valid json");
+        using var scratch = TestSupport.NewScratchDir("interfold-cfg-malformed");
+        var tmpDir = scratch.Path;
+        var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
+        await File.WriteAllTextAsync(configPath, "{ this is not valid json");
 
-            // Shell out to the binary so we exercise the real exit-code path the operator sees.
-            var result = await RunBootstrapperAsync("publish", "--config", configPath,
-                "--output-dir", tmpDir, "--non-interactive");
+        // Shell out to the binary so we exercise the real exit-code path the operator sees.
+        var result = await RunBootstrapperAsync("publish", "--config", configPath,
+            "--output-dir", tmpDir, "--non-interactive");
 
-            await Assert.That(result.ExitCode).IsNotEqualTo(0)
-                .Because("malformed JSON must abort the bootstrap");
-            // The thrown JsonException's message varies across SDK versions but always names the
-            // JSON parse failure mode in some form.
-            var combined = result.Stdout + result.Stderr;
-            await Assert.That(combined).Contains("JSON")
-                .Or.Contains("json")
-                .Or.Contains("parse");
-        }
-        finally
-        {
-            try { Directory.Delete(tmpDir, recursive: true); } catch { /* best effort cleanup */ }
-        }
+        await Assert.That(result.ExitCode).IsNotEqualTo(0)
+            .Because("malformed JSON must abort the bootstrap");
+        // The thrown JsonException's message varies across SDK versions but always names the
+        // JSON parse failure mode in some form.
+        var combined = result.Stdout + result.Stderr;
+        await Assert.That(combined).Contains("JSON")
+            .Or.Contains("json")
+            .Or.Contains("parse");
     }
 
     [Test]
     public async Task MissingFileWithNonInteractiveExitsWithMessage()
     {
         // Drives `publish` (not `bootstrap`) so the prereqs phase is bypassed on non-Linux hosts.
-        var tmpDir = Path.Combine(Path.GetTempPath(), "interfold-cfg-missing-ni-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tmpDir);
-        try
-        {
-            var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
-            await Assert.That(File.Exists(configPath)).IsFalse();
+        using var scratch = TestSupport.NewScratchDir("interfold-cfg-missing-ni");
+        var tmpDir = scratch.Path;
+        var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
+        await Assert.That(File.Exists(configPath)).IsFalse();
 
-            var result = await RunBootstrapperAsync("publish", "--config", configPath,
-                "--output-dir", tmpDir, "--non-interactive");
+        var result = await RunBootstrapperAsync("publish", "--config", configPath,
+            "--output-dir", tmpDir, "--non-interactive");
 
-            await Assert.That(result.ExitCode).IsNotEqualTo(0);
-            await Assert.That(result.Stdout + result.Stderr)
-                .Contains("Config file not found")
-                .Or.Contains("non-interactive");
-        }
-        finally
-        {
-            try { Directory.Delete(tmpDir, recursive: true); } catch { /* best effort cleanup */ }
-        }
+        await Assert.That(result.ExitCode).IsNotEqualTo(0);
+        await Assert.That(result.Stdout + result.Stderr)
+            .Contains("Config file not found")
+            .Or.Contains("non-interactive");
     }
 
     /// <summary>

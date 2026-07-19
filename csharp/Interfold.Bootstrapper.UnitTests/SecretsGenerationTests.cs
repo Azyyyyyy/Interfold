@@ -83,34 +83,27 @@ public sealed class SecretsGenerationTests
         // Persist → Load must preserve every field byte-for-byte. This catches accidental
         // serialiser-option drift (e.g. a missing JsonPropertyName) before it surfaces as a
         // "user can't auth after restart" production incident.
-        var tmpDir = Path.Combine(Path.GetTempPath(), "interfold-roundtrip-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tmpDir);
-        try
-        {
-            var original = SecretsPhase.Generate();
-            var path = Path.Combine(tmpDir, "secrets.json");
-            await SecretsPhase.PersistAsync(original, path, CancellationToken.None);
+        using var scratch = TestSupport.NewScratchDir("interfold-roundtrip");
+        var tmpDir = scratch.Path;
+        var original = SecretsPhase.Generate();
+        var path = Path.Combine(tmpDir, "secrets.json");
+        await SecretsPhase.PersistAsync(original, path, CancellationToken.None);
 
-            var loaded = await SecretsPhase.LoadAsync(path, CancellationToken.None);
+        var loaded = await SecretsPhase.LoadAsync(path, CancellationToken.None);
 
-            await Assert.That(loaded.PostgresUser).IsEqualTo(original.PostgresUser);
-            await Assert.That(loaded.PostgresPassword).IsEqualTo(original.PostgresPassword);
-            await Assert.That(loaded.PostgresInitPassword).IsEqualTo(original.PostgresInitPassword);
-            await Assert.That(loaded.PostgresAdminPassword).IsEqualTo(original.PostgresAdminPassword);
-            await Assert.That(loaded.ScyllaUser).IsEqualTo(original.ScyllaUser);
-            await Assert.That(loaded.ScyllaPassword).IsEqualTo(original.ScyllaPassword);
-            await Assert.That(loaded.ScyllaAdminPassword).IsEqualTo(original.ScyllaAdminPassword);
-            await Assert.That(loaded.EncryptionPrivateKeyB64).IsEqualTo(original.EncryptionPrivateKeyB64);
-            await Assert.That(loaded.EncryptionPepper).IsEqualTo(original.EncryptionPepper);
-            await Assert.That(loaded.LeafPfxPassword).IsEqualTo(original.LeafPfxPassword);
-            await Assert.That(loaded.JwtRsa256PublicKeyPem).IsEqualTo(original.JwtRsa256PublicKeyPem);
-            await Assert.That(loaded.JwtRsa256PrivateKeyPem).IsEqualTo(original.JwtRsa256PrivateKeyPem);
-            await Assert.That(loaded.JwtEs256PublicKeyPem).IsEqualTo(original.JwtEs256PublicKeyPem);
-            await Assert.That(loaded.JwtEs256PrivateKeyPem).IsEqualTo(original.JwtEs256PrivateKeyPem);
-        }
-        finally
-        {
-            try { Directory.Delete(tmpDir, recursive: true); } catch { /* best effort */ }
-        }
+        await Assert.That(loaded.PostgresUser).IsEqualTo(original.PostgresUser);
+        await Assert.That(loaded.PostgresPassword).IsEqualTo(original.PostgresPassword);
+        await Assert.That(loaded.PostgresInitPassword).IsEqualTo(original.PostgresInitPassword);
+        await Assert.That(loaded.PostgresAdminPassword).IsEqualTo(original.PostgresAdminPassword);
+        await Assert.That(loaded.ScyllaUser).IsEqualTo(original.ScyllaUser);
+        await Assert.That(loaded.ScyllaPassword).IsEqualTo(original.ScyllaPassword);
+        await Assert.That(loaded.ScyllaAdminPassword).IsEqualTo(original.ScyllaAdminPassword);
+        await Assert.That(loaded.EncryptionPrivateKeyB64).IsEqualTo(original.EncryptionPrivateKeyB64);
+        await Assert.That(loaded.EncryptionPepper).IsEqualTo(original.EncryptionPepper);
+        await Assert.That(loaded.LeafPfxPassword).IsEqualTo(original.LeafPfxPassword);
+        await Assert.That(loaded.JwtRsa256PublicKeyPem).IsEqualTo(original.JwtRsa256PublicKeyPem);
+        await Assert.That(loaded.JwtRsa256PrivateKeyPem).IsEqualTo(original.JwtRsa256PrivateKeyPem);
+        await Assert.That(loaded.JwtEs256PublicKeyPem).IsEqualTo(original.JwtEs256PublicKeyPem);
+        await Assert.That(loaded.JwtEs256PrivateKeyPem).IsEqualTo(original.JwtEs256PrivateKeyPem);
     }
 }
