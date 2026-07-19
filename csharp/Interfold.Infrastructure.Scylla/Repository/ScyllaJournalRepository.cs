@@ -158,12 +158,12 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     }
 
     public Task<bool> SetGlobalLockedAsync(SystemId systemId, EntryId entryId, bool locked, CancellationToken cancellationToken = default)
-        => SetGlobalFlagAsync(systemId, entryId, "locked", locked, cancellationToken);
+        => SetGlobalFlagAsync(systemId, entryId, JournalFlag.Locked, locked, cancellationToken);
 
     public Task<bool> SetGlobalPinnedAsync(SystemId systemId, EntryId entryId, bool pinned, CancellationToken cancellationToken = default)
-        => SetGlobalFlagAsync(systemId, entryId, "pinned", pinned, cancellationToken);
+        => SetGlobalFlagAsync(systemId, entryId, JournalFlag.Pinned, pinned, cancellationToken);
 
-    private async Task<bool> SetGlobalFlagAsync(SystemId systemId, EntryId entryId, string column, bool value, CancellationToken cancellationToken)
+    private async Task<bool> SetGlobalFlagAsync(SystemId systemId, EntryId entryId, JournalFlag flag, bool value, CancellationToken cancellationToken)
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
@@ -172,7 +172,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 return false;
 
             var upsert = new SimpleStatement(
-                $"UPDATE {scope.Keyspace}.global_journals SET {column} = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
+                $"UPDATE {scope.Keyspace}.global_journals SET {FlagToColumn(flag)} = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
                 value,
                 scope.NormalizedSystemId,
                 entryId.Value
@@ -387,12 +387,12 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     }
 
     public Task<bool> SetAlterLockedAsync(SystemId systemId, EntryId entryId, bool locked, CancellationToken cancellationToken = default)
-        => SetAlterFlagAsync(systemId, entryId, "locked", locked, cancellationToken);
+        => SetAlterFlagAsync(systemId, entryId, JournalFlag.Locked, locked, cancellationToken);
 
     public Task<bool> SetAlterPinnedAsync(SystemId systemId, EntryId entryId, bool pinned, CancellationToken cancellationToken = default)
-        => SetAlterFlagAsync(systemId, entryId, "pinned", pinned, cancellationToken);
+        => SetAlterFlagAsync(systemId, entryId, JournalFlag.Pinned, pinned, cancellationToken);
 
-    private async Task<bool> SetAlterFlagAsync(SystemId systemId, EntryId entryId, string column, bool value, CancellationToken cancellationToken)
+    private async Task<bool> SetAlterFlagAsync(SystemId systemId, EntryId entryId, JournalFlag flag, bool value, CancellationToken cancellationToken)
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
@@ -400,6 +400,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             if (reference is null)
                 return false;
 
+            var column = FlagToColumn(flag);
             var batch = new BatchStatement();
             batch.Add(new SimpleStatement(
                 $"UPDATE {scope.Keyspace}.alter_journals SET {column} = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ? AND alter_id = ?",
@@ -594,4 +595,26 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             return entryIds.Length;
         }, cancellationToken);
     }
+
+    /// <summary>
+    /// The two mutable boolean columns on the journal tables (both <c>global_journals</c> and
+    /// the <c>alter_journals</c> / <c>alter_journals_by_alter</c> view pair). Kept as a
+    /// closed enum — instead of a bare <c>string column</c> parameter — so callers of
+    /// <see cref="SetGlobalFlagAsync"/> / <see cref="SetAlterFlagAsync"/> physically cannot
+    /// pass an arbitrary column identifier and slip a CQL-injection-adjacent literal into
+    /// the UPDATE. <see cref="FlagToColumn"/> is the single place the enum → column-name
+    /// mapping lives.
+    /// </summary>
+    private enum JournalFlag
+    {
+        Locked,
+        Pinned,
+    }
+
+    private static string FlagToColumn(JournalFlag flag) => flag switch
+    {
+        JournalFlag.Locked => "locked",
+        JournalFlag.Pinned => "pinned",
+        _ => throw new ArgumentOutOfRangeException(nameof(flag), flag, "Unknown JournalFlag."),
+    };
 }
