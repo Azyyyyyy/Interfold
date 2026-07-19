@@ -20,7 +20,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
 
         var principal = "parity-public-batch-self";
         _ = await CreateAlterAsync(client, principal, "BatchSelfSeed");
-        await EnsurePublicProfileAsync(client, principal, "batch-self");
+        await EnsureUserExistsAsync(client, principal, "batch-self");
 
         using var res = await client.SendAuthedGetAsync($"/api/systems/{principal}/batch", principal);
         var error = await res.ReadErrorAsync(HttpStatusCode.Forbidden);
@@ -40,10 +40,10 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
         _ = await CreateAlterAsync(client, nonFriend, "SeedNonFriend");
         _ = await CreateAlterAsync(client, friend, "SeedFriend");
         _ = await CreateAlterAsync(client, trusted, "SeedTrusted");
-        await EnsurePublicProfileAsync(client, owner, "fronting-owner");
-        await EnsurePublicProfileAsync(client, nonFriend, "fronting-nonfriend");
-        await EnsurePublicProfileAsync(client, friend, "fronting-friend");
-        await EnsurePublicProfileAsync(client, trusted, "fronting-trusted");
+        await EnsureUserExistsAsync(client, owner, "fronting-owner");
+        await EnsureUserExistsAsync(client, nonFriend, "fronting-nonfriend");
+        await EnsureUserExistsAsync(client, friend, "fronting-friend");
+        await EnsureUserExistsAsync(client, trusted, "fronting-trusted");
 
         var alterPublic = await CreateAlterAsync(client, owner, "VisPublic");
         var alterFriends = await CreateAlterAsync(client, owner, "VisFriends");
@@ -127,7 +127,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
 
         var principal = "parity-guarded-alter";
         var alterId = await CreateAlterAsync(client, principal, "GuardedAlter");
-        await EnsurePublicProfileAsync(client, principal, "guarded-alter");
+        await EnsureUserExistsAsync(client, principal, "guarded-alter");
 
         await SetAlterSecurityLevelAsync(client, principal, alterId, VisibilityLevel.Private);
 
@@ -148,10 +148,10 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
         _ = await CreateAlterAsync(client, nonFriend, "SeedNonFriend");
         _ = await CreateAlterAsync(client, friend, "SeedFriend");
         _ = await CreateAlterAsync(client, trusted, "SeedTrusted");
-        await EnsurePublicProfileAsync(client, owner, "alters-owner");
-        await EnsurePublicProfileAsync(client, nonFriend, "alters-nonfriend");
-        await EnsurePublicProfileAsync(client, friend, "alters-friend");
-        await EnsurePublicProfileAsync(client, trusted, "alters-trusted");
+        await EnsureUserExistsAsync(client, owner, "alters-owner");
+        await EnsureUserExistsAsync(client, nonFriend, "alters-nonfriend");
+        await EnsureUserExistsAsync(client, friend, "alters-friend");
+        await EnsureUserExistsAsync(client, trusted, "alters-trusted");
 
         var alterPublic = await CreateAlterAsync(client, owner, "VisPublic");
         var alterFriends = await CreateAlterAsync(client, owner, "VisFriends");
@@ -220,7 +220,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
 
         var principal = "parity-guarded-tag";
         var tagId = await CreateTagAsync(client, principal, "GuardedTag");
-        await EnsurePublicProfileAsync(client, principal, "guarded-tag");
+        await EnsureUserExistsAsync(client, principal, "guarded-tag");
 
         await SetTagSecurityLevelAsync(client, principal, tagId, VisibilityLevel.Private);
 
@@ -241,10 +241,10 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
         _ = await CreateAlterAsync(client, nonFriend, "SeedNonFriend");
         _ = await CreateAlterAsync(client, friend, "SeedFriend");
         _ = await CreateAlterAsync(client, trusted, "SeedTrusted");
-        await EnsurePublicProfileAsync(client, owner, "tags-owner");
-        await EnsurePublicProfileAsync(client, nonFriend, "tags-nonfriend");
-        await EnsurePublicProfileAsync(client, friend, "tags-friend");
-        await EnsurePublicProfileAsync(client, trusted, "tags-trusted");
+        await EnsureUserExistsAsync(client, owner, "tags-owner");
+        await EnsureUserExistsAsync(client, nonFriend, "tags-nonfriend");
+        await EnsureUserExistsAsync(client, friend, "tags-friend");
+        await EnsureUserExistsAsync(client, trusted, "tags-trusted");
 
         var tagPublic = await CreateTagAsync(client, owner, "TagPublic");
         var tagFriends = await CreateTagAsync(client, owner, "TagFriends");
@@ -303,15 +303,5 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
             .Because($"Expected viewer '{viewer}' to receive tag_not_found for owner '{owner}''s tag {tagId}; got '{error.Code}' with detail '{error.Detail}'.");
     }
 
-    private static async Task EnsurePublicProfileAsync(HttpClient client, string principal, string username)
-    {
-        using var response = await client.SendAsJsonAsync(
-            HttpMethod.Post, "/api/settings/username",
-            new SettingsUsernameRequest(new Username(username)),
-            principal);
-
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NoContent)
-            .Because($"Expected username seed 204 for '{principal}', got {(int)response.StatusCode}. Body: {await response.Content.ReadAsStringAsync()}");
-    }
 }
 
