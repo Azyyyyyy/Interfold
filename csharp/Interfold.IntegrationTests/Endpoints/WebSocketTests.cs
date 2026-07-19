@@ -164,13 +164,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
     public async Task Api_UserSocketEndpoint_PushesFrontingChangedEvent_AfterFrontStart(CancellationToken token)
     {
         var systemId = UniqueId("sys-front-push");
-        var wsClient = fixture.Factory.Server.CreateWebSocketClient();
-        string socketToken = await CreateRandomToken(fixture.Factory, systemId);
         var topic = $"system:{systemId}";
-        var uri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={socketToken}");
-        var ws = await wsClient.ConnectAsync(uri, token);
-
-        await JoinTopicAsync(ws, topic, socketToken, token);
+        var (rawWs, socketToken) = await WebSocketHarness.ConnectAndJoinAsync(fixture, systemId, token);
+        using var ws = rawWs;
 
         var createAlterFrame = new PhxFrame<PhxEndpointPayload>
         {
@@ -224,13 +220,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
     public async Task Api_UserSocketEndpoint_PushesAlterTagAndFieldsEvents_AfterEndpointWrites(CancellationToken token)
     {
         var systemId = UniqueId("sys-domain-fanout");
-        var wsClient = fixture.Factory.Server.CreateWebSocketClient();
-        string socketToken = await CreateRandomToken(fixture.Factory, systemId);
         var topic = $"system:{systemId}";
-        var uri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={socketToken}");
-        using var ws = await wsClient.ConnectAsync(uri, token);
-
-        await JoinTopicAsync(ws, topic, socketToken, token);
+        var (rawWs, socketToken) = await WebSocketHarness.ConnectAndJoinAsync(fixture, systemId, token);
+        using var ws = rawWs;
 
         var createAlterFrame = new PhxFrame<PhxEndpointPayload>
         {
@@ -850,13 +842,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
     public async Task Api_UserSocketEndpoint_PushesTagsWiped_AfterWipeTagsEndpoint(CancellationToken token)
     {
         var systemId = UniqueId("sys-tags-wiped");
-        var wsClient = fixture.Factory.Server.CreateWebSocketClient();
-        string socketToken = await CreateRandomToken(fixture.Factory, systemId);
         var topic = $"system:{systemId}";
-        var uri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={socketToken}");
-        using var ws = await wsClient.ConnectAsync(uri, token);
-
-        await JoinTopicAsync(ws, topic, socketToken, token);
+        var (rawWs, socketToken) = await WebSocketHarness.ConnectAndJoinAsync(fixture, systemId, token);
+        using var ws = rawWs;
 
         // Seed a tag so the wipe path actually iterates the repository — exercises the cascade
         // path Octocon.Accounts.wipe_tags/1 used to cover in the legacy worker.
@@ -901,13 +889,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
     public async Task Api_UserSocketEndpoint_PushesGoogleAccountUnlinked_AfterUnlinkEmailEndpoint(CancellationToken token)
     {
         var systemId = UniqueId("sys-google-unlink");
-        var wsClient = fixture.Factory.Server.CreateWebSocketClient();
-        string socketToken = await CreateRandomToken(fixture.Factory, systemId);
         var topic = $"system:{systemId}";
-        var uri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={socketToken}");
-        using var ws = await wsClient.ConnectAsync(uri, token);
-
-        await JoinTopicAsync(ws, topic, socketToken, token);
+        var (rawWs, socketToken) = await WebSocketHarness.ConnectAndJoinAsync(fixture, systemId, token);
+        using var ws = rawWs;
 
         var unlinkFrame = new PhxFrame<PhxEndpointPayload>
         {
@@ -944,13 +928,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         // depending on outbound HTTP. The matching publish-from-handler paths are exercised by
         // ImportSpCommandHandler unit tests where the import service is stubbed.
         var systemId = UniqueId("sys-sp-import");
-        var wsClient = fixture.Factory.Server.CreateWebSocketClient();
-        string socketToken = await CreateRandomToken(fixture.Factory, systemId);
         var topic = $"system:{systemId}";
-        var uri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={socketToken}");
-        using var ws = await wsClient.ConnectAsync(uri, token);
-
-        await JoinTopicAsync(ws, topic, socketToken, token);
+        var (rawWs, socketToken) = await WebSocketHarness.ConnectAndJoinAsync(fixture, systemId, token);
+        using var ws = rawWs;
 
         await fixture.Factory.EventBus.PublishAsync(new SimplyPluralImportCompletedEvent(AsScopedSystemId(systemId), 7), token);
 
@@ -974,13 +954,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         // same way as SP: drive the bus directly and assert the projection. The handler-side
         // publish path will start firing the same events for free once the importer lands.
         var systemId = UniqueId("sys-pk-import");
-        var wsClient = fixture.Factory.Server.CreateWebSocketClient();
-        string socketToken = await CreateRandomToken(fixture.Factory, systemId);
         var topic = $"system:{systemId}";
-        var uri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={socketToken}");
-        using var ws = await wsClient.ConnectAsync(uri, token);
-
-        await JoinTopicAsync(ws, topic, socketToken, token);
+        var (rawWs, socketToken) = await WebSocketHarness.ConnectAndJoinAsync(fixture, systemId, token);
+        using var ws = rawWs;
 
         await fixture.Factory.EventBus.PublishAsync(new PluralKitImportCompletedEvent(AsScopedSystemId(systemId), 3), token);
 

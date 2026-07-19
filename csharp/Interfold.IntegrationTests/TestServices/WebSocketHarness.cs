@@ -86,4 +86,43 @@ internal static class WebSocketHarness
 
         return (firstWs, secondWs, firstToken, secondToken);
     }
+
+    /// <summary>
+    /// Single-party sister of <see cref="ConnectPairAndJoinAsync"/>: mints a JWT for
+    /// <paramref name="systemId"/>, opens one websocket against
+    /// <c>/api/socket/websocket?token=…</c>, and issues <c>phx_join</c> against
+    /// <c>system:{systemId}</c>. Returns the raw <see cref="WebSocket"/> alongside the
+    /// token because most call sites embed the token again in follow-up
+    /// endpoint-proxy frames on the same socket.
+    /// <para>
+    /// Ownership: the returned <see cref="WebSocket"/> is unowned; callers adopt it via
+    /// <c>using var ws = pair.Ws;</c> so disposal is scoped to the test body. The join
+    /// step is fail-fast — a non-ok reply throws (see <c>WebSocketTests.JoinTopicAsync</c>)
+    /// and the socket is disposed inside this method's <c>catch</c> to avoid leaking a
+    /// live connection. Tests that expect join to fail must hand-roll the two-part
+    /// connect + join instead.
+    /// </para>
+    /// </summary>
+    public static async Task<(WebSocket Ws, string Token)> ConnectAndJoinAsync(
+        IWebFactoryFixture fixture,
+        string systemId,
+        CancellationToken cancellationToken)
+    {
+        var wsClientFactory = fixture.Factory.Server.CreateWebSocketClient();
+        var socketToken = await BaseEndpointTest.CreateRandomToken(fixture.Factory, systemId);
+        var uri = new Uri(WebSocketTests.WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={socketToken}");
+
+        var ws = await wsClientFactory.ConnectAsync(uri, cancellationToken);
+        try
+        {
+            await WebSocketTests.JoinTopicAsync(ws, $"system:{systemId}", socketToken, cancellationToken);
+        }
+        catch
+        {
+            try { ws.Dispose(); } catch { /* swallow: caller sees the join failure */ }
+            throw;
+        }
+
+        return (ws, socketToken);
+    }
 }
