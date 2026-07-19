@@ -45,7 +45,7 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
         // Extracting the admin password from the JSON via `grep + sed` — keeps the test
         // self-contained without needing to parse secrets.json in the test process.
         var seed = await dinD.ExecAsync(["sh", "-c",
-            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.OutputDir}/secrets/secrets.json | " +
+            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.SecretsJsonPath} | " +
             "sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1); " +
             $"docker compose -f {composeFile} exec -T -e PGPASSWORD=\"$ADMIN_PW\" msg-db " +
             "psql -U interfold_admin -d test_pg_db -c " +
@@ -60,7 +60,7 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
 
         // Drop the marker table so the restore path has something concrete to bring back.
         var drop = await dinD.ExecAsync(["sh", "-c",
-            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.OutputDir}/secrets/secrets.json | " +
+            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.SecretsJsonPath} | " +
             "sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1); " +
             $"docker compose -f {composeFile} exec -T -e PGPASSWORD=\"$ADMIN_PW\" msg-db " +
             "psql -U interfold_admin -d test_pg_db -c \"DROP TABLE restore_marker;\""]);
@@ -70,7 +70,7 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
         // Confirm the table is really gone before the restore — otherwise we'd be
         // testing a no-op path and the assertion below would pass vacuously.
         var missing = await dinD.ExecAsync(["sh", "-c",
-            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.OutputDir}/secrets/secrets.json | " +
+            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.SecretsJsonPath} | " +
             "sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1); " +
             $"docker compose -f {composeFile} exec -T -e PGPASSWORD=\"$ADMIN_PW\" msg-db " +
             "psql -U interfold_admin -d test_pg_db -tAc \"SELECT to_regclass('public.restore_marker') IS NULL\""]);
@@ -86,7 +86,7 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
         // The marker must be back. Value check pins that the round-trip preserved the
         // row data, not just the schema.
         var probe = await dinD.ExecAsync(["sh", "-c",
-            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.OutputDir}/secrets/secrets.json | " +
+            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.SecretsJsonPath} | " +
             "sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1); " +
             $"docker compose -f {composeFile} exec -T -e PGPASSWORD=\"$ADMIN_PW\" msg-db " +
             "psql -U interfold_admin -d test_pg_db -tAc \"SELECT id FROM restore_marker\""]);

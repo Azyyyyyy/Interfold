@@ -97,7 +97,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
         // outside the cluster after a successful bootstrap).
         var appPassRaw = await dinD.ExecAsync(
             ["sh", "-c",
-             $"grep '\"postgresPassword\"' {scratch.OutputDir}/secrets/secrets.json " +
+             $"grep '\"postgresPassword\"' {scratch.SecretsJsonPath} " +
              "| sed -E 's/.*\"postgresPassword\"[^\"]*\"([^\"]+)\".*/\\1/'"]);
         var appPass = appPassRaw.Stdout.Trim();
         await Assert.That(appPass).IsNotEmpty()
@@ -126,7 +126,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
         // every time this test isn't the first alphabetically.
         var adminPassRaw = await dinD.ExecAsync(
             ["sh", "-c",
-             $"grep '\"scyllaAdminPassword\"' {scratch.OutputDir}/secrets/secrets.json " +
+             $"grep '\"scyllaAdminPassword\"' {scratch.SecretsJsonPath} " +
              "| sed -E 's/.*\"scyllaAdminPassword\"[^\"]*\"([^\"]+)\".*/\\1/'"]);
         var adminPass = adminPassRaw.Stdout.Trim();
         await Assert.That(adminPass).IsNotEmpty()
@@ -173,7 +173,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
 
         var adminPassRaw = await dinD.ExecAsync(
             ["sh", "-c",
-             $"grep '\"postgresAdminPassword\"' {scratch.OutputDir}/secrets/secrets.json " +
+             $"grep '\"postgresAdminPassword\"' {scratch.SecretsJsonPath} " +
              "| sed -E 's/.*\"postgresAdminPassword\"[^\"]*\"([^\"]+)\".*/\\1/'"]);
         var adminPass = adminPassRaw.Stdout.Trim();
         await Assert.That(adminPass).IsNotEmpty()
@@ -196,7 +196,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
 
         var appPassRaw = await dinD.ExecAsync(
             ["sh", "-c",
-             $"grep '\"postgresPassword\"' {scratch.OutputDir}/secrets/secrets.json " +
+             $"grep '\"postgresPassword\"' {scratch.SecretsJsonPath} " +
              "| sed -E 's/.*\"postgresPassword\"[^\"]*\"([^\"]+)\".*/\\1/'"]);
         var appPass = appPassRaw.Stdout.Trim();
 

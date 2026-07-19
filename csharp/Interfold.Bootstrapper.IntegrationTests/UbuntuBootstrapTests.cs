@@ -86,7 +86,7 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
             "--print-phase-status");
 
         var firstHash = await ShaOfComposeAsync(scratch);
-        var firstSecrets = await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json");
+        var firstSecrets = await dinD.CopyOutAsync(scratch.SecretsJsonPath);
 
         var second = await dinD.RunOnScratchAsync(scratch, $"{nameof(IsIdempotentOnRerun)}-second", "publish",
             "--print-phase-status");
@@ -101,7 +101,7 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
         await Assert.That(secondHash).IsEqualTo(firstHash)
             .Because("compose output should be byte-identical across two non-rotating runs");
 
-        var secondSecrets = await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json");
+        var secondSecrets = await dinD.CopyOutAsync(scratch.SecretsJsonPath);
         await Assert.That(Convert.ToHexString(secondSecrets)).IsEqualTo(Convert.ToHexString(firstSecrets))
             .Because("secrets file must be untouched between bootstraps");
     }
@@ -132,7 +132,7 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
     {
         var (scratch, _) = await dinD.PublishAsync(nameof(SecretsFileHasRestrictedPermissions), TestConfigPaths.DefaultConfig);
 
-        var stat = await dinD.ExecAsync(["stat", "-c", "%a %U", $"{scratch.OutputDir}/secrets/secrets.json"]);
+        var stat = await dinD.ExecAsync(["stat", "-c", "%a %U", scratch.SecretsJsonPath]);
         await Assert.That(stat.ExitCode).IsEqualTo(0L);
         await Assert.That(stat.Stdout.Trim()).StartsWith("600 ")
             .Because("secrets file must be mode 0600");
@@ -150,13 +150,13 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
         var scratch = await dinD.CreateScratchAsync(nameof(RotateSecretsRegeneratesPasswordsAndPreservesCerts), TestConfigPaths.DefaultConfig);
         await dinD.RunOnScratchAsync(scratch, $"{nameof(RotateSecretsRegeneratesPasswordsAndPreservesCerts)}-init", "publish");
 
-        var preSecrets = Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json"));
+        var preSecrets = await dinD.ReadSecretsJsonAsync(scratch);
         var preLeafSha = ShaOf(await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt"));
 
         var rotate = await dinD.RunOnScratchAsync(scratch, nameof(RotateSecretsRegeneratesPasswordsAndPreservesCerts), "rotate-secrets");
         await Assert.That(rotate.ExitCode).IsEqualTo(0).Because($"rotate-secrets failed: {rotate.Stderr}");
 
-        var postSecrets = Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json"));
+        var postSecrets = await dinD.ReadSecretsJsonAsync(scratch);
         var postLeafSha = ShaOf(await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt"));
 
         await Assert.That(postSecrets).IsNotEqualTo(preSecrets).Because("secrets must rotate");
@@ -172,13 +172,13 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
         var scratch = await dinD.CreateScratchAsync(nameof(RotateCertsRegeneratesCertsAndPreservesSecrets), TestConfigPaths.DefaultConfig);
         await dinD.RunOnScratchAsync(scratch, $"{nameof(RotateCertsRegeneratesCertsAndPreservesSecrets)}-init", "publish");
 
-        var preSecrets = Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json"));
+        var preSecrets = await dinD.ReadSecretsJsonAsync(scratch);
         var preLeafSha = ShaOf(await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt"));
 
         var rotate = await dinD.RunOnScratchAsync(scratch, nameof(RotateCertsRegeneratesCertsAndPreservesSecrets), "rotate-certs");
         await Assert.That(rotate.ExitCode).IsEqualTo(0).Because($"rotate-certs failed: {rotate.Stderr}");
 
-        var postSecrets = Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json"));
+        var postSecrets = await dinD.ReadSecretsJsonAsync(scratch);
         var postLeafSha = ShaOf(await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt"));
 
         await Assert.That(postSecrets).IsEqualTo(preSecrets).Because("secrets must remain unchanged on rotate-certs");
@@ -197,7 +197,7 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
             .Because($"fault-inject halt should exit cleanly: {halted.Stderr}");
 
         // The secrets file should already exist - confirm it.
-        var secretsExist = await dinD.ExecAsync(["test", "-f", $"{scratch.OutputDir}/secrets/secrets.json"]);
+        var secretsExist = await dinD.ExecAsync(["test", "-f", scratch.SecretsJsonPath]);
         await Assert.That(secretsExist.ExitCode).IsEqualTo(0L)
             .Because("partial run should have persisted the secrets file");
 

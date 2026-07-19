@@ -87,7 +87,7 @@ public class DbInitFaultRecoveryTests(UbuntuDinDFixture dinD)
             ["sh", "-c",
              $"docker compose -f {composeFile} exec -T scylla " +
              "cqlsh -u interfold_admin -p \"$(grep scyllaAdminPassword " +
-             $"{scratch.OutputDir}/secrets/secrets.json | sed -E 's/.*\\\"([^\\\"]+)\\\".*$/\\1/' | tail -1)\" " +
+             $"{scratch.SecretsJsonPath} | sed -E 's/.*\\\"([^\\\"]+)\\\".*$/\\1/' | tail -1)\" " +
              "-e \"LIST ROLES\" 2>&1 || true"]);
         await Assert.That(scyllaAdminFinal.Stdout.Contains("interfold_admin")).IsTrue()
             .Because($"after resume, interfold_admin must exist in scylla: {scyllaAdminFinal.Stdout}");

@@ -247,6 +247,19 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
         return await _dinD.ReadFileAsync(containerPath, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Convenience wrapper over <see cref="CopyOutAsync(string, CancellationToken)"/> that
+    /// reads the per-scratch <c>secrets/secrets.json</c> and returns it as a UTF-8 string.
+    /// Every test that needs to grep / compare / rotate the secrets file was previously
+    /// open-coding <c>Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json"))</c>
+    /// — this helper is the single fix-forward point if the path or format ever changes.
+    /// </summary>
+    public async Task<string> ReadSecretsJsonAsync(DinDScratch scratch, CancellationToken ct = default)
+    {
+        var bytes = await CopyOutAsync(scratch.SecretsJsonPath, ct).ConfigureAwait(false);
+        return Encoding.UTF8.GetString(bytes);
+    }
+
     /// <summary>Copy a host file into the DinD container.</summary>
     public async Task CopyInAsync(string hostPath, string containerPath, CancellationToken ct = default)
     {
@@ -479,7 +492,16 @@ public readonly record struct ExecResult(long ExitCode, string Stdout, string St
 /// <param name="OutputDir">Where the bootstrapper emits compose/secrets/certs (<c>{Root}/deploy</c>).</param>
 /// <param name="ConfigPath">Per-test copy of <c>interfold.bootstrap.json</c> (<c>{Root}/interfold.bootstrap.json</c>).</param>
 /// <param name="Ports">Per-test host-port allocation embedded into the per-test config's <c>ports</c> block.</param>
-public readonly record struct DinDScratch(string Root, string OutputDir, string ConfigPath, DinDPortAllocation Ports);
+public readonly record struct DinDScratch(string Root, string OutputDir, string ConfigPath, DinDPortAllocation Ports)
+{
+    /// <summary>
+    /// In-container path to the bootstrapper-emitted <c>secrets/secrets.json</c>. Convenient
+    /// shorthand for the <c>{OutputDir}/secrets/secrets.json</c> fragment repeated across
+    /// nearly every secret-adjacent integration test — see
+    /// <c>DinDFixtureBase.ReadSecretsJsonAsync</c>.
+    /// </summary>
+    public string SecretsJsonPath => $"{OutputDir}/secrets/secrets.json";
+}
 
 /// <summary>
 /// 6-port allocation issued per test by <see cref="DinDFixtureBase.AllocatePorts"/>. The values
