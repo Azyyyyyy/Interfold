@@ -131,36 +131,16 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var primaryAlterId = await ScyllaSharedQueries.LoadPrimaryFrontAlterAsync(session, keyspace, normalizedSystemId);
 
             var endBatch = new BatchStatement();
-            endBatch.Add(new SimpleStatement(
-                $"UPDATE {keyspace}.fronts SET time_end = ?, updated_at = ? WHERE user_id = ? AND id = ? AND time_start = ?",
-                endedAt,
-                endedAt,
+            ScyllaFrontingDenormalizedTable.AddFrontCloseStatements(
+                endBatch,
+                keyspace,
                 normalizedSystemId,
                 current.FrontId,
-                current.StartedAt));
-            endBatch.Add(new SimpleStatement(
-                $"DELETE FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ?",
-                normalizedSystemId,
-                alterId.Value));
-            // Maintain fronts_by_alter (update time_end)
-            endBatch.Add(new SimpleStatement(
-                $"UPDATE {keyspace}.fronts_by_alter SET time_end = ?, updated_at = ? WHERE user_id = ? AND alter_id = ? AND id = ? AND time_start = ?",
-                endedAt, endedAt, normalizedSystemId, alterId.Value, current.FrontId, current.StartedAt));
-            // Insert into fronts_by_time (only on close)
-            endBatch.Add(new SimpleStatement(
-                $"INSERT INTO {keyspace}.fronts_by_time (user_id, time_start, time_end, id, alter_id, comment, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                normalizedSystemId, current.StartedAt, endedAt, current.FrontId, alterId.Value, current.Comment, endedAt, endedAt));
-            // Insert into fronts_by_end_time (only on close)
-            endBatch.Add(new SimpleStatement(
-                $"INSERT INTO {keyspace}.fronts_by_end_time (user_id, time_end, time_start, id, alter_id, comment, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                normalizedSystemId, endedAt, current.StartedAt, current.FrontId, alterId.Value, current.Comment, endedAt, endedAt));
-
-            if (primaryAlterId == alterId)
-            {
-                endBatch.Add(new SimpleStatement(
-                    $"UPDATE {keyspace}.users SET primary_front_alter = null, updated_at = toTimestamp(now()) WHERE id = ?",
-                    normalizedSystemId));
-            }
+                alterId.Value,
+                current.StartedAt,
+                endedAt,
+                current.Comment,
+                primaryAlterId);
             
             await session.ExecuteAsync(endBatch);
 
@@ -421,36 +401,16 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var endedAt = DateTimeOffset.UtcNow;
 
             var endBatch = new BatchStatement();
-            endBatch.Add(new SimpleStatement(
-                $"UPDATE {keyspace}.fronts SET time_end = ?, updated_at = ? WHERE user_id = ? AND id = ? AND time_start = ?",
-                endedAt,
-                endedAt,
+            ScyllaFrontingDenormalizedTable.AddFrontCloseStatements(
+                endBatch,
+                keyspace,
                 normalizedSystemId,
                 current.FrontId,
-                current.StartedAt));
-            endBatch.Add(new SimpleStatement(
-                $"DELETE FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ?",
-                normalizedSystemId,
-                current.AlterId));
-            // Maintain fronts_by_alter (update time_end)
-            endBatch.Add(new SimpleStatement(
-                $"UPDATE {keyspace}.fronts_by_alter SET time_end = ?, updated_at = ? WHERE user_id = ? AND alter_id = ? AND id = ? AND time_start = ?",
-                endedAt, endedAt, normalizedSystemId, current.AlterId, current.FrontId, current.StartedAt));
-            // Insert into fronts_by_time (only on close)
-            endBatch.Add(new SimpleStatement(
-                $"INSERT INTO {keyspace}.fronts_by_time (user_id, time_start, time_end, id, alter_id, comment, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                normalizedSystemId, current.StartedAt, endedAt, current.FrontId, current.AlterId, current.Comment, endedAt, endedAt));
-            // Insert into fronts_by_end_time (only on close)
-            endBatch.Add(new SimpleStatement(
-                $"INSERT INTO {keyspace}.fronts_by_end_time (user_id, time_end, time_start, id, alter_id, comment, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                normalizedSystemId, endedAt, current.StartedAt, current.FrontId, current.AlterId, current.Comment, endedAt, endedAt));
-
-            if (primaryAlterId == new AlterId(current.AlterId))
-            {
-                endBatch.Add(new SimpleStatement(
-                    $"UPDATE {keyspace}.users SET primary_front_alter = null, updated_at = toTimestamp(now()) WHERE id = ?",
-                    normalizedSystemId));
-            }
+                current.AlterId,
+                current.StartedAt,
+                endedAt,
+                current.Comment,
+                primaryAlterId);
 
             await session.ExecuteAsync(endBatch);
             return true;
