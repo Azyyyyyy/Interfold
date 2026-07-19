@@ -545,4 +545,21 @@ public abstract class InterfoldControllerBase : ControllerBase
     protected CommandEnvelope<TPayload> BuildEnvelope<TPayload>(OperationId operationId, TPayload payload)
         => new(operationId, Guid.NewGuid(), PrincipalId: PrincipalId, IdempotencyKey: GetIdempotencyKey(),
                OccurredAt: TimeProvider.GetUtcNow(), Payload: payload);
+
+    /// <summary>
+    /// Show-endpoint helper: returns a 404 <see cref="ErrorResponse"/> naming
+    /// <paramref name="message"/> / <paramref name="code"/> when <paramref name="value"/>
+    /// is <see langword="null"/>; otherwise wraps the value in a 200 <see cref="SuccessResponse{T}"/>.
+    /// <para>
+    /// Consolidates the "load + null-check + 404 vs 200" ternary that every read-model
+    /// Show endpoint hand-rolled. Sites that mutate the loaded entity before returning
+    /// (avatar URL qualification etc.) apply the mutation under an
+    /// <c>if (v is not null)</c> guard and then call this helper with the (possibly
+    /// mutated) value.
+    /// </para>
+    /// </summary>
+    protected Response<T> OkOrNotFound<T>(T? value, string message, ErrorCode code)
+        => value is null
+            ? new ErrorResponse(message, code, HttpStatusCode.NotFound)
+            : new SuccessResponse<T>(value);
 }

@@ -44,9 +44,7 @@ public sealed class PollsController : InterfoldControllerBase
     public async Task<Response<PollReadModel>> Show(PollId id, CancellationToken ct)
     {
         var poll = await _pollRepository.GetAsync(PrincipalId, id, ct);
-        return poll is null
-            ? new ErrorResponse("Poll not found.", ErrorCodes.PollNotFound, System.Net.HttpStatusCode.NotFound)
-            : poll;
+        return OkOrNotFound(poll, "Poll not found.", ErrorCodes.PollNotFound);
     }
 
     [HttpPost]

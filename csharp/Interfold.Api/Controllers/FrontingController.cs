@@ -136,9 +136,7 @@ public sealed class FrontingController : InterfoldControllerBase
     public async Task<Response<FrontActiveReadModel>> Show(FrontId id, CancellationToken ct)
     {
         var front = await _repository.GetActiveByFrontIdAsync(PrincipalId, id, ct);
-        return front is null
-            ? new ErrorResponse("Front not found.", ErrorCodes.FrontNotFound, System.Net.HttpStatusCode.NotFound)
-            : new SuccessResponse<FrontActiveReadModel>(front);
+        return OkOrNotFound(front, "Front not found.", ErrorCodes.FrontNotFound);
     }
 
     [HttpDelete("{id}")]

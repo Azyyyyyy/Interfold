@@ -51,13 +51,11 @@ public sealed class AltersController : InterfoldControllerBase
     public async Task<Response<AlterReadModel>> Show([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
         var alter = await _alterRepository.GetAsync(PrincipalId, alterId, ct);
-        if (alter is null)
+        if (alter is not null)
         {
-            return new ErrorResponse("Alter not found.", ErrorCodes.AlterNotFound, System.Net.HttpStatusCode.NotFound);
+            alter.AvatarUrl = QualifyAvatar(alter.AvatarUrl, alter.AvatarSource);
         }
-
-        alter.AvatarUrl = QualifyAvatar(alter.AvatarUrl, alter.AvatarSource);
-        return alter;
+        return OkOrNotFound(alter, "Alter not found.", ErrorCodes.AlterNotFound);
     }
 
     [HttpPost]

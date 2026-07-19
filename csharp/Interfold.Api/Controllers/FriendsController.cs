@@ -49,9 +49,10 @@ public sealed class FriendsController : InterfoldControllerBase
             return reject;
 
         var friendship = await _repository.GetFriendshipAsync(PrincipalId, id, ct);
-        return friendship is null
-            ? new ErrorResponse("You are not friends with that system.", ErrorCodes.FriendshipNotFound, System.Net.HttpStatusCode.NotFound)
-            : QualifyFriendship(friendship);
+        return OkOrNotFound(
+            friendship is null ? null : QualifyFriendship(friendship),
+            "You are not friends with that system.",
+            ErrorCodes.FriendshipNotFound);
     }
 
     [HttpDelete("{id}")]

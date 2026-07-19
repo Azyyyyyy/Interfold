@@ -38,17 +38,15 @@ public sealed class PublicSystemsController : InterfoldControllerBase
     public async Task<Response<PublicSystemReadModel>> Show([FromRoute] SystemId systemId, CancellationToken ct)
     {
         var profile = await _accounts.GetPublicProfileAsync(systemId, ct);
-        if (profile is null)
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
-        return new PublicSystemReadModel(
-            Id: profile.SystemId,
-            AvatarUrl: QualifyAvatar(profile.AvatarUrl, profile.AvatarSource),
-            AvatarSource: profile.AvatarSource,
-            Username: profile.Username,
-            Description: profile.Description);
+        var projected = profile is null
+            ? null
+            : new PublicSystemReadModel(
+                Id: profile.SystemId,
+                AvatarUrl: QualifyAvatar(profile.AvatarUrl, profile.AvatarSource),
+                AvatarSource: profile.AvatarSource,
+                Username: profile.Username,
+                Description: profile.Description);
+        return OkOrNotFound(projected, "System not found.", ErrorCodes.SystemNotFound);
     }
 
     //TODO: To ensure route works as expected
@@ -71,9 +69,7 @@ public sealed class PublicSystemsController : InterfoldControllerBase
             alter.AvatarUrl = QualifyAvatar(alter.AvatarUrl, alter.AvatarSource);
         }
 
-        return alter is null
-            ? new ErrorResponse("Alter not found.", ErrorCodes.AlterNotFound, System.Net.HttpStatusCode.NotFound)
-            : alter;
+        return OkOrNotFound(alter, "Alter not found.", ErrorCodes.AlterNotFound);
     }
 
     //TODO: To ensure route works as expected
@@ -90,9 +86,7 @@ public sealed class PublicSystemsController : InterfoldControllerBase
     public async Task<Response<TagPublicReadModel>> ShowTag([FromRoute] SystemId systemId, [FromRoute] TagId tagId, CancellationToken ct)
     {
         var tag = await _tags.GetGuardedAsync(systemId, tagId, PrincipalId, ct);
-        return tag is null
-            ? new ErrorResponse("Tag not found.", ErrorCodes.TagNotFound, System.Net.HttpStatusCode.NotFound)
-            : tag;
+        return OkOrNotFound(tag, "Tag not found.", ErrorCodes.TagNotFound);
     }
 
     //TODO: To ensure route works as expected

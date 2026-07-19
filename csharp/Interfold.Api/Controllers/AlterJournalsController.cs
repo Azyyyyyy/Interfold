@@ -1,4 +1,3 @@
-using System.Net;
 using Interfold.Api.Models;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Commands;
@@ -51,9 +50,7 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     public async Task<Response<AlterJournalReadModel>> Show(EntryId journalId, CancellationToken ct)
     {
         var entry = await _journalRepository.GetAlterAsync(PrincipalId, journalId, ct);
-        return entry is null 
-            ? new ErrorResponse("Journal entry not found", ErrorCodes.JournalEntryNotFound, HttpStatusCode.NotFound) 
-            : new SuccessResponse<AlterJournalReadModel>(entry);
+        return OkOrNotFound(entry, "Journal entry not found.", ErrorCodes.JournalEntryNotFound);
     }
 
     [HttpPost("{alterId:int}/journals")]
@@ -80,30 +77,18 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     }
 
     [HttpPost("journals/{journalId}/lock")]
-    public async Task<Response> Lock(EntryId journalId, CancellationToken ct)
-        => await SetLockedInternal(journalId, true, OperationIds.JournalAlterLock, ct);
+    public Task<Response> Lock(EntryId journalId, CancellationToken ct)
+        => DispatchNoContentAsync(_setLocked, OperationIds.JournalAlterLock, new SetAlterJournalLockedCommand(journalId, true), ct);
 
     [HttpPost("journals/{journalId}/unlock")]
-    public async Task<Response> Unlock(EntryId journalId, CancellationToken ct)
-        => await SetLockedInternal(journalId, false, OperationIds.JournalAlterUnlock, ct);
+    public Task<Response> Unlock(EntryId journalId, CancellationToken ct)
+        => DispatchNoContentAsync(_setLocked, OperationIds.JournalAlterUnlock, new SetAlterJournalLockedCommand(journalId, false), ct);
 
     [HttpPost("journals/{journalId}/pin")]
-    public async Task<Response> Pin(EntryId journalId, CancellationToken ct)
-        => await SetPinnedInternal(journalId, true, OperationIds.JournalAlterPin, ct);
+    public Task<Response> Pin(EntryId journalId, CancellationToken ct)
+        => DispatchNoContentAsync(_setPinned, OperationIds.JournalAlterPin, new SetAlterJournalPinnedCommand(journalId, true), ct);
 
     [HttpPost("journals/{journalId}/unpin")]
-    public async Task<Response> Unpin(EntryId journalId, CancellationToken ct)
-        => await SetPinnedInternal(journalId, false, OperationIds.JournalAlterUnpin, ct);
-
-    private async Task<Response> SetLockedInternal(EntryId journalId, bool locked, OperationId operationId, CancellationToken ct)
-    {
-        return await DispatchNoContentAsync(_setLocked, operationId, new SetAlterJournalLockedCommand(journalId, locked)
-        , ct);
-    }
-
-    private async Task<Response> SetPinnedInternal(EntryId journalId, bool pinned, OperationId operationId, CancellationToken ct)
-    {
-        return await DispatchNoContentAsync(_setPinned, operationId, new SetAlterJournalPinnedCommand(journalId, pinned)
-        , ct);
-    }
+    public Task<Response> Unpin(EntryId journalId, CancellationToken ct)
+        => DispatchNoContentAsync(_setPinned, OperationIds.JournalAlterUnpin, new SetAlterJournalPinnedCommand(journalId, false), ct);
 }
