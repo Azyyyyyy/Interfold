@@ -98,6 +98,14 @@ public static class Extensions
         options.CircuitBreaker.SamplingDuration = CircuitBreakerSamplingDuration;
     }
 
+    /// <summary>
+    /// Configures OpenTelemetry logging, metrics, and tracing. Deliberately <c>public</c>
+    /// per the Aspire ServiceDefaults template convention (Aspire operators are expected
+    /// to be able to chain their own composition around this call). Do not demote to
+    /// <c>private static</c> without first auditing the downstream <c>AddServiceDefaults</c>
+    /// callers in this repo and any external consumers that treat ServiceDefaults as a
+    /// composition surface.
+    /// </summary>
     public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Logging.AddOpenTelemetry(logging =>
@@ -140,6 +148,12 @@ public static class Extensions
         return builder;
     }
 
+    /// <summary>
+    /// Registers the built-in <c>self</c> liveness check tagged
+    /// <see cref="HealthCheckTags.Live"/>. Deliberately <c>public</c> per the Aspire
+    /// ServiceDefaults template convention — see <see cref="ConfigureOpenTelemetry"/>'s
+    /// remarks for the same demotion caveat.
+    /// </summary>
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Services.AddHealthChecks()
