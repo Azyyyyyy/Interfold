@@ -27,7 +27,7 @@ public sealed class RestoreCommandBuildingTests
         {
             "compose", "-f", "/srv/deploy/docker-compose.yaml",
             "exec", "-T",
-            "--env", "PGPASSWORD",
+            "--env", Interfold.Bootstrapper.Util.DatabaseArchiveStreamer.PgPasswordEnvVar,
             "msg-db",
             "pg_restore",
             "-U", "interfold_admin",

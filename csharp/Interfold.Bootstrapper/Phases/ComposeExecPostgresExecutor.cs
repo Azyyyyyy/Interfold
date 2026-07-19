@@ -94,7 +94,7 @@ internal sealed class ComposeExecPostgresExecutor(string composeFile, string pos
         // errors which would mask half-broken bootstraps). -t -A trim leading whitespace
         // and the column-alignment padding for scalar probes.
         
-        var env = new Dictionary<string, string> { { "PGPASSWORD", password } };
+        var env = new Dictionary<string, string> { { DatabaseArchiveStreamer.PgPasswordEnvVar, password } };
         
         var args = new List<string>
         {

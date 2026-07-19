@@ -48,9 +48,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     {
         return await _scopeResolver.ExecuteAsync<AlterId?>(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var nextIdQuery = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.alters WHERE user_id = ? ORDER BY id DESC LIMIT 1",
@@ -88,18 +86,8 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
-
-            var query = new SimpleStatement(
-                $"SELECT id FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
-                normalizedSystemId,
-                alterId.Value
-            );
-
-            var rows = await session.ExecuteAsync(query);
-            return rows.Any();
+            var (session, keyspace, normalizedSystemId) = scope;
+            return await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "alters", "id", normalizedSystemId, alterId.Value);
         }, cancellationToken);
     }
 
@@ -107,9 +95,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             var updatedAt = command.UpdatedAt.ToUniversalTime();
 
             var batch = new BatchStatement();
@@ -243,9 +229,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             var alterIdShort = alterId.Value;
 
             var exists = await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "alters", "id", normalizedSystemId, alterId.Value);
@@ -410,9 +394,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
             EnsureAlterFieldUdtMapping(session, keyspace);
@@ -437,9 +419,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
             EnsureAlterFieldUdtMapping(session, keyspace);
             var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken);
@@ -462,9 +442,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
             EnsureAlterFieldUdtMapping(session, keyspace);
@@ -490,9 +468,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
             EnsureAlterFieldUdtMapping(session, keyspace);
             var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken);
@@ -528,9 +504,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var query = new SimpleStatement(
                 $"SELECT id, alias FROM {keyspace}.alters WHERE user_id = ? AND alias = ?",

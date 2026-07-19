@@ -147,20 +147,10 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task RotateSecretsRegeneratesPasswordsAndPreservesCerts()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(RotateSecretsRegeneratesPasswordsAndPreservesCerts), TestConfigPaths.DefaultConfig);
-        await dinD.RunOnScratchAsync(scratch, $"{nameof(RotateSecretsRegeneratesPasswordsAndPreservesCerts)}-init", "publish");
+        var pair = await RunRotateAsync(nameof(RotateSecretsRegeneratesPasswordsAndPreservesCerts), "rotate-secrets");
 
-        var preSecrets = await dinD.ReadSecretsJsonAsync(scratch);
-        var preLeafSha = ShaOf(await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt"));
-
-        var rotate = await dinD.RunOnScratchAsync(scratch, nameof(RotateSecretsRegeneratesPasswordsAndPreservesCerts), "rotate-secrets");
-        await Assert.That(rotate.ExitCode).IsEqualTo(0).Because($"rotate-secrets failed: {rotate.Stderr}");
-
-        var postSecrets = await dinD.ReadSecretsJsonAsync(scratch);
-        var postLeafSha = ShaOf(await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt"));
-
-        await Assert.That(postSecrets).IsNotEqualTo(preSecrets).Because("secrets must rotate");
-        await Assert.That(postLeafSha).IsEqualTo(preLeafSha).Because("certs must remain unchanged on rotate-secrets");
+        await Assert.That(pair.PostSecrets).IsNotEqualTo(pair.PreSecrets).Because("secrets must rotate");
+        await Assert.That(pair.PostLeafSha).IsEqualTo(pair.PreLeafSha).Because("certs must remain unchanged on rotate-secrets");
     }
 
     // Rotate-certs also runs db-init (defensive against an empty DB volume) -> launch, so like
@@ -169,21 +159,37 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task RotateCertsRegeneratesCertsAndPreservesSecrets()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(RotateCertsRegeneratesCertsAndPreservesSecrets), TestConfigPaths.DefaultConfig);
-        await dinD.RunOnScratchAsync(scratch, $"{nameof(RotateCertsRegeneratesCertsAndPreservesSecrets)}-init", "publish");
+        var pair = await RunRotateAsync(nameof(RotateCertsRegeneratesCertsAndPreservesSecrets), "rotate-certs");
+
+        await Assert.That(pair.PostSecrets).IsEqualTo(pair.PreSecrets).Because("secrets must remain unchanged on rotate-certs");
+        await Assert.That(pair.PostLeafSha).IsNotEqualTo(pair.PreLeafSha).Because("leaf cert must change on rotate-certs");
+    }
+
+    /// <summary>
+    /// Common wiring for the two rotate scenarios: publish a scratch deployment, snapshot the
+    /// on-disk secrets JSON + leaf-cert SHA, run the supplied rotate command, and snapshot both
+    /// again. Callers pick the polarity of the assertions — which pair must change vs which must
+    /// be byte-identical — so a future rotate command can plug in with just an extra call site
+    /// without cloning the fixture-driving preamble.
+    /// </summary>
+    private async Task<RotatePair> RunRotateAsync(string testName, string rotateCommand)
+    {
+        var scratch = await dinD.CreateScratchAsync(testName, TestConfigPaths.DefaultConfig);
+        await dinD.RunOnScratchAsync(scratch, $"{testName}-init", "publish");
 
         var preSecrets = await dinD.ReadSecretsJsonAsync(scratch);
         var preLeafSha = ShaOf(await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt"));
 
-        var rotate = await dinD.RunOnScratchAsync(scratch, nameof(RotateCertsRegeneratesCertsAndPreservesSecrets), "rotate-certs");
-        await Assert.That(rotate.ExitCode).IsEqualTo(0).Because($"rotate-certs failed: {rotate.Stderr}");
+        var rotate = await dinD.RunOnScratchAsync(scratch, testName, rotateCommand);
+        await Assert.That(rotate.ExitCode).IsEqualTo(0).Because($"{rotateCommand} failed: {rotate.Stderr}");
 
         var postSecrets = await dinD.ReadSecretsJsonAsync(scratch);
         var postLeafSha = ShaOf(await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt"));
 
-        await Assert.That(postSecrets).IsEqualTo(preSecrets).Because("secrets must remain unchanged on rotate-certs");
-        await Assert.That(postLeafSha).IsNotEqualTo(preLeafSha).Because("leaf cert must change on rotate-certs");
+        return new RotatePair(preSecrets, postSecrets, preLeafSha, postLeafSha);
     }
+
+    private sealed record RotatePair(string PreSecrets, string PostSecrets, string PreLeafSha, string PostLeafSha);
 
     [Test]
     public async Task RecoversFromInterruptedPublish()

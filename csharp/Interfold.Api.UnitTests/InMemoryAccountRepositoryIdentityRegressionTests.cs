@@ -3,6 +3,7 @@ using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions;
 using Interfold.Infrastructure.InMemory;
 using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Api.UnitTests.Support;
 
 namespace Interfold.Api.UnitTests;
 
@@ -37,16 +38,7 @@ public sealed class InMemoryAccountRepositoryIdentityRegressionTests
     private const string EmailValueUpper = "USER@EXAMPLE.COM";
     private const string AppleValue = "001234.deadbeef.5678";
 
-    /// <summary>
-    /// Fixed-region stub so the tests don't depend on <see cref="InMemoryRegionContext"/>'s
-    /// hash-routing — the identity-path behaviour is region-agnostic and mixing the two
-    /// concerns only obscures a failure signal.
-    /// </summary>
-    private sealed class FixedRegionContext(ScyllaKeyspace region) : IRegionContext
-    {
-        public ScyllaKeyspace CurrentRegion { get; } = region;
-        public ScyllaKeyspace ResolveUserRegion(SystemId systemId) => CurrentRegion;
-    }
+
 
     private static InMemoryAccountRepository NewRepo() =>
         new(new FixedRegionContext(ScyllaKeyspace.Nam));

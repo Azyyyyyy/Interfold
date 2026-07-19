@@ -27,8 +27,6 @@ public sealed class UpdateDescriptionCommandHandler : IdempotentCommandHandler<U
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsDescriptionUpdate;
 
-    protected override SettingsCommandResult CreateReplayResult(SettingsCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<UpdateDescriptionCommand> command,
         CancellationToken cancellationToken = default)

@@ -23,14 +23,12 @@ public sealed class AddPushTokenCommandHandler : IdempotentCommandHandler<AddPus
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsPushTokenAdd;
 
-    protected override SettingsCommandResult CreateReplayResult(SettingsCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<AddPushTokenCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Token.Value))
-            return RejectInvariant(command, EntityRefs.SettingsPushTokenInvalid);
+        if (RejectIfBlank(command, command.Payload.Token.Value, EntityRefs.SettingsPushTokenInvalid) is { } blankReject)
+            return blankReject;
         
         var persisted = await _repository.AddAsync(command.PrincipalId, new(command.Payload.Token.Value.Trim()), cancellationToken);
         if (!persisted)

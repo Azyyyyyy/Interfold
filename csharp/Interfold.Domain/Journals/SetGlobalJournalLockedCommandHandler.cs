@@ -26,8 +26,6 @@ public sealed class SetGlobalJournalLockedCommandHandler : IdempotentCommandHand
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.JournalGlobalSetLocked;
 
-    protected override GlobalJournalCommandResult CreateReplayResult(GlobalJournalCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<GlobalJournalCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SetGlobalJournalLockedCommand> command,
         CancellationToken cancellationToken = default)

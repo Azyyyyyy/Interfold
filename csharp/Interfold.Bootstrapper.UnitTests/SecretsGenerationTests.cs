@@ -77,6 +77,44 @@ public sealed class SecretsGenerationTests
         await Assert.That(s.JwtEs256PrivateKeyPem).IsNotEmpty();
     }
 
+    /// <summary>
+    /// Auth-boundary drift guard: <see cref="SecretsPhase.Generate"/> and the second-run backfill
+    /// path in <see cref="SecretsPhase.RunAsync"/> both mint fresh JWT keypairs on their own paths
+    /// and MUST emit PEMs the API's <c>RSA.ImportFromPem</c> / <c>ECDsa.ImportFromPem</c> accepts.
+    /// Both paths route through <see cref="SecretsPhase.GenerateJwtRsaKeypair"/> /
+    /// <see cref="SecretsPhase.GenerateJwtEs256Keypair"/>, so we pin the PEM headers those helpers
+    /// emit. If someone changes the export format (PKCS#8 → PKCS#1, SEC1 → PKCS#8, etc.) this test
+    /// fails loudly before the mismatch reaches production.
+    /// </summary>
+    [Test]
+    public async Task JwtKeypairHelpersEmitExpectedPemBanners()
+    {
+        var (rsaPublic, rsaPrivate) = SecretsPhase.GenerateJwtRsaKeypair();
+        await Assert.That(rsaPublic).StartsWith("-----BEGIN PUBLIC KEY-----")
+            .Because("API-side RSA.ImportFromPem expects SubjectPublicKeyInfo PEM ('PUBLIC KEY').");
+        await Assert.That(rsaPublic.TrimEnd()).EndsWith("-----END PUBLIC KEY-----");
+        await Assert.That(rsaPrivate).StartsWith("-----BEGIN PRIVATE KEY-----")
+            .Because("API-side RSA.ImportFromPem expects PKCS#8 PEM ('PRIVATE KEY'), not PKCS#1 ('RSA PRIVATE KEY').");
+        await Assert.That(rsaPrivate.TrimEnd()).EndsWith("-----END PRIVATE KEY-----");
+
+        var (esPublic, esPrivate) = SecretsPhase.GenerateJwtEs256Keypair();
+        await Assert.That(esPublic).StartsWith("-----BEGIN PUBLIC KEY-----")
+            .Because("API-side ECDsa.ImportFromPem expects SubjectPublicKeyInfo PEM for the public half.");
+        await Assert.That(esPublic.TrimEnd()).EndsWith("-----END PUBLIC KEY-----");
+        await Assert.That(esPrivate).StartsWith("-----BEGIN EC PRIVATE KEY-----")
+            .Because("API-side ECDsa.ImportFromPem expects SEC1 PEM ('EC PRIVATE KEY') for the private half.");
+        await Assert.That(esPrivate.TrimEnd()).EndsWith("-----END EC PRIVATE KEY-----");
+
+        // Second-shape guard: a Generate() call must produce PEMs with the SAME banner as the helper
+        // in isolation. If Generate() were to drift and emit a different export format, only this
+        // fresh-vs-generate comparison would catch it (the standalone helper test above wouldn't).
+        var generated = SecretsPhase.Generate();
+        await Assert.That(generated.JwtRsa256PublicKeyPem).StartsWith("-----BEGIN PUBLIC KEY-----");
+        await Assert.That(generated.JwtRsa256PrivateKeyPem).StartsWith("-----BEGIN PRIVATE KEY-----");
+        await Assert.That(generated.JwtEs256PublicKeyPem).StartsWith("-----BEGIN PUBLIC KEY-----");
+        await Assert.That(generated.JwtEs256PrivateKeyPem).StartsWith("-----BEGIN EC PRIVATE KEY-----");
+    }
+
     [Test]
     public async Task PersistedSecretsRoundTripViaLoad()
     {

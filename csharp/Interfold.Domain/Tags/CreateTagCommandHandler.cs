@@ -27,15 +27,13 @@ public sealed class CreateTagCommandHandler : IdempotentCommandHandler<CreateTag
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.TagCreate;
 
-    protected override TagCommandResult CreateReplayResult(TagCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<CreateTagCommand> command,
         CancellationToken cancellationToken = default
     )
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Name))
-            return RejectInvariant(command, EntityRefs.TagNameRequired);
+        if (RejectIfBlank(command, command.Payload.Name, EntityRefs.TagNameRequired) is { } blankReject)
+            return blankReject;
 
         if (command.Payload.Name.Length > 50)
             return RejectInvariant(command, EntityRefs.TagNameTooLong);

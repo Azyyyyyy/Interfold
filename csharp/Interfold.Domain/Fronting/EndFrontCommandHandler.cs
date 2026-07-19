@@ -29,18 +29,14 @@ public sealed class EndFrontCommandHandler : IdempotentCommandHandler<EndFrontCo
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.FrontingEnd;
 
-    protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
-        originalResult with { Replay = true };
 
     protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync(
             CommandEnvelope<EndFrontCommand> command,
             CancellationToken cancellationToken = default
         )
     {
-        if (command.Payload.AlterId.Value is < 1 or > 32_767)
-        {
-            return RejectInvariant(command, EntityRefs.FrontingInvalidAlterId);
-        }
+        if (RejectIfAlterIdOutOfRange(command, command.Payload.AlterId, EntityRefs.FrontingInvalidAlterId) is { } rangeReject)
+            return rangeReject;
 
         var fronting = await _frontingRepository.IsFrontingAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
         if (!fronting)

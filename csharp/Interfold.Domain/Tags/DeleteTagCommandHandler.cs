@@ -26,8 +26,6 @@ public sealed class DeleteTagCommandHandler : IdempotentCommandHandler<DeleteTag
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.TagDelete;
 
-    protected override TagCommandResult CreateReplayResult(TagCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<DeleteTagCommand> command,
         CancellationToken cancellationToken = default)

@@ -79,16 +79,12 @@ internal static partial class SecretsPhase
             }
             if (string.IsNullOrEmpty(existing.JwtRsa256PrivateKeyPem))
             {
-                using var jwtRsa = RSA.Create(RsaKeyBits);
-                existing.JwtRsa256PublicKeyPem = jwtRsa.ExportSubjectPublicKeyInfoPem();
-                existing.JwtRsa256PrivateKeyPem = jwtRsa.ExportPkcs8PrivateKeyPem();
+                (existing.JwtRsa256PublicKeyPem, existing.JwtRsa256PrivateKeyPem) = GenerateJwtRsaKeypair();
                 mutated = true;
             }
             if (string.IsNullOrEmpty(existing.JwtEs256PrivateKeyPem))
             {
-                using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-                existing.JwtEs256PublicKeyPem = ecdsa.ExportSubjectPublicKeyInfoPem();
-                existing.JwtEs256PrivateKeyPem = ecdsa.ExportECPrivateKeyPem();
+                (existing.JwtEs256PublicKeyPem, existing.JwtEs256PrivateKeyPem) = GenerateJwtEs256Keypair();
                 mutated = true;
             }
             if (mutated)
@@ -171,15 +167,10 @@ internal static partial class SecretsPhase
         var dataPrivatePem = dataRsa.ExportRSAPrivateKeyPem();
         var dataPrivateB64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(dataPrivatePem));
 
-        using var jwtRsa = RSA.Create(RsaKeyBits);
         // PKCS#8 + SPKI - the formats Microsoft.IdentityModel and System.Security.Cryptography
         // accept directly via RSA.ImportFromPem in the API.
-        var jwtRsaPrivatePem = jwtRsa.ExportPkcs8PrivateKeyPem();
-        var jwtRsaPublicPem = jwtRsa.ExportSubjectPublicKeyInfoPem();
-
-        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var jwtEsPrivatePem = ecdsa.ExportECPrivateKeyPem();
-        var jwtEsPublicPem = ecdsa.ExportSubjectPublicKeyInfoPem();
+        var (jwtRsaPublicPem, jwtRsaPrivatePem) = GenerateJwtRsaKeypair();
+        var (jwtEsPublicPem, jwtEsPrivatePem) = GenerateJwtEs256Keypair();
 
         return new GeneratedSecrets
         {
@@ -240,4 +231,28 @@ internal static partial class SecretsPhase
         await File.WriteAllTextAsync(path, json, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// RSA-2048 JWT signing keypair emitted as PKCS#8 (private) + SubjectPublicKeyInfo (public) PEM.
+    /// Internal so unit tests can pin the emitted PEM header/format contract that the API's
+    /// <c>RSA.ImportFromPem</c> depends on. Both the fresh-generation path (<see cref="Generate"/>)
+    /// and the second-run backfill path in <see cref="RunAsync"/> route through here so any format
+    /// change moves in lockstep across the auth boundary.
+    /// </summary>
+    internal static (string PublicPem, string PrivatePem) GenerateJwtRsaKeypair()
+    {
+        using var rsa = RSA.Create(RsaKeyBits);
+        return (rsa.ExportSubjectPublicKeyInfoPem(), rsa.ExportPkcs8PrivateKeyPem());
+    }
+
+    /// <summary>
+    /// ES256 (NIST P-256) JWT signing keypair emitted as SEC1 (private) + SubjectPublicKeyInfo
+    /// (public) PEM. Internal so unit tests can pin the emitted PEM header/format contract that
+    /// the API's <c>ECDsa.ImportFromPem</c> depends on. Both generation paths route through here
+    /// for the same lockstep reason as <see cref="GenerateJwtRsaKeypair"/>.
+    /// </summary>
+    internal static (string PublicPem, string PrivatePem) GenerateJwtEs256Keypair()
+    {
+        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        return (ecdsa.ExportSubjectPublicKeyInfoPem(), ecdsa.ExportECPrivateKeyPem());
+    }
 }

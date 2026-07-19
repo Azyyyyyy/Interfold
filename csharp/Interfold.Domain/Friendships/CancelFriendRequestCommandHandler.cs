@@ -28,8 +28,6 @@ public sealed class CancelFriendRequestCommandHandler : IdempotentCommandHandler
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.FriendRequestCancel;
 
-    protected override FriendshipCommandResult CreateReplayResult(FriendshipCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<FriendshipCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<CancelFriendRequestCommand> command,
         CancellationToken cancellationToken = default)
@@ -48,19 +46,9 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
             canonicalTargetSystemId,
             cancellationToken);
 
-        if (outcome is FriendRequestMutationOutcome.AlreadyFriends)
+        if (outcome.ToRejectionEntityRef() is { } er)
         {
-            return RejectInvariant(command, EntityRefs.FriendRequestAlreadyFriends);
-        }
-
-        if (outcome is FriendRequestMutationOutcome.NotRequested)
-        {
-            return RejectInvariant(command, EntityRefs.FriendRequestNotRequested);
-        }
-
-        if (outcome is FriendRequestMutationOutcome.NoUser)
-        {
-            return RejectInvariant(command, EntityRefs.FriendRequestNoUser);
+            return RejectInvariant(command, er);
         }
 
         var result = new FriendshipCommandResult(

@@ -121,6 +121,10 @@ public readonly record struct FrontId(Guid Value) : IParsable<FrontId>
         result = new FrontId(g);
         return true;
     }
+
+    public const int MaxCommentLength = 50;
+
+    public static bool IsValidComment(string? comment) => (comment?.Length ?? 0) <= MaxCommentLength;
 }
 
 /// <summary>Strongly-typed wrapper around a settings-field id (Guid, wire form is 32-char lowercase hex).</summary>

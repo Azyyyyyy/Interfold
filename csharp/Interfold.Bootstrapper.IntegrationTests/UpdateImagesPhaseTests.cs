@@ -96,9 +96,8 @@ public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
         var (scratch, _) = await dinD.BootstrapAsync(nameof(UpdatePerformsPreUpdateBackup), TestConfigPaths.DefaultConfig);
 
         // Baseline: no backups exist yet.
-        var pgBefore = await dinD.ExecAsync(["sh", "-c",
-            $"ls -1 {scratch.OutputDir}/backups/postgres/*.dump 2>/dev/null | wc -l"]);
-        await Assert.That(int.Parse(pgBefore.Stdout.Trim())).IsEqualTo(0)
+        var pgBefore = await dinD.CountFilesAsync("{scratch.OutputDir}/backups/postgres/*.dump");
+        await Assert.That(pgBefore).IsEqualTo(0)
             .Because("baseline: bootstrap should not have taken any backups yet");
 
         var update = await dinD.RunOnScratchAsync(scratch, nameof(UpdatePerformsPreUpdateBackup), "update-images",
@@ -106,14 +105,12 @@ public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
         await Assert.That(update.ExitCode).IsEqualTo(0).Because($"update-images failed: {update.Stderr}");
 
         // Both components must have received a fresh archive from the pre-update backup step.
-        var pgAfter = await dinD.ExecAsync(["sh", "-c",
-            $"ls -1 {scratch.OutputDir}/backups/postgres/*.dump 2>/dev/null | wc -l"]);
-        await Assert.That(int.Parse(pgAfter.Stdout.Trim())).IsEqualTo(1)
+        var pgAfter = await dinD.CountFilesAsync("{scratch.OutputDir}/backups/postgres/*.dump");
+        await Assert.That(pgAfter).IsEqualTo(1)
             .Because("update-images must take a pre-update postgres backup");
 
-        var scyllaAfter = await dinD.ExecAsync(["sh", "-c",
-            $"ls -1 {scratch.OutputDir}/backups/scylla/*.tar.gz 2>/dev/null | wc -l"]);
-        await Assert.That(int.Parse(scyllaAfter.Stdout.Trim())).IsEqualTo(1)
+        var scyllaAfter = await dinD.CountFilesAsync("{scratch.OutputDir}/backups/scylla/*.tar.gz");
+        await Assert.That(scyllaAfter).IsEqualTo(1)
             .Because("update-images must take a pre-update scylla backup");
     }
 
@@ -130,14 +127,12 @@ public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
             "--skip-pre-update-backup");
         await Assert.That(update.ExitCode).IsEqualTo(0).Because($"update-images failed: {update.Stderr}");
 
-        var pgAfter = await dinD.ExecAsync(["sh", "-c",
-            $"ls -1 {scratch.OutputDir}/backups/postgres/*.dump 2>/dev/null | wc -l"]);
-        await Assert.That(int.Parse(pgAfter.Stdout.Trim())).IsEqualTo(0)
+        var pgAfter = await dinD.CountFilesAsync("{scratch.OutputDir}/backups/postgres/*.dump");
+        await Assert.That(pgAfter).IsEqualTo(0)
             .Because("--skip-pre-update-backup must suppress the backup step");
 
-        var scyllaAfter = await dinD.ExecAsync(["sh", "-c",
-            $"ls -1 {scratch.OutputDir}/backups/scylla/*.tar.gz 2>/dev/null | wc -l"]);
-        await Assert.That(int.Parse(scyllaAfter.Stdout.Trim())).IsEqualTo(0)
+        var scyllaAfter = await dinD.CountFilesAsync("{scratch.OutputDir}/backups/scylla/*.tar.gz");
+        await Assert.That(scyllaAfter).IsEqualTo(0)
             .Because("--skip-pre-update-backup must suppress both components' archives");
 
         await Assert.That(update.Stdout + update.Stderr).Contains("skip-pre-update-backup")

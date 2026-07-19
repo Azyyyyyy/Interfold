@@ -162,11 +162,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
     {
         var (scratch, composeFile) = await dinD.BootstrapAsync(nameof(InterfoldAdminPostgresUserIsSuperuser), TestConfigPaths.DefaultConfig);
 
-        var adminPassRaw = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"grep '\"postgresAdminPassword\"' {scratch.SecretsJsonPath} " +
-             "| sed -E 's/.*\"postgresAdminPassword\"[^\"]*\"([^\"]+)\".*/\\1/'"]);
-        var adminPass = adminPassRaw.Stdout.Trim();
+        var adminPass = await dinD.ReadSecretsFieldAsync(scratch, "postgresAdminPassword");
         await Assert.That(adminPass).IsNotEmpty()
             .Because("postgresAdminPassword must be persisted in secrets.json");
 

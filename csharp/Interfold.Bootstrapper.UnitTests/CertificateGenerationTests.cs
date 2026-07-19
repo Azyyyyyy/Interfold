@@ -52,34 +52,63 @@ public sealed class CertificateGenerationTests
 
     private static X509Certificate2 LoadCert(string path) => X509CertificateLoader.LoadCertificateFromFile(path);
 
+    /// <summary>
+    /// Runs <see cref="CertificatePhase.RunAsync"/> against a fresh scratch dir and returns a
+    /// disposable bundle carrying the scratch path, the phase inputs, and convenience accessors
+    /// (<see cref="CertPhaseArtifacts.CertPath"/>) for the on-disk artefacts. Every arg-shape a
+    /// caller might vary is exposed as a named parameter so tests read as intent rather than as
+    /// scaffolding. The two tests that need the raw PEMs (LeafOutsideConstraintsFailsValidation)
+    /// or that capture a pre-run timestamp still route through here — they just read the PEM
+    /// via CertPath or capture the timestamp immediately before calling this method.
+    /// </summary>
+    private static async Task<CertPhaseArtifacts> RunPhaseAsync(
+        string? rootCaName = null,
+        int? certYears = null,
+        IList<string>? hosts = null,
+        bool trustStoreInstall = false)
+    {
+        var scratch = TestSupport.NewScratchDir("interfold-certs");
+        var (config, secrets) = MakeInputs(rootCaName, certYears, hosts, trustStoreInstall);
+        var options = OptionsFor(scratch.Path);
+        var logger = new PhaseLogger(options);
+        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
+        return new CertPhaseArtifacts(scratch, config, secrets, options);
+    }
+
+    /// <summary>
+    /// Disposable bundle produced by <see cref="RunPhaseAsync"/>: owns the scratch directory,
+    /// exposes the phase inputs, and provides <see cref="CertPath"/> conveniences to avoid
+    /// rebuilding <c>Path.Combine(scratch.Path, "certs", ...)</c> at every call site.
+    /// </summary>
+    private sealed record CertPhaseArtifacts(
+        TestSupport.ScratchDir Scratch,
+        BootstrapConfig Config,
+        GeneratedSecrets Secrets,
+        BootstrapOptions Options) : IDisposable
+    {
+        public string CertsDir => Path.Combine(Scratch.Path, "certs");
+        public string CertPath(string file) => Path.Combine(CertsDir, file);
+        public void Dispose() => Scratch.Dispose();
+    }
+
     [Test]
     public async Task CustomRootCaNameAppearsInCertSubject()
     {
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs(rootCaName: "Acme Trust Root");
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(rootCaName: "Acme Trust Root");
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        using var root = LoadCert(Path.Combine(scratch.Path, "certs", "rootCA.crt"));
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
         await Assert.That(root.Subject).Contains("CN=Acme Trust Root");
     }
 
     [Test]
     public async Task CustomCertYearsControlsNotAfter()
     {
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
         const int years = 12;
-        var (config, secrets) = MakeInputs(certYears: years);
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
-
         var before = DateTimeOffset.UtcNow;
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
+        using var artifacts = await RunPhaseAsync(certYears: years);
         var after = DateTimeOffset.UtcNow;
 
-        using var root = LoadCert(Path.Combine(scratch.Path, "certs", "rootCA.crt"));
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
         var notAfter = root.NotAfter.ToUniversalTime();
 
         // notAfter is approximately (notBefore + years). notBefore is constructed as
@@ -94,15 +123,10 @@ public sealed class CertificateGenerationTests
     [Test]
     public async Task LeafIsSignedByRoot()
     {
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs();
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync();
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        using var root = LoadCert(Path.Combine(scratch.Path, "certs", "rootCA.crt"));
-        using var leaf = LoadCert(Path.Combine(scratch.Path, "certs", "leaf.crt"));
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
+        using var leaf = LoadCert(artifacts.CertPath("leaf.crt"));
 
         // Build a chain anchored on the generated root and verify it.
         using var chain = new X509Chain();
@@ -138,15 +162,10 @@ public sealed class CertificateGenerationTests
     [Test]
     public async Task MultipleHostsBecomeMultipleSans()
     {
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs(hosts:
+        using var artifacts = await RunPhaseAsync(hosts:
             ["api.example.com", "admin.example.com", "www.example.com"]);
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        using var leaf = LoadCert(Path.Combine(scratch.Path, "certs", "leaf.crt"));
+        using var leaf = LoadCert(artifacts.CertPath("leaf.crt"));
         // SAN extension OID: 2.5.29.17.
         var san = leaf.Extensions.FirstOrDefault(e => e.Oid?.Value == "2.5.29.17");
         await Assert.That(san).IsNotNull();
@@ -165,19 +184,13 @@ public sealed class CertificateGenerationTests
         // (root/leaf .crt, leaf.key, leaf.pfx) — it just skips the system trust-store install
         // step. This unit test covers the branch; the integration tests verify that no anchors
         // appear under /usr/local/share/ca-certificates on Linux.
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs(trustStoreInstall: false);
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
-
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
+        using var artifacts = await RunPhaseAsync(trustStoreInstall: false);
 
         // The artifacts must still exist — only the trust-store install is gated on the flag.
-        var certsDir = Path.Combine(scratch.Path, "certs");
-        await Assert.That(File.Exists(Path.Combine(certsDir, "rootCA.crt"))).IsTrue();
-        await Assert.That(File.Exists(Path.Combine(certsDir, "leaf.crt"))).IsTrue();
-        await Assert.That(File.Exists(Path.Combine(certsDir, "leaf.key"))).IsTrue();
-        await Assert.That(File.Exists(Path.Combine(certsDir, "leaf.pfx"))).IsTrue();
+        await Assert.That(File.Exists(artifacts.CertPath("rootCA.crt"))).IsTrue();
+        await Assert.That(File.Exists(artifacts.CertPath("leaf.crt"))).IsTrue();
+        await Assert.That(File.Exists(artifacts.CertPath("leaf.key"))).IsTrue();
+        await Assert.That(File.Exists(artifacts.CertPath("leaf.pfx"))).IsTrue();
     }
 
     [Test]
@@ -192,14 +205,9 @@ public sealed class CertificateGenerationTests
             return;
         }
 
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs();
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync();
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        var rootKeyPath = Path.Combine(scratch.Path, "certs", "rootCA.key");
+        var rootKeyPath = artifacts.CertPath("rootCA.key");
         await Assert.That(File.Exists(rootKeyPath)).IsTrue();
 
         var actualMode = File.GetUnixFileMode(rootKeyPath);
@@ -211,14 +219,9 @@ public sealed class CertificateGenerationTests
     [Test]
     public async Task RootHasCriticalNameConstraints()
     {
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs(hosts: ["api.example.com"]);
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["api.example.com"]);
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        using var root = LoadCert(Path.Combine(scratch.Path, "certs", "rootCA.crt"));
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
         var nc = root.Extensions.FirstOrDefault(e => e.Oid?.Value == "2.5.29.30");
         await Assert.That(nc).IsNotNull()
             .Because("Name Constraints extension (OID 2.5.29.30) must be present on the root CA");
@@ -229,15 +232,10 @@ public sealed class CertificateGenerationTests
     [Test]
     public async Task PermittedSubtreesMatchHosts()
     {
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
         var hosts = new List<string> { "api.example.com", "admin.example.com", "www.example.com" };
-        var (config, secrets) = MakeInputs(hosts: hosts);
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: hosts);
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        using var root = LoadCert(Path.Combine(scratch.Path, "certs", "rootCA.crt"));
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
         var nc = root.Extensions.First(e => e.Oid?.Value == "2.5.29.30");
 
         var parsed = ParseDnsPermittedSubtrees(nc.RawData);
@@ -252,14 +250,9 @@ public sealed class CertificateGenerationTests
         // suffix, and the literal `*` character is not legal in an IA5String constraint value.
         // BuildNameConstraintsExtension must therefore collapse `*.example.com` to
         // `example.com` in the permittedSubtrees set.
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs(hosts: ["*.example.com"]);
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["*.example.com"]);
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        using var root = LoadCert(Path.Combine(scratch.Path, "certs", "rootCA.crt"));
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
         var nc = root.Extensions.First(e => e.Oid?.Value == "2.5.29.30");
         var parsed = ParseDnsPermittedSubtrees(nc.RawData);
 
@@ -274,15 +267,10 @@ public sealed class CertificateGenerationTests
         // confirm that chain.Build rejects it with the expected NameConstraints status flag.
         // This is the load-bearing assertion that a leaked CA private key cannot mint a
         // trusted cert for arbitrary hosts.
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs(hosts: ["api.example.com"]);
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["api.example.com"]);
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        var rootCertPem = await File.ReadAllTextAsync(Path.Combine(scratch.Path, "certs", "rootCA.crt"));
-        var rootKeyPem = await File.ReadAllTextAsync(Path.Combine(scratch.Path, "certs", "rootCA.key"));
+        var rootCertPem = await File.ReadAllTextAsync(artifacts.CertPath("rootCA.crt"));
+        var rootKeyPem = await File.ReadAllTextAsync(artifacts.CertPath("rootCA.key"));
         using var root = X509Certificate2.CreateFromPem(rootCertPem, rootKeyPem);
 
         using var leafKey = RSA.Create(2048);
@@ -354,14 +342,9 @@ public sealed class CertificateGenerationTests
         // rootCA.crt after the certs phase runs, hold the canonical colon-hex SHA-256 of the
         // root cert's DER bytes, and match what `FormatSha256Fingerprint(SHA256.HashData(...))`
         // would compute live. PrintTrustInfo / TrustController both depend on this format.
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs();
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync();
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        var fingerprintPath = Path.Combine(scratch.Path, "certs", "rootCA.sha256.txt");
+        var fingerprintPath = artifacts.CertPath("rootCA.sha256.txt");
         await Assert.That(File.Exists(fingerprintPath)).IsTrue()
             .Because("rootCA.sha256.txt must be written alongside rootCA.crt");
 
@@ -373,7 +356,7 @@ public sealed class CertificateGenerationTests
         await Assert.That(Regex.IsMatch(fingerprint, "^([0-9A-F]{2}:){31}[0-9A-F]{2}$")).IsTrue()
             .Because($"fingerprint must match the uppercase colon-hex pattern; got: '{fingerprint}'");
 
-        using var cert = LoadCert(Path.Combine(scratch.Path, "certs", "rootCA.crt"));
+        using var cert = LoadCert(artifacts.CertPath("rootCA.crt"));
         var expected = CertificatePhase.FormatSha256Fingerprint(SHA256.HashData(cert.RawData));
         await Assert.That(fingerprint).IsEqualTo(expected)
             .Because("the file contents must equal the live hash of the published root CA cert");
@@ -385,14 +368,9 @@ public sealed class CertificateGenerationTests
         // An IPv4 host on deployment.hosts must end up as an iPAddress GeneralName on the leaf's
         // SAN extension. Clients hitting `https://192.168.1.42/` need that entry to validate the
         // cert against the bare IP authority.
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs(hosts: ["192.168.1.42"]);
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["192.168.1.42"]);
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        using var leaf = LoadCert(Path.Combine(scratch.Path, "certs", "leaf.crt"));
+        using var leaf = LoadCert(artifacts.CertPath("leaf.crt"));
         var sanExt = leaf.Extensions.OfType<X509SubjectAlternativeNameExtension>().First();
         var ips = sanExt.EnumerateIPAddresses().Select(ip => ip.ToString()).ToList();
         await Assert.That(ips).Contains("192.168.1.42")
@@ -402,14 +380,9 @@ public sealed class CertificateGenerationTests
     [Test]
     public async Task LeafSanIncludesIPv6AsIpAddress()
     {
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs(hosts: ["fe80::1234"]);
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["fe80::1234"]);
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        using var leaf = LoadCert(Path.Combine(scratch.Path, "certs", "leaf.crt"));
+        using var leaf = LoadCert(artifacts.CertPath("leaf.crt"));
         var sanExt = leaf.Extensions.OfType<X509SubjectAlternativeNameExtension>().First();
         var ips = sanExt.EnumerateIPAddresses().Select(ip => ip.ToString()).ToList();
         await Assert.That(ips).Contains("fe80::1234")
@@ -422,14 +395,9 @@ public sealed class CertificateGenerationTests
         // CIDR entries widen the root CA's Name Constraints scope but MUST NOT appear on the
         // leaf SAN — a leaf cert can only serve a specific host. The leaf gets the DNS name; the
         // CIDR only shows up in the root's permittedSubtrees (tested separately below).
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs(hosts: ["api.example.com", "10.0.0.0/8"]);
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["api.example.com", "10.0.0.0/8"]);
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        using var leaf = LoadCert(Path.Combine(scratch.Path, "certs", "leaf.crt"));
+        using var leaf = LoadCert(artifacts.CertPath("leaf.crt"));
         var sanExt = leaf.Extensions.OfType<X509SubjectAlternativeNameExtension>().First();
         var dnsNames = sanExt.EnumerateDnsNames().ToList();
         var ips = sanExt.EnumerateIPAddresses().Select(ip => ip.ToString()).ToList();
@@ -449,14 +417,9 @@ public sealed class CertificateGenerationTests
         // every client check it as `address || mask`. A drift here would silently broaden or
         // narrow the operator's blast-radius cap. Pin the canonical /24 form (192.168.1.0/24)
         // against the expected 8 bytes: 4 addr (C0 A8 01 00) + 4 mask (FF FF FF 00).
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs(hosts: ["api.example.com", "192.168.1.0/24"]);
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["api.example.com", "192.168.1.0/24"]);
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        using var root = LoadCert(Path.Combine(scratch.Path, "certs", "rootCA.crt"));
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
         var nc = root.Extensions.First(e => e.Oid?.Value == "2.5.29.30");
         var ipSubtrees = ParseIpPermittedSubtrees(nc.RawData);
 
@@ -475,14 +438,9 @@ public sealed class CertificateGenerationTests
         // A bare IPv6 literal becomes a single-host iPAddress subtree with the all-ones /128
         // mask (16 addr bytes + 16 mask bytes). Spot-check the boundary bytes for the canonical
         // form rather than asserting the full 32 bytes verbatim.
-        using var scratch = TestSupport.NewScratchDir("interfold-certs");
-        var (config, secrets) = MakeInputs(hosts: ["api.example.com", "fe80::1"]);
-        var options = OptionsFor(scratch.Path);
-        var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["api.example.com", "fe80::1"]);
 
-        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-        using var root = LoadCert(Path.Combine(scratch.Path, "certs", "rootCA.crt"));
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
         var nc = root.Extensions.First(e => e.Oid?.Value == "2.5.29.30");
         var ipSubtrees = ParseIpPermittedSubtrees(nc.RawData);
 

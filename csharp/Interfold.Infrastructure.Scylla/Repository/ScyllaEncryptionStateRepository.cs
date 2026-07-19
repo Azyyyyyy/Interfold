@@ -31,9 +31,7 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             // Bind the raw string (either NormalizeSystemId's return, or Cat B `.Value` where
             // no widen exists), not the wrapper struct itself. The Cassandra C# driver's
@@ -63,9 +61,7 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             SimpleStatement statement;
             if (salt is not { } newSalt)

@@ -29,17 +29,15 @@ public sealed class CreateAlterJournalEntryCommandHandler : IdempotentCommandHan
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.JournalAlterCreate;
 
-    protected override AlterJournalCommandResult CreateReplayResult(AlterJournalCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<AlterJournalCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<CreateAlterJournalEntryCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (command.Payload.AlterId.Value is < 1 or > 32_767)
-            return RejectInvariant(command, EntityRefs.AlterId);
+        if (RejectIfAlterIdOutOfRange(command, command.Payload.AlterId, EntityRefs.AlterId) is { } rangeReject)
+            return rangeReject;
 
-        if (string.IsNullOrWhiteSpace(command.Payload.Title))
-            return RejectInvariant(command, EntityRefs.JournalTitleRequired);
+        if (RejectIfBlank(command, command.Payload.Title, EntityRefs.JournalTitleRequired) is { } blankReject)
+            return blankReject;
 
         if (command.Payload.Title.Length > 100)
             return RejectInvariant(command, EntityRefs.JournalTitleTooLong);

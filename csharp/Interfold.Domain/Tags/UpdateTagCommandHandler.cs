@@ -26,8 +26,6 @@ public sealed class UpdateTagCommandHandler : IdempotentCommandHandler<UpdateTag
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.TagUpdate;
 
-    protected override TagCommandResult CreateReplayResult(TagCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<UpdateTagCommand> command,
         CancellationToken cancellationToken = default)

@@ -230,6 +230,24 @@ public class BaseEndpointTest
         return envelope.Data.Id;
     }
 
+    internal static async Task<AlterId> CreateAlterAsync(HttpClient client, string principal, string name, string username, VisibilityLevel visibility = VisibilityLevel.Public)
+    {
+        await EnsureUserExistsAsync(client, principal, username);
+
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/systems/me/alters",
+            new CreateAlterRequest(name),
+            principal);
+        var envelope = await res.ReadEnvelopeAsync<AlterReadModel>(HttpStatusCode.Created);
+        
+        if (visibility != VisibilityLevel.Private)
+        {
+            await SetAlterSecurityLevelAsync(client, principal, envelope.Data.Id, visibility);
+        }
+        
+        return envelope.Data.Id;
+    }
+
     /// <summary>
     /// Generic PATCH helper against <c>/api/systems/me/alters/{id}</c>. Callers that only
     /// need one field flip through <see cref="SetAlterSecurityLevelAsync"/> /

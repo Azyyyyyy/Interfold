@@ -36,7 +36,7 @@ internal static class SettingsCommandHelper
 
             var replay = CommandSerialization.Deserialize<SettingsCommandResult>(previous.OutcomePayload);
             if (replay is not null)
-                return CommandExecutionResult<SettingsCommandResult>.Success(replay with { Replay = true });
+                return CommandExecutionResult<SettingsCommandResult>.Success(replay.WithReplay());
         }
 
         var applied = await apply(cancellationToken);

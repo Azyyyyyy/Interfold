@@ -27,8 +27,6 @@ public sealed class RemoveFriendshipCommandHandler : IdempotentCommandHandler<Re
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.FriendshipRemove;
 
-    protected override FriendshipCommandResult CreateReplayResult(FriendshipCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<FriendshipCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<RemoveFriendshipCommand> command,
         CancellationToken cancellationToken = default)

@@ -26,8 +26,6 @@ public sealed class UpdateAlterJournalEntryCommandHandler : IdempotentCommandHan
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.JournalAlterUpdate;
 
-    protected override AlterJournalCommandResult CreateReplayResult(AlterJournalCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<AlterJournalCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<UpdateAlterJournalEntryCommand> command,
         CancellationToken cancellationToken = default)

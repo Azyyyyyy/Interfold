@@ -26,8 +26,6 @@ public sealed class UpdateFrontCommentCommandHandler : IdempotentCommandHandler<
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.FrontingUpdateComment;
 
-    protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<UpdateFrontCommentCommand> command,
         CancellationToken cancellationToken = default)
@@ -35,7 +33,7 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
         if (command.Payload.FrontId == FrontId.Empty)
             return RejectInvariant(command, EntityRefs.FrontingInvalidFrontId);
 
-        if ((command.Payload.Comment?.Length ?? 0) > 50)
+        if (!FrontId.IsValidComment(command.Payload.Comment))
             return RejectInvariant(command, EntityRefs.FrontingInvalidComment);
 
         var existing = await _frontingRepository.GetActiveByFrontIdAsync(command.PrincipalId, command.Payload.FrontId, cancellationToken);

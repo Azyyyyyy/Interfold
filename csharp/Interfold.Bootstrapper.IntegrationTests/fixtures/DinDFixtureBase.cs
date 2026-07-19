@@ -260,6 +260,29 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
         return Encoding.UTF8.GetString(bytes);
     }
 
+    public async Task<string> ReadSecretsFieldAsync(DinDScratch scratch, string field, CancellationToken ct = default)
+    {
+        var json = await ReadSecretsJsonAsync(scratch, ct).ConfigureAwait(false);
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.TryGetProperty(field, out var prop))
+        {
+            return prop.ValueKind == JsonValueKind.String ? (prop.GetString() ?? string.Empty) : prop.GetRawText().Trim('"');
+        }
+        return string.Empty;
+    }
+
+    public async Task<int> CountFilesAsync(string globExpr, CancellationToken ct = default)
+    {
+        var exec = await ExecAsync(["sh", "-c", $"ls -1 {globExpr} 2>/dev/null | wc -l"], ct).ConfigureAwait(false);
+        return int.TryParse(exec.Stdout.Trim(), out var count) ? count : 0;
+    }
+
+    public async Task<string> CopyOutAsTextAsync(string containerPath, CancellationToken ct = default)
+    {
+        var bytes = await CopyOutAsync(containerPath, ct).ConfigureAwait(false);
+        return Encoding.UTF8.GetString(bytes);
+    }
+
     /// <summary>Copy a host file into the DinD container.</summary>
     public async Task CopyInAsync(string hostPath, string containerPath, CancellationToken ct = default)
     {
@@ -294,6 +317,13 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
         bool softFail = false,
         CancellationToken ct = default)
     {
+        // NOTE: the "PGPASSWORD" env-var name is intentionally kept as a string literal here rather
+        // than referencing DatabaseArchiveStreamer.PgPasswordEnvVar. This project's csproj holds the
+        // bootstrapper reference with ReferenceOutputAssembly="false" + ExcludeAssets="all" (see
+        // Interfold.Bootstrapper.IntegrationTests.csproj) so nothing from Interfold.Bootstrapper.dll
+        // is compile-linked into the test binary — the fixture shells out to `dotnet publish`
+        // instead. Also, "PGPASSWORD" is a fixed Postgres-client protocol name, not a value we
+        // control, so drift-clearance is not a concern.
         var pwPrefix = password is null ? string.Empty : $"-e PGPASSWORD={password} ";
         var hostArg = host is null ? string.Empty : $"-h {host} ";
         var tail = softFail ? " 2>&1 || true" : string.Empty;

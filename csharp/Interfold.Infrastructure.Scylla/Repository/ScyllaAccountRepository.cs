@@ -74,9 +74,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             // Read old username to maintain lookup table
             var oldRow = (await session.ExecuteAsync(new SimpleStatement(
@@ -140,9 +138,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var statement = new SimpleStatement(
                 $"UPDATE {keyspace}.users SET description = ?, updated_at = toTimestamp(now()) WHERE id = ?",
@@ -159,9 +155,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var statement = new SimpleStatement(
                 $"UPDATE {keyspace}.users SET avatar_url = ?, avatar_source = ?, updated_at = toTimestamp(now()) WHERE id = ?",
@@ -179,9 +173,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             // Null both columns together so observers can never see a half-cleared state.
             var statement = new SimpleStatement(
@@ -341,9 +333,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             // Fetch identity fields to clean up lookup tables
             var userRow = (await session.ExecuteAsync(new SimpleStatement(
@@ -381,9 +371,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var profileQuery = new SimpleStatement(
                 $"SELECT username, avatar_url, avatar_source, description, discord_id, email, apple_id FROM {keyspace}.users WHERE id = ? LIMIT 1",

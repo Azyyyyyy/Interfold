@@ -32,9 +32,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync<EntryId?>(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             var entryId = Guid.NewGuid();
 
             var insert = new SimpleStatement(
@@ -57,18 +55,8 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
-
-            var query = new SimpleStatement(
-                $"SELECT id FROM {keyspace}.global_journals WHERE user_id = ? AND id = ? LIMIT 1",
-                normalizedSystemId,
-                entryId.Value
-            );
-
-            var rows = await session.ExecuteAsync(query);
-            return rows.Any();
+            var (session, keyspace, normalizedSystemId) = scope;
+            return await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "global_journals", "id", normalizedSystemId, entryId.Value);
         }, cancellationToken);
     }
 
@@ -76,9 +64,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var exists = await ExistsGlobalAsync(systemId, command.EntryId, cancellationToken);
             if (!exists)
@@ -132,9 +118,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var exists = await ExistsGlobalAsync(systemId, entryId, cancellationToken);
             if (!exists)
@@ -187,9 +171,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var exists = await ExistsGlobalAsync(systemId, entryId, cancellationToken);
             if (!exists)
@@ -211,9 +193,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var edgeExistsQuery = new SimpleStatement(
                 $"SELECT alter_id FROM {keyspace}.global_journal_alters WHERE user_id = ? AND global_journal_id = ? AND alter_id = ? LIMIT 1",
@@ -242,9 +222,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync<EntryId?>(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             var entryId = Guid.NewGuid();
 
             var timestamp = command.CreatedAt.ToUniversalTime();
@@ -418,9 +396,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, alter_id, title, content, color, pinned, locked, inserted_at, updated_at FROM {keyspace}.alter_journals_by_alter WHERE user_id = ? AND alter_id = ?",
@@ -440,9 +416,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, alter_id, title, content, color, pinned, locked, inserted_at, updated_at FROM {keyspace}.alter_journals WHERE user_id = ? AND id = ? ALLOW FILTERING",
@@ -461,9 +435,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var entriesQuery = new SimpleStatement(
                 $"SELECT id, user_id, title, content, color, pinned, locked, inserted_at, updated_at FROM {keyspace}.global_journals WHERE user_id = ?",
@@ -498,9 +470,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var entryQuery = new SimpleStatement(
                 $"SELECT id, user_id, title, content, color, pinned, locked, inserted_at, updated_at FROM {keyspace}.global_journals WHERE user_id = ? AND id = ? LIMIT 1",
@@ -528,9 +498,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             // Step 1: list every per-alter journal entry id for this alter via the by-alter
             // view (the partition key is (user_id, alter_id), so this is one single-partition

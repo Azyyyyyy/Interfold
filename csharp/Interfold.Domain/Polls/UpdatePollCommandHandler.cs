@@ -26,8 +26,6 @@ public sealed class UpdatePollCommandHandler : IdempotentCommandHandler<UpdatePo
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.PollUpdate;
 
-    protected override PollCommandResult CreateReplayResult(PollCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<PollCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<UpdatePollCommand> command,
         CancellationToken cancellationToken = default)

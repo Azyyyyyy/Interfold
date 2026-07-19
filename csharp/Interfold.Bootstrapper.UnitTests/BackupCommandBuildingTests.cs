@@ -30,7 +30,7 @@ public sealed class BackupCommandBuildingTests
         {
             "compose", "-f", "/srv/deploy/docker-compose.yaml",
             "exec", "-T",
-            "--env", "PGPASSWORD",
+            "--env", Interfold.Bootstrapper.Util.DatabaseArchiveStreamer.PgPasswordEnvVar,
             "msg-db",
             "pg_dump",
             "-U", "interfold_admin",
@@ -50,7 +50,7 @@ public sealed class BackupCommandBuildingTests
             adminUser: "interfold_admin",
             database: "interfold");
 
-        await Assert.That(args).DoesNotContain("PGPASSWORD=anything");
+        await Assert.That(args).DoesNotContain($"{Interfold.Bootstrapper.Util.DatabaseArchiveStreamer.PgPasswordEnvVar}=anything");
         // The literal "PGPASSWORD" appears as the env-var name (no `=value` suffix); that's
         // safe — only the value side leaks to ps.
         foreach (var arg in args)

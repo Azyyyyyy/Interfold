@@ -165,31 +165,23 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
 
     /// <summary>
     /// Asserts <paramref name="viewer"/> can GET <c>/api/systems/{owner}/alters/{alterId}</c>
-    /// with 200 + the alter payload's <see cref="BareAlter.Id"/> matching. Deserialising into
-    /// the real read model means a wire-shape drift trips at deserialise time instead of
-    /// hiding as a silent match/miss in a stringly-typed body scan.
+    /// with 200 + the alter payload's <see cref="BareAlter.Id"/> matching. Thin domain-flavoured
+    /// wrapper over <see cref="AssertGuardedResourceVisibleAsync"/>; kept as a named site so
+    /// the call sites read as intent (visible alter) rather than as generics gymnastics.
     /// </summary>
-    private static async Task AssertAlterVisibleAsync(HttpClient client, string owner, AlterId alterId, string viewer)
-    {
-        using var res = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", viewer);
-        var envelope = await res.ReadEnvelopeAsync<BareAlter>(HttpStatusCode.OK);
-        await Assert.That(envelope.Data.Id).IsEqualTo(alterId)
-            .Because($"Expected viewer '{viewer}' to see alter {alterId.Value} in owner '{owner}''s public read; got a different alter id back.");
-    }
+    private static Task AssertAlterVisibleAsync(HttpClient client, string owner, AlterId alterId, string viewer)
+        => AssertGuardedResourceVisibleAsync<BareAlter, AlterId>(
+            client, owner, alterId, viewer, "alters", a => a.Id, "alter");
 
     /// <summary>
     /// Asserts <paramref name="viewer"/> hits 404 + <see cref="ErrorCodes.AlterNotFound"/>
     /// on the guarded alter GET. The API deliberately conflates "no such alter" and
     /// "not permitted" into the same shape so callers can't fingerprint restricted alters;
-    /// this assertion pins that behaviour.
+    /// this assertion pins that behaviour via <see cref="AssertGuardedResourceHiddenAsync"/>.
     /// </summary>
-    private static async Task AssertAlterHiddenAsync(HttpClient client, string owner, AlterId alterId, string viewer)
-    {
-        using var res = await client.SendAuthedGetAsync($"/api/systems/{owner}/alters/{alterId}", viewer);
-        var error = await res.ReadErrorAsync(HttpStatusCode.NotFound);
-        await Assert.That(error.Code).IsEqualTo(ErrorCodes.AlterNotFound)
-            .Because($"Expected viewer '{viewer}' to receive alter_not_found for owner '{owner}''s alter {alterId.Value}; got '{error.Code}' with detail '{error.Detail}'.");
-    }
+    private static Task AssertAlterHiddenAsync(HttpClient client, string owner, AlterId alterId, string viewer)
+        => AssertGuardedResourceHiddenAsync(
+            client, owner, alterId, viewer, "alters", ErrorCodes.AlterNotFound, "alter");
 
     [Test]
     public async Task PublicTag_PrivateSecurity_Returns404ForAnonymous()
@@ -245,29 +237,70 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     }
 
     /// <summary>
-    /// Tag counterpart of <see cref="AssertAlterVisibleAsync"/>: asserts a 200 with the
-    /// expected <see cref="TagPublicReadModel.Id"/> in the envelope. Kept per-domain rather
-    /// than generic because the read-model type is what makes wire-shape drift fail loudly.
+    /// Tag counterpart of <see cref="AssertAlterVisibleAsync"/>. Delegates to the shared
+    /// <see cref="AssertGuardedResourceVisibleAsync"/> so a future change to the guarded-read
+    /// success contract (envelope shape, status code, id-carrying model surface) lands in
+    /// one place instead of drifting across the alter and tag mirrors.
     /// </summary>
-    private static async Task AssertTagVisibleAsync(HttpClient client, string owner, TagId tagId, string viewer)
+    private static Task AssertTagVisibleAsync(HttpClient client, string owner, TagId tagId, string viewer)
+        => AssertGuardedResourceVisibleAsync<TagPublicReadModel, TagId>(
+            client, owner, tagId, viewer, "tags", t => t.Id, "tag");
+
+    /// <summary>
+    /// Tag counterpart of <see cref="AssertAlterHiddenAsync"/>. Delegates to
+    /// <see cref="AssertGuardedResourceHiddenAsync"/> — the same "hide the reason" contract
+    /// the alter surface uses, so both mirrors share one authoritative failure shape.
+    /// </summary>
+    private static Task AssertTagHiddenAsync(HttpClient client, string owner, TagId tagId, string viewer)
+        => AssertGuardedResourceHiddenAsync(
+            client, owner, tagId, viewer, "tags", ErrorCodes.TagNotFound, "tag");
+
+    /// <summary>
+    /// Generic form of the "guarded public read succeeds for this viewer" assertion. Callers
+    /// supply the read model type, the id selector (so a typed <see cref="AlterId"/> /
+    /// <see cref="TagId"/> comparison keeps its type safety end-to-end), the URL segment,
+    /// and a resource label for the human-readable failure message. Deserialising into the
+    /// real read model means a wire-shape drift trips at deserialise time rather than
+    /// silently matching / missing in a stringly-typed body scan.
+    /// </summary>
+    private static async Task AssertGuardedResourceVisibleAsync<TReadModel, TId>(
+        HttpClient client,
+        string owner,
+        TId id,
+        string viewer,
+        string urlSegment,
+        Func<TReadModel, TId> idSelector,
+        string resourceLabel)
+        where TReadModel : notnull
+        where TId : notnull
     {
-        using var res = await client.SendAuthedGetAsync($"/api/systems/{owner}/tags/{tagId}", viewer);
-        var envelope = await res.ReadEnvelopeAsync<TagPublicReadModel>(HttpStatusCode.OK);
-        await Assert.That(envelope.Data.Id).IsEqualTo(tagId)
-            .Because($"Expected viewer '{viewer}' to see tag {tagId} in owner '{owner}''s public read; got a different tag id back.");
+        using var res = await client.SendAuthedGetAsync($"/api/systems/{owner}/{urlSegment}/{id}", viewer);
+        var envelope = await res.ReadEnvelopeAsync<TReadModel>(HttpStatusCode.OK);
+        await Assert.That(idSelector(envelope.Data)).IsEqualTo(id)
+            .Because($"Expected viewer '{viewer}' to see {resourceLabel} {id} in owner '{owner}''s public read; got a different {resourceLabel} id back.");
     }
 
     /// <summary>
-    /// Tag counterpart of <see cref="AssertAlterHiddenAsync"/>: asserts a 404 + the
-    /// <see cref="ErrorCodes.TagNotFound"/> code (the same "hide the reason" contract the
-    /// alter surface uses).
+    /// Generic form of the "guarded public read masks as 404" assertion. Callers supply the
+    /// URL segment, the expected error code, and the resource label; the shared body pins
+    /// the 404 status + the code so a regression that unmasks visibility (e.g. surfacing
+    /// <c>alter_forbidden</c> instead of <c>alter_not_found</c>) fails the same way across
+    /// every guarded-resource surface.
     /// </summary>
-    private static async Task AssertTagHiddenAsync(HttpClient client, string owner, TagId tagId, string viewer)
+    private static async Task AssertGuardedResourceHiddenAsync<TId>(
+        HttpClient client,
+        string owner,
+        TId id,
+        string viewer,
+        string urlSegment,
+        ErrorCode expectedErrorCode,
+        string resourceLabel)
+        where TId : notnull
     {
-        using var res = await client.SendAuthedGetAsync($"/api/systems/{owner}/tags/{tagId}", viewer);
+        using var res = await client.SendAuthedGetAsync($"/api/systems/{owner}/{urlSegment}/{id}", viewer);
         var error = await res.ReadErrorAsync(HttpStatusCode.NotFound);
-        await Assert.That(error.Code).IsEqualTo(ErrorCodes.TagNotFound)
-            .Because($"Expected viewer '{viewer}' to receive tag_not_found for owner '{owner}''s tag {tagId}; got '{error.Code}' with detail '{error.Detail}'.");
+        await Assert.That(error.Code).IsEqualTo(expectedErrorCode)
+            .Because($"Expected viewer '{viewer}' to receive {expectedErrorCode.Value} for owner '{owner}''s {resourceLabel} {id}; got '{error.Code.Value}' with detail '{error.Detail}'.");
     }
 
 }

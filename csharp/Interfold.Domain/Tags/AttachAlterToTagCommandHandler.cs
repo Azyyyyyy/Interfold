@@ -29,8 +29,6 @@ public sealed class AttachAlterToTagCommandHandler : IdempotentCommandHandler<At
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.TagAttachAlter;
 
-    protected override TagCommandResult CreateReplayResult(TagCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<AttachAlterToTagCommand> command,
         CancellationToken cancellationToken = default)

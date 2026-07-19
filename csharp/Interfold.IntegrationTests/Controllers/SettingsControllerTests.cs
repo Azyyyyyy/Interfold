@@ -158,21 +158,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         {
             var principalId = TestIds.NewSystemId("sys-alter-avatar", maxLen: 24);
 
-            using var usernameResponse = await client.SendAsJsonAsync(
-                HttpMethod.Post, "/api/settings/username",
-                new SettingsUsernameRequest(new Username("avatar-parity")),
-                principalId);
-            await Assert.That(usernameResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
-
-            using var createResponse = await client.SendAsJsonAsync(
-                HttpMethod.Post, "/api/systems/me/alters",
-                new CreateAlterRequest("AvatarTarget"),
-                principalId);
-            await Assert.That(createResponse.StatusCode).IsEqualTo(HttpStatusCode.Created);
-
-            var alterId = ReadTrailingAlterIdFromLocation(createResponse);
-
-            await SetAlterSecurityLevelAsync(client, principalId, alterId, VisibilityLevel.Public);
+            var alterId = await CreateAlterAsync(client, principalId, "AvatarTarget", "avatar-parity", VisibilityLevel.Public);
 
             using var uploadRequest = BuildMultipartUploadRequest(client, $"/api/systems/me/alters/{alterId}/avatar", principalId, "avatar-alter.png", "image/png");
             using var uploadResponse = await client.SendAsync(uploadRequest);

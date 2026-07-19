@@ -29,8 +29,6 @@ public sealed class DetachAlterFromTagCommandHandler : IdempotentCommandHandler<
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.TagDetachAlter;
 
-    protected override TagCommandResult CreateReplayResult(TagCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<DetachAlterFromTagCommand> command,
         CancellationToken cancellationToken = default)

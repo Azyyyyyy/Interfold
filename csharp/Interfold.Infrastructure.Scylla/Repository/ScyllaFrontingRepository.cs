@@ -44,18 +44,8 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
-
-            var query = new SimpleStatement(
-                $"SELECT alter_id FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ? LIMIT 1",
-                normalizedSystemId,
-                alterId.Value
-            );
-
-            var rows = await session.ExecuteAsync(query);
-            return rows.Any();
+            var (session, keyspace, normalizedSystemId) = scope;
+            return await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "current_fronts", "alter_id", normalizedSystemId, alterId.Value);
         }, cancellationToken);
     }
 
@@ -69,9 +59,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await _scopeResolver.ExecuteAsync<FrontId?>(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             var frontGuid = Guid.NewGuid();
 
             var startBatch = new BatchStatement();
@@ -116,9 +104,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var current = await GetCurrentFrontRowAsync(session, keyspace, normalizedSystemId, alterId);
             if (current is null)
@@ -152,9 +138,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             if (alterId is { } id)
             {
@@ -187,9 +171,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             // Register UDT mapping before selecting the fields UDT column.
             EnsureAlterFieldUdtMapping(session, keyspace);
@@ -245,9 +227,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
 
             var all = await ListActiveAsync(systemId, cancellationToken);
@@ -280,9 +260,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var historyQuery = new SimpleStatement(
                 $"SELECT id, alter_id, comment, time_start, time_end FROM {keyspace}.fronts_by_time WHERE user_id = ? AND time_start >= ? AND time_start <= ?",
@@ -308,9 +286,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             // Identify the alter for this specific front record
             var frontRow = (await session.ExecuteAsync(new SimpleStatement(
@@ -366,9 +342,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var row = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT id, alter_id, comment, time_start, time_end FROM {keyspace}.fronts WHERE user_id = ? AND id = ? LIMIT 1 ALLOW FILTERING",
@@ -386,9 +360,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var current = await GetActiveFrontReferenceByFrontIdAsync(session, keyspace, normalizedSystemId, frontId.Value);
             if (current is null)
@@ -421,9 +393,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var row = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT alter_id, time_start, time_end FROM {keyspace}.fronts WHERE user_id = ? AND id = ? LIMIT 1 ALLOW FILTERING",
@@ -488,9 +458,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var current = await GetActiveFrontReferenceByFrontIdAsync(session, keyspace, normalizedSystemId, frontId.Value);
             if (current is null)

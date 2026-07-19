@@ -29,18 +29,16 @@ public sealed class BulkUpdateFrontCommandHandler : IdempotentCommandHandler<Bul
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.FrontingBulkUpdate;
 
-    protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
-        originalResult with { Replay = true };
 
     protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync(
             CommandEnvelope<BulkUpdateFrontCommand> command,
             CancellationToken cancellationToken = default)
     {
-        if (command.Payload.Start.Any(x => x.AlterId.Value is < 1 or > 32_767) ||
-            command.Payload.End.Any(x => x.Value is < 1 or > 32_767))
+        if (command.Payload.Start.Any(x => x.AlterId.Value < 1) ||
+            command.Payload.End.Any(x => x.Value < 1))
             return RejectInvariant(command, EntityRefs.FrontingInvalidAlterId);
 
-        if (command.Payload.Start.Any(x => (x.Comment?.Length ?? 0) > 50))
+        if (command.Payload.Start.Any(x => !FrontId.IsValidComment(x.Comment)))
             return RejectInvariant(command, EntityRefs.FrontingInvalidComment);
 
         foreach (var alterId in command.Payload.End)

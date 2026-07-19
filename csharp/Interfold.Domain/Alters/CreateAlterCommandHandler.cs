@@ -27,17 +27,13 @@ public sealed class CreateAlterCommandHandler : IdempotentCommandHandler<CreateA
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.AlterCreate;
 
-    protected override AlterCommandResult CreateReplayResult(AlterCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<AlterCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<CreateAlterCommand> command,
         CancellationToken cancellationToken = default
     )
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Name))
-        {
-            return RejectInvariant(command, EntityRefs.AlterName);
-        }
+        if (RejectIfBlank(command, command.Payload.Name, EntityRefs.AlterName) is { } blankReject)
+            return blankReject;
         
         var alterId = await _alterRepository.CreateAsync(command.PrincipalId, command.Payload, cancellationToken);
         if (alterId is null)

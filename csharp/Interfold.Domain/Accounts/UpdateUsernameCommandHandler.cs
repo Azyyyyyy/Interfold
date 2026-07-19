@@ -27,17 +27,13 @@ public sealed class UpdateUsernameCommandHandler : IdempotentCommandHandler<Upda
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.AccountUsernameUpdate;
 
-    protected override AccountCommandResult CreateReplayResult(AccountCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<AccountCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<UpdateUsernameCommand> command,
         CancellationToken cancellationToken = default
     )
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Username))
-        {
-            return RejectInvariant(command, EntityRefs.AccountUsernameInvalid);
-        }
+        if (RejectIfBlank(command, command.Payload.Username, EntityRefs.AccountUsernameInvalid) is { } blankReject)
+            return blankReject;
 
         if (command.Payload.Username.Value.Length > 64)
         {

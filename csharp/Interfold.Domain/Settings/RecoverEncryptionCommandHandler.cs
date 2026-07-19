@@ -31,14 +31,12 @@ public sealed class RecoverEncryptionCommandHandler : IdempotentCommandHandler<R
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsEncryptionRecover;
 
-    protected override EncryptionCommandResult CreateReplayResult(EncryptionCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<EncryptionCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<RecoverEncryptionCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.RecoveryCode.Value))
-            return RejectInvariant(command, EntityRefs.SettingsRecoveryCodeInvalid);
+        if (RejectIfBlank(command, command.Payload.RecoveryCode.Value, EntityRefs.SettingsRecoveryCodeInvalid) is { } blankReject)
+            return blankReject;
 
         var state = await _repository.GetAsync(command.PrincipalId, cancellationToken);
         if (state is not { Initialized: true, KeyChecksum: { } keyChecksum, Salt: { } salt }

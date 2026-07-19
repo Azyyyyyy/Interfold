@@ -41,11 +41,10 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
         var (scratch, composeFile) = await dinD.BootstrapAsync(nameof(RestorePostgresFromDumpRoundTripsMarkerTable), TestConfigPaths.DefaultConfig);
 
         // Extract the admin password once from secrets.json — every psql probe below reuses it.
-        // Kept out-of-process on purpose so the test stays self-contained (no need to import the
-        // bootstrapper's secrets parser).
-        var adminPassRaw = await dinD.ExecAsync(["sh", "-c",
-            $"grep postgresAdminPassword {scratch.SecretsJsonPath} | sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1"]);
-        var adminPass = adminPassRaw.Stdout.Trim();
+        // ReadSecretsFieldAsync copies the file out of the container and parses it in-process,
+        // which is byte-exact against `grep {field} | sed …` on any well-formed JSON but stays
+        // resilient to whitespace, ordering, or escape variations the shell regex would miss.
+        var adminPass = await dinD.ReadSecretsFieldAsync(scratch, "postgresAdminPassword");
         await Assert.That(adminPass).IsNotEmpty()
             .Because("postgresAdminPassword must be present in secrets.json after bootstrap");
 

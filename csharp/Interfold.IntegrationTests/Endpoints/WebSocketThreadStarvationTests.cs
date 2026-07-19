@@ -193,7 +193,6 @@ public class WebSocketThreadStarvationTests(IWebFactoryFixture fixture) : BaseEn
             senderWs, senderSystemId, recipientWs, recipientSystemId, token,
             contextSuffix: "under thread starvation");
 
-        await senderWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
-        await recipientWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await WebSocketExtensions.CloseTestDoneAsync(senderWs, recipientWs, token);
     }
 }

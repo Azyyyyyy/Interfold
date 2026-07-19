@@ -83,3 +83,17 @@ public enum FriendRequestMutationOutcome
     NotRequested,
     NoUser
 }
+
+public static class FriendRequestMutationOutcomeExtensions
+{
+    public static EntityRef? ToRejectionEntityRef(this FriendRequestMutationOutcome outcome)
+    {
+        return outcome switch
+        {
+            FriendRequestMutationOutcome.AlreadyFriends => Interfold.Contracts.Operations.EntityRefs.FriendRequestAlreadyFriends,
+            FriendRequestMutationOutcome.NotRequested => Interfold.Contracts.Operations.EntityRefs.FriendRequestNotRequested,
+            FriendRequestMutationOutcome.NoUser => Interfold.Contracts.Operations.EntityRefs.FriendRequestNoUser,
+            _ => null
+        };
+    }
+}

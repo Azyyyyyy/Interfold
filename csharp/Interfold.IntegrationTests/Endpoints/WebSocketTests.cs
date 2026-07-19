@@ -54,7 +54,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
                 ["isReconnect"] = true,
             });
 
-        await ws.SendAsync(arrayJoinFrame, WebSocketMessageType.Text, endOfMessage: true, token);
+        await ws.SendTextFrameAsync(arrayJoinFrame, token);
 
         var frame = await ReceivedPhxFrame.ReceiveAsync(ws, token);
 
@@ -88,7 +88,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             JoinRef = "1"
         }.ToBytes();
 
-        await ws.SendAsync(joinFrame, WebSocketMessageType.Text, endOfMessage: true, token);
+        await ws.SendTextFrameAsync(joinFrame, token);
         var reply = await ReceivedPhxFrame.ReceiveReplyAsync<SocketReasonResponse>(ws, token);
 
         using (Assert.Multiple())
@@ -97,7 +97,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             await Assert.That(reply.Response.Reason).IsEqualTo(ErrorCodes.SocketReasons.UnsupportedProtocolVersion).Because("Expected reason=unsupported_protocol_version.");
         }
 
-        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await ws.CloseTestDoneAsync(token);
     }
 
     [Test]
@@ -118,7 +118,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             JoinRef = "1"
         }.ToBytes();
 
-        await ws.SendAsync(joinFrame, WebSocketMessageType.Text, endOfMessage: true, token);
+        await ws.SendTextFrameAsync(joinFrame, token);
         var reply = await ReceivedPhxFrame.ReceiveReplyAsync<SocketJoinBatchedPayload>(ws, token);
 
         using (Assert.Multiple())
@@ -127,10 +127,10 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             await Assert.That(reply.Response.Batched).IsTrue().Because("Expected batched=true for iOS join above threshold.");
         }
 
-        var batchedComplete = await ReceivedPhxFrame.ReceiveEventFrameAsync(ws, token, SocketEventNames.BatchedInit.Complete, maxFrames: 6);
+        var batchedComplete = await ws.ReceiveEventFrameAsync( token, SocketEventNames.BatchedInit.Complete, maxFrames: 6);
         await Assert.That(batchedComplete).IsNotNull().Because("Expected batched_init_complete after iOS batched join.");
 
-        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await ws.CloseTestDoneAsync(token);
     }
 
     [Test]
@@ -157,7 +157,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             JsonSerializer.Serialize(thirdReply.Response, SocketJson.Options), SocketJson.Options);
         await Assert.That(thirdResponse!.Reason).IsEqualTo(ErrorCodes.SocketReasons.RateLimited).Because("Expected reason=rate_limited on third join.");
 
-        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await ws.CloseTestDoneAsync(token);
     }
 
     [Test]
@@ -170,10 +170,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         var createAlterFrame = PhxEndpointFrame.Build(topic, "POST", "/api/systems/me/alters", new { name = "FrontPushAlter" }, "2");
 
-        await ws.SendAsync(createAlterFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (createAlterReply, createAlterPush) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            ws, token, SocketEventNames.Alters.Created);
+        var (createAlterReply, createAlterPush) = await ws.SendEndpointAndCaptureAsync(createAlterFrame, SocketEventNames.Alters.Created, token);
 
         await Assert.That(createAlterReply).IsNotNull().Because("Expected endpoint ack (phx_reply) for alter create call.");
 
@@ -183,10 +180,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         var startFrontFrame = PhxEndpointFrame.Build(topic, "POST", "/api/systems/me/front/start", new { id = createdAlterId }, "3");
 
-        await ws.SendAsync(startFrontFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (endpointAck, frontingPush) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            ws, token, SocketEventNames.Fronting.Started);
+        var (endpointAck, frontingPush) = await ws.SendEndpointAndCaptureAsync(startFrontFrame, SocketEventNames.Fronting.Started, token);
 
         using (Assert.Multiple())
         {
@@ -199,7 +193,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
                 .IsTrue().Because("Expected fronting push payload to include front object.");
         }
 
-        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await ws.CloseTestDoneAsync(token);
     }
 
     [Test]
@@ -212,7 +206,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         var createAlterFrame = PhxEndpointFrame.Build(topic, "POST", "/api/systems/me/alters", new { name = "DomainFanoutAlter" }, "2");
 
-        var (alterReply, alterPush) = await SendEndpointAndCaptureAsync(ws, createAlterFrame, SocketEventNames.Alters.Created, token);
+        var (alterReply, alterPush) = await ws.SendEndpointAndCaptureAsync( createAlterFrame, SocketEventNames.Alters.Created, token);
         using (Assert.Multiple())
         {
             await Assert.That(alterReply).IsNotNull().Because("Expected endpoint ack for alter create.");
@@ -223,7 +217,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         var createTagFrame = PhxEndpointFrame.Build(topic, "POST", "/api/systems/me/tags", new { name = "DomainFanoutTag" }, "3");
 
-        var (tagReply, tagPush) = await SendEndpointAndCaptureAsync(ws, createTagFrame, SocketEventNames.Tags.Created, token);
+        var (tagReply, tagPush) = await ws.SendEndpointAndCaptureAsync( createTagFrame, SocketEventNames.Tags.Created, token);
         using (Assert.Multiple())
         {
             await Assert.That(tagReply).IsNotNull().Because("Expected endpoint ack for tag create.");
@@ -234,7 +228,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         var createFieldFrame = PhxEndpointFrame.Build(topic, "POST", "/api/settings/fields", new { name = "DomainFanoutField", type = "text", security_level = "private", locked = false }, "4");
 
-        var (fieldReply, fieldPush) = await SendEndpointAndCaptureAsync(ws, createFieldFrame, SocketEventNames.Settings.FieldsUpdated, token);
+        var (fieldReply, fieldPush) = await ws.SendEndpointAndCaptureAsync( createFieldFrame, SocketEventNames.Settings.FieldsUpdated, token);
         using (Assert.Multiple())
         {
             await Assert.That(fieldReply).IsNotNull().Because("Expected endpoint ack for field create.");
@@ -243,7 +237,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         await Assert.That(fieldPush!.RawPayload!.Value.GetProperty("fields").GetArrayLength())
             .IsGreaterThan(0).Because("Expected at least one field in fields_updated payload.");
 
-        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await ws.CloseTestDoneAsync(token);
     }
 
     [Test]
@@ -256,12 +250,8 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var senderWs = pair.FirstWs;
         using var recipientWs = pair.SecondWs;
 
-        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
-
-        await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (senderAck, senderPush) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            senderWs, token, SocketEventNames.Friendships.RequestSent);
+        var (senderAck, senderPush, recipientFrame) = await FriendRequestFlow.SendAndDrainAsync(
+            senderWs, senderSystemId, recipientWs, recipientSystemId, "2", token);
 
         using (Assert.Multiple())
         {
@@ -269,15 +259,12 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             await Assert.That(senderPush).IsNotNull().Because("Expected friend_request_sent push on sender socket.");
         }
 
-        var recipientFrame = await ReceivedPhxFrame.ReceiveEventFrameAsync(
-            recipientWs, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3, perFrameTimeoutSeconds: 5);
         await Assert.That(recipientFrame).IsNotNull().Because("Expected recipient-side friend_request_received push.");
 
         await Assert.That(recipientFrame!.RawPayload?.TryGetProperty("system", out _) ?? false)
             .IsTrue().Because("Expected system profile in friend_request_received payload.");
 
-        await senderWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
-        await recipientWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await WebSocketExtensions.CloseTestDoneAsync(senderWs, recipientWs, token);
     }
 
     [Test]
@@ -290,22 +277,13 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var senderWs = pair.FirstWs;
         using var recipientWs = pair.SecondWs;
 
-        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
-
-        await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        // Drain sender ack + push
-        _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.RequestSent);
-        // Drain recipient friend_request_received
-        var recipientEvent = await ReceivedPhxFrame.ReceiveEventFrameAsync(recipientWs, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
+        var (_, _, recipientEvent) = await FriendRequestFlow.SendAndDrainAsync(
+            senderWs, senderSystemId, recipientWs, recipientSystemId, "2", token);
         await Assert.That(recipientEvent).IsNotNull().Because("Expected friend_request_received");
 
         var acceptFrame = PhxEndpointFrame.Build("system:" + recipientSystemId, "POST", "/api/friend-requests/" + senderSystemId + "/accept", new object(), "3");
 
-        await recipientWs.SendAsync(acceptFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (recipientAck, recipientFriendAdded) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            recipientWs, token, SocketEventNames.Friendships.Added);
+        var (recipientAck, recipientFriendAdded) = await recipientWs.SendEndpointAndCaptureAsync(acceptFrame, SocketEventNames.Friendships.Added, token);
 
         using (Assert.Multiple())
         {
@@ -313,22 +291,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             await Assert.That(recipientFriendAdded).IsNotNull().Because("Expected friend_added push on recipient socket after accept.");
         }
 
-        ReceivedPhxFrame? senderFriendAdded = null;
-        ReceivedPhxFrame? senderRequestCleared = null;
-        for (var i = 0; i < 5 && (senderFriendAdded is null || senderRequestCleared is null); i++)
-        {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            cts.CancelAfter(TimeSpan.FromSeconds(5));
-
-            ReceivedPhxFrame frame;
-            try { frame = await ReceivedPhxFrame.ReceiveAsync(senderWs, cts.Token); }
-            catch (OperationCanceledException) { break; }
-
-            if (frame.Event == SocketEventNames.Friendships.Added)
-                senderFriendAdded = frame;
-            else if (frame.Event == SocketEventNames.Friendships.RequestRemoved)
-                senderRequestCleared = frame;
-        }
+        var (senderFriendAdded, senderRequestCleared) = await ReceivedPhxFrame.ReceiveTwoOfAsync(
+            senderWs, SocketEventNames.Friendships.Added, SocketEventNames.Friendships.RequestRemoved,
+            TimeSpan.FromSeconds(5), 5, token);
 
         using (Assert.Multiple())
         {
@@ -336,8 +301,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             await Assert.That(senderRequestCleared).IsNotNull().Because("Expected friend_request_removed push on sender socket after accept (outgoing request cleanup).");
         }
 
-        await senderWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
-        await recipientWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await WebSocketExtensions.CloseTestDoneAsync(senderWs, recipientWs, token);
     }
 
     [Test]
@@ -350,31 +314,22 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var senderWs = pair.FirstWs;
         using var recipientWs = pair.SecondWs;
 
-        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
-
-        await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.RequestSent);
-        var recipientEvent = await ReceivedPhxFrame.ReceiveEventFrameAsync(recipientWs, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
+        var (_, _, recipientEvent) = await FriendRequestFlow.SendAndDrainAsync(
+            senderWs, senderSystemId, recipientWs, recipientSystemId, "2", token);
         await Assert.That(recipientEvent).IsNotNull().Because("Expected friend_request_received");
 
         var rejectFrame = PhxEndpointFrame.Build("system:" + recipientSystemId, "DELETE", "/api/friend-requests/" + senderSystemId, new object(), "3");
 
-        await recipientWs.SendAsync(rejectFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (recipientAck, recipientRemoved) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            recipientWs, token, SocketEventNames.Friendships.RequestRemoved);
+        var (recipientAck, recipientRemoved) = await recipientWs.SendEndpointAndCaptureAsync(rejectFrame, SocketEventNames.Friendships.RequestRemoved, token);
 
         using (Assert.Multiple())
         {
             await Assert.That(recipientAck).IsNotNull().Because("Expected endpoint ack on recipient socket for reject.");
         }
 
-        var senderRemoved = await ReceivedPhxFrame.ReceiveEventFrameAsync(
-            senderWs, token, SocketEventNames.Friendships.RequestRemoved, maxFrames: 8);
+        var senderRemoved = await senderWs.ReceiveEventFrameAsync( token, SocketEventNames.Friendships.RequestRemoved, maxFrames: 8);
 
-        await senderWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
-        await recipientWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await WebSocketExtensions.CloseTestDoneAsync(senderWs, recipientWs, token);
     }
 
     [Test]
@@ -387,21 +342,13 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var senderWs = pair.FirstWs;
         using var recipientWs = pair.SecondWs;
 
-        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
-
-        await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.RequestSent);
-
-        var recipientReceived = await ReceivedPhxFrame.ReceiveEventFrameAsync(recipientWs, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
+        var (_, _, recipientReceived) = await FriendRequestFlow.SendAndDrainAsync(
+            senderWs, senderSystemId, recipientWs, recipientSystemId, "2", token);
         await Assert.That(recipientReceived).IsNotNull().Because("Expected friend_request_received before cancel.");
 
         var cancelFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "DELETE", "/api/friend-requests/" + recipientSystemId, new object(), "3");
 
-        await senderWs.SendAsync(cancelFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (senderAck, senderRemoved) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            senderWs, token, SocketEventNames.Friendships.RequestRemoved);
+        var (senderAck, senderRemoved) = await senderWs.SendEndpointAndCaptureAsync(cancelFrame, SocketEventNames.Friendships.RequestRemoved, token);
 
         using (Assert.Multiple())
         {
@@ -409,12 +356,10 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             await Assert.That(senderRemoved).IsNotNull().Because("Expected friend_request_removed push on sender socket after cancel.");
         }
 
-        var recipientRemoved = await ReceivedPhxFrame.ReceiveEventFrameAsync(
-            recipientWs, token, SocketEventNames.Friendships.RequestRemoved, maxFrames: 3, perFrameTimeoutSeconds: 5);
+        var recipientRemoved = await recipientWs.ReceiveEventFrameAsync( token, SocketEventNames.Friendships.RequestRemoved, maxFrames: 3, perFrameTimeoutSeconds: 5);
         await Assert.That(recipientRemoved).IsNotNull().Because("Expected recipient-side friend_request_removed push.");
 
-        await senderWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
-        await recipientWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await WebSocketExtensions.CloseTestDoneAsync(senderWs, recipientWs, token);
     }
 
     [Test]
@@ -428,22 +373,14 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var recipientWs = pair.SecondWs;
 
         // Send friend request
-        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
-
-        await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.RequestSent);
-
-        var recipientReceived = await ReceivedPhxFrame.ReceiveEventFrameAsync(recipientWs, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
+        var (_, _, recipientReceived) = await FriendRequestFlow.SendAndDrainAsync(
+            senderWs, senderSystemId, recipientWs, recipientSystemId, "2", token);
         await Assert.That(recipientReceived).IsNotNull().Because("Expected friend_request_received before accept.");
 
         // Accept friend request
         var acceptFrame = PhxEndpointFrame.Build("system:" + recipientSystemId, "POST", "/api/friend-requests/" + senderSystemId + "/accept", new object(), "3");
 
-        await recipientWs.SendAsync(acceptFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (recipientAcceptAck, recipientAdded) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            recipientWs, token, SocketEventNames.Friendships.Added);
+        var (recipientAcceptAck, recipientAdded) = await recipientWs.SendEndpointAndCaptureAsync(acceptFrame, SocketEventNames.Friendships.Added, token);
 
         using (Assert.Multiple())
         {
@@ -457,10 +394,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         // Remove friend
         var removeFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "DELETE", "/api/friends/" + recipientSystemId, new object(), "4");
 
-        await senderWs.SendAsync(removeFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (senderRemoveAck, senderRemoved) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            senderWs, token, SocketEventNames.Friendships.Removed);
+        var (senderRemoveAck, senderRemoved) = await senderWs.SendEndpointAndCaptureAsync(removeFrame, SocketEventNames.Friendships.Removed, token);
 
         using (Assert.Multiple())
         {
@@ -474,12 +408,10 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
                 .Because("Expected friend_removed event on sender socket.");
         }
 
-        var recipientRemovedFrame = await ReceivedPhxFrame.ReceiveEventFrameAsync(
-            recipientWs, token, SocketEventNames.Friendships.Removed, maxFrames: 8);
+        var recipientRemovedFrame = await recipientWs.ReceiveEventFrameAsync( token, SocketEventNames.Friendships.Removed, maxFrames: 8);
         await Assert.That(recipientRemovedFrame).IsNotNull().Because("Timed out waiting for recipient-side friend_removed push.");
 
-        await senderWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
-        await recipientWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await WebSocketExtensions.CloseTestDoneAsync(senderWs, recipientWs, token);
     }
 
     [Test]
@@ -494,8 +426,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         await FriendTrustUntrustFlow.RunAsync(senderWs, senderSystemId, recipientWs, recipientSystemId, token);
 
-        await senderWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
-        await recipientWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await WebSocketExtensions.CloseTestDoneAsync(senderWs, recipientWs, token);
     }
 
     [Test]
@@ -511,31 +442,17 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         // A sends friend request to B
         var sendAFrame = PhxEndpointFrame.Build("system:" + systemAId, "PUT", "/api/friend-requests/" + systemBId, new object(), "2");
 
-        await wsA.SendAsync(sendAFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-        _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(wsA, token, SocketEventNames.Friendships.RequestSent);
-        _ = await ReceivedPhxFrame.ReceiveEventFrameAsync(wsB, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
+        _ = await wsA.SendEndpointAndCaptureAsync(sendAFrame, SocketEventNames.Friendships.RequestSent, token);
+        _ = await wsB.ReceiveEventFrameAsync( token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
 
         // B sends mutual friend request to A (should auto-accept)
         var sendBFrame = PhxEndpointFrame.Build("system:" + systemBId, "PUT", "/api/friend-requests/" + systemAId, new object(), "3");
 
-        await wsB.SendAsync(sendBFrame, WebSocketMessageType.Text, endOfMessage: true, token);
+        await wsB.SendTextFrameAsync(sendBFrame, token);
 
-        ReceivedPhxFrame? bAck = null;
-        ReceivedPhxFrame? bFriendAdded = null;
-        for (var i = 0; i < 5 && (bAck is null || bFriendAdded is null); i++)
-        {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            cts.CancelAfter(TimeSpan.FromSeconds(2));
-
-            ReceivedPhxFrame frame;
-            try { frame = await ReceivedPhxFrame.ReceiveAsync(wsB, cts.Token); }
-            catch (OperationCanceledException) { break; }
-
-            if (frame.Event == "phx_reply")
-                bAck = frame;
-            else if (frame.Event == SocketEventNames.Friendships.Added)
-                bFriendAdded = frame;
-        }
+        var (bAck, bFriendAdded) = await ReceivedPhxFrame.ReceiveTwoOfAsync(
+            wsB, "phx_reply", SocketEventNames.Friendships.Added,
+            TimeSpan.FromSeconds(2), 5, token);
 
         using (Assert.Multiple())
         {
@@ -543,22 +460,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             await Assert.That(bFriendAdded).IsNotNull().Because("Expected friend_added push on B socket after mutual send auto-accept.");
         }
 
-        ReceivedPhxFrame? aFriendAdded = null;
-        ReceivedPhxFrame? aRequestCleared = null;
-        for (var i = 0; i < 5 && (aFriendAdded is null || aRequestCleared is null); i++)
-        {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            cts.CancelAfter(TimeSpan.FromSeconds(2));
-
-            ReceivedPhxFrame frame;
-            try { frame = await ReceivedPhxFrame.ReceiveAsync(wsA, cts.Token); }
-            catch (OperationCanceledException) { break; }
-
-            if (frame.Event == SocketEventNames.Friendships.Added)
-                aFriendAdded = frame;
-            else if (frame.Event == SocketEventNames.Friendships.RequestRemoved)
-                aRequestCleared = frame;
-        }
+        var (aFriendAdded, aRequestCleared) = await ReceivedPhxFrame.ReceiveTwoOfAsync(
+            wsA, SocketEventNames.Friendships.Added, SocketEventNames.Friendships.RequestRemoved,
+            TimeSpan.FromSeconds(2), 5, token);
 
         using (Assert.Multiple())
         {
@@ -566,8 +470,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             await Assert.That(aRequestCleared).IsNotNull().Because("Expected friend_request_removed push on A socket after mutual send auto-accept (outgoing request cleanup).");
         }
 
-        await wsA.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
-        await wsB.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await WebSocketExtensions.CloseTestDoneAsync(wsA, wsB, token);
     }
     
     [Test]
@@ -582,11 +485,11 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         // path Octocon.Accounts.wipe_tags/1 used to cover in the legacy worker.
         var createTagFrame = PhxEndpointFrame.Build(topic, "POST", "/api/systems/me/tags", new { name = "WipeMe" }, "2");
 
-        _ = await SendEndpointAndCaptureAsync(ws, createTagFrame, SocketEventNames.Tags.Created, token);
+        _ = await ws.SendEndpointAndCaptureAsync( createTagFrame, SocketEventNames.Tags.Created, token);
 
         var wipeFrame = PhxEndpointFrame.Build(topic, "POST", "/api/settings/wipe-tags", new object(), "3");
 
-        var (wipeAck, wipePush) = await SendEndpointAndCaptureAsync(ws, wipeFrame, SocketEventNames.Settings.TagsWiped, token);
+        var (wipeAck, wipePush) = await ws.SendEndpointAndCaptureAsync( wipeFrame, SocketEventNames.Settings.TagsWiped, token);
 
         using (Assert.Multiple())
         {
@@ -600,7 +503,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
                 .Because("Expected event name on wipe push to be tags_wiped.");
         }
 
-        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await ws.CloseTestDoneAsync(token);
     }
 
     [Test]
@@ -613,7 +516,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         var unlinkFrame = PhxEndpointFrame.Build(topic, "POST", "/api/settings/unlink_email", new object(), "2");
 
-        var (ack, push) = await SendEndpointAndCaptureAsync(ws, unlinkFrame, SocketEventNames.Settings.GoogleAccountUnlinked, token);
+        var (ack, push) = await ws.SendEndpointAndCaptureAsync( unlinkFrame, SocketEventNames.Settings.GoogleAccountUnlinked, token);
 
         using (Assert.Multiple())
         {
@@ -627,7 +530,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
                 .Because("Expected event name on unlink push to be google_account_unlinked.");
         }
 
-        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await ws.CloseTestDoneAsync(token);
     }
 
     [Test]
@@ -645,17 +548,17 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         await fixture.Factory.EventBus.PublishAsync(new SimplyPluralImportCompletedEvent(AsScopedSystemId(systemId), 7), token);
 
-        var completeFrame = await ReceivedPhxFrame.ReceiveEventFrameAsync(ws, token, SocketEventNames.Imports.SpComplete, maxFrames: 4);
+        var completeFrame = await ws.ReceiveEventFrameAsync( token, SocketEventNames.Imports.SpComplete, maxFrames: 4);
         await Assert.That(completeFrame).IsNotNull().Because("Expected sp_import_complete push after bus publish.");
         await Assert.That(completeFrame!.RawPayload?.GetProperty("alter_count").GetInt32() ?? -1)
             .IsEqualTo(7).Because("Expected alter_count=7 in sp_import_complete payload (legacy contract is snake_case).");
 
         await fixture.Factory.EventBus.PublishAsync(new SimplyPluralImportFailedEvent(AsScopedSystemId(systemId)), token);
 
-        var failedFrame = await ReceivedPhxFrame.ReceiveEventFrameAsync(ws, token, SocketEventNames.Imports.SpFailed, maxFrames: 4);
+        var failedFrame = await ws.ReceiveEventFrameAsync( token, SocketEventNames.Imports.SpFailed, maxFrames: 4);
         await Assert.That(failedFrame).IsNotNull().Because("Expected sp_import_failed push after bus publish.");
 
-        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await ws.CloseTestDoneAsync(token);
     }
 
     [Test]
@@ -671,17 +574,17 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         await fixture.Factory.EventBus.PublishAsync(new PluralKitImportCompletedEvent(AsScopedSystemId(systemId), 3), token);
 
-        var completeFrame = await ReceivedPhxFrame.ReceiveEventFrameAsync(ws, token, SocketEventNames.Imports.PkComplete, maxFrames: 4);
+        var completeFrame = await ws.ReceiveEventFrameAsync( token, SocketEventNames.Imports.PkComplete, maxFrames: 4);
         await Assert.That(completeFrame).IsNotNull().Because("Expected pk_import_complete push after bus publish.");
         await Assert.That(completeFrame!.RawPayload?.GetProperty("alter_count").GetInt32() ?? -1)
             .IsEqualTo(3).Because("Expected alter_count=3 in pk_import_complete payload (legacy contract is snake_case).");
 
         await fixture.Factory.EventBus.PublishAsync(new PluralKitImportFailedEvent(AsScopedSystemId(systemId)), token);
 
-        var failedFrame = await ReceivedPhxFrame.ReceiveEventFrameAsync(ws, token, SocketEventNames.Imports.PkFailed, maxFrames: 4);
+        var failedFrame = await ws.ReceiveEventFrameAsync( token, SocketEventNames.Imports.PkFailed, maxFrames: 4);
         await Assert.That(failedFrame).IsNotNull().Because("Expected pk_import_failed push after bus publish.");
 
-        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await ws.CloseTestDoneAsync(token);
     }
 
     /// <summary>
@@ -771,9 +674,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             // arrives interleaved with the endpoint phx_reply on the same socket. The shared
             // ReceiveReplyAndPushAsync helper handles either ordering — the same pattern the
             // existing endpoint-proxy fanout tests above use.
-            await ws.SendAsync(endpointFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-            var (replyFrame, _) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-                ws, token, SocketEventNames.Alters.Created);
+            var (replyFrame, _) = await ws.SendEndpointAndCaptureAsync(endpointFrame, SocketEventNames.Alters.Created, token);
             await Assert.That(replyFrame).IsNotNull()
                 .Because("Expected a phx_reply for the endpoint proxy call.");
             var reply = replyFrame!.Reply<SocketEndpointProxyResponse>();
@@ -850,7 +751,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
                     .Because($"Regression: the proxy must forward the OUTER upgrade's Host header ('{operatorFacingHostHeader}') onto the inner HttpRequestMessage so the inner pipeline observes the operator-facing origin, not the loopback dial target. Recorded Host header was '{proxyCall.HostHeader ?? "<null>"}'.");
             }
 
-            await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+            await ws.CloseTestDoneAsync(token);
         }
         finally
         {
@@ -872,22 +773,14 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             JoinRef = "1"
         };
 
-        await ws.SendAsync(joinFrame.ToBytes(), WebSocketMessageType.Text, endOfMessage: true, timeoutToken);
+        await ws.SendTextFrameAsync(joinFrame.ToBytes(), timeoutToken);
         var frame = await ReceivedPhxFrame.ReceiveAsync(ws, timeoutToken);
         var reply = frame.Reply<object>();
         if (reply.Status != PhoenixReplyStatus.Ok)
             throw new InvalidOperationException($"JoinTopicAsync failed for topic '{topic}'. Status: {reply.Status}");
     }
 
-    static async Task<(ReceivedPhxFrame? Reply, ReceivedPhxFrame? Push)> SendEndpointAndCaptureAsync(
-        WebSocket ws,
-        byte[] frame,
-        string expectedPushEvent,
-        CancellationToken token)
-    {
-        await ws.SendAsync(frame, WebSocketMessageType.Text, endOfMessage: true, token);
-        return await ReceivedPhxFrame.ReceiveReplyAndPushAsync(ws, token, expectedPushEvent);
-    }
+
 
     async Task<PhoenixReplyPayload<object>> SendJoinAndReceiveReplyAsync(WebSocket ws, string socketToken, string systemId, string refId, CancellationToken token)
     {
@@ -900,7 +793,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             JoinRef = "1"
         };
 
-        await ws.SendAsync(joinFrame.ToBytes(), WebSocketMessageType.Text, endOfMessage: true, token);
+        await ws.SendTextFrameAsync(joinFrame.ToBytes(), token);
         var frame = await ReceivedPhxFrame.ReceiveAsync(ws, token);
         return frame.Reply<object>();
     }

@@ -26,14 +26,12 @@ public sealed class CreatePollCommandHandler : IdempotentCommandHandler<CreatePo
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.PollCreate;
 
-    protected override PollCommandResult CreateReplayResult(PollCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<PollCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<CreatePollCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Title))
-            return RejectInvariant(command, EntityRefs.PollTitleRequired);
+        if (RejectIfBlank(command, command.Payload.Title, EntityRefs.PollTitleRequired) is { } blankReject)
+            return blankReject;
 
         if (command.Payload.Title.Length > 100)
             return RejectInvariant(command, EntityRefs.PollTitleTooLong);

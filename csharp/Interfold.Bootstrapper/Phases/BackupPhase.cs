@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.IO.Compression;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
@@ -229,10 +228,13 @@ internal static class BackupPhase
 
         logger.Info($"    postgres: pg_dump -> {dumpPath}");
         var argv = BuildPostgresDumpArgs(composeFile, adminUser, config.PostgresDatabase);
-        var env = new Dictionary<string, string?> { ["PGPASSWORD"] = adminPassword };
 
-        // Stream stdout straight to the output file so the dump never sits in memory.
-        await StreamProcessStdoutToFileAsync("docker", argv, env, dumpPath, ct).ConfigureAwait(false);
+        // Stream stdout straight to the output file so the dump never sits in memory. The
+        // PGPASSWORD env var is smuggled onto the process environment via the canonical
+        // trust-boundary factory (never on the argv, so it can't surface in `ps`).
+        await DatabaseArchiveStreamer.StreamProcessStdoutToFileAsync(
+            "docker", argv, DatabaseArchiveStreamer.PgPasswordEnv(adminPassword), dumpPath, ct)
+            .ConfigureAwait(false);
 
         var size = new FileInfo(dumpPath).Length;
         if (size == 0)
@@ -266,13 +268,10 @@ internal static class BackupPhase
             BuildScyllaSnapshotArgs(composeFile, service, dataPath, tag);
 
         logger.Info($"    scylla: nodetool snapshot -t {tag} (service={service})");
-        var snapshot = await ProcessRunner.RunAsync("docker", snapshotArgs, ct: ct).ConfigureAwait(false);
-        if (snapshot.ExitCode != 0)
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.NodetoolSnapshot);
-            throw new InvalidOperationException(
-                $"nodetool snapshot exited {snapshot.ExitCode} on {service}: {snapshot.StdErr.Trim()}");
-        }
+        await PhaseRunner.RunOrPhaseFailAsync(
+            () => ProcessRunner.RunAsync("docker", snapshotArgs, ct: ct),
+            logger, Phase, PhaseFailureReasons.NodetoolSnapshot,
+            $"nodetool snapshot", ct).ConfigureAwait(false);
 
         try
         {
@@ -298,7 +297,7 @@ internal static class BackupPhase
             // in-process avoids the sh/pipefail semantics headache and works identically
             // on any host with just docker installed.
             var cpArgs = BuildContainerCpArgs(containerId, dataPath);
-            await StreamProcessStdoutToFileAsync(
+            await DatabaseArchiveStreamer.StreamProcessStdoutToFileAsync(
                 "docker", cpArgs, environment: null, archivePath, ct, compress: true)
                 .ConfigureAwait(false);
         }
@@ -352,49 +351,6 @@ internal static class BackupPhase
                 logger.Warn($"failed to delete {stale.FullName}: {ex.Message}");
             }
         }
-    }
-
-    /// <summary>
-    /// Runs <paramref name="fileName"/> with <paramref name="arguments"/> and streams its
-    /// stdout directly into <paramref name="destinationPath"/>. Throws if the process exits
-    /// non-zero; partial output is preserved on disk for diagnosis but the caller deletes
-    /// it before propagating the exception when it's known to be empty/corrupt.
-    /// </summary>
-    /// <param name="compress">
-    /// When true, the destination file is wrapped in a <see cref="GZipStream"/> so the
-    /// process's stdout is written as gzip-compressed bytes on disk. Used by the Scylla
-    /// path where <c>docker cp</c> emits an uncompressed tar but the target filename is
-    /// <c>.tar.gz</c>. Postgres path leaves this false — <c>pg_dump -Fc</c> already emits
-    /// a compressed custom-format archive.
-    /// </param>
-    private static async Task StreamProcessStdoutToFileAsync(
-        string fileName, IReadOnlyList<string> arguments,
-        IDictionary<string, string?>? environment, string destinationPath,
-        CancellationToken ct, bool compress = false)
-    {
-        await ProcessStreamRunner.RunAsync(
-            fileName, arguments, environment,
-            redirectStandardInput: false,
-            forwardStdout: false,
-            async proc =>
-            {
-                await using var fs = File.Create(destinationPath);
-                if (compress)
-                {
-                    // CompressionLevel.Fastest keeps CPU well below the docker-cp / disk
-                    // throughput ceiling on typical backup data (SSTables compress poorly
-                    // anyway because they're already LZ4-compressed internally). Higher
-                    // levels would burn CPU for a marginal size win on already-compressed
-                    // payload.
-                    await using var gz = new GZipStream(fs, CompressionLevel.Fastest, leaveOpen: false);
-                    await proc.StandardOutput.BaseStream.CopyToAsync(gz, ct).ConfigureAwait(false);
-                }
-                else
-                {
-                    await proc.StandardOutput.BaseStream.CopyToAsync(fs, ct).ConfigureAwait(false);
-                }
-            },
-            ct);
     }
 
     private static string FormatBytes(long bytes)

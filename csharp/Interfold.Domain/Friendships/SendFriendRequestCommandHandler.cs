@@ -28,8 +28,6 @@ public sealed class SendFriendRequestCommandHandler : IdempotentCommandHandler<S
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.FriendRequestSend;
 
-    protected override FriendshipCommandResult CreateReplayResult(FriendshipCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<FriendshipCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SendFriendRequestCommand> command,
         CancellationToken cancellationToken = default)

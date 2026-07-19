@@ -27,8 +27,6 @@ public sealed class SetFriendTrustCommandHandler : IdempotentCommandHandler<SetF
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.FriendshipTrust;
 
-    protected override FriendshipCommandResult CreateReplayResult(FriendshipCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<FriendshipCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SetFriendTrustCommand> command,
         CancellationToken cancellationToken = default)

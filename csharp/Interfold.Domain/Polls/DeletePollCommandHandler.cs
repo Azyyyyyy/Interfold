@@ -26,8 +26,6 @@ public sealed class DeletePollCommandHandler : IdempotentCommandHandler<DeletePo
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.PollDelete;
 
-    protected override PollCommandResult CreateReplayResult(PollCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<PollCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<DeletePollCommand> command,
         CancellationToken cancellationToken = default)

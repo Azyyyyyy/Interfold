@@ -26,8 +26,6 @@ public sealed class SetAlterJournalLockedCommandHandler : IdempotentCommandHandl
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.JournalAlterSetLocked;
 
-    protected override AlterJournalCommandResult CreateReplayResult(AlterJournalCommandResult originalResult) =>
-        originalResult with { Replay = true };
 
     protected override async Task<CommandExecutionResult<AlterJournalCommandResult>> ExecuteCoreAsync(
         CommandEnvelope<SetAlterJournalLockedCommand> command,
@@ -66,8 +64,6 @@ public sealed class SetAlterJournalPinnedCommandHandler : IdempotentCommandHandl
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.JournalAlterSetPinned;
 
-    protected override AlterJournalCommandResult CreateReplayResult(AlterJournalCommandResult originalResult) =>
-        originalResult with { Replay = true };
 
     protected override async Task<CommandExecutionResult<AlterJournalCommandResult>> ExecuteCoreAsync(
         CommandEnvelope<SetAlterJournalPinnedCommand> command,

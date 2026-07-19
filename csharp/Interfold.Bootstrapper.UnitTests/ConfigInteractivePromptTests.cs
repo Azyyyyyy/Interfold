@@ -25,7 +25,23 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// 31..36 OAuth credentials · 37..41 Backup &amp; autostart · 42..46 Updates · 47 Firebase.
 /// <see cref="Navigate"/>(48) lands on <c>Confirm and save</c>.
 /// </para>
+/// <para>
+/// <b>Serialisation via <c>[NotInParallel("bootstrapper-console")]</c></b> — every test in
+/// this class stands up a fresh Spectre <see cref="TestConsole"/> in interactive mode and
+/// drives a <c>SelectionPrompt&lt;int&gt;</c> whose <c>ListPromptRenderHook</c> mutates
+/// Spectre's per-instance render state on the calling thread. On memory-pressured Linux
+/// CI runners, running 40+ of these in parallel inside the Microsoft.Testing.Platform host
+/// races with the platform's <c>NamedPipeServer</c> IPC-cleanup path and can trip a native
+/// <see cref="AccessViolationException"/> that aborts the test host with SIGABRT (exit code
+/// 134, surfaced by MTP as exit code 7). This is a well-documented .NET runtime instability
+/// in <c>System.IO.Pipes.NamedPipeServer</c> under thread pressure on Linux
+/// (see dotnet/runtime#58045). Serialising the class with a shared key — also used by
+/// <see cref="ConfigPreFillMdnsCheckTests"/>, which mutates process-global <c>Console.In</c>
+/// — removes the race entirely. The class runs in ~10s serialised, so the CI cost is
+/// negligible compared to a flake-induced re-run.
+/// </para>
 /// </summary>
+[NotInParallel("bootstrapper-console")]
 public sealed class ConfigInteractivePromptTests
 {
     /// <summary>Selectable field-row count.</summary>

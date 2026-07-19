@@ -27,20 +27,16 @@ public sealed class SetPrimaryFrontCommandHandler : IdempotentCommandHandler<Set
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.FrontingPrimary;
 
-    protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SetPrimaryFrontCommand> command,
         CancellationToken cancellationToken = default
     )
     {
-        if (command.Payload.AlterId?.Value is < 1 or > 32_767)
-        {
-            return RejectInvariant(command, EntityRefs.FrontingInvalidAlterId);
-        }
-
         if (command.Payload.AlterId is { } alterId)
         {
+            if (RejectIfAlterIdOutOfRange(command, alterId, EntityRefs.FrontingInvalidAlterId) is { } rangeReject)
+                return rangeReject;
+
             var fronting = await _frontingRepository.IsFrontingAsync(command.PrincipalId, alterId, cancellationToken);
             if (!fronting)
             {

@@ -64,16 +64,16 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
             "--binary-path", "/opt/bootstrapper/interfold-bootstrap");
         await Assert.That(result.ExitCode).IsEqualTo(0).Because($"install-service failed: {result.Stderr}");
 
-        var bootService = Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{unitDir}/interfold.service"));
+        var bootService = await dinD.CopyOutAsTextAsync($"{unitDir}/interfold.service");
         await Assert.That(bootService).Contains($"ExecStart=/usr/bin/docker compose -f {scratch.OutputDir}/docker-compose.yaml up -d");
         await Assert.That(bootService).Contains("WantedBy=multi-user.target");
 
-        var backupService = Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{unitDir}/interfold-backup.service"));
+        var backupService = await dinD.CopyOutAsTextAsync($"{unitDir}/interfold-backup.service");
         await Assert.That(backupService).Contains("ExecStart=/opt/bootstrapper/interfold-bootstrap backup");
         await Assert.That(backupService).Contains($"--config {scratch.ConfigPath}");
         await Assert.That(backupService).Contains($"--output-dir {scratch.OutputDir}");
 
-        var timer = Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{unitDir}/interfold-backup.timer"));
+        var timer = await dinD.CopyOutAsTextAsync($"{unitDir}/interfold-backup.timer");
         // The test fixture's config doesn't override the schedule, so it lands at the default
         // "daily" from BackupSection.Schedule.
         await Assert.That(timer).Contains("OnCalendar=daily");
@@ -99,7 +99,7 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
         await Assert.That(probe.ExitCode).IsEqualTo(0L)
             .Because("interfold-update.service should always be rendered even when update.enabled=false");
 
-        var updateService = Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{unitDir}/interfold-update.service"));
+        var updateService = await dinD.CopyOutAsTextAsync($"{unitDir}/interfold-update.service");
         await Assert.That(updateService).Contains("ExecStart=/opt/bootstrapper/interfold-bootstrap update-images");
         await Assert.That(updateService).Contains($"--config {scratch.ConfigPath}");
         await Assert.That(updateService).Contains($"--output-dir {scratch.OutputDir}");
@@ -129,7 +129,7 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
         await Assert.That(probe.ExitCode).IsEqualTo(0L)
             .Because($"expected drop-in {dropInPath} when update.enabled=true");
 
-        var content = Encoding.UTF8.GetString(await dinD.CopyOutAsync(dropInPath));
+        var content = await dinD.CopyOutAsTextAsync(dropInPath);
         await Assert.That(content).Contains("OnSuccess=interfold-update.service")
             .Because("drop-in exists to chain the update service after a successful backup");
         await Assert.That(content).Contains("[Unit]")

@@ -41,19 +41,8 @@ internal static class FriendTrustUntrustFlow
     {
         var suffix = string.IsNullOrEmpty(contextSuffix) ? "." : $" {contextSuffix}.";
 
-        var sendRequestFrame = PhxEndpointFrame.Build(
-            "system:" + senderSystemId,
-            "PUT",
-            "/api/friend-requests/" + recipientSystemId,
-            new object(),
-            "2");
-
-        await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.RequestSent);
-
-        var recipientReceived = await ReceivedPhxFrame.ReceiveEventFrameAsync(
-            recipientWs, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
+        var (_, _, recipientReceived) = await FriendRequestFlow.SendAndDrainAsync(
+            senderWs, senderSystemId, recipientWs, recipientSystemId, "2", token);
         await Assert.That(recipientReceived).IsNotNull()
             .Because($"Expected friend_request_received before accept{suffix}");
 
@@ -64,7 +53,7 @@ internal static class FriendTrustUntrustFlow
             new object(),
             "3");
 
-        await recipientWs.SendAsync(acceptFrame, WebSocketMessageType.Text, endOfMessage: true, token);
+        await recipientWs.SendTextFrameAsync(acceptFrame, token);
 
         _ = await ReceivedPhxFrame.ReceiveEventFrameAsync(recipientWs, token, SocketEventNames.Friendships.Added);
         _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.Added);
@@ -76,10 +65,7 @@ internal static class FriendTrustUntrustFlow
             new object(),
             "4");
 
-        await senderWs.SendAsync(trustFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (trustAck, trustPush) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            senderWs, token, SocketEventNames.Friendships.Trusted);
+        var (trustAck, trustPush) = await senderWs.SendEndpointAndCaptureAsync(trustFrame, SocketEventNames.Friendships.Trusted, token);
 
         using (Assert.Multiple())
         {
@@ -102,10 +88,7 @@ internal static class FriendTrustUntrustFlow
             new object(),
             "5");
 
-        await senderWs.SendAsync(untrustFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (untrustAck, untrustPush) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            senderWs, token, SocketEventNames.Friendships.Untrusted);
+        var (untrustAck, untrustPush) = await senderWs.SendEndpointAndCaptureAsync(untrustFrame, SocketEventNames.Friendships.Untrusted, token);
 
         using (Assert.Multiple())
         {

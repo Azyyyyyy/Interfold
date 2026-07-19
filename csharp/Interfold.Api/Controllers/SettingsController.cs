@@ -182,14 +182,12 @@ public sealed class SettingsController : InterfoldControllerBase
         if (!TryResolveRecoveryCode(req.RecoveryCode.Value, out var recoveryCode, out var decryptionErrorCode))
             return new ErrorResponse("Failed to decrypt recovery code.", decryptionErrorCode, System.Net.HttpStatusCode.BadRequest);
 
-        var envelope = BuildEnvelope(OperationIds.SettingsEncryptionSetup, new SetupEncryptionCommand(recoveryCode)
-        );
-
-        var execution = await _setupEncryptionHandler.HandleAsync(envelope, ct);
-        if (execution.Accepted)
-            return new SuccessResponse<EncryptionKeyResponse>(new EncryptionKeyResponse(Convert.ToBase64String(Encoding.UTF8.GetBytes(execution.Result!.Key.Value))));
-
-        return ConflictToError(execution.Conflict!);
+        return await DispatchEncryptionKeyAsync(
+            _setupEncryptionHandler,
+            OperationIds.SettingsEncryptionSetup,
+            new SetupEncryptionCommand(recoveryCode),
+            res => res.Key.Value,
+            ct);
     }
 
     [HttpPost("recover-encryption")]
@@ -198,15 +196,12 @@ public sealed class SettingsController : InterfoldControllerBase
         if (!TryResolveRecoveryCode(req.RecoveryCode.Value, out var recoveryCode, out var decryptionErrorCode))
             return new ErrorResponse("Failed to decrypt recovery code.", decryptionErrorCode, System.Net.HttpStatusCode.BadRequest);
 
-        var envelope = BuildEnvelope(OperationIds.SettingsEncryptionRecover, new RecoverEncryptionCommand(recoveryCode)
-        );
-
-        var execution = await _recoverEncryptionHandler.HandleAsync(envelope, ct);
-        if (execution.Accepted)
-            return new SuccessResponse<EncryptionKeyResponse>(new EncryptionKeyResponse(Convert.ToBase64String(Encoding.UTF8.GetBytes(execution.Result!.Key.Value))));
-
-        //TODO: To ensure route works as expected
-        return ConflictToError(execution.Conflict!);
+        return await DispatchEncryptionKeyAsync(
+            _recoverEncryptionHandler,
+            OperationIds.SettingsEncryptionRecover,
+            new RecoverEncryptionCommand(recoveryCode),
+            res => res.Key.Value,
+            ct);
     }
 
     //TODO: To ensure route works as expected - does not delete journal entries currently which need adding
@@ -444,4 +439,20 @@ public sealed class SettingsController : InterfoldControllerBase
 
     private bool TryResolveRecoveryCode(string candidate, out RecoveryCode recoveryCode, out ErrorCode errorCode)
         => Helpers.RecoveryCodeResolver.TryResolve(candidate, _authenticationConfiguration.CurrentValue.Rsa256PrivateKey, out recoveryCode, out errorCode);
+
+    private async Task<Response<EncryptionKeyResponse>> DispatchEncryptionKeyAsync<TCommand, TResult>(
+        IdempotentCommandHandler<TCommand, TResult> handler,
+        OperationId opId,
+        TCommand cmd,
+        Func<TResult, string> keySelector,
+        CancellationToken ct)
+        where TResult : class, ICommandResult<TResult>
+    {
+        var envelope = BuildEnvelope(opId, cmd);
+        var execution = await handler.HandleAsync(envelope, ct);
+        if (execution.Accepted)
+            return new SuccessResponse<EncryptionKeyResponse>(new EncryptionKeyResponse(Convert.ToBase64String(Encoding.UTF8.GetBytes(keySelector(execution.Result!)))));
+
+        return ConflictToError(execution.Conflict!);
+    }
 }

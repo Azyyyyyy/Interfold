@@ -26,14 +26,12 @@ public sealed class CreateGlobalJournalEntryCommandHandler : IdempotentCommandHa
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.JournalGlobalCreate;
 
-    protected override GlobalJournalCommandResult CreateReplayResult(GlobalJournalCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<GlobalJournalCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<CreateGlobalJournalEntryCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Title))
-            return RejectInvariant(command, EntityRefs.JournalTitleRequired);
+        if (RejectIfBlank(command, command.Payload.Title, EntityRefs.JournalTitleRequired) is { } blankReject)
+            return blankReject;
 
         if (command.Payload.Title.Length > 250)
             return RejectInvariant(command, EntityRefs.JournalTitleTooLong);

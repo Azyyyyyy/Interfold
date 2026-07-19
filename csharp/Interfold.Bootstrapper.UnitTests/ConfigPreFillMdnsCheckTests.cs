@@ -25,7 +25,18 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// harness, stdin is redirected to a StringReader which makes
 /// <see cref="Console.IsInputRedirected"/> true — the "no TTY" fork the banner takes.
 /// </para>
+/// <para>
+/// <b>Serialisation via <c>[NotInParallel("bootstrapper-console")]</c></b> — every test
+/// swaps process-global <see cref="Console.In"/> via <see cref="WithRedirectedStdinAsync"/>
+/// and restores it in a finally. That swap races if any sibling test also touches the
+/// process-global console streams; sharing the <c>bootstrapper-console</c> NotInParallel
+/// key with <see cref="ConfigInteractivePromptTests"/> guarantees only one console-mutating
+/// test in the assembly runs at a time. The same serialisation removes the
+/// <c>NamedPipeServer</c> teardown race documented on
+/// <see cref="ConfigInteractivePromptTests"/> — see that class for the full rationale.
+/// </para>
 /// </summary>
+[NotInParallel("bootstrapper-console")]
 public sealed class ConfigPreFillMdnsCheckTests
 {
     private static BootstrapOptions OptionsFor(bool nonInteractive) => TestSupport.MakeOptions(

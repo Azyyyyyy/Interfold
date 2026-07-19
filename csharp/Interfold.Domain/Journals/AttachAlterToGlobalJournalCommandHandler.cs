@@ -29,14 +29,12 @@ public sealed class AttachAlterToGlobalJournalCommandHandler : IdempotentCommand
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.JournalGlobalAttachAlter;
 
-    protected override GlobalJournalCommandResult CreateReplayResult(GlobalJournalCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<GlobalJournalCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<AttachAlterToGlobalJournalCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (command.Payload.AlterId.Value is < 1 or > 32_767)
-            return RejectInvariant(command, EntityRefs.AlterId);
+        if (RejectIfAlterIdOutOfRange(command, command.Payload.AlterId, EntityRefs.AlterId) is { } rangeReject)
+            return rangeReject;
 
         var alterExists = await _alterRepository.ExistsAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
         if (!alterExists)

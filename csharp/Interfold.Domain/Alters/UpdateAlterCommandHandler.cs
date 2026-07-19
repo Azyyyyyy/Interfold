@@ -27,17 +27,13 @@ public sealed class UpdateAlterCommandHandler : IdempotentCommandHandler<UpdateA
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.AlterUpdate;
 
-    protected override AlterCommandResult CreateReplayResult(AlterCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<AlterCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<UpdateAlterCommand> command,
         CancellationToken cancellationToken = default
     )
     {
-        if (command.Payload.AlterId.Value is < 1 or > 32_767)
-        {
-            return RejectInvariant(command, EntityRefs.AlterId);
-        }
+        if (RejectIfAlterIdOutOfRange(command, command.Payload.AlterId, EntityRefs.AlterId) is { } rangeReject)
+            return rangeReject;
 
         if (!HasAnyMutableField(command.Payload))
         {

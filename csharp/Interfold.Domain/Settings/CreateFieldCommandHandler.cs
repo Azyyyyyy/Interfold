@@ -24,15 +24,10 @@ public sealed class CreateFieldCommandHandler : IdempotentCommandHandler<CreateF
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsFieldCreate;
 
-    protected override SettingsFieldCommandResult CreateReplayResult(SettingsFieldCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<SettingsFieldCommandResult>> ExecuteCoreAsync (CommandEnvelope<CreateFieldCommand> command, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Name))
-        {
-            return CommandExecutionResult<SettingsFieldCommandResult>.Rejected(
-                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, EntityRefs.SettingsFieldNameRequired, ResolutionHint.ManualMergeRequired));
-        }
+        if (RejectIfBlank(command, command.Payload.Name, EntityRefs.SettingsFieldNameRequired) is { } blankReject)
+            return blankReject;
 
         // Stamp the row with the envelope's OccurredAt rather than honouring whatever
         // InsertedAtUtc the caller put on the payload. The caller (SettingsController) sends

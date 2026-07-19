@@ -222,7 +222,7 @@ internal static class DockerCompose
         {
             "compose", "-f", composeFile,
             "exec", "-T",
-            "--env", "PGPASSWORD",
+            "--env", DatabaseArchiveStreamer.PgPasswordEnvVar,
             service,
             tool,
             "-U", adminUser,

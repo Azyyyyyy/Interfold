@@ -27,8 +27,6 @@ public sealed class DeleteFrontByIdCommandHandler : IdempotentCommandHandler<Del
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.FrontingDelete;
 
-    protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<DeleteFrontByIdCommand> command,
         CancellationToken cancellationToken = default)

@@ -35,9 +35,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             EnsureFieldUdtMapping(session, keyspace);
 
             var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
@@ -72,9 +70,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     {
         return await _scopeResolver.ExecuteAsync<FieldId?>(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             EnsureFieldUdtMapping(session, keyspace);
 
             var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId) ?? [];
@@ -101,9 +97,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             EnsureFieldUdtMapping(session, keyspace);
 
             var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
@@ -158,9 +152,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             EnsureFieldUdtMapping(session, keyspace);
 
             var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
@@ -193,9 +185,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             EnsureFieldUdtMapping(session, keyspace);
 
             var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);

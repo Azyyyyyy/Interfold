@@ -26,8 +26,6 @@ public sealed class DeleteGlobalJournalEntryCommandHandler : IdempotentCommandHa
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.JournalGlobalDelete;
 
-    protected override GlobalJournalCommandResult CreateReplayResult(GlobalJournalCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<GlobalJournalCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<DeleteGlobalJournalEntryCommand> command,
         CancellationToken cancellationToken = default)

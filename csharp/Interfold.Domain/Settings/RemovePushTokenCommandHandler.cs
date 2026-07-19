@@ -23,14 +23,12 @@ public sealed class RemovePushTokenCommandHandler : IdempotentCommandHandler<Rem
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsPushTokenRemove;
 
-    protected override SettingsCommandResult CreateReplayResult(SettingsCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<RemovePushTokenCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Token.Value))
-            return RejectInvariant(command, EntityRefs.SettingsPushTokenInvalid);
+        if (RejectIfBlank(command, command.Payload.Token.Value, EntityRefs.SettingsPushTokenInvalid) is { } blankReject)
+            return blankReject;
 
         // Removal is treated as idempotent for retry safety.
         await _repository.RemoveAsync(new(command.Payload.Token.Value.Trim()), cancellationToken);

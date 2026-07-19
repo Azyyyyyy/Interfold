@@ -76,8 +76,8 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
             await Assert.That(b.ExitCode).IsEqualTo(0).Because($"backup #{i} failed: {b.Stderr}");
         }
 
-        var countAfterTwo = await dinD.ExecAsync(["sh", "-c", $"ls -1 {scratch.OutputDir}/backups/postgres/ | wc -l"]);
-        await Assert.That(int.Parse(countAfterTwo.Stdout.Trim())).IsEqualTo(2)
+        var countAfterTwo = await dinD.CountFilesAsync("{scratch.OutputDir}/backups/postgres/");
+        await Assert.That(countAfterTwo).IsEqualTo(2)
             .Because("two backups + retain=2 should leave exactly 2 files");
 
         // Third run: pruning kicks in, exactly 2 must remain.
@@ -86,12 +86,12 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
             "--component", "all", "--retain", "2");
         await Assert.That(third.ExitCode).IsEqualTo(0).Because($"third backup failed: {third.Stderr}");
 
-        var pgCount = await dinD.ExecAsync(["sh", "-c", $"ls -1 {scratch.OutputDir}/backups/postgres/ | wc -l"]);
-        await Assert.That(int.Parse(pgCount.Stdout.Trim())).IsEqualTo(2)
+        var pgCount = await dinD.CountFilesAsync("{scratch.OutputDir}/backups/postgres/");
+        await Assert.That(pgCount).IsEqualTo(2)
             .Because("three backups + retain=2 should prune the oldest, leaving exactly 2");
 
-        var scyllaCount = await dinD.ExecAsync(["sh", "-c", $"ls -1 {scratch.OutputDir}/backups/scylla/ | wc -l"]);
-        await Assert.That(int.Parse(scyllaCount.Stdout.Trim())).IsEqualTo(2)
+        var scyllaCount = await dinD.CountFilesAsync("{scratch.OutputDir}/backups/scylla/");
+        await Assert.That(scyllaCount).IsEqualTo(2)
             .Because("scylla retention must mirror postgres retention");
     }
 
@@ -107,11 +107,11 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
         await Assert.That(pgOnly.ExitCode).IsEqualTo(0).Because(pgOnly.Stderr);
 
         // Postgres subdir populated; scylla subdir either missing or empty.
-        var pgList = await dinD.ExecAsync(["sh", "-c", $"ls -1 {scratch.OutputDir}/backups/postgres/*.dump 2>/dev/null | wc -l"]);
-        await Assert.That(int.Parse(pgList.Stdout.Trim())).IsEqualTo(1);
+        var pgList = await dinD.CountFilesAsync("{scratch.OutputDir}/backups/postgres/*.dump");
+        await Assert.That(pgList).IsEqualTo(1);
 
-        var scyllaList = await dinD.ExecAsync(["sh", "-c", $"ls -1 {scratch.OutputDir}/backups/scylla/*.tar.gz 2>/dev/null | wc -l"]);
-        await Assert.That(int.Parse(scyllaList.Stdout.Trim())).IsEqualTo(0)
+        var scyllaList = await dinD.CountFilesAsync("{scratch.OutputDir}/backups/scylla/*.tar.gz");
+        await Assert.That(scyllaList).IsEqualTo(0)
             .Because("--component=postgres must not touch the scylla subdir");
     }
 

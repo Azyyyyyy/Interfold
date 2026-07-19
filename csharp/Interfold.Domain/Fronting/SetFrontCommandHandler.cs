@@ -29,17 +29,15 @@ public sealed class SetFrontCommandHandler : IdempotentCommandHandler<SetFrontCo
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.FrontingSet;
 
-    protected override FrontCommandResult CreateReplayResult(FrontCommandResult originalResult) =>
-        originalResult with { Replay = true };
 
     protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync(
             CommandEnvelope<SetFrontCommand> command,
             CancellationToken cancellationToken = default)
     {
-        if (command.Payload.AlterId.Value is < 1 or > 32_767)
-            return RejectInvariant(command, EntityRefs.FrontingInvalidAlterId);
+        if (RejectIfAlterIdOutOfRange(command, command.Payload.AlterId, EntityRefs.FrontingInvalidAlterId) is { } rangeReject)
+            return rangeReject;
 
-        if ((command.Payload.Comment?.Length ?? 0) > 50)
+        if (!FrontId.IsValidComment(command.Payload.Comment))
             return RejectInvariant(command, EntityRefs.FrontingInvalidComment);
 
         // "Set" semantics: after this completes, the target alter is the sole fronter.

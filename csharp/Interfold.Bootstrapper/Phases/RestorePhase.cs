@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.IO.Compression;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
@@ -183,8 +181,9 @@ internal static class RestorePhase
 
         logger.Info($"    postgres: pg_restore --clean --if-exists <- {archivePath}");
         var argv = BuildPgRestoreArgs(composeFile, adminUser, config.PostgresDatabase);
-        await StreamFileToProcessStdinAsync("docker", argv,
-            environment: new Dictionary<string, string?> { ["PGPASSWORD"] = adminPassword },
+        await DatabaseArchiveStreamer.StreamFileToProcessStdinAsync(
+            "docker", argv,
+            environment: DatabaseArchiveStreamer.PgPasswordEnv(adminPassword),
             sourcePath: archivePath,
             decompress: false,
             ct: ct).ConfigureAwait(false);
@@ -212,13 +211,10 @@ internal static class RestorePhase
 
         // Stop the seed so the file locks release before we overwrite the data volume.
         logger.Info($"    scylla: stopping {service}");
-        var stopScylla = await DockerCompose.StopAsync(composeFile, [service], ct: ct).ConfigureAwait(false);
-        if (stopScylla.ExitCode != 0)
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.StopScylla);
-            throw new InvalidOperationException(
-                $"docker compose stop {service} exited {stopScylla.ExitCode}: {stopScylla.StdErr.Trim()}");
-        }
+        await PhaseRunner.RunOrPhaseFailAsync(
+            () => DockerCompose.StopAsync(composeFile, [service], ct: ct),
+            logger, Phase, PhaseFailureReasons.StopScylla,
+            $"docker compose stop {service}", ct).ConfigureAwait(false);
 
         // We need a live container to run `docker cp` against. Compose stop leaves the
         // container in the stopped state (docker cp is happy with that), but if the
@@ -229,14 +225,11 @@ internal static class RestorePhase
         {
             // Create the container without starting it. `compose up --no-start` does exactly
             // that on all compose v2 versions we care about.
-            var create = await ProcessRunner.RunAsync("docker",
-                ["compose", "-f", composeFile, "up", "--no-start", service], ct: ct).ConfigureAwait(false);
-            if (create.ExitCode != 0)
-            {
-                logger.PhaseFail(Phase, PhaseFailureReasons.CreateScyllaContainer);
-                throw new InvalidOperationException(
-                    $"docker compose up --no-start {service} exited {create.ExitCode}: {create.StdErr.Trim()}");
-            }
+            await PhaseRunner.RunOrPhaseFailAsync(
+                () => ProcessRunner.RunAsync("docker",
+                    ["compose", "-f", composeFile, "up", "--no-start", service], ct: ct),
+                logger, Phase, PhaseFailureReasons.CreateScyllaContainer,
+                $"docker compose up --no-start {service}", ct).ConfigureAwait(false);
             containerId = await DockerCompose.ResolveContainerIdAsync(composeFile, service, includeStopped: true, ct: ct).ConfigureAwait(false);
         }
         if (string.IsNullOrEmpty(containerId))
@@ -271,7 +264,8 @@ internal static class RestorePhase
 
         logger.Info($"    scylla: docker cp - {service}({containerId[..Math.Min(12, containerId.Length)]}):{dataPath}");
         var cpArgs = BuildContainerCpWriteArgs(containerId, dataPath);
-        await StreamFileToProcessStdinAsync("docker", cpArgs,
+        await DatabaseArchiveStreamer.StreamFileToProcessStdinAsync(
+            "docker", cpArgs,
             environment: null,
             sourcePath: archivePath,
             decompress: true,
@@ -280,13 +274,10 @@ internal static class RestorePhase
         // Bring the seed back. It re-hydrates against the restored SSTables during
         // its normal startup path; we don't have to reload anything explicitly.
         logger.Info($"    scylla: starting {service}");
-        var startScylla = await DockerCompose.StartAsync(composeFile, [service], ct: ct).ConfigureAwait(false);
-        if (startScylla.ExitCode != 0)
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.StartScylla);
-            throw new InvalidOperationException(
-                $"docker compose start {service} exited {startScylla.ExitCode}: {startScylla.StdErr.Trim()}");
-        }
+        await PhaseRunner.RunOrPhaseFailAsync(
+            () => DockerCompose.StartAsync(composeFile, [service], ct: ct),
+            logger, Phase, PhaseFailureReasons.StartScylla,
+            $"docker compose start {service}", ct).ConfigureAwait(false);
 
         // Restart clients. Order matters: API first (so the web tier's health probe
         // hits a live upstream), then web.
@@ -316,42 +307,6 @@ internal static class RestorePhase
             logger,
             ct,
             runAsRole: Interfold.Contracts.Configuration.PostgresRoles.Init);
-    }
-
-    /// <summary>
-    /// Streams the contents of <paramref name="sourcePath"/> into
-    /// <paramref name="fileName"/>'s stdin, optionally decompressing with
-    /// <see cref="GZipStream"/> on the way (used for the scylla path, whose
-    /// on-disk archive is <c>.tar.gz</c> but the target <c>docker cp</c> expects a raw
-    /// tar on stdin). Throws on non-zero exit; stderr is included in the exception
-    /// message. Deliberately does NOT redirect stdout to disk — restore commands emit
-    /// diagnostic output that we want on the operator's terminal.
-    /// </summary>
-    private static async Task StreamFileToProcessStdinAsync(
-        string fileName, IReadOnlyList<string> arguments,
-        IDictionary<string, string?>? environment, string sourcePath, bool decompress,
-        CancellationToken ct)
-    {
-        await ProcessStreamRunner.RunAsync(
-            fileName, arguments, environment,
-            redirectStandardInput: true,
-            forwardStdout: true,
-            async proc =>
-            {
-                await using var src = File.OpenRead(sourcePath);
-                if (decompress)
-                {
-                    await using var gz = new GZipStream(src, CompressionMode.Decompress, leaveOpen: false);
-                    await gz.CopyToAsync(proc.StandardInput.BaseStream, ct).ConfigureAwait(false);
-                }
-                else
-                {
-                    await src.CopyToAsync(proc.StandardInput.BaseStream, ct).ConfigureAwait(false);
-                }
-                await proc.StandardInput.BaseStream.FlushAsync(ct).ConfigureAwait(false);
-                proc.StandardInput.Close();
-            },
-            ct);
     }
 
 }

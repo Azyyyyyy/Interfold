@@ -27,8 +27,6 @@ public sealed class ResetEncryptionCommandHandler : IdempotentCommandHandler<Res
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsEncryptionReset;
 
-    protected override SettingsCommandResult CreateReplayResult(SettingsCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<ResetEncryptionCommand> command,
         CancellationToken cancellationToken = default)

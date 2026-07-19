@@ -26,8 +26,6 @@ public sealed class RemoveParentTagCommandHandler : IdempotentCommandHandler<Rem
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.TagRemoveParent;
 
-    protected override TagCommandResult CreateReplayResult(TagCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<RemoveParentTagCommand> command,
         CancellationToken cancellationToken = default)

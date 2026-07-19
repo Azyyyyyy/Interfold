@@ -35,7 +35,7 @@ public class UnsupportedOsTests(UnsupportedDistroDinDFixture dinD)
         // Filesystem state must be untouched - secrets/certs/compose should not exist.
         var any = await dinD.ExecAsync(
             ["sh", "-c", $"ls {scratch.OutputDir}/secrets {scratch.OutputDir}/certs {scratch.OutputDir}/docker-compose.yaml 2>/dev/null | wc -l"]);
-        await Assert.That(any.Stdout.Trim()).IsEqualTo("0")
+        await Assert.That(any).IsEqualTo(0)
             .Because("a refused run must not leave partial artifacts under the output dir");
     }
 }

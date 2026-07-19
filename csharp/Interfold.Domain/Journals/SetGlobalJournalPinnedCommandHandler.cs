@@ -26,8 +26,6 @@ public sealed class SetGlobalJournalPinnedCommandHandler : IdempotentCommandHand
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.JournalGlobalSetPinned;
 
-    protected override GlobalJournalCommandResult CreateReplayResult(GlobalJournalCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<GlobalJournalCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SetGlobalJournalPinnedCommand> command,
         CancellationToken cancellationToken = default)

@@ -48,21 +48,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         var principalId = TestIds.NewSystemId("sys-altext", maxLen: 20);
 
-        using var usernameResponse = await client.SendAsJsonAsync(
-            HttpMethod.Post, "/api/settings/username",
-            new SettingsUsernameRequest(new Username("external-alter")),
-            principalId);
-        await Assert.That(usernameResponse.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
-
-        using var createResponse = await client.SendAsJsonAsync(
-            HttpMethod.Post, "/api/systems/me/alters",
-            new CreateAlterRequest("ExternalAvatarAlter"),
-            principalId);
-        await Assert.That(createResponse.StatusCode).IsEqualTo(HttpStatusCode.Created);
-
-        var alterId = ReadTrailingAlterIdFromLocation(createResponse);
-
-        await SetAlterSecurityLevelAsync(client, principalId, alterId, VisibilityLevel.Public);
+        var alterId = await CreateAlterAsync(client, principalId, "ExternalAvatarAlter", "external-alter", VisibilityLevel.Public);
 
         using var uploadResponse = await client.SendAsJsonAsync(
             HttpMethod.Put, $"/api/systems/me/alters/{alterId}/avatar",
@@ -111,18 +97,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         var principalId = TestIds.NewSystemId("sys-altrel", maxLen: 20);
 
-        using var usernameResponse = await client.SendAsJsonAsync(
-            HttpMethod.Post, "/api/settings/username",
-            new SettingsUsernameRequest(new Username("relative-alter")),
-            principalId);
-        _ = usernameResponse;
-
-        using var createResponse = await client.SendAsJsonAsync(
-            HttpMethod.Post, "/api/systems/me/alters",
-            new CreateAlterRequest("RelativeAvatarAlter"),
-            principalId);
-        await Assert.That(createResponse.StatusCode).IsEqualTo(HttpStatusCode.Created);
-        var alterId = ReadTrailingAlterIdFromLocation(createResponse);
+        var alterId = await CreateAlterAsync(client, principalId, "RelativeAvatarAlter", "relative-alter");
 
         // Same rationale as the sibling test — AvatarUrl accepts anything, and the
         // server enforces the http(s)-scheme rule at validation time.

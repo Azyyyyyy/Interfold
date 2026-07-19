@@ -25,11 +25,8 @@ public sealed class UploadAvatarCommandHandler : ICommandHandler<UploadAvatarCom
 
     public Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<UploadAvatarCommand> command, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.AvatarUrl))
-        {
-            return Task.FromResult(CommandExecutionResult<SettingsCommandResult>.Rejected(
-                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, EntityRefs.SettingsAvatarInvalid, ResolutionHint.ManualMergeRequired)));
-        }
+        if (CommandHandler.RejectIfBlank<SettingsCommandResult>(command.OperationId, command.Payload.AvatarUrl, EntityRefs.SettingsAvatarInvalid) is { } blankReject)
+            return Task.FromResult(blankReject);
 
         return ExecuteAndPublishAsync(command, cancellationToken);
     }

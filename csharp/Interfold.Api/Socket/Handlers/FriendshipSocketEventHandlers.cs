@@ -96,50 +96,63 @@ public static class FriendshipSocketEventHandlers
         await context.SendAsync(topic, joinRef, asArray, eventName, payload);
     }
 
-    private static async Task<FriendshipReadModel?> GetFriendshipWithRetryAsync(
+    private static Task<FriendshipReadModel?> GetFriendshipWithRetryAsync(
         IFriendshipRepository friendshipRepository,
         SystemId targetSystemId,
         SystemId friendSystemId,
         CancellationToken cancellationToken)
-    {
-        for (var attempt = 0; attempt < 3; attempt++)
-        {
-            var friendship = await friendshipRepository.GetFriendshipAsync(targetSystemId, friendSystemId, cancellationToken);
-            if (friendship is not null)
-            {
-                return friendship;
-            }
+        => UntilNotNullAsync(
+            () => friendshipRepository.GetFriendshipAsync(targetSystemId, friendSystemId, cancellationToken),
+            maxAttempts: 3,
+            delayBetween: TimeSpan.FromMilliseconds(50),
+            cancellationToken);
 
-            if (attempt < 2)
-            {
-                await Task.Delay(50, cancellationToken);
-            }
-        }
-
-        return null;
-    }
-
-    private static async Task<FriendRequestReadModel?> GetFriendRequestWithRetryAsync(
+    private static Task<FriendRequestReadModel?> GetFriendRequestWithRetryAsync(
         IFriendshipRepository friendshipRepository,
         SystemId targetSystemId,
         SystemId otherSystemId,
         bool outgoing,
         CancellationToken cancellationToken)
-    {
-        for (var attempt = 0; attempt < 10; attempt++)
-        {
-            var index = await friendshipRepository.GetFriendRequestsAsync(targetSystemId, cancellationToken);
-            var matched = (outgoing ? index.Outgoing : index.Incoming)
-                .FirstOrDefault(r => SystemTopic.IdMatches(r.System?.Id, otherSystemId));
-
-            if (matched is not null)
+        => UntilNotNullAsync(
+            async () =>
             {
-                return matched;
+                var index = await friendshipRepository.GetFriendRequestsAsync(targetSystemId, cancellationToken);
+                return (outgoing ? index.Outgoing : index.Incoming)
+                    .FirstOrDefault(r => SystemTopic.IdMatches(r.System?.Id, otherSystemId));
+            },
+            maxAttempts: 10,
+            delayBetween: TimeSpan.FromMilliseconds(100),
+            cancellationToken);
+
+    /// <summary>
+    /// Poll <paramref name="fetch"/> up to <paramref name="maxAttempts"/> times, sleeping
+    /// <paramref name="delayBetween"/> between attempts (never after the last), and return
+    /// the first non-null result or <c>null</c> if the deadline expires. Consolidates the
+    /// friendship-and-request eventual-consistency retry loops so the two socket-handler
+    /// paths can't drift on the "return null after the last attempt, don't wait after it"
+    /// invariant that a hand-rolled off-by-one on the delay branch could otherwise
+    /// re-introduce. Kept private — the socket handlers are the only caller, and callers
+    /// outside this file should use the domain-abstraction retries (Polly / RetryHandler)
+    /// rather than a naive fixed-delay poll.
+    /// </summary>
+    private static async Task<T?> UntilNotNullAsync<T>(
+        Func<Task<T?>> fetch,
+        int maxAttempts,
+        TimeSpan delayBetween,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var result = await fetch();
+            if (result is not null)
+            {
+                return result;
             }
 
-            if (attempt < 9)
+            if (attempt < maxAttempts - 1)
             {
-                await Task.Delay(100, cancellationToken);
+                await Task.Delay(delayBetween, cancellationToken);
             }
         }
 

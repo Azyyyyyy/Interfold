@@ -35,9 +35,7 @@ public sealed class ScyllaPollRepository : IPollRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, title, description, type, data, time_end, inserted_at, updated_at FROM {keyspace}.polls WHERE user_id = ?",
@@ -56,9 +54,7 @@ public sealed class ScyllaPollRepository : IPollRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var query = new SimpleStatement(
                 $"SELECT id, user_id, title, description, type, data, time_end, inserted_at, updated_at FROM {keyspace}.polls WHERE user_id = ? AND id = ? LIMIT 1",
@@ -75,9 +71,7 @@ public sealed class ScyllaPollRepository : IPollRepository
     {
         return await _scopeResolver.ExecuteAsync<PollId?>(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             var pollGuid = Guid.NewGuid();
 
             var insert = new SimpleStatement(
@@ -101,18 +95,8 @@ public sealed class ScyllaPollRepository : IPollRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
-
-            var query = new SimpleStatement(
-                $"SELECT id FROM {keyspace}.polls WHERE user_id = ? AND id = ? LIMIT 1",
-                normalizedSystemId,
-                pollId.Value
-            );
-
-            var rows = await session.ExecuteAsync(query);
-            return rows.Any();
+            var (session, keyspace, normalizedSystemId) = scope;
+            return await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "polls", "id", normalizedSystemId, pollId.Value);
         }, cancellationToken);
     }
 
@@ -120,9 +104,7 @@ public sealed class ScyllaPollRepository : IPollRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var exists = await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "polls", "id", normalizedSystemId, command.Id.Value);
             if (!exists)
@@ -179,9 +161,7 @@ public sealed class ScyllaPollRepository : IPollRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var exists = await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "polls", "id", normalizedSystemId, pollId.Value);
             if (!exists)

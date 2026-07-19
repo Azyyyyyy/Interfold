@@ -26,8 +26,6 @@ public sealed class SetParentTagCommandHandler : IdempotentCommandHandler<SetPar
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.TagSetParent;
 
-    protected override TagCommandResult CreateReplayResult(TagCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SetParentTagCommand> command,
         CancellationToken cancellationToken = default)

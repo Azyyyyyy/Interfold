@@ -42,9 +42,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     {
         return await _scopeResolver.ExecuteAsync<TagId?>(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             Guid? parentTagId = null;
 
             if (command.ParentTagId is { } requestedParentTagId && requestedParentTagId != TagId.Empty)
@@ -110,9 +108,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var exists = await ExistsAsync(systemId, command.TagId, cancellationToken);
             if (!exists)
@@ -170,9 +166,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var exists = await ExistsAsync(systemId, tagId, cancellationToken);
             if (!exists)
@@ -219,9 +213,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var tagExists = await ExistsAsync(systemId, tagId, cancellationToken);
             if (!tagExists)
@@ -257,9 +249,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var edgeExistsQuery = new SimpleStatement(
                 $"SELECT alter_id FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ? AND alter_id = ? LIMIT 1",
@@ -301,9 +291,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     {
         return await _scopeResolver.ExecuteAsync<TagId?>(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var query = new SimpleStatement(
                 $"SELECT parent_tag_id FROM {keyspace}.tags WHERE user_id = ? AND id = ? LIMIT 1",
@@ -325,9 +313,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var childExists = await ExistsAsync(systemId, tagId, cancellationToken);
             var parentExists = await ExistsAsync(systemId, parentTagId, cancellationToken);
@@ -356,9 +342,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var exists = await ExistsAsync(systemId, tagId, cancellationToken);
             if (!exists)
@@ -382,9 +366,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var query = new SimpleStatement(
                 $"SELECT id, name, color, description, parent_tag_id, inserted_at, updated_at, security_level, user_id FROM {keyspace}.tags WHERE user_id = ?",
@@ -414,9 +396,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
             var hydrationConcurrency = _options.HydrationMaxConcurrency;
 
@@ -457,9 +437,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var query = new SimpleStatement(
                 $"SELECT id, name, color, description, parent_tag_id, inserted_at, updated_at, security_level, user_id FROM {keyspace}.tags WHERE user_id = ? AND id = ? LIMIT 1",
@@ -486,9 +464,7 @@ public sealed class ScyllaTagRepository : ITagRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = scope.Session;
-            var normalizedSystemId = scope.NormalizedSystemId;
-            var keyspace = scope.Keyspace;
+            var (session, keyspace, normalizedSystemId) = scope;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
             var hydrationConcurrency = _options.HydrationMaxConcurrency;
 

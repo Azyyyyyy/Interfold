@@ -44,15 +44,8 @@ public sealed class ImportSpCommandHandler : ICommandHandler<ImportSpCommand, Im
         CommandEnvelope<ImportSpCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Token.Value))
-        {
-            return CommandExecutionResult<ImportDispatchCommandResult>.Rejected(
-                new ConflictResult(
-                    ConflictCode.ConflictInvariant,
-                    command.OperationId,
-                    EntityRefs.SettingsImportSpInvalid,
-                    ResolutionHint.ManualMergeRequired));
-        }
+        if (CommandHandler.RejectIfBlank<ImportDispatchCommandResult>(command.OperationId, command.Payload.Token.Value, EntityRefs.SettingsImportSpInvalid) is { } blankReject)
+            return blankReject;
 
         var claim = await _operations.TryClaimAsync(
             command.PrincipalId,

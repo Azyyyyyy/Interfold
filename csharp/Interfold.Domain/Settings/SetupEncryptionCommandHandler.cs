@@ -35,14 +35,12 @@ public sealed class SetupEncryptionCommandHandler : IdempotentCommandHandler<Set
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsEncryptionSetup;
 
-    protected override EncryptionCommandResult CreateReplayResult(EncryptionCommandResult originalResult) =>
-        originalResult with { Replay = true };
 protected override async Task<CommandExecutionResult<EncryptionCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SetupEncryptionCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.RecoveryCode.Value))
-            return RejectInvariant(command, EntityRefs.SettingsRecoveryCodeInvalid);
+        if (RejectIfBlank(command, command.Payload.RecoveryCode.Value, EntityRefs.SettingsRecoveryCodeInvalid) is { } blankReject)
+            return blankReject;
         
         var existing = await _repository.GetAsync(command.PrincipalId, cancellationToken);
         if (existing?.Salt is not { } salt || string.IsNullOrWhiteSpace(salt.Value))
