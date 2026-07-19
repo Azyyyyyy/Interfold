@@ -43,17 +43,6 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
     [After(Test)]
     public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
-    /// <summary>
-    /// Drives a full bootstrap against a fresh scratch and returns the in-container compose
-    /// file path. Each test calls this once at the top of its body, then issues its probes.
-    /// </summary>
-    private async Task<(DinDScratch Scratch, string ComposeFile)> BootstrapStackAsync(string testName)
-    {
-        var (scratch, _) = await dinD.BootstrapAsync(testName, TestConfigPaths.DefaultConfig);
-
-        return (scratch, $"{scratch.OutputDir}/docker-compose.yaml");
-    }
-
     [Test]
     public async Task CassandraDefaultIsLockedAfterBootstrap()
     {
