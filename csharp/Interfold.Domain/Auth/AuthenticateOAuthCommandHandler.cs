@@ -27,16 +27,7 @@ public sealed class AuthenticateOAuthCommandHandler : ICommandHandler<Authentica
         
         var resolvedSystemId = await _accountRepository.FindOrCreateSystemIdAsync(identity, cancellationToken);
         if (string.IsNullOrWhiteSpace(resolvedSystemId?.Value))
-        {
-            return CommandExecutionResult<SystemId>.Rejected(
-                new ConflictResult(
-                    ConflictCode.ConflictInvariant,
-                    command.OperationId,
-                    EntityRefs.AuthLoginFailed,
-                    ResolutionHint.ManualMergeRequired
-                )
-            );
-        }
+            return CommandHandler.RejectInvariant<SystemId>(command.OperationId, EntityRefs.AuthLoginFailed);
 
         var systemId = resolvedSystemId.Value;
         var encryptionState = await _encryptionRepository.GetAsync(systemId, cancellationToken);

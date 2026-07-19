@@ -1,5 +1,4 @@
 ﻿using Interfold.Contracts;
-using Interfold.Contracts.Events;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
@@ -25,19 +24,13 @@ public sealed class UpdateFieldCommandHandler : ICommandHandler<UpdateFieldComma
 
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<UpdateFieldCommand> command, CancellationToken cancellationToken = default)
     {
-        var result = await SettingsCommandHelper.ExecuteAsync(
+        return await SettingsCommandHelper.ExecuteAndPublishFieldsChangedAsync(
             command,
             SettingsAction.FieldUpdated,
             EntityRefs.SettingsFieldUpdate,
             _idempotencyStore,
+            _eventBus,
             ct => _fieldRepository.UpdateAsync(command.PrincipalId, command.Payload.FieldId, command.Payload.Name, command.Payload.SecurityLevel, command.Payload.Locked, ct),
             cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsFieldsChangedEvent(command.PrincipalId), cancellationToken);
-        }
-
-        return result;
     }
 }

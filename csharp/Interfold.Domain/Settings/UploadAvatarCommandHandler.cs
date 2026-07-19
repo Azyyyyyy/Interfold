@@ -34,20 +34,12 @@ public sealed class UploadAvatarCommandHandler : ICommandHandler<UploadAvatarCom
     private async Task<CommandExecutionResult<SettingsCommandResult>> ExecuteAndPublishAsync(
         CommandEnvelope<UploadAvatarCommand> command,
         CancellationToken cancellationToken)
-    {
-        var result = await SettingsCommandHelper.ExecuteAsync(
+        => await SettingsCommandHelper.ExecuteAndPublishAsync(
             command,
             SettingsAction.AvatarUploaded,
             EntityRefs.SettingsAvatarUpload,
             _idempotencyStore,
             ct => _accountRepository.UpdateAvatarAsync(command.PrincipalId, command.Payload.AvatarUrl, command.Payload.Source, ct),
+            ct => SettingsCommandHelper.PublishProfileUpdatedAsync(_eventBus, command.PrincipalId, includeUsername: false, ct),
             cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsProfileUpdatedEvent(command.PrincipalId, false), cancellationToken);
-        }
-
-        return result;
-    }
 }

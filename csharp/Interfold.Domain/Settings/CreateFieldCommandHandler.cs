@@ -37,26 +37,19 @@ protected override async Task<CommandExecutionResult<SettingsFieldCommandResult>
         // OccurredAt is nullable on the envelope; fall back to UtcNow if missing.
         var insertedAtUtc = (command.OccurredAt ?? DateTimeOffset.UtcNow).UtcDateTime;
 
-        var fieldId = await _fieldRepository.CreateAsync(
-            command.PrincipalId,
-            command.Payload.Name,
-            command.Payload.Type,
-            command.Payload.SecurityLevel,
-            command.Payload.Locked,
-            insertedAtUtc,
+        return await SettingsFieldCommandFlow.ExecuteCreateAsync(
+            command,
+            SettingsFieldAction.FieldCreated,
+            EntityRefs.SettingsFieldCreateFailed,
+            ct => _fieldRepository.CreateAsync(
+                command.PrincipalId,
+                command.Payload.Name,
+                command.Payload.Type,
+                command.Payload.SecurityLevel,
+                command.Payload.Locked,
+                insertedAtUtc,
+                ct),
+            ct => _eventBus.PublishAsync(new SettingsFieldsChangedEvent(command.PrincipalId), ct),
             cancellationToken);
-
-        if (fieldId is null)
-        {
-            return CommandExecutionResult<SettingsFieldCommandResult>.Rejected(
-                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, EntityRefs.SettingsFieldCreateFailed, ResolutionHint.ManualMergeRequired));
-        }
-
-        var result = new SettingsFieldCommandResult(command.PrincipalId, SettingsFieldAction.FieldCreated, fieldId.Value, Replay: false);
-
-        if (!result.Replay)
-            await _eventBus.PublishAsync(new SettingsFieldsChangedEvent(command.PrincipalId), cancellationToken);
-
-        return CommandExecutionResult<SettingsFieldCommandResult>.Success(result);
     }
 }

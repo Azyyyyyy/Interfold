@@ -1,5 +1,4 @@
 using Interfold.Contracts;
-using Interfold.Contracts.Events;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
@@ -25,19 +24,13 @@ public sealed class RelocateFieldCommandHandler : ICommandHandler<RelocateFieldC
 
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<RelocateFieldCommand> command, CancellationToken cancellationToken = default)
     {
-        var result = await SettingsCommandHelper.ExecuteAsync(
+        return await SettingsCommandHelper.ExecuteAndPublishFieldsChangedAsync(
             command,
             SettingsAction.FieldRelocated,
             EntityRefs.SettingsFieldRelocate,
             _idempotencyStore,
+            _eventBus,
             ct => _fieldRepository.RelocateAsync(command.PrincipalId, command.Payload.FieldId, command.Payload.Index, ct),
             cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsFieldsChangedEvent(command.PrincipalId), cancellationToken);
-        }
-
-        return result;
     }
 }

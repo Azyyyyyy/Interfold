@@ -110,7 +110,7 @@ public sealed class AuthController : OAuthControllerBase
         var identity = await ExtractProviderIdentityAsync(oauthProvider);
         if (identity is not { } typedIdentity)
         {
-            return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
+            return OAuthIdentityFailureResponse();
         }
 
         var envelope = new CommandEnvelope<AuthenticateOAuthCommand>(

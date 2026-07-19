@@ -32,16 +32,7 @@ public sealed class LinkOAuthIdentityCommandHandler : ICommandHandler<LinkOAuthI
 
         var resolvedSystemId = await _accountRepository.ResolveSystemIdByLinkTokenAsync(linkToken, cancellationToken);
         if (string.IsNullOrWhiteSpace(resolvedSystemId?.Value) || !ScopedSystemId.TryParseScoped(resolvedSystemId.Value, out var systemId))
-        {
-            return CommandExecutionResult<LinkOAuthIdentityCommandResult>.Rejected(
-                new ConflictResult(
-                    ConflictCode.ConflictInvariant,
-                    command.OperationId,
-                    EntityRefs.AuthLinkInvalidToken,
-                    ResolutionHint.ManualMergeRequired
-                )
-            );
-        }
+            return CommandHandler.RejectInvariant<LinkOAuthIdentityCommandResult>(command.OperationId, EntityRefs.AuthLinkInvalidToken);
 
         await _accountRepository.ClearLinkTokenAsync(systemId, cancellationToken);
 

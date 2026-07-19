@@ -58,7 +58,7 @@ protected override async Task<CommandExecutionResult<EncryptionCommandResult>> E
 
         var result = new EncryptionCommandResult(command.PrincipalId, EncryptionAction.EncryptionSetup, key, Replay: false);
 
-        await _eventBus.PublishAsync(new SettingsProfileUpdatedEvent(command.PrincipalId, false), cancellationToken);
+        await SettingsCommandHelper.PublishProfileUpdatedAsync(_eventBus, command.PrincipalId, includeUsername: false, cancellationToken);
         return CommandExecutionResult<EncryptionCommandResult>.Success(result);
     }
 

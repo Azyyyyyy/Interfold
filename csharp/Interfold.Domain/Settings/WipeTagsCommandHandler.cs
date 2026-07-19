@@ -27,8 +27,7 @@ public sealed class WipeTagsCommandHandler : ICommandHandler<WipeTagsCommand, Se
     }
 
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<WipeTagsCommand> command, CancellationToken cancellationToken = default)
-    {
-        var result = await SettingsCommandHelper.ExecuteAsync(command, SettingsAction.TagsWiped, EntityRefs.SettingsTagsWipe, _idempotencyStore, async ct =>
+        => await SettingsCommandHelper.ExecuteAndPublishAsync(command, SettingsAction.TagsWiped, EntityRefs.SettingsTagsWipe, _idempotencyStore, async ct =>
         {
             var systemId = command.PrincipalId;
             var tags = await _tagRepository.ListAsync(systemId, ct);
@@ -41,13 +40,5 @@ public sealed class WipeTagsCommandHandler : ICommandHandler<WipeTagsCommand, Se
             }
 
             return true;
-        }, cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsTagsWipedSignalEvent(command.PrincipalId), cancellationToken);
-        }
-
-        return result;
-    }
+        }, ct => _eventBus.PublishAsync(new SettingsTagsWipedSignalEvent(command.PrincipalId), ct), cancellationToken);
 }

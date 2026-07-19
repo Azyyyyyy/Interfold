@@ -29,14 +29,13 @@ protected override async Task<CommandExecutionResult<SettingsCommandResult>> Exe
     {
         if (RejectIfBlank(command, command.Payload.Token.Value, EntityRefs.SettingsPushTokenInvalid) is { } blankReject)
             return blankReject;
-        
-        var persisted = await _repository.AddAsync(command.PrincipalId, new(command.Payload.Token.Value.Trim()), cancellationToken);
-        if (!persisted)
-            return RejectInvariant(command, EntityRefs.SettingsPushTokenAddFailed);
 
-        var result = new SettingsCommandResult(command.PrincipalId, SettingsAction.PushTokenAdded, Replay: false);
-
-        return CommandExecutionResult<SettingsCommandResult>.Success(result);
+        return await SettingsIdempotentCommandFlow.ExecuteMutationAsync(
+            command,
+            ct => _repository.AddAsync(command.PrincipalId, new(command.Payload.Token.Value.Trim()), ct),
+            EntityRefs.SettingsPushTokenAddFailed,
+            SettingsAction.PushTokenAdded,
+            cancellationToken: cancellationToken);
     }
 
 }

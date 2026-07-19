@@ -27,23 +27,18 @@ public sealed class UnlinkEmailCommandHandler : ICommandHandler<UnlinkEmailComma
     }
 
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<UnlinkEmailCommand> command, CancellationToken cancellationToken = default)
-    {
-        var result = await SettingsCommandHelper.ExecuteAsync(
+        => await SettingsCommandHelper.ExecuteAndPublishAsync(
             command,
             SettingsAction.EmailUnlinked,
             EntityRefs.SettingsUnlinkEmail,
             _idempotencyStore,
             ct => _accountRepository.UnlinkEmailAsync(command.PrincipalId, ct),
+            ct =>
+            {
+                // Legacy Octocon.Accounts.unlink_email_from_user broadcast google_account_unlinked
+                // because the only email auth path in the old stack was the Google OAuth one;
+                // mirror that contract so existing clients keep receiving the same socket signal.
+                return _eventBus.PublishAsync(new SettingsGoogleAccountUnlinkedSignalEvent(command.PrincipalId), ct);
+            },
             cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            // Legacy Octocon.Accounts.unlink_email_from_user broadcast google_account_unlinked
-            // because the only email auth path in the old stack was the Google OAuth one;
-            // mirror that contract so existing clients keep receiving the same socket signal.
-            await _eventBus.PublishAsync(new SettingsGoogleAccountUnlinkedSignalEvent(command.PrincipalId), cancellationToken);
-        }
-
-        return result;
-    }
 }

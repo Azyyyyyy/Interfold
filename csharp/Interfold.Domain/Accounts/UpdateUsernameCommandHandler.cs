@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Domain.Settings;
 using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Accounts;
@@ -53,7 +54,7 @@ protected override async Task<CommandExecutionResult<AccountCommandResult>> Exec
 
         var result = new AccountCommandResult(command.PrincipalId, command.Payload.Username, Replay: false);
 
-        await _eventBus.PublishAsync(new SettingsProfileUpdatedEvent(command.PrincipalId, true), cancellationToken);
+        await SettingsCommandHelper.PublishProfileUpdatedAsync(_eventBus, command.PrincipalId, includeUsername: true, cancellationToken);
         return CommandExecutionResult<AccountCommandResult>.Success(result);
     }
 

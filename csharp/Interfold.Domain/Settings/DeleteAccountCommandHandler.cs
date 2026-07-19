@@ -50,7 +50,7 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<DeleteAccountCommand> command, CancellationToken cancellationToken = default)
     {
         var unfriendedIds = new List<SystemId>();
-        var result = await SettingsCommandHelper.ExecuteAsync(command, SettingsAction.AccountDeleted, EntityRefs.SettingsAccountDelete, _idempotencyStore, async ct =>
+        return await SettingsCommandHelper.ExecuteAndPublishAsync(command, SettingsAction.AccountDeleted, EntityRefs.SettingsAccountDelete, _idempotencyStore, async ct =>
         {
             var systemId = command.PrincipalId;
 
@@ -91,7 +91,7 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
             }
 
             // Fronting records are tied to alters so no need to delete them here
-            
+
             // Delete Friendships and Friend Requests
             var deletedIds = await _friendshipRepository.DeleteAllForSystemAsync(systemId, ct);
             unfriendedIds.AddRange(deletedIds);
@@ -101,11 +101,9 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
             return await _accountRepository.DeleteAsync(systemId, ct);
 
             //TODO: Delete account image if it exists
-        }, cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
+        }, async ct =>
         {
-            await _eventBus.PublishAsync(new SettingsAccountDeletedSignalEvent(command.PrincipalId), cancellationToken);
+            await _eventBus.PublishAsync(new SettingsAccountDeletedSignalEvent(command.PrincipalId), ct);
 
             foreach (var friendId in unfriendedIds)
             {
@@ -116,10 +114,8 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
                 var friendTarget = ScopedSystemId.Compose(
                     command.PrincipalId.Region,
                     friendId);
-                await _eventBus.PublishAsync(new FriendshipRemovedEvent(friendTarget, command.PrincipalId), cancellationToken);
+                await _eventBus.PublishAsync(new FriendshipRemovedEvent(friendTarget, command.PrincipalId), ct);
             }
-        }
-
-        return result;
+        }, cancellationToken);
     }
 }

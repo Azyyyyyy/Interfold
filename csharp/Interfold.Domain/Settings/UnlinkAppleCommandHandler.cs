@@ -24,19 +24,12 @@ public sealed class UnlinkAppleCommandHandler : ICommandHandler<UnlinkAppleComma
     }
 
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<UnlinkAppleCommand> command, CancellationToken cancellationToken = default)
-    {
-        var result = await SettingsCommandHelper.ExecuteAsync(
+        => await SettingsCommandHelper.ExecuteAndPublishAsync(
             command,
             SettingsAction.AppleUnlinked,
             EntityRefs.SettingsUnlinkApple,
             _idempotencyStore,
             ct => _accountRepository.UnlinkAppleAsync(command.PrincipalId, ct),
+            ct => _eventBus.PublishAsync(new SettingsAppleAccountUnlinkedSignalEvent(command.PrincipalId), ct),
             cancellationToken);
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsAppleAccountUnlinkedSignalEvent(command.PrincipalId), cancellationToken);
-        }
-
-        return result;
-    }
 }

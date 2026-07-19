@@ -27,8 +27,7 @@ public sealed class WipeAltersCommandHandler : ICommandHandler<WipeAltersCommand
     }
 
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<WipeAltersCommand> command, CancellationToken cancellationToken = default)
-    {
-        var result = await SettingsCommandHelper.ExecuteAsync(command, SettingsAction.AltersWiped, EntityRefs.SettingsAltersWipe, _idempotencyStore, async ct =>
+        => await SettingsCommandHelper.ExecuteAndPublishAsync(command, SettingsAction.AltersWiped, EntityRefs.SettingsAltersWipe, _idempotencyStore, async ct =>
         {
             var systemId = command.PrincipalId;
             var alters = await _alterRepository.ListAsync(systemId, ct);
@@ -39,13 +38,5 @@ public sealed class WipeAltersCommandHandler : ICommandHandler<WipeAltersCommand
             }
 
             return true;
-        }, cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsAltersWipedSignalEvent(command.PrincipalId), cancellationToken);
-        }
-
-        return result;
-    }
+        }, ct => _eventBus.PublishAsync(new SettingsAltersWipedSignalEvent(command.PrincipalId), ct), cancellationToken);
 }

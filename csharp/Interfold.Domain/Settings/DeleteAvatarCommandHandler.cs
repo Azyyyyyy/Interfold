@@ -24,20 +24,12 @@ public sealed class DeleteAvatarCommandHandler : ICommandHandler<DeleteAvatarCom
     }
 
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<DeleteAvatarCommand> command, CancellationToken cancellationToken = default)
-    {
-        var result = await SettingsCommandHelper.ExecuteAsync(
+        => await SettingsCommandHelper.ExecuteAndPublishAsync(
             command,
             SettingsAction.AvatarDeleted,
             EntityRefs.SettingsAvatarDelete,
             _idempotencyStore,
             ct => _accountRepository.ClearAvatarAsync(command.PrincipalId, ct),
+            ct => SettingsCommandHelper.PublishProfileUpdatedAsync(_eventBus, command.PrincipalId, includeUsername: false, ct),
             cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsProfileUpdatedEvent(command.PrincipalId, false), cancellationToken);
-        }
-
-        return result;
-    }
 }

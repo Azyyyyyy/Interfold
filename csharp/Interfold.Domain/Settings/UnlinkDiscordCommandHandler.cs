@@ -27,19 +27,12 @@ public sealed class UnlinkDiscordCommandHandler : ICommandHandler<UnlinkDiscordC
     }
 
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<UnlinkDiscordCommand> command, CancellationToken cancellationToken = default)
-    {
-        var result = await SettingsCommandHelper.ExecuteAsync(
+        => await SettingsCommandHelper.ExecuteAndPublishAsync(
             command,
             SettingsAction.DiscordUnlinked,
             EntityRefs.SettingsUnlinkDiscord,
             _idempotencyStore,
             ct => _accountRepository.UnlinkDiscordAsync(command.PrincipalId, ct),
+            ct => _eventBus.PublishAsync(new SettingsDiscordAccountUnlinkedSignalEvent(command.PrincipalId), ct),
             cancellationToken);
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsDiscordAccountUnlinkedSignalEvent(command.PrincipalId), cancellationToken);
-        }
-
-        return result;
-    }
 }

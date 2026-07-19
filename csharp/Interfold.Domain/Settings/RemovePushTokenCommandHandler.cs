@@ -31,11 +31,11 @@ protected override async Task<CommandExecutionResult<SettingsCommandResult>> Exe
             return blankReject;
 
         // Removal is treated as idempotent for retry safety.
-        await _repository.RemoveAsync(new(command.Payload.Token.Value.Trim()), cancellationToken);
-
-        var result = new SettingsCommandResult(command.PrincipalId, SettingsAction.PushTokenRemoved, Replay: false);
-
-        return CommandExecutionResult<SettingsCommandResult>.Success(result);
+        return await SettingsIdempotentCommandFlow.ExecuteApplyAsync(
+            command,
+            ct => _repository.RemoveAsync(new(command.Payload.Token.Value.Trim()), ct),
+            SettingsAction.PushTokenRemoved,
+            cancellationToken: cancellationToken);
     }
 
 }

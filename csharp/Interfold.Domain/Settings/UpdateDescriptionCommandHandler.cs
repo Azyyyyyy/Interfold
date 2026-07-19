@@ -34,18 +34,16 @@ protected override async Task<CommandExecutionResult<SettingsCommandResult>> Exe
         if (command.Payload.Description.Length > 3000)
             return RejectInvariant(command, EntityRefs.SettingsDescriptionInvalid);
 
-        var persisted = await _accountRepository.UpdateDescriptionAsync(
-            command.PrincipalId,
-            command.Payload.Description,
+        return await SettingsIdempotentCommandFlow.ExecuteMutationAsync(
+            command,
+            ct => _accountRepository.UpdateDescriptionAsync(
+                command.PrincipalId,
+                command.Payload.Description,
+                ct),
+            EntityRefs.SettingsDescriptionUpdateFailed,
+            SettingsAction.DescriptionUpdated,
+            ct => SettingsCommandHelper.PublishProfileUpdatedAsync(_eventBus, command.PrincipalId, includeUsername: false, ct),
             cancellationToken);
-
-        if (!persisted)
-            return RejectInvariant(command, EntityRefs.SettingsDescriptionUpdateFailed);
-
-        var result = new SettingsCommandResult(command.PrincipalId, SettingsAction.DescriptionUpdated, Replay: false);
-
-        await _eventBus.PublishAsync(new SettingsProfileUpdatedEvent(command.PrincipalId, false), cancellationToken);
-        return CommandExecutionResult<SettingsCommandResult>.Success(result);
     }
 
 }
