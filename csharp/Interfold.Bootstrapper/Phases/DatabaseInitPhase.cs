@@ -173,40 +173,19 @@ internal static class DatabaseInitPhase
             ct);
     }
 
-    private static async Task WaitForScyllaAsync(
+    private static Task WaitForScyllaAsync(
         string composeFile, string scyllaService,
         IScyllaExecutor executor, ScyllaSeedOptions options,
         PhaseLogger logger, CancellationToken ct)
     {
-        // CQL connectivity from inside the container — try app creds first, then fall back
-        // to the built-in cassandra/cassandra. Either successful response means the node has
-        // finished gossip-bootstrap and is accepting auth.
         _ = composeFile;
         _ = scyllaService;
-        var deadline = DateTime.UtcNow.AddMinutes(5);
-        var attempt = 0;
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-            attempt++;
-            var asApp = await executor.TryExecCqlAsync(
-                options.AppUser, options.AppPassword, "DESCRIBE CLUSTER", ct).ConfigureAwait(false);
-            if (asApp.Succeeded)
-            {
-                logger.Info($"    scylla ready (as app user) after {attempt} attempt(s)");
-                return;
-            }
-            var asDefault = await executor.TryExecCqlAsync(
-                ScyllaCqlTemplates.DefaultUser, ScyllaCqlTemplates.DefaultPassword,
-                "DESCRIBE CLUSTER", ct).ConfigureAwait(false);
-            if (asDefault.Succeeded)
-            {
-                logger.Info($"    scylla ready (as cassandra default) after {attempt} attempt(s)");
-                return;
-            }
-            await Task.Delay(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
-        }
-        throw new TimeoutException($"scylla did not become ready within 5 minutes.");
+        return Util.ScyllaReadinessProbe.WaitAsync(
+            executor,
+            options,
+            new Interfold.DatabaseBootstrap.ScyllaReadinessOptions(TimeSpan.FromMinutes(5)),
+            logger,
+            ct);
     }
 }
 

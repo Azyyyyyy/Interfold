@@ -368,12 +368,17 @@ internal static class RestorePhase
     private static Task WaitForPostgresAsync(
         string composeFile, PhaseLogger logger, CancellationToken ct)
     {
+        // Restore already runs against a live, warmed-up cluster (we've just paused the
+        // client tier around a hot swap), so the first successful pg_isready is a
+        // sufficient handoff signal — the 3-in-a-row check DatabaseInitPhase runs would
+        // pay ~4s per invocation for no meaningful safety gain here.
         return Util.PostgresReadinessProbe.WaitAsync(
             composeFile,
             ComposeServices.Postgres,
-            new Interfold.DatabaseBootstrap.PostgresReadinessOptions(TimeSpan.FromMinutes(10), 3, Interfold.Contracts.Configuration.PostgresRoles.Init),
+            TimeSpan.FromMinutes(10),
             logger,
-            ct);
+            ct,
+            runAsRole: Interfold.Contracts.Configuration.PostgresRoles.Init);
     }
 
     /// <summary>

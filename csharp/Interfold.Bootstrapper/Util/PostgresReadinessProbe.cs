@@ -6,6 +6,28 @@ namespace Interfold.Bootstrapper.Util;
 
 internal static class PostgresReadinessProbe
 {
+    /// <summary>
+    /// Convenience overload for callers whose readiness policy is "first successful probe
+    /// = ready" (no 3-in-a-row confirmation). Used by <c>RestorePhase</c>, whose
+    /// original 5-minute deadline predates the consecutive-success check that landed in
+    /// <c>DatabaseInitPhase</c>: restore already owns a live cluster, so a single
+    /// <c>pg_isready</c> success is a sufficient handoff signal and staying with 3 would
+    /// add ~4s to every restore.
+    /// </summary>
+    public static Task WaitAsync(
+        string composeFile,
+        string service,
+        TimeSpan timeout,
+        PhaseLogger logger,
+        CancellationToken ct,
+        string? runAsRole = null) =>
+        WaitAsync(
+            composeFile,
+            service,
+            new PostgresReadinessOptions(timeout, RequiredConsecutiveSuccesses: 1, RunAsRole: runAsRole),
+            logger,
+            ct);
+
     public static async Task WaitAsync(
         string composeFile,
         string service,
