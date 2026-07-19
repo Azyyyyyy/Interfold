@@ -2,8 +2,6 @@ using Cassandra;
 using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.IntegrationTests.TestServices;
-using Interfold.Infrastructure.Persistence;
-using Interfold.Infrastructure.Scylla;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Interfold.IntegrationTests.Services.Scylla;
@@ -37,15 +35,11 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
         var typedAlterId = await CreateAlterAsync(client, rawSystemId, "synthetic-alter");
         var alterId = typedAlterId.Value;
 
-        var keyspaceResolver = factory.Services.GetRequiredService<IScyllaKeyspaceResolver>();
-        var sessionProvider = factory.Services.GetRequiredService<IScyllaSessionProvider>();
         var frontingRepo = factory.Services.GetRequiredService<IFrontingRepository>();
 
         // NormalizeSystemId returns the raw string so it can be bound directly into CQL — the
         // DataStax driver has no serializer for the SystemId wrapper.
-        var normalizedSystemId = keyspaceResolver.NormalizeSystemId(systemId);
-        var keyspace = keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var session = await sessionProvider.GetSessionAsync();
+        var (session, keyspace, normalizedSystemId) = await ScyllaDirectHarness.ResolveAsync(fixture, systemId);
 
         var frontGuid = Guid.NewGuid();
         var insertedAt = DateTimeOffset.UtcNow;

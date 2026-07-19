@@ -49,13 +49,8 @@ public sealed class ScyllaAlterRepositoryUdtNullTests(ScyllaWebFactoryFixture fi
         // security_level immediately below — the API can't produce a null there today.
         var seededAlterId = await CreateAlterAsync(client, rawSystemId, "seed-alter");
 
-        var keyspaceResolver = factory.Services.GetRequiredService<IScyllaKeyspaceResolver>();
-        var sessionProvider = factory.Services.GetRequiredService<IScyllaSessionProvider>();
         var alterRepo = factory.Services.GetRequiredService<IAlterRepository>();
-
-        var normalizedSystemId = keyspaceResolver.NormalizeSystemId(systemId);
-        var keyspace = keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var session = await sessionProvider.GetSessionAsync();
+        var (session, keyspace, normalizedSystemId) = await ScyllaDirectHarness.ResolveAsync(fixture, systemId);
 
         // Directly null the security_level column. INSERT rather than UPDATE so we don't
         // depend on the seed alter's write-order for the null overwrite semantics —
@@ -100,14 +95,9 @@ public sealed class ScyllaAlterRepositoryUdtNullTests(ScyllaWebFactoryFixture fi
         var systemId = new SystemId(rawSystemId);
         var seededAlterId = await CreateAlterAsync(client, rawSystemId, "field-udt-alter");
 
-        var keyspaceResolver = factory.Services.GetRequiredService<IScyllaKeyspaceResolver>();
-        var sessionProvider = factory.Services.GetRequiredService<IScyllaSessionProvider>();
         var settingsFields = factory.Services.GetRequiredService<ISettingsFieldRepository>();
         var alterRepo = factory.Services.GetRequiredService<IAlterRepository>();
-
-        var normalizedSystemId = keyspaceResolver.NormalizeSystemId(systemId);
-        var keyspace = keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var session = await sessionProvider.GetSessionAsync();
+        var (session, keyspace, normalizedSystemId) = await ScyllaDirectHarness.ResolveAsync(fixture, systemId);
 
         // Field definition drives the projection filter — without a matching definition,
         // ResolveGuardedFields skips the UDT entry entirely (that's the unrelated path).
