@@ -194,4 +194,66 @@ internal static class DockerCompose
             throw new ArgumentException("dataPath must be non-empty.", nameof(dataPath));
         }
     }
+
+    /// <summary>
+    /// Builds the shared <c>docker compose exec -T --env PGPASSWORD msg-db &lt;tool&gt; -U &lt;user&gt; -d &lt;db&gt; …</c>
+    /// argv preamble used by every phase that shells into the postgres container as an admin
+    /// role (pg_dump, pg_restore, pg_isready-with-creds, ad-hoc DDL). The password lands on the
+    /// exec'd process via the <c>PGPASSWORD</c> env var — never on argv — so the value never
+    /// leaks to <c>ps</c> or audit logs.
+    /// <para>
+    /// <paramref name="toolTrailer"/> is appended verbatim after the base argv (
+    /// <c>-Fc</c> for pg_dump, <c>--clean --if-exists --single-transaction --no-owner</c> for
+    /// pg_restore, etc.). Callers pass the tool-specific flags in the order the underlying
+    /// binary expects them.
+    /// </para>
+    /// </summary>
+    /// <remarks>
+    /// The service name is hardcoded to <see cref="Configuration.ComposeServices.Postgres"/>
+    /// (via the caller's constant) rather than exposed as a parameter — every current
+    /// callsite targets the same service, and letting the caller pass one would invite the
+    /// argv shape to drift as new tools are added. If a future phase needs to exec into a
+    /// non-postgres service under this same shape, promote the service to a parameter here.
+    /// </remarks>
+    internal static IReadOnlyList<string> BuildPostgresExecArgs(
+        string composeFile, string service, string tool, string adminUser, string database, params string[] toolTrailer)
+    {
+        var argv = new List<string>(11 + (toolTrailer?.Length ?? 0))
+        {
+            "compose", "-f", composeFile,
+            "exec", "-T",
+            "--env", "PGPASSWORD",
+            service,
+            tool,
+            "-U", adminUser,
+            "-d", database,
+        };
+        if (toolTrailer is not null && toolTrailer.Length > 0)
+        {
+            argv.AddRange(toolTrailer);
+        }
+        return argv;
+    }
+
+    /// <summary>
+    /// Builds the <c>docker cp &lt;id&gt;:&lt;path&gt; -</c> argv that streams a container path
+    /// to the host as a raw tar archive on stdout. Callers pipe the emitted stream through a
+    /// host-side compressor. Used by <see cref="Phases.BackupPhase"/>.
+    /// </summary>
+    internal static IReadOnlyList<string> BuildContainerCpFromContainer(string containerId, string containerPath)
+    {
+        ValidateContainerCpParams(containerId, containerPath);
+        return ["cp", $"{containerId}:{containerPath}", "-"];
+    }
+
+    /// <summary>
+    /// Builds the <c>docker cp - &lt;id&gt;:&lt;path&gt;</c> argv that streams a host-side tar
+    /// payload from stdin back into a container path. Mirror of
+    /// <see cref="BuildContainerCpFromContainer"/>. Used by <see cref="Phases.RestorePhase"/>.
+    /// </summary>
+    internal static IReadOnlyList<string> BuildContainerCpIntoContainer(string containerId, string containerPath)
+    {
+        ValidateContainerCpParams(containerId, containerPath);
+        return ["cp", "-", $"{containerId}:{containerPath}"];
+    }
 }

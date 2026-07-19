@@ -154,21 +154,11 @@ internal static class RestorePhase
     /// </summary>
     internal static IReadOnlyList<string> BuildPgRestoreArgs(
         string composeFile, string adminUser, string database)
-    {
-        return
-        [
-            "compose", "-f", composeFile,
-            "exec", "-T",
-            "--env", "PGPASSWORD",
-            ComposeServices.Postgres,
-            "pg_restore",
-            "-U", adminUser,
-            "-d", database,
+        => DockerCompose.BuildPostgresExecArgs(
+            composeFile, ComposeServices.Postgres, "pg_restore", adminUser, database,
             "--clean", "--if-exists",
             "--single-transaction",
-            "--no-owner",
-        ];
-    }
+            "--no-owner");
 
     /// <summary>
     /// Builds the top-level <c>docker cp - &lt;id&gt;:&lt;path&gt;</c> argv used to
@@ -178,10 +168,7 @@ internal static class RestorePhase
     /// into. Internal for unit-test coverage.
     /// </summary>
     internal static IReadOnlyList<string> BuildContainerCpWriteArgs(string containerId, string dataPath)
-    {
-        DockerCompose.ValidateContainerCpParams(containerId, dataPath);
-        return ["cp", "-", $"{containerId}:{dataPath}"];
-    }
+        => DockerCompose.BuildContainerCpIntoContainer(containerId, dataPath);
 
     private static async Task RestorePostgresAsync(
         string composeFile, string archivePath, BootstrapConfig config, GeneratedSecrets secrets,

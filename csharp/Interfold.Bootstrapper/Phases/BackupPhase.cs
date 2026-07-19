@@ -166,19 +166,9 @@ internal static class BackupPhase
     /// </summary>
     internal static IReadOnlyList<string> BuildPostgresDumpArgs(
         string composeFile, string adminUser, string database)
-    {
-        return
-        [
-            "compose", "-f", composeFile,
-            "exec", "-T",
-            "--env", "PGPASSWORD",
-            ComposeServices.Postgres,
-            "pg_dump",
-            "-U", adminUser,
-            "-d", database,
-            "-Fc",
-        ];
-    }
+        => DockerCompose.BuildPostgresExecArgs(
+            composeFile, ComposeServices.Postgres, "pg_dump", adminUser, database,
+            "-Fc");
 
     /// <summary>
     /// Builds the docker-compose exec argv pair for the Scylla/Cassandra nodetool snapshot
@@ -220,10 +210,7 @@ internal static class BackupPhase
     /// the argv shape without invoking docker.
     /// </summary>
     internal static IReadOnlyList<string> BuildContainerCpArgs(string containerId, string dataPath)
-    {
-        DockerCompose.ValidateContainerCpParams(containerId, dataPath);
-        return ["cp", $"{containerId}:{dataPath}", "-"];
-    }
+        => DockerCompose.BuildContainerCpFromContainer(containerId, dataPath);
 
     private static async Task BackupPostgresAsync(
         string composeFile, string backupRoot, string timestamp,
