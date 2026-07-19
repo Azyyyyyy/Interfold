@@ -1,5 +1,6 @@
 using System.Net;
 using Interfold.Contracts;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;

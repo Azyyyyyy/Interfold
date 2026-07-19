@@ -102,16 +102,3 @@ public sealed class AlterReadModel : BareAlter {
     public bool Archived { get; set; }
     public bool Pinned { get; set; }
 }
-
-[JsonConverter(typeof(JsonStringEnumConverter<VisibilityLevel>))]
-public enum VisibilityLevel : short
-{
-    [JsonStringEnumMemberName("public")]
-    Public = 0,
-    [JsonStringEnumMemberName("friends_only")]
-    FriendsOnly = 1,
-    [JsonStringEnumMemberName("trusted_only")]
-    TrustedOnly = 2,
-    [JsonStringEnumMemberName("private")]
-    Private = 3
-}

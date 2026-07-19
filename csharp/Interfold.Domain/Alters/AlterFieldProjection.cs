@@ -57,7 +57,7 @@ public static class AlterFieldProjection
                 def.Id,
                 def.Name,
                 def.Type,
-                alterFieldValues.TryGetValue(def.Id, out var value) ? value : null))
+                alterFieldValues[def.Id]))
             .ToArray();
     }
 
