@@ -1,5 +1,4 @@
 using Interfold.Contracts;
-using Interfold.Contracts.Events;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
@@ -30,28 +29,17 @@ protected override async Task<CommandExecutionResult<PollCommandResult>> Execute
         CommandEnvelope<UpdatePollCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (command.Payload.Title is null && command.Payload.Description is null &&
-            !command.Payload.HasTimeEnd && command.Payload.Data is null)
+        if (PollCommandValidation.HasNoMutableFields(command.Payload))
             return RejectInvariant(command, EntityRefs.PollNoFields);
 
-        if (command.Payload.Title is not null && command.Payload.Title.Length > 100)
-            return RejectInvariant(command, EntityRefs.PollTitleTooLong);
+        if (PollCommandValidation.GetTitleDescriptionValidationError(command.Payload.Title, command.Payload.Description) is { } validationError)
+            return RejectInvariant(command, validationError);
 
-        if (command.Payload.Description is not null && command.Payload.Description.Length > 2000)
-            return RejectInvariant(command, EntityRefs.PollDescriptionTooLong);
-
-        var exists = await _pollRepository.ExistsAsync(command.PrincipalId, command.Payload.Id, cancellationToken);
-        if (!exists)
-            return RejectInvariant(command, EntityRefs.PollNotFound);
-        
-        var updated = await _pollRepository.UpdateAsync(command.PrincipalId, command.Payload, cancellationToken);
-        if (!updated)
-            return RejectInvariant(command, EntityRefs.PollUpdateFailed);
-
-        var result = new PollCommandResult(command.PrincipalId, command.Payload.Id, Replay: false);
-
-        await _eventBus.PublishAsync(new PollUpdatedEvent(command.PrincipalId, command.Payload.Id), cancellationToken);
-        return CommandExecutionResult<PollCommandResult>.Success(result);
+        return await PollCommandFlow.ExecuteUpdateAsync(
+            command,
+            _pollRepository,
+            _eventBus,
+            cancellationToken);
     }
 
 }

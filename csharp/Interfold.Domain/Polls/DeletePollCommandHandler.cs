@@ -1,5 +1,4 @@
 using Interfold.Contracts;
-using Interfold.Contracts.Events;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
@@ -31,18 +30,11 @@ protected override async Task<CommandExecutionResult<PollCommandResult>> Execute
         CancellationToken cancellationToken = default)
     {
 
-        var exists = await _pollRepository.ExistsAsync(command.PrincipalId, command.Payload.PollId, cancellationToken);
-        if (!exists)
-            return RejectInvariant(command, EntityRefs.PollNotFound);
-
-        var deleted = await _pollRepository.DeleteAsync(command.PrincipalId, command.Payload.PollId, cancellationToken);
-        if (!deleted)
-            return RejectInvariant(command, EntityRefs.PollDeleteFailed);
-
-        var result = new PollCommandResult(command.PrincipalId, command.Payload.PollId, Replay: false);
-
-        await _eventBus.PublishAsync(new PollDeletedEvent(command.PrincipalId, command.Payload.PollId), cancellationToken);
-        return CommandExecutionResult<PollCommandResult>.Success(result);
+        return await PollCommandFlow.ExecuteDeleteAsync(
+            command,
+            _pollRepository,
+            _eventBus,
+            cancellationToken);
     }
 
 }

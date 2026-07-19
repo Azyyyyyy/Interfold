@@ -1,5 +1,4 @@
 using Interfold.Contracts;
-using Interfold.Contracts.Events;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
@@ -33,11 +32,8 @@ protected override async Task<CommandExecutionResult<PollCommandResult>> Execute
         if (RejectIfBlank(command, command.Payload.Title, EntityRefs.PollTitleRequired) is { } blankReject)
             return blankReject;
 
-        if (command.Payload.Title.Length > 100)
-            return RejectInvariant(command, EntityRefs.PollTitleTooLong);
-
-        if (!string.IsNullOrWhiteSpace(command.Payload.Description) && command.Payload.Description.Length > 2000)
-            return RejectInvariant(command, EntityRefs.PollDescriptionTooLong);
+        if (PollCommandValidation.GetTitleDescriptionValidationError(command.Payload.Title, command.Payload.Description) is { } validationError)
+            return RejectInvariant(command, validationError);
 
         // Stamp the row with the envelope's OccurredAt rather than honouring whatever
         // InsertedAtUtc the caller put on the payload. The caller (PollsController) sends
@@ -47,14 +43,11 @@ protected override async Task<CommandExecutionResult<PollCommandResult>> Execute
         // OccurredAt is nullable on the envelope; fall back to UtcNow if missing.
         var insertedAtUtc = (command.OccurredAt ?? DateTimeOffset.UtcNow).UtcDateTime;
         var enrichedPayload = command.Payload with { InsertedAtUtc = insertedAtUtc };
-        var pollId = await _pollRepository.CreateAsync(command.PrincipalId, enrichedPayload, cancellationToken);
-        if (pollId is null)
-            return RejectInvariant(command, EntityRefs.PollCreateFailed);
-
-        var result = new PollCommandResult(command.PrincipalId, pollId.Value, Replay: false);
-
-        await _eventBus.PublishAsync(new PollCreatedEvent(command.PrincipalId, pollId.Value), cancellationToken);
-        return CommandExecutionResult<PollCommandResult>.Success(result);
+        return await PollCommandFlow.ExecuteCreateAsync(
+            command,
+            _eventBus,
+            ct => _pollRepository.CreateAsync(command.PrincipalId, enrichedPayload, ct),
+            cancellationToken);
     }
 
 }
