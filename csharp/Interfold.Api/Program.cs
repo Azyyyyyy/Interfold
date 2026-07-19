@@ -135,20 +135,17 @@ builder.Services.AddInterfoldPersistence(persistenceConfig.Mode, persistenceConf
 builder.Services.AddInterfoldDomainHandlers();
 
 // --- Health Checks ---
-// Readiness checks use a short timeout (5s) — fail fast if a dependency drops.
-// Startup checks use a longer timeout (30s) — databases may still be initializing at boot.
+// Readiness checks fail fast (dependency dropped after boot); startup checks allow
+// longer for cold-start migrations. Timeouts and the "-ready"/"-startup" naming
+// convention live in HealthCheckExtensions.AddReadyAndStartup so any tweak stays
+// consistent across the persistence-mode branches.
 var healthChecks = builder.Services.AddHealthChecks();
 
 if (persistenceConfig.Mode == PersistenceMode.ScyllaPostgres)
 {
-    healthChecks.AddCheck<ScyllaHealthChecker>(
-        "scylla-ready", tags: [HealthCheckTags.Ready], timeout: TimeSpan.FromSeconds(5));
-    healthChecks.AddCheck<ScyllaHealthChecker>(
-        "scylla-startup", tags: [HealthCheckTags.Startup], timeout: TimeSpan.FromSeconds(30));
-    healthChecks.AddCheck<PostgresHealthChecker>(
-        "postgres-ready", tags: [HealthCheckTags.Ready], timeout: TimeSpan.FromSeconds(5));
-    healthChecks.AddCheck<PostgresHealthChecker>(
-        "postgres-startup", tags: [HealthCheckTags.Startup], timeout: TimeSpan.FromSeconds(30));
+    healthChecks
+        .AddReadyAndStartup<ScyllaHealthChecker>("scylla")
+        .AddReadyAndStartup<PostgresHealthChecker>("postgres");
 }
 builder.Services.AddSingleton<IAvatarStorage, LocalAvatarStorage>();
 builder.Services.AddSingleton(TimeProvider.System);
