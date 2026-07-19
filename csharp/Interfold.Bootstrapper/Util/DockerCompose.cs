@@ -161,4 +161,37 @@ internal static class DockerCompose
     {
         return DockerComposeExec.RunAsync(composeFile, service, command, args, env, stdin, ct);
     }
+
+    /// <summary>
+    /// Resolves the runtime container ID for a compose service via <c>docker compose ps -q</c>.
+    /// Returns <see cref="string.Empty"/> when the service has no container (not created,
+    /// or <c>ps</c> failed). Set <paramref name="includeStopped"/> to also match containers
+    /// that exist but are not running (needed by the restore path after <c>stop</c>).
+    /// </summary>
+    public static async Task<string> ResolveContainerIdAsync(
+        string composeFile, string service, bool includeStopped = false, CancellationToken ct = default)
+    {
+        var run = await PsAsync(composeFile, service, includeStopped: includeStopped, ct: ct).ConfigureAwait(false);
+        if (run.ExitCode != 0 || string.IsNullOrWhiteSpace(run.StdOut)) return string.Empty;
+        return run.StdOut
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault() ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Validates <paramref name="containerId"/> and <paramref name="dataPath"/> are non-empty.
+    /// Shared guard for <c>docker cp</c> argv builders in <see cref="Phases.BackupPhase"/>
+    /// and <see cref="Phases.RestorePhase"/>.
+    /// </summary>
+    public static void ValidateContainerCpParams(string containerId, string dataPath)
+    {
+        if (string.IsNullOrWhiteSpace(containerId))
+        {
+            throw new ArgumentException("containerId must be non-empty.", nameof(containerId));
+        }
+        if (string.IsNullOrWhiteSpace(dataPath))
+        {
+            throw new ArgumentException("dataPath must be non-empty.", nameof(dataPath));
+        }
+    }
 }

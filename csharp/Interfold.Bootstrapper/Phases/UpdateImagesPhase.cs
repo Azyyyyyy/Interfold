@@ -177,7 +177,12 @@ internal static class UpdateImagesPhase
         {
             var backupRoot = BackupPhase.ResolveBackupRoot(options, config);
             var retainCount = options.BackupRetainOverride ?? config.Backup.RetainCount;
-            PruneOldArchives(backupRoot, retainCount, logger);
+            BackupPhase.PruneComponent(
+                Path.Combine(backupRoot, BackupStoragePaths.PostgresDir),
+                BackupDatabaseComponent.Postgres, retainCount, logger);
+            BackupPhase.PruneComponent(
+                Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir),
+                BackupDatabaseComponent.Scylla, retainCount, logger);
         }
 
         logger.PhaseDone(Phase);
@@ -237,16 +242,6 @@ internal static class UpdateImagesPhase
     internal static IReadOnlyList<string> BuildComposeImagesArgs(string composeFile)
     {
         return ["compose", "-f", composeFile, "images", "--format", "json"];
-    }
-
-    /// <summary>
-    /// Builds the <c>docker compose logs --tail &lt;N&gt; &lt;service&gt;</c> argv used
-    /// after a health-check failure to surface the failing container's tail-end logs to
-    /// the operator.
-    /// </summary>
-    internal static IReadOnlyList<string> BuildComposeLogsArgs(string composeFile, string service, int tail)
-    {
-        return ["compose", "-f", composeFile, "logs", "--tail", tail.ToString(System.Globalization.CultureInfo.InvariantCulture), service];
     }
 
     /// <summary>
@@ -418,33 +413,9 @@ internal static class UpdateImagesPhase
         return $"scylla ({service}) did not report UN within the health-check budget";
     }
 
-    private static async Task<string?> WaitForApiReadyAsync(
+    private static Task<string?> WaitForApiReadyAsync(
         int apiHttpPort, DateTime deadline, PhaseLogger logger, CancellationToken ct)
-    {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-        var url = $"http://localhost:{apiHttpPort}{HealthEndpoints.Ready}";
-        var attempt = 0;
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-            attempt++;
-            try
-            {
-                var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
-                if (resp.StatusCode == HttpStatusCode.OK)
-                {
-                    logger.Info($"    api ready at {url} after {attempt} attempt(s)");
-                    return null;
-                }
-            }
-            catch (HttpRequestException) { /* container may not be listening yet */ }
-            catch (TaskCanceledException) when (!ct.IsCancellationRequested) { /* per-request timeout */ }
-
-            try { await Task.Delay(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false); }
-            catch (OperationCanceledException) { throw; }
-        }
-        return $"api did not return 200 at {url} within the health-check budget";
-    }
+        => ApiReadinessProbe.TryWaitUntilAsync(apiHttpPort, deadline, logger, ct);
 
     private static async Task OnHealthCheckFailedAsync(
         BootstrapOptions options, BootstrapConfig config, string composeFile,
@@ -456,16 +427,7 @@ internal static class UpdateImagesPhase
         // Best-effort: dump the failing tier's logs so operators have a diagnosis without
         // having to shell into the box.
         var suspects = new[] { ComposeServices.Postgres, ComposeServices.ScyllaSingle, ComposeServices.ScyllaNam, ComposeServices.Cassandra, ComposeServices.InterfoldApi, ComposeServices.OctoconWeb };
-        foreach (var svc in suspects)
-        {
-            var logsArgs = BuildComposeLogsArgs(composeFile, svc, 200);
-            var logs = await ProcessRunner.RunAsync("docker", logsArgs, ct: ct).ConfigureAwait(false);
-            if (logs.ExitCode == 0 && !string.IsNullOrWhiteSpace(logs.StdOut))
-            {
-                logger.Warn($"--- {svc} logs (last 200 lines) ---");
-                Console.Error.WriteLine(logs.StdOut);
-            }
-        }
+        await ComposeLogDumper.DumpAsync(composeFile, suspects, tailLines: 200, logger, ct).ConfigureAwait(false);
 
         // Compose down: leave the stack in a clean stopped state so a subsequent
         // restore or re-attempt doesn't fight with half-recreated containers.
@@ -526,46 +488,12 @@ internal static class UpdateImagesPhase
         BootstrapOptions options, BootstrapConfig config)
     {
         var backupRoot = BackupPhase.ResolveBackupRoot(options, config);
-        var pg = LatestFile(Path.Combine(backupRoot, BackupStoragePaths.PostgresDir), BackupStoragePaths.PostgresArchivePattern);
-        var sc = LatestFile(Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir), BackupStoragePaths.ScyllaArchivePattern);
+        var pg = BackupStoragePaths.LatestFile(Path.Combine(backupRoot, BackupStoragePaths.PostgresDir), BackupStoragePaths.PostgresArchivePattern);
+        var sc = BackupStoragePaths.LatestFile(Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir), BackupStoragePaths.ScyllaArchivePattern);
         if (pg is null || sc is null) return null;
         return (pg.FullName, sc.FullName);
     }
 
-    private static FileInfo? LatestFile(string dir, string pattern)
-    {
-        if (!Directory.Exists(dir)) return null;
-        return new DirectoryInfo(dir)
-            .EnumerateFiles(pattern, SearchOption.TopDirectoryOnly)
-            .OrderByDescending(f => f.LastWriteTimeUtc)
-            .FirstOrDefault();
     }
-
-    private static void PruneOldArchives(string backupRoot, int retainCount, PhaseLogger logger)
-    {
-        // Reuses BackupRetention.Prune (pure logic, unit-tested separately in
-        // BackupRetentionTests). We prune both component directories because the caller
-        // just wrote to both.
-        foreach (var (component, pattern) in new[] { (BackupStoragePaths.PostgresDir, BackupStoragePaths.PostgresArchivePattern), (BackupStoragePaths.ScyllaDir, BackupStoragePaths.ScyllaArchivePattern) })
-        {
-            var componentDir = Path.Combine(backupRoot, component);
-            if (!Directory.Exists(componentDir)) continue;
-            var files = new DirectoryInfo(componentDir).EnumerateFiles(pattern, SearchOption.TopDirectoryOnly);
-            foreach (var stale in BackupRetention.Prune(files, retainCount))
-            {
-                try
-                {
-                    stale.Delete();
-                    logger.Info($"    {component}: pruned {stale.Name}");
-                }
-                catch (Exception ex)
-                {
-                    logger.Warn($"failed to delete {stale.FullName}: {ex.Message}");
-                }
-            }
-        }
-    }
-
-}
 
 

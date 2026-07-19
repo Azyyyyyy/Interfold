@@ -52,18 +52,7 @@ internal static class RestorePhase
             .LoadRequiredConfigAsync(options, logger, Phase, "restore", ct)
             .ConfigureAwait(false);
 
-        GeneratedSecrets secrets;
-        try
-        {
-            secrets = SecretsPhase.LoadExisting(options);
-        }
-        catch (InvalidOperationException ex)
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.MissingSecrets);
-            throw new InvalidOperationException(
-                $"Restore requires the admin credentials in secrets/secrets.json under {options.OutputDir}. " +
-                "Run `bootstrap` first to generate them.", ex);
-        }
+        var secrets = PhaseArtifactLoader.LoadRequiredSecretsOrFail(options, logger, Phase, "Restore");
 
         var composeFile = PhaseArtifactLoader.RequireComposeFileOrFail(options, logger, Phase);
 
@@ -134,12 +123,12 @@ internal static class RestorePhase
         {
             if (postgres is null)
             {
-                postgres = ResolveLatestArchive(Path.Combine(backupRoot, BackupStoragePaths.PostgresDir), BackupStoragePaths.PostgresArchivePattern)?.FullName;
+                postgres = BackupStoragePaths.LatestFile(Path.Combine(backupRoot, BackupStoragePaths.PostgresDir), BackupStoragePaths.PostgresArchivePattern)?.FullName;
                 if (postgres is not null) logger.Info($"    resolved --restore-latest postgres: {postgres}");
             }
             if (scylla is null)
             {
-                scylla = ResolveLatestArchive(Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir), BackupStoragePaths.ScyllaArchivePattern)?.FullName;
+                scylla = BackupStoragePaths.LatestFile(Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir), BackupStoragePaths.ScyllaArchivePattern)?.FullName;
                 if (scylla is not null) logger.Info($"    resolved --restore-latest scylla: {scylla}");
             }
         }
@@ -153,21 +142,6 @@ internal static class RestorePhase
             throw new InvalidOperationException($"Scylla archive not found: {scylla}");
         }
         return (postgres, scylla);
-    }
-
-    /// <summary>
-    /// Picks the newest file matching <paramref name="pattern"/> under
-    /// <paramref name="componentDir"/> by mtime. Returns null if the directory doesn't
-    /// exist or contains no matching files. Internal so unit tests can drive it
-    /// without staging real backups.
-    /// </summary>
-    internal static FileInfo? ResolveLatestArchive(string componentDir, string pattern)
-    {
-        if (!Directory.Exists(componentDir)) return null;
-        return new DirectoryInfo(componentDir)
-            .EnumerateFiles(pattern, SearchOption.TopDirectoryOnly)
-            .OrderByDescending(f => f.LastWriteTimeUtc)
-            .FirstOrDefault();
     }
 
     /// <summary>
@@ -205,14 +179,7 @@ internal static class RestorePhase
     /// </summary>
     internal static IReadOnlyList<string> BuildContainerCpWriteArgs(string containerId, string dataPath)
     {
-        if (string.IsNullOrWhiteSpace(containerId))
-        {
-            throw new ArgumentException("containerId must be non-empty.", nameof(containerId));
-        }
-        if (string.IsNullOrWhiteSpace(dataPath))
-        {
-            throw new ArgumentException("dataPath must be non-empty.", nameof(dataPath));
-        }
+        DockerCompose.ValidateContainerCpParams(containerId, dataPath);
         return ["cp", "-", $"{containerId}:{dataPath}"];
     }
 
@@ -220,14 +187,7 @@ internal static class RestorePhase
         string composeFile, string archivePath, BootstrapConfig config, GeneratedSecrets secrets,
         PhaseLogger logger, CancellationToken ct)
     {
-        var adminUser = $"{secrets.PostgresUser}_admin";
-        var adminPassword = secrets.PostgresAdminPassword;
-        if (string.IsNullOrEmpty(adminPassword))
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.MissingAdminPassword);
-            throw new InvalidOperationException(
-                "secrets/secrets.json does not contain a PostgresAdminPassword. Re-run `bootstrap` to regenerate.");
-        }
+        var (adminUser, adminPassword) = PhaseArtifactLoader.RequireAdminPassword(secrets, logger, Phase);
 
         // Make sure the postgres container is up before we try to exec into it — an
         // update-images rollback path may have left the whole stack stopped. Idempotent.
@@ -277,7 +237,7 @@ internal static class RestorePhase
         // container in the stopped state (docker cp is happy with that), but if the
         // container had never been created (fresh box) we bring it up first, then stop
         // it, so the cp target exists.
-        var containerId = await ResolveContainerIdAsync(composeFile, service, ct).ConfigureAwait(false);
+        var containerId = await DockerCompose.ResolveContainerIdAsync(composeFile, service, includeStopped: true, ct: ct).ConfigureAwait(false);
         if (string.IsNullOrEmpty(containerId))
         {
             // Create the container without starting it. `compose up --no-start` does exactly
@@ -290,7 +250,7 @@ internal static class RestorePhase
                 throw new InvalidOperationException(
                     $"docker compose up --no-start {service} exited {create.ExitCode}: {create.StdErr.Trim()}");
             }
-            containerId = await ResolveContainerIdAsync(composeFile, service, ct).ConfigureAwait(false);
+            containerId = await DockerCompose.ResolveContainerIdAsync(composeFile, service, includeStopped: true, ct: ct).ConfigureAwait(false);
         }
         if (string.IsNullOrEmpty(containerId))
         {
@@ -353,16 +313,6 @@ internal static class RestorePhase
         }
 
         logger.Info("    scylla: restore complete");
-    }
-
-    private static async Task<string> ResolveContainerIdAsync(
-        string composeFile, string service, CancellationToken ct)
-    {
-        var run = await DockerCompose.PsAsync(composeFile, service, includeStopped: true, ct: ct).ConfigureAwait(false);
-        if (run.ExitCode != 0 || string.IsNullOrWhiteSpace(run.StdOut)) return string.Empty;
-        return run.StdOut
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault() ?? string.Empty;
     }
 
     private static Task WaitForPostgresAsync(

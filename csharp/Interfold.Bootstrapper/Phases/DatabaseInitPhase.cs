@@ -136,18 +136,7 @@ internal static class DatabaseInitPhase
     }
 
     private static string ResolveScyllaServiceName(BootstrapConfig config)
-    {
-        // 'cassandra' mode uses an entirely different image / container alias (see
-        // InterfoldAppHost Cassandra branch). Multi-region scylla deployments name the
-        // first node 'scylla-nam'. We always target one seed node — all admin operations
-        // propagate via CQL gossip.
-        return config.DatabaseMode switch
-        {
-            DatabaseMode.Cassandra => ComposeServices.Cassandra,
-            DatabaseMode.Multi => ComposeServices.ScyllaNam,
-            _ => ComposeServices.ScyllaSingle,
-        };
-    }
+        => BackupPhase.ResolveScyllaSeed(config).Service;
 
     private static int ResolveScyllaPort()
     {

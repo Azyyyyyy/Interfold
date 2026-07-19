@@ -70,20 +70,7 @@ internal static class BackupPhase
             .LoadRequiredConfigAsync(options, logger, Phase, "Backup", ct)
             .ConfigureAwait(false);
 
-        GeneratedSecrets secrets;
-        try
-        {
-            secrets = SecretsPhase.LoadExisting(options);
-        }
-        catch (InvalidOperationException ex)
-        {
-            // Re-throw with a phase-specific message; the original carries the secrets-phase
-            // wording which is misleading in a backup context.
-            logger.PhaseFail(Phase, PhaseFailureReasons.MissingSecrets);
-            throw new InvalidOperationException(
-                $"Backup requires the admin credentials in secrets/secrets.json under {options.OutputDir}. " +
-                "Run `bootstrap` first to generate them.", ex);
-        }
+        var secrets = PhaseArtifactLoader.LoadRequiredSecretsOrFail(options, logger, Phase, "Backup");
 
         var composeFile = PhaseArtifactLoader.RequireComposeFileOrFail(options, logger, Phase);
 
@@ -234,14 +221,7 @@ internal static class BackupPhase
     /// </summary>
     internal static IReadOnlyList<string> BuildContainerCpArgs(string containerId, string dataPath)
     {
-        if (string.IsNullOrWhiteSpace(containerId))
-        {
-            throw new ArgumentException("containerId must be non-empty.", nameof(containerId));
-        }
-        if (string.IsNullOrWhiteSpace(dataPath))
-        {
-            throw new ArgumentException("dataPath must be non-empty.", nameof(dataPath));
-        }
+        DockerCompose.ValidateContainerCpParams(containerId, dataPath);
         return ["cp", $"{containerId}:{dataPath}", "-"];
     }
 
@@ -258,15 +238,7 @@ internal static class BackupPhase
         // role — pg_dump needs broader privileges to capture every object regardless of
         // ownership, and the admin role is exactly what `DatabaseInitPhase.BuildPostgresSeedOptions`
         // already provisioned for that purpose (see csharp/Interfold.Bootstrapper/Phases/DatabaseInitPhase.cs).
-        var adminUser = $"{secrets.PostgresUser}_admin";
-        var adminPassword = secrets.PostgresAdminPassword;
-        if (string.IsNullOrEmpty(adminPassword))
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.MissingAdminPassword);
-            throw new InvalidOperationException(
-                "secrets/secrets.json does not contain a PostgresAdminPassword. " +
-                "Either it predates DatabaseInitPhase or it was hand-edited; re-run `bootstrap`.");
-        }
+        var (adminUser, adminPassword) = PhaseArtifactLoader.RequireAdminPassword(secrets, logger, Phase);
 
         logger.Info($"    postgres: pg_dump -> {dumpPath}");
         var argv = BuildPostgresDumpArgs(composeFile, adminUser, config.PostgresDatabase);
@@ -321,18 +293,14 @@ internal static class BackupPhase
             // resolve the seed's runtime id first. `docker compose ps -q <service>` prints
             // one id per line; take the first (there is only ever one for the seed
             // service in the compose graph the AppHost emits).
-            var resolve = await DockerCompose.PsAsync(composeFile, service, ct: ct).ConfigureAwait(false);
-            if (resolve.ExitCode != 0 || string.IsNullOrWhiteSpace(resolve.StdOut))
+            var containerId = await DockerCompose.ResolveContainerIdAsync(composeFile, service, ct: ct).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(containerId))
             {
                 logger.PhaseFail(Phase, PhaseFailureReasons.ResolveScyllaContainer);
                 throw new InvalidOperationException(
                     $"Failed to resolve container id for compose service '{service}'. " +
-                    $"Exit={resolve.ExitCode}, stderr='{resolve.StdErr.Trim()}'. " +
                     "Is the stack running? Try `docker compose ps` under the output directory.");
             }
-            var containerId = resolve.StdOut
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .First();
 
             logger.Info($"    scylla: docker cp {service}({containerId[..Math.Min(12, containerId.Length)]}):{dataPath} -> {archivePath}");
 
@@ -373,7 +341,7 @@ internal static class BackupPhase
         PruneComponent(componentDir, BackupDatabaseComponent.Scylla, retainCount, logger);
     }
 
-    private static void PruneComponent(string componentDir, BackupDatabaseComponent component, int retainCount, PhaseLogger logger)
+    internal static void PruneComponent(string componentDir, BackupDatabaseComponent component, int retainCount, PhaseLogger logger)
     {
         var pattern = component switch
         {

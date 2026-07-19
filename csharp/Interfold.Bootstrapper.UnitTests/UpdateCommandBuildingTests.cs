@@ -31,24 +31,6 @@ public sealed class UpdateCommandBuildingTests
     }
 
     [Test]
-    public async Task ComposeLogsClampsTailToOperatorValue()
-    {
-        // The failure-diagnosis path dumps the last N lines of a failing container's
-        // logs. N is the caller's choice — we default to 200 in UpdateImagesPhase but
-        // the argv builder itself must respect whatever's handed in.
-        var args = UpdateImagesPhase.BuildComposeLogsArgs(
-            composeFile: "/srv/deploy/docker-compose.yaml",
-            service: "interfold-api",
-            tail: 50);
-
-        await Assert.That(args).IsEquivalentTo(new[]
-        {
-            "compose", "-f", "/srv/deploy/docker-compose.yaml",
-            "logs", "--tail", "50", "interfold-api",
-        });
-    }
-
-    [Test]
     public async Task ResolveServiceWhitelistCliBeatsConfig()
     {
         // CLI --service wins over config.update.services. The operator's ad-hoc override

@@ -98,7 +98,7 @@ public sealed class RestoreCommandBuildingTests
         File.SetLastWriteTimeUtc(middle, new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc));
         File.SetLastWriteTimeUtc(newest, new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc));
 
-        var picked = RestorePhase.ResolveLatestArchive(tmpDir, "*.dump");
+        var picked = BackupStoragePaths.LatestFile(tmpDir, "*.dump");
 
         await Assert.That(picked).IsNotNull();
         await Assert.That(picked!.FullName).IsEqualTo(newest);
@@ -110,7 +110,7 @@ public sealed class RestoreCommandBuildingTests
         // Fresh installs will not have a {backupRoot}/scylla/ before the first backup.
         // The resolver must return null in that case, not throw — the caller checks for
         // null and surfaces "no archive found" in the operator-facing error.
-        var picked = RestorePhase.ResolveLatestArchive(
+        var picked = BackupStoragePaths.LatestFile(
             Path.Combine(Path.GetTempPath(), "does-not-exist-" + Guid.NewGuid().ToString("N")),
             "*.dump");
 
@@ -125,7 +125,7 @@ public sealed class RestoreCommandBuildingTests
         var tmpDir = scratch.Path;
         await File.WriteAllTextAsync(Path.Combine(tmpDir, "readme.txt"), "");
 
-        var picked = RestorePhase.ResolveLatestArchive(tmpDir, "*.dump");
+        var picked = BackupStoragePaths.LatestFile(tmpDir, "*.dump");
 
         await Assert.That(picked).IsNull();
     }
