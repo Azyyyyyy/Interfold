@@ -256,8 +256,7 @@ internal static class RestorePhase
         // exits non-zero, which we downgrade to a warning.
         foreach (var client in ScyllaRestoreClientServices)
         {
-            var stop = await ProcessRunner.RunAsync("docker",
-                ["compose", "-f", composeFile, "stop", client], ct: ct).ConfigureAwait(false);
+            var stop = await DockerCompose.StopAsync(composeFile, [client], ct: ct).ConfigureAwait(false);
             if (stop.ExitCode != 0)
             {
                 logger.Warn($"docker compose stop {client} exited {stop.ExitCode} (missing service?): {stop.StdErr.Trim()}");
@@ -266,8 +265,7 @@ internal static class RestorePhase
 
         // Stop the seed so the file locks release before we overwrite the data volume.
         logger.Info($"    scylla: stopping {service}");
-        var stopScylla = await ProcessRunner.RunAsync("docker",
-            ["compose", "-f", composeFile, "stop", service], ct: ct).ConfigureAwait(false);
+        var stopScylla = await DockerCompose.StopAsync(composeFile, [service], ct: ct).ConfigureAwait(false);
         if (stopScylla.ExitCode != 0)
         {
             logger.PhaseFail(Phase, PhaseFailureReasons.StopScylla);
@@ -335,8 +333,7 @@ internal static class RestorePhase
         // Bring the seed back. It re-hydrates against the restored SSTables during
         // its normal startup path; we don't have to reload anything explicitly.
         logger.Info($"    scylla: starting {service}");
-        var startScylla = await ProcessRunner.RunAsync("docker",
-            ["compose", "-f", composeFile, "start", service], ct: ct).ConfigureAwait(false);
+        var startScylla = await DockerCompose.StartAsync(composeFile, [service], ct: ct).ConfigureAwait(false);
         if (startScylla.ExitCode != 0)
         {
             logger.PhaseFail(Phase, PhaseFailureReasons.StartScylla);
@@ -348,8 +345,7 @@ internal static class RestorePhase
         // hits a live upstream), then web.
         foreach (var client in ScyllaRestoreClientServices)
         {
-            var start = await ProcessRunner.RunAsync("docker",
-                ["compose", "-f", composeFile, "start", client], ct: ct).ConfigureAwait(false);
+            var start = await DockerCompose.StartAsync(composeFile, [client], ct: ct).ConfigureAwait(false);
             if (start.ExitCode != 0)
             {
                 logger.Warn($"docker compose start {client} exited {start.ExitCode} (missing service?): {start.StdErr.Trim()}");
@@ -362,8 +358,7 @@ internal static class RestorePhase
     private static async Task<string> ResolveContainerIdAsync(
         string composeFile, string service, CancellationToken ct)
     {
-        var run = await ProcessRunner.RunAsync("docker",
-            ["compose", "-f", composeFile, "ps", "-aq", service], ct: ct).ConfigureAwait(false);
+        var run = await DockerCompose.PsAsync(composeFile, service, includeStopped: true, ct: ct).ConfigureAwait(false);
         if (run.ExitCode != 0 || string.IsNullOrWhiteSpace(run.StdOut)) return string.Empty;
         return run.StdOut
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

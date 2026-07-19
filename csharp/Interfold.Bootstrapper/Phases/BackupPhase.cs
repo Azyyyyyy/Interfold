@@ -194,16 +194,16 @@ internal static class BackupPhase
     }
 
     /// <summary>
-    /// Builds the docker-compose exec argv for the Scylla/Cassandra nodetool snapshot
-    /// bracket. Returns three argv lists (snapshot, resolve-container, clearsnapshot) so
-    /// the caller can drive each step in sequence. The middle list resolves the seed
-    /// node's container id (via <c>docker compose ps -q</c>) so the caller can then
-    /// <c>docker cp</c> the snapshot contents out — the archive itself is produced
-    /// host-side (see <see cref="BuildContainerCpArgs"/>) because the
-    /// <c>scylladb/scylla</c> image ships no <c>tar</c> binary.
+    /// Builds the docker-compose exec argv pair for the Scylla/Cassandra nodetool snapshot
+    /// bracket. Returns <c>(Snapshot, Clear)</c>: nodetool snapshot + clearsnapshot argv,
+    /// each shaped for direct dispatch through <see cref="ProcessRunner"/>. The seed's
+    /// runtime container id is resolved via <see cref="DockerCompose.PsAsync"/> at the
+    /// call site (used by the intervening <c>docker cp</c> step whose argv comes from
+    /// <see cref="BuildContainerCpArgs"/> — <c>scylladb/scylla</c> ships no <c>tar</c>,
+    /// so the archive is produced host-side).
     /// Internal so unit tests can assert the argv shape without invoking docker.
     /// </summary>
-    internal static (IReadOnlyList<string> Snapshot, IReadOnlyList<string> ResolveContainer, IReadOnlyList<string> Clear)
+    internal static (IReadOnlyList<string> Snapshot, IReadOnlyList<string> Clear)
         BuildScyllaSnapshotArgs(string composeFile, string service, string dataPath, string tag)
     {
         _ = dataPath; // consumed by BuildContainerCpArgs downstream; kept in the signature so
@@ -215,20 +215,13 @@ internal static class BackupPhase
             "exec", "-T", service,
             "nodetool", "snapshot", "-t", tag,
         };
-        // Container id is a runtime handle (docker assigns it when compose brings the
-        // service up), so we can't bake it into an argv template — this step resolves it.
-        var resolveContainer = new[]
-        {
-            "compose", "-f", composeFile,
-            "ps", "-q", service,
-        };
         var clear = new[]
         {
             "compose", "-f", composeFile,
             "exec", "-T", service,
             "nodetool", "clearsnapshot", "-t", tag,
         };
-        return (snapshot, resolveContainer, clear);
+        return (snapshot, clear);
     }
 
     /// <summary>
@@ -310,7 +303,7 @@ internal static class BackupPhase
         // run. The tag is purely a name on disk inside the container.
         var tag = $"interfold-backup-{timestamp}";
 
-        var (snapshotArgs, resolveContainerArgs, clearArgs) =
+        var (snapshotArgs, clearArgs) =
             BuildScyllaSnapshotArgs(composeFile, service, dataPath, tag);
 
         logger.Info($"    scylla: nodetool snapshot -t {tag} (service={service})");
@@ -328,7 +321,7 @@ internal static class BackupPhase
             // resolve the seed's runtime id first. `docker compose ps -q <service>` prints
             // one id per line; take the first (there is only ever one for the seed
             // service in the compose graph the AppHost emits).
-            var resolve = await ProcessRunner.RunAsync("docker", resolveContainerArgs, ct: ct).ConfigureAwait(false);
+            var resolve = await DockerCompose.PsAsync(composeFile, service, ct: ct).ConfigureAwait(false);
             if (resolve.ExitCode != 0 || string.IsNullOrWhiteSpace(resolve.StdOut))
             {
                 logger.PhaseFail(Phase, PhaseFailureReasons.ResolveScyllaContainer);

@@ -495,8 +495,7 @@ internal static class UpdateImagesPhase
         // Compose down: leave the stack in a clean stopped state so a subsequent
         // restore or re-attempt doesn't fight with half-recreated containers.
         logger.Info("    docker compose down ...");
-        var down = await ProcessRunner.RunAsync("docker",
-            ["compose", "-f", composeFile, "down"], ct: ct).ConfigureAwait(false);
+        var down = await DockerCompose.DownAsync(composeFile, ct: ct).ConfigureAwait(false);
         if (down.ExitCode != 0)
         {
             logger.Warn($"docker compose down exited {down.ExitCode}: {down.StdErr.Trim()}");

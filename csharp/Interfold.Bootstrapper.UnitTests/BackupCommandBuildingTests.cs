@@ -63,7 +63,7 @@ public sealed class BackupCommandBuildingTests
     [Test]
     public async Task ScyllaSnapshotArgsTargetCorrectService()
     {
-        var (snap, resolveContainer, clear) = BackupPhase.BuildScyllaSnapshotArgs(
+        var (snap, clear) = BackupPhase.BuildScyllaSnapshotArgs(
             composeFile: "/srv/deploy/docker-compose.yaml",
             service: "scylla",
             dataPath: ContainerMountPaths.ScyllaData,
@@ -76,16 +76,11 @@ public sealed class BackupCommandBuildingTests
             "nodetool", "snapshot", "-t", "interfold-backup-20260301-120000",
         });
 
-        // ResolveContainer argv resolves the seed's runtime container id via `docker compose
-        // ps -q`. The archive itself is streamed out of the container by the host-side
-        // `docker cp` step (see BuildContainerCpArgs) because the scylladb/scylla image
-        // ships no `tar` binary — an in-container tar exits 127.
-        await Assert.That(resolveContainer).IsEquivalentTo(new[]
-        {
-            "compose", "-f", "/srv/deploy/docker-compose.yaml",
-            "ps", "-q", "scylla",
-        });
-
+        // The middle "resolve container id" step used to be part of this tuple; it now
+        // lives at the call site via DockerCompose.PsAsync (see R2-C11). The archive
+        // itself is still streamed out of the container by the host-side `docker cp`
+        // step (see BuildContainerCpArgs) because the scylladb/scylla image ships no
+        // `tar` binary — an in-container tar exits 127.
         await Assert.That(clear).IsEquivalentTo(new[]
         {
             "compose", "-f", "/srv/deploy/docker-compose.yaml",
