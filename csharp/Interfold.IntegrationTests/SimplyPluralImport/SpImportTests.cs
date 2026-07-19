@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Web;
 using Interfold.Api.Services;
+using Interfold.Api.SimplyPlural;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
@@ -1159,7 +1160,10 @@ public sealed class SpImportTests : BaseEndpointTest
         services.AddHttpClient(HttpClientNames.SimplyPlural)
             .ConfigurePrimaryHttpMessageHandler(() => stub);
 
-        services.AddSingleton<ISimplyPluralImportService, SimplyPluralImportService>();
+        // -Core overload skips the async IImportJobRunner queue consumer that the full
+        // AddSimplyPluralImport extension registers (Program.cs uses that). Tests drive
+        // ImportAsync directly so the runner would be dead weight.
+        services.AddSimplyPluralImportCore();
 
         await using var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
