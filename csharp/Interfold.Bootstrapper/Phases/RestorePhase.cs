@@ -231,7 +231,7 @@ internal static class RestorePhase
 
         // Make sure the postgres container is up before we try to exec into it — an
         // update-images rollback path may have left the whole stack stopped. Idempotent.
-        await ComposeUpAsync(composeFile, [ComposeServices.Postgres], logger, ct).ConfigureAwait(false);
+        await DockerCompose.UpCheckedAsync(composeFile, [ComposeServices.Postgres], logger, ct).ConfigureAwait(false);
         await WaitForPostgresAsync(composeFile, logger, ct).ConfigureAwait(false);
 
         logger.Info($"    postgres: pg_restore --clean --if-exists <- {archivePath}");
@@ -363,18 +363,6 @@ internal static class RestorePhase
         return run.StdOut
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .FirstOrDefault() ?? string.Empty;
-    }
-
-    private static async Task ComposeUpAsync(
-        string composeFile, IReadOnlyList<string> services, PhaseLogger logger, CancellationToken ct)
-    {
-        logger.Info($"    docker compose up -d {string.Join(' ', services)}");
-        var run = await Util.DockerCompose.UpAsync(composeFile, services, detach: true, build: false, ct: ct).ConfigureAwait(false);
-        if (run.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                $"docker compose up -d {string.Join(' ', services)} exited {run.ExitCode}: {run.StdErr.Trim()}");
-        }
     }
 
     private static Task WaitForPostgresAsync(

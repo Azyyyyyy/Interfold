@@ -60,7 +60,7 @@ internal static class DatabaseInitPhase
 
         // Bring up only the stateful services first. We deliberately don't start the API or
         // any other services so the API doesn't race against an unconfigured Postgres.
-        await DockerComposeStartAsync(composeFile, [PostgresService, scyllaService], logger, ct).ConfigureAwait(false);
+        await Util.DockerCompose.UpCheckedAsync(composeFile, [PostgresService, scyllaService], logger, ct).ConfigureAwait(false);
 
         var seederLogger = new PhaseLoggerAdapter(logger);
         var pgExecutor = new ComposeExecPostgresExecutor(composeFile, PostgresService, seederLogger);
@@ -160,20 +160,6 @@ internal static class DatabaseInitPhase
     }
 
     // -------- Bring-up --------
-
-    private static async Task DockerComposeStartAsync(
-        string composeFile, IReadOnlyList<string> services, PhaseLogger logger, CancellationToken ct)
-    {
-        logger.Info($"    docker compose up -d {string.Join(' ', services)}");
-        var run = await Util.DockerCompose.UpAsync(composeFile, services, detach: true, build: false, ct: ct).ConfigureAwait(false);
-        if (run.ExitCode != 0)
-        {
-            logger.Error(run.StdErr.Trim());
-            throw new InvalidOperationException(
-                $"docker compose up -d for [{string.Join(", ", services)}] exited with code {run.ExitCode}.");
-        }
-        if (!string.IsNullOrWhiteSpace(run.StdOut)) logger.Info(run.StdOut.Trim());
-    }
 
     // -------- Wait loops (transport-specific) --------
 

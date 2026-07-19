@@ -147,15 +147,9 @@ internal static class UpdateImagesPhase
         // hatch for operators who explicitly disabled RecreateOnUpdate.
         if (recreate)
         {
-            logger.Info("    docker compose up -d ...");
-            var up = await Util.DockerCompose.UpAsync(composeFile, services, detach: true, build: false, ct: ct).ConfigureAwait(false);
-            if (up.ExitCode != 0)
-            {
-                logger.PhaseFail(Phase, PhaseFailureReasons.UpFailed);
-                throw new InvalidOperationException(
-                    $"docker compose up -d exited {up.ExitCode}: {up.StdErr.Trim()}");
-            }
-            if (!string.IsNullOrWhiteSpace(up.StdOut)) logger.Info(up.StdOut.Trim());
+            await Util.DockerCompose.UpCheckedAsync(
+                composeFile, services, logger, ct,
+                phase: Phase, phaseFailReason: PhaseFailureReasons.UpFailed).ConfigureAwait(false);
         }
         else
         {

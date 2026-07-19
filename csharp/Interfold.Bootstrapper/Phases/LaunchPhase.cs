@@ -32,7 +32,7 @@ internal static class LaunchPhase
             await EnsureBuiltAsync(logger, ct).ConfigureAwait(false);
         }
 
-        await DockerComposeUpAsync(composeFile, logger, ct).ConfigureAwait(false);
+        await Util.DockerCompose.UpCheckedAsync(composeFile, services: null, logger, ct).ConfigureAwait(false);
 
         try
         {
@@ -79,18 +79,6 @@ internal static class LaunchPhase
         {
             return false;
         }
-    }
-
-    private static async Task DockerComposeUpAsync(string composeFile, PhaseLogger logger, CancellationToken ct)
-    {
-        logger.Info("    docker compose up -d ...");
-        var up = await Util.DockerCompose.UpAsync(composeFile, detach: true, build: false, ct: ct).ConfigureAwait(false);
-        if (up.ExitCode != 0)
-        {
-            logger.Error(up.StdErr.Trim());
-            throw new InvalidOperationException($"docker compose up exited with code {up.ExitCode}.");
-        }
-        if (!string.IsNullOrWhiteSpace(up.StdOut)) logger.Info(up.StdOut.Trim());
     }
 
     private static async Task WaitForApiHealthyAsync(int apiHttpPort, PhaseLogger logger, CancellationToken ct)
