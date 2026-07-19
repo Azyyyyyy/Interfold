@@ -9,6 +9,8 @@ namespace Interfold.Infrastructure.Scylla;
 
 public record ScyllaScope(ISession Session, string Keyspace, string NormalizedSystemId);
 
+public record ScyllaGlobalScope(ISession Session, string Keyspace);
+
 public interface IScyllaScopeResolver
 {
     Task<ScyllaScope> ResolveAsync(SystemId systemId, CancellationToken cancellationToken = default);
@@ -22,7 +24,16 @@ public interface IScyllaScopeResolver
         SystemId systemId,
         Func<ScyllaScope, Task<T>> operation,
         CancellationToken cancellationToken = default);
+
+    Task ExecuteGlobalAsync(
+        Func<ScyllaGlobalScope, Task> operation,
+        CancellationToken cancellationToken = default);
+
+    Task<T> ExecuteGlobalAsync<T>(
+        Func<ScyllaGlobalScope, Task<T>> operation,
+        CancellationToken cancellationToken = default);
 }
+
 
 public sealed class ScyllaScopeResolver : IScyllaScopeResolver
 {
@@ -72,6 +83,32 @@ public sealed class ScyllaScopeResolver : IScyllaScopeResolver
         return DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
             var scope = await ResolveAsync(systemId, cancellationToken);
+            return await operation(scope);
+        }, _options, cancellationToken, _logger);
+    }
+
+    public Task ExecuteGlobalAsync(
+        Func<ScyllaGlobalScope, Task> operation,
+        CancellationToken cancellationToken = default)
+    {
+        return DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        {
+            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
+            var keyspace = _keyspaceResolver.ResolveGlobalKeyspace();
+            var scope = new ScyllaGlobalScope(session, keyspace);
+            await operation(scope);
+        }, _options, cancellationToken, _logger);
+    }
+
+    public Task<T> ExecuteGlobalAsync<T>(
+        Func<ScyllaGlobalScope, Task<T>> operation,
+        CancellationToken cancellationToken = default)
+    {
+        return DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        {
+            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
+            var keyspace = _keyspaceResolver.ResolveGlobalKeyspace();
+            var scope = new ScyllaGlobalScope(session, keyspace);
             return await operation(scope);
         }, _options, cancellationToken, _logger);
     }
