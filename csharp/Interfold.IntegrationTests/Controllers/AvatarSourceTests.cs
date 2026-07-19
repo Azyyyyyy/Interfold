@@ -5,7 +5,6 @@ using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -20,10 +19,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
     [Test]
     public async Task Api_SettingsAvatarByUrl_PersistsAndExposesExternalSource()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principalId = $"sys-extavatar-{Guid.NewGuid():N}"[..24];
         await EnsureUserExistsAsync(client, principalId);
@@ -48,10 +44,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
     [Test]
     public async Task Api_AlterAvatarByUrl_PersistsAndExposesExternalSource()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principalId = $"sys-altext-{Guid.NewGuid():N}"[..20];
 
@@ -94,10 +87,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
     [Test]
     public async Task Api_SettingsAvatarByUrl_RejectsNonHttpUrl()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principalId = $"sys-bad-{Guid.NewGuid():N}"[..16];
         await EnsureUserExistsAsync(client, principalId);
@@ -117,10 +107,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
     [Test]
     public async Task Api_AlterAvatarByUrl_RejectsRelativeUrl()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principalId = $"sys-altrel-{Guid.NewGuid():N}"[..20];
 

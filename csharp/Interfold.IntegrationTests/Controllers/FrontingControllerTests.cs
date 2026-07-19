@@ -2,7 +2,6 @@ using System.Net;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -14,10 +13,7 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     [Test]
     public async Task FrontStart_LegacyIdField_Returns201()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-front-legacy-id";
         var alterId = await CreateAlterAsync(client, principal, "LegacyFrontAlter");
@@ -87,10 +83,7 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     [Test]
     public async Task FrontSet_FromNoActiveFronters_StartsTargetAsSoleFronter()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = $"front-set-empty-{Guid.NewGuid():N}"[..32];
         var target = await CreateAlterAsync(client, principal, "TargetAlter");
@@ -109,10 +102,7 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         // `fronting:already_fronting` and must not create a new front row (front_id is
         // the stable client-facing handle into the active row; rewriting it on every
         // idempotent set call would break clients that pinned that id).
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = $"front-set-target-only-{Guid.NewGuid():N}"[..32];
         var target = await CreateAlterAsync(client, principal, "TargetAlter");
@@ -137,10 +127,7 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     [Test]
     public async Task FrontSet_WhenOtherAltersAreFronting_EndsThemAndStartsTarget()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = $"front-set-others-only-{Guid.NewGuid():N}"[..32];
         var other = await CreateAlterAsync(client, principal, "OtherAlter");
@@ -164,10 +151,7 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         // The crucial promote-among-many case. Pre-fix this rejected with
         // `fronting:already_fronting`; post-fix it must end the others and keep the
         // target's existing front row intact (preserving front_id and start_time).
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = $"front-set-mixed-{Guid.NewGuid():N}"[..32];
         var target = await CreateAlterAsync(client, principal, "TargetAlter");

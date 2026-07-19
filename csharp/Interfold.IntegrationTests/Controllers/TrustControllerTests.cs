@@ -3,7 +3,6 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -203,10 +202,7 @@ public class TrustControllerTests : BaseEndpointTest
                 .WithConfiguration("OCTOCON_TRUST_ROOT_CA_PATH", certPath)
                 .WithConfiguration("OCTOCON_TRUST_ROOT_CA_FINGERPRINT_PATH", fingerprintPath)
                 .WithConfiguration("HTTPS_PORT", "443");
-            using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
-            {
-                AllowAutoRedirect = false,
-            });
+            using var client = TestClient.NoRedirect(factory);
 
             foreach (var path in new[]
                      {

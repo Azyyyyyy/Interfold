@@ -112,6 +112,20 @@ internal static class TestJson
     }
 
     /// <summary>
+    /// Sends an authenticated DELETE request under the specified principal's auth.
+    /// </summary>
+    public static async Task<HttpResponseMessage> SendAuthedDeleteAsync(
+        this HttpClient client,
+        string path,
+        string principal,
+        CancellationToken ct = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Delete, path);
+        BaseEndpointTest.AttachPrincipalAuth(request, client, principal);
+        return await client.SendAsync(request, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Sends a JSON body without any auth attachment. Rare — mostly for negative tests that
     /// need to prove an anonymous request 401s. Routes through <see cref="Options"/> for
     /// snake_case consistency.

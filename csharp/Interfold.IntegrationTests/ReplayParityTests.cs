@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Mvc.Testing;
 using System.Text;
 using System.Text.Json;
 using Interfold.IntegrationTests.Models;
@@ -55,10 +54,7 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
             await Assert.That(trace.Steps.Count > 0).IsTrue();
         }
 
-        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(factory);
 
         // Build a per-fixture identity namespace so the same trace fixture can run
         // independently across the InMemory / Scylla / Cassandra factory variants.

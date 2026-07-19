@@ -2,7 +2,6 @@ using System.Net;
 using Interfold.Api.Models;
 using Interfold.Contracts.Enums;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -79,10 +78,7 @@ public sealed class ClusterRoleAndOAuthRegistrationTests : BaseEndpointTest
         using var factory = new InterfoldWebApplicationFactory("inmemory")
             .WithConfiguration("OCTOCON_GOOGLE_OAUTH_CLIENT_ID", "test-client-id");
 
-        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(factory);
 
         using var response = await client.GetAsync("/auth/google");
 

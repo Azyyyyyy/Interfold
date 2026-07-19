@@ -4,7 +4,6 @@ using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -16,10 +15,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     [Test]
     public async Task PublicBatch_SelfLookup_Returns403InvalidEndpoint()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-public-batch-self";
         _ = await CreateAlterAsync(client, principal, "BatchSelfSeed");
@@ -33,10 +29,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     [Test, Skip("Need to rework")] //Well all of them really...
     public async Task Visibility_NonFriendFriendTrusted_AppliesToFronting()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var owner = "fronting-visibility-owner";
         var nonFriend = "fronting-visibility-nonfriend";
@@ -129,10 +122,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     [Test]
     public async Task PublicAlter_PrivateSecurity_Returns404ForAnonymous()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-guarded-alter";
         var alterId = await CreateAlterAsync(client, principal, "GuardedAlter");
@@ -147,10 +137,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     [Test]
     public async Task Visibility_NonFriendFriendTrusted_AppliesAcrossPublicReads()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var owner = "alters-visibility-owner";
         var nonFriend = "alters-visibility-nonfriend";
@@ -228,10 +215,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     [Test]
     public async Task PublicTag_PrivateSecurity_Returns404ForAnonymous()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-guarded-tag";
         var tagId = await CreateTagAsync(client, principal, "GuardedTag");
@@ -246,10 +230,7 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     [Test]
     public async Task Visibility_NonFriendFriendTrusted_AppliesToTags()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var owner = "tags-visibility-owner";
         var nonFriend = "tags-visibility-nonfriend";

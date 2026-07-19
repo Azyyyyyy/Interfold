@@ -4,7 +4,6 @@ using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -16,10 +15,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
     [Test]
     public async Task FieldSecurityLevelByRelationship_AppliesCorrectly()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var owner = "parity-guarded-fields-owner";
         var nonFriend = "parity-guarded-fields-nonfriend";
@@ -164,10 +160,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
         // the global journal itself intact (multiple alters can share a group journal).
         // Before the fix, DeleteAlterCommandHandler called only IAlterRepository.DeleteAsync and
         // left every alter-journal entry orphaned in the database.
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = $"parity-alter-delete-cascade-{Guid.NewGuid():N}"[..32];
         var deletedAlterId = await CreateAlterAsync(client, principal, "DeleteMe");
@@ -209,9 +202,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
             await Assert.That(preDeleteEnv.Data.Alters).Contains(keeperAlterId);
         }
 
-        using var deleteAlterReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/systems/me/alters/{deletedAlterId}");
-        AttachPrincipalAuth(deleteAlterReq, client, principal);
-        using var deleteAlterRes = await client.SendAsync(deleteAlterReq);
+        using var deleteAlterRes = await client.SendAuthedDeleteAsync($"/api/systems/me/alters/{deletedAlterId}", principal);
         await Assert.That(deleteAlterRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
         // Cascade 1: the per-alter journal entry is gone.
@@ -260,10 +251,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
     [Test]
     public async Task OperationalHealth_GuardedPaths_GetGuardedAsync_Succeeds()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         // Query a non-existent alter should return 404, not 500
         var principal = "operational-health-test";

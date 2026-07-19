@@ -5,7 +5,6 @@ using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -17,10 +16,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     [Test]
     public async Task SettingsField_InvalidType_ReturnsBadRequest()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-field-fallback";
         await EnsureUserExistsAsync(client, principal);
@@ -41,10 +37,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     [Test]
     public async Task SettingsField_MissingType_FallsBackToText_ReturnsCreatedWithId()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-field-missing-type";
         await EnsureUserExistsAsync(client, principal);
@@ -76,10 +69,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     [Test]
     public async Task SettingsField_Create_ReturnsCreatedFieldId()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-field-defaults";
         await EnsureUserExistsAsync(client, principal);
@@ -237,9 +227,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
                 await Assert.That(UrlPathStartsWith(publicAlter.Data.AvatarUrl?.Value, expectedPrefix)).IsTrue();
             }
 
-            using var deleteReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/systems/me/alters/{alterId}/avatar");
-            AttachPrincipalAuth(deleteReq, client, principalId);
-            using var deleteRes = await client.SendAsync(deleteReq);
+            using var deleteRes = await client.SendAuthedDeleteAsync($"/api/systems/me/alters/{alterId}/avatar", principalId);
             await Assert.That(deleteRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
             using var afterDeleteResponse = await client.SendAuthedGetAsync($"/api/systems/{principalId}/alters/{alterId}", principalId);

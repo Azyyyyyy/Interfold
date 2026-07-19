@@ -4,7 +4,6 @@ using Interfold.Contracts;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -23,10 +22,7 @@ public class PollsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
     [Test]
     public async Task ErrorResponse_ConflictFormats_IncludeEntityRefAndCode()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-error-format";
         var tooLongTitle = new string('a', 101);
@@ -52,10 +48,7 @@ public class PollsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
     [Test]
     public async Task PollValidation_DescriptionTooLong_Returns422()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-poll-desc-validation";
         var tooLongDesc = new string('a', 2001); // Max is 2000
@@ -74,10 +67,7 @@ public class PollsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
     public async Task PollType_AllSupportedTypes_RoundTripCorrectly(
         [MethodDataSource(typeof(PollsControllerTests), nameof(PollTypes))] PollType type)
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-poll-types";
 
@@ -109,10 +99,7 @@ public class PollsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
     [Test]
     public async Task PollUpdate_TimeEndNullOnly_ClearsExistingTimeEnd()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-poll-time-end";
         var initialTimeEnd = DateTime.UtcNow.AddHours(1);
@@ -142,10 +129,7 @@ public class PollsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
     [Test]
     public async Task PollValidation_TitleTooLong_Returns422()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-poll-validation";
         var tooLongTitle = new string('a', 101);
@@ -162,10 +146,7 @@ public class PollsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
     [Test]
     public async Task LegacyRoute_SystemsMePolls_Returns404()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-legacy-routes";
 

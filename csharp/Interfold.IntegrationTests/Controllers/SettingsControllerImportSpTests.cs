@@ -6,7 +6,6 @@ using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.ImportOperations;
 using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -52,7 +51,7 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
     [Test]
     public async Task ImportSp_FreshDispatch_Returns202WithOperationId()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var client = TestClient.NoRedirect(fixture);
         var principal = $"sp-import-202-{Guid.NewGuid():N}"[..24];
         await EnsureUserExistsAsync(client, principal);
 
@@ -81,7 +80,7 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
     [Test]
     public async Task ImportPk_FreshDispatch_Returns202WithOperationId()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var client = TestClient.NoRedirect(fixture);
         var principal = $"pk-import-202-{Guid.NewGuid():N}"[..24];
         await EnsureUserExistsAsync(client, principal);
 
@@ -109,7 +108,7 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
     [Test]
     public async Task ImportSp_AfterDispatch_WorkerProcessesAndPublishesFailedEvent(CancellationToken token)
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var client = TestClient.NoRedirect(fixture);
         var principal = $"sp-import-wf-{Guid.NewGuid():N}"[..24];
         await EnsureUserExistsAsync(client, principal);
 
@@ -163,7 +162,7 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
     [Test]
     public async Task ImportSp_EmptyToken_ReturnsErrorWithoutAccepting()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var client = TestClient.NoRedirect(fixture);
         var principal = $"sp-import-bad-{Guid.NewGuid():N}"[..24];
         await EnsureUserExistsAsync(client, principal);
 

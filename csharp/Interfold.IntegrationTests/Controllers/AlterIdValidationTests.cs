@@ -2,7 +2,6 @@ using System.Net;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -48,10 +47,7 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
     [Test]
     public async Task FrontStart_ValidId_HappyPathStillWorks()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = $"alterid-front-ok-{Guid.NewGuid():N}"[..32];
         var alterId = await CreateAlterAsync(client, principal, "HappyPathAlter");
@@ -155,10 +151,7 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
 
     private async Task AssertInvalidAlterId(HttpMethod method, string path, string rawJsonBody)
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         // A fresh principal per call keeps the negative tests independent of any tag / journal
         // rows created by other tests in the same session — the model-binding 400 fires
@@ -184,10 +177,7 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
 
     private async Task AssertInvalidAlterIdRoute(HttpMethod method, string path, string? rawJsonBody = null)
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = $"alterid-route-neg-{Guid.NewGuid():N}"[..32];
         await EnsureUserExistsAsync(client, principal);

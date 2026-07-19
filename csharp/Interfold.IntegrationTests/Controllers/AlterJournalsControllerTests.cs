@@ -1,7 +1,6 @@
 using System.Net;
 using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -14,7 +13,7 @@ public class AlterJournalsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     [Test, Category("Index")]
     public async Task AlterJournal_ListWhenEmpty_ReturnsDataAsEmptyArray()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions());
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-alter-journal-empty-list";
         var alterId = await CreateAlterAsync(client, principal, "NoJournalAlter");
@@ -28,10 +27,7 @@ public class AlterJournalsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     [Test]
     public async Task AlterJournal_NestedCreate_Returns201WithDataAndReplay()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-alter-journal";
         var alterId = await CreateAlterAsync(client, principal, "JournalHolder");
@@ -69,9 +65,7 @@ public class AlterJournalsControllerTests(IWebFactoryFixture fixture) : BaseEndp
         patchRes.Dispose();
 
         // DELETE /api/systems/me/alters/journals/:journalId  →  204
-        using var deleteReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/systems/me/alters/journals/{entryId}");
-        AttachPrincipalAuth(deleteReq, client, principal);
-        using var deleteRes = await client.SendAsync(deleteReq);
+        using var deleteRes = await client.SendAuthedDeleteAsync($"/api/systems/me/alters/journals/{entryId}", principal);
 
         await Assert.That(deleteRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
     }
@@ -79,10 +73,7 @@ public class AlterJournalsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     [Test]
     public async Task AlterJournal_ShowAfterDelete_Returns404()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-alter-journal-delete-404";
         var alterId = await CreateAlterAsync(client, principal, "DeleteHolder");
@@ -94,9 +85,7 @@ public class AlterJournalsControllerTests(IWebFactoryFixture fixture) : BaseEndp
         var createEnv = await createRes.ReadEnvelopeAsync<AlterJournalReadModel>(HttpStatusCode.Created);
         var entryId = createEnv.Data.Id;
 
-        using var deleteReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/systems/me/alters/journals/{entryId}");
-        AttachPrincipalAuth(deleteReq, client, principal);
-        (await client.SendAsync(deleteReq)).Dispose();
+        (await client.SendAuthedDeleteAsync($"/api/systems/me/alters/journals/{entryId}", principal)).Dispose();
 
         using var showRes = await client.SendAuthedGetAsync($"/api/systems/me/alters/journals/{entryId}", principal);
         await Assert.That(showRes.StatusCode).IsEqualTo(HttpStatusCode.NotFound);

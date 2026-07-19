@@ -1,7 +1,6 @@
 using System.Net;
 using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -26,10 +25,7 @@ public class TagsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
     [Test]
     public async Task TagParent_SetAndRemove_Returns204()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-tag-parent";
         var parentTagId = await CreateTagAsync(client, principal, "ParentTag");

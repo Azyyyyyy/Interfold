@@ -6,7 +6,6 @@ using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -24,10 +23,7 @@ public sealed class AuthControllerTests(IWebFactoryFixture fixture) : BaseEndpoi
     [Test]
     public async Task Api_AuthRequest_FallsBackTo403_WhenChallengeDisabled()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var response = await client.GetAsync("/auth/google");
         var body = await response.Content.ReadAsStringAsync();
@@ -79,10 +75,7 @@ public sealed class AuthControllerTests(IWebFactoryFixture fixture) : BaseEndpoi
     [Test]
     public async Task Api_OAuthCallback_IssuesJwsCompactSerializationToken()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         // The callback now strictly requires a client-supplied redirect_uri (stashed by the
         // initial GET /auth/discord call into octocon_auth_redirect_uri). Since this test
