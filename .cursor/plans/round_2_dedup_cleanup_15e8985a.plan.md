@@ -34,7 +34,7 @@ todos:
     status: completed
   - id: c2-identifier-collapse
     content: "C2: FindOrCreateByIdentifier<T> + UnlinkIdentifier<T> (close B7 tail; auth boundary)"
-    status: pending
+    status: completed
   - id: c3-ws-pair
     content: "C3: WebSocketHarness.ConnectPairAndJoinAsync (7 sites, ~42 LOC)"
     status: pending
@@ -127,7 +127,7 @@ The prior in-flight change set from Round 1 (`IScyllaScopeResolver`, `BuildEnvel
 
 ## Progress (as of 2026-07-19)
 
-**Waves A + B are complete; C1 done.** All 16 commits are on branch `dedup`:
+**Waves A + B are complete; C1 + C2 done.** All 17 commits are on branch `dedup`:
 
 - A1 `37f4ce6` `fix(infra): fix InMemoryFrontingRepository delete parity`
 - A2 `d78b5f1` `fix(scylla): eliminate nested retry on ScyllaJournalRepository alter writers`
@@ -144,8 +144,9 @@ The prior in-flight change set from Round 1 (`IScyllaScopeResolver`, `BuildEnvel
 - B7 `9cc2202` + `dc985bf` `refactor(auth): add JwtEs256Validator + PemUtil + unit tests` / `sweep Program.cs and WebSocketHandler.cs`
 - B8 `7c039ed` `refactor(scylla): extract ScyllaFrontingDenormalizedTable batch builder`
 - C1 `d863855` `refactor(bootstrapper-it): add RunOnScratchAsync helper and sweep ~40 sites`
+- C2 `4cd69ec` `refactor(inmemory-accounts): extract FindOrCreateIdentifier + UnlinkIdentifier generics`
 
-**Remaining work: Wave C (15 bullets) + Wave D (13 bullets).** Wave E stays as guardrails throughout. Wave A, Wave B, and C1 sections below are kept for historical reference — do NOT re-execute them.
+**Remaining work: Wave C (14 bullets) + Wave D (13 bullets).** Wave E stays as guardrails throughout. Wave A, Wave B, C1, and C2 sections below are kept for historical reference — do NOT re-execute them.
 
 ### Wave C grep re-verification (2026-07-19)
 
@@ -222,6 +223,12 @@ Round-1 C1 shipped `BootstrapAsync`/`PublishAsync` but only ~25 of ~85 call site
 
 ### C2. `FindOrCreateByIdentifier<T>` + `UnlinkIdentifier<T>` — close B7 tail (both backends)
 Round-1 B7 shipped `LinkIdentifier<T>` on InMemoryAccountRepository but left `FindOrCreateSystemIdBy{Discord,Email,Apple}` (6 near-duplicate bodies) and `Unlink{Discord,Email,Apple}Async` (6 more) unfactored at [InMemoryAccountRepository.cs:191-294](csharp/Interfold.Infrastructure.InMemory/Repository/InMemoryAccountRepository.cs). Do the extractions on both InMemory and Scylla ([ScyllaAccountRepository.cs:316-329](csharp/Interfold.Infrastructure.Scylla/Repository/ScyllaAccountRepository.cs) and sibling Unlink block). Medium risk — auth boundary — cover with unit tests.
+
+**Done 2026-07-19 · commit `4cd69ec`.** Shape landed:
+- InMemory: added `FindOrCreateIdentifier<TIdentity>` (generic new-user path with reverse-map miss auto-provisioning + encryption-salt seed) and `UnlinkIdentifier<TIdentity>` (generic forward/reverse dict scrub) next to the existing `LinkIdentifier<TIdentity>`. All three private `FindOrCreateSystemIdBy*` methods removed; all three public `Unlink*Async` methods collapsed to one-line dispatchers. `DeleteAsync`'s three identity cleanup blocks also collapsed onto `UnlinkIdentifier`. Removed the now-unused `GetSystemKey` private helper.
+- Scylla: **no change needed** — the plan's grep re-verification note was correct that Scylla was already factored via `UnlinkIdentityAsync(systemId, ProviderColumn)` and `FindOrCreateSystemIdByRegistryColumnAsync(column, value, ct)`; the three public `Unlink*Async` methods there were already one-line dispatchers.
+- Unit coverage: added `InMemoryAccountRepositoryIdentityRegressionTests` with 8 tests — one auto-provision-idempotency test per provider (Discord/Email/Apple), email case-insensitivity (guards the `StringComparer.OrdinalIgnoreCase` invariant through the generic dispatch), Unlink round-trip via `TryFindSystemIdByDiscordIdAsync`, Unlink idempotency on empty user, **dict-pair isolation** (UnlinkDiscord must not touch email/apple maps — this is the specific refactor risk the pin catches), and DeleteAsync scrubs-all-three. `ProvisionAllThreeIdentitiesAsync` test helper documents the pre-existing constraint that `LinkIdentityToUserAsync` requires a username/description/avatar/linkToken to be set before it will accept a second identity (auto-provisioned OAuth-only users are treated as `UserNotFound` by the link path).
+- Net: −42 LOC on InMemoryAccountRepository.cs (79 insertions, 121 deletions). 373/373 unit tests still green.
 
 ### C3. `WebSocketHarness.ConnectPairAndJoinAsync` — 7 sites (two-party sister of D7)
 7 verbatim 8-line sender/recipient connect+join blocks in [csharp/Interfold.IntegrationTests/Endpoints/WebSocketTests.cs](csharp/Interfold.IntegrationTests/Endpoints/WebSocketTests.cs) at lines 297-309, 352-363, 443-454, 511-522, 582-593, 689-700, and one two-system variant near 815. Return a tuple `(senderWs, recipientWs, senderToken, recipientToken)` — the names are load-bearing for assertion readability. ~42 LOC.
