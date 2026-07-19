@@ -60,7 +60,7 @@ public sealed class BulkUpdateFrontCommandHandler : IdempotentCommandHandler<Bul
             cancellationToken);
 
         // Emit granular event for socket layer to handle fronting_bulk
-        await FrontingCommandFlow.PublishStateChangedAndBulkUpdatedAsync(_eventBus, command.PrincipalId, cancellationToken);
+        await _eventBus.PublishStateChangedAndBulkUpdatedAsync(command.PrincipalId, cancellationToken);
 
         return FrontingCommandFlow.Success(command.PrincipalId, alterId: null, frontId: null);
     }

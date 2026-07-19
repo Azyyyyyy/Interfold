@@ -57,7 +57,7 @@ public sealed class StartFrontCommandHandler : IdempotentCommandHandler<StartFro
             return startedFrontRejection;
 
         // Emit granular event for socket layer to handle fronting_started
-        await FrontingCommandFlow.PublishStateChangedAndStartedAsync(_eventBus, command.PrincipalId, startedFrontId!.Value, cancellationToken);
+        await _eventBus.PublishStateChangedAndStartedAsync(command.PrincipalId, startedFrontId!.Value, cancellationToken);
 
         return FrontingCommandFlow.Success(command.PrincipalId, command.Payload.AlterId, startedFrontId);
     }

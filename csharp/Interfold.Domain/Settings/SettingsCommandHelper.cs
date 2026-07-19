@@ -44,13 +44,6 @@ namespace Interfold.Domain.Settings;
 /// </summary>
 internal static class SettingsCommandHelper
 {
-    public static ValueTask PublishProfileUpdatedAsync(
-        IClusterEventBus eventBus,
-        ScopedSystemId principalId,
-        bool includeUsername,
-        CancellationToken cancellationToken = default)
-        => eventBus.PublishAsync(new SettingsProfileUpdatedEvent(principalId, includeUsername), cancellationToken);
-
     public static async Task<CommandExecutionResult<SettingsCommandResult>> ExecuteAsync<TCommand>(
         CommandEnvelope<TCommand> command,
         SettingsAction action,

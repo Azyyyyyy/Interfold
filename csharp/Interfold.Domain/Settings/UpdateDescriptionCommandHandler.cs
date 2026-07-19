@@ -42,7 +42,7 @@ protected override async Task<CommandExecutionResult<SettingsCommandResult>> Exe
                 ct),
             EntityRefs.SettingsDescriptionUpdateFailed,
             SettingsAction.DescriptionUpdated,
-            ct => SettingsCommandHelper.PublishProfileUpdatedAsync(_eventBus, command.PrincipalId, includeUsername: false, ct),
+            ct => _eventBus.PublishProfileUpdatedAsync(command.PrincipalId, includeUsername: false, ct),
             cancellationToken);
     }
 

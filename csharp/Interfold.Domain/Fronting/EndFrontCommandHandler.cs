@@ -49,10 +49,9 @@ public sealed class EndFrontCommandHandler : IdempotentCommandHandler<EndFrontCo
             return endReject;
 
         // Emit granular event for socket layer to handle fronting_ended
-        await FrontingCommandFlow.PublishStateChangedAndEndedAsync(_eventBus, command.PrincipalId, command.Payload.AlterId, cancellationToken);
+        await _eventBus.PublishStateChangedAndEndedAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
 
-        await FrontingCommandFlow.PublishPrimaryClearedIfNeededAsync(
-            _eventBus,
+        await _eventBus.PublishPrimaryClearedIfNeededAsync(
             command.PrincipalId,
             endedFrontWasPrimary,
             cancellationToken);

@@ -1,5 +1,4 @@
 using Interfold.Contracts;
-using Interfold.Contracts.Events;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
@@ -78,71 +77,6 @@ internal static class FrontingCommandFlow
         => startedFrontId is null
             ? (null, CommandHandler.RejectInvariant<FrontCommandResult>(command.OperationId, EntityRefs.FrontingStartFailed))
             : (startedFrontId, null);
-
-    public static ValueTask PublishStateChangedAsync(
-        IClusterEventBus eventBus,
-        ScopedSystemId systemId,
-        CancellationToken cancellationToken = default)
-        => eventBus.PublishAsync(new FrontingStateChangedEvent(systemId), cancellationToken);
-
-    public static async ValueTask PublishStateChangedAndStartedAsync(
-        IClusterEventBus eventBus,
-        ScopedSystemId systemId,
-        FrontId frontId,
-        CancellationToken cancellationToken = default)
-    {
-        await PublishStateChangedAsync(eventBus, systemId, cancellationToken);
-        await eventBus.PublishAsync(new FrontingStartedEvent(systemId, frontId), cancellationToken);
-    }
-
-    public static async ValueTask PublishStateChangedAndEndedAsync(
-        IClusterEventBus eventBus,
-        ScopedSystemId systemId,
-        AlterId alterId,
-        CancellationToken cancellationToken = default)
-    {
-        await PublishStateChangedAsync(eventBus, systemId, cancellationToken);
-        await eventBus.PublishAsync(new FrontingEndedEvent(systemId, alterId), cancellationToken);
-    }
-
-    public static async ValueTask PublishStateChangedAndSetAsync(
-        IClusterEventBus eventBus,
-        ScopedSystemId systemId,
-        FrontId frontId,
-        CancellationToken cancellationToken = default)
-    {
-        await PublishStateChangedAsync(eventBus, systemId, cancellationToken);
-        await eventBus.PublishAsync(new FrontingSetEvent(systemId, frontId), cancellationToken);
-    }
-
-    public static async ValueTask PublishStateChangedAndBulkUpdatedAsync(
-        IClusterEventBus eventBus,
-        ScopedSystemId systemId,
-        CancellationToken cancellationToken = default)
-    {
-        await PublishStateChangedAsync(eventBus, systemId, cancellationToken);
-        await eventBus.PublishAsync(new FrontingBulkUpdatedEvent(systemId), cancellationToken);
-    }
-
-    public static async ValueTask PublishStateChangedAndCommentUpdatedAsync(
-        IClusterEventBus eventBus,
-        ScopedSystemId systemId,
-        FrontId frontId,
-        CancellationToken cancellationToken = default)
-    {
-        await PublishStateChangedAsync(eventBus, systemId, cancellationToken);
-        await eventBus.PublishAsync(new FrontCommentUpdatedEvent(systemId, frontId), cancellationToken);
-    }
-
-    public static async ValueTask PublishStateChangedAndPrimaryChangedAsync(
-        IClusterEventBus eventBus,
-        ScopedSystemId systemId,
-        AlterId? alterId,
-        CancellationToken cancellationToken = default)
-    {
-        await PublishStateChangedAsync(eventBus, systemId, cancellationToken);
-        await eventBus.PublishAsync(new FrontingPrimaryChangedEvent(systemId, alterId), cancellationToken);
-    }
 
     public static async Task<(FrontActiveReadModel? Active, CommandExecutionResult<FrontCommandResult>? Rejection)> GetActiveFrontByIdOrRejectAsync<TCommand>(
         CommandEnvelope<TCommand> command,
@@ -237,40 +171,6 @@ internal static class FrontingCommandFlow
             ? CommandHandler.RejectInvariant<FrontCommandResult>(command.OperationId, EntityRefs.FrontingAlreadyFronting)
             : null;
     }
-
-    public static async ValueTask PublishDeletedAsync(
-        IClusterEventBus eventBus,
-        ScopedSystemId systemId,
-        FrontId frontId,
-        bool wasActive,
-        CancellationToken cancellationToken = default)
-    {
-        if (wasActive)
-            await PublishStateChangedAsync(eventBus, systemId, cancellationToken);
-
-        await eventBus.PublishAsync(new FrontDeletedEvent(systemId, frontId), cancellationToken);
-    }
-
-    public static async ValueTask PublishEndedForAltersAsync(
-        IClusterEventBus eventBus,
-        ScopedSystemId systemId,
-        IEnumerable<AlterId> alterIds,
-        CancellationToken cancellationToken = default)
-    {
-        foreach (var alterId in alterIds)
-        {
-            await eventBus.PublishAsync(new FrontingEndedEvent(systemId, alterId), cancellationToken);
-        }
-    }
-
-    public static ValueTask PublishPrimaryClearedIfNeededAsync(
-        IClusterEventBus eventBus,
-        ScopedSystemId systemId,
-        bool wasPrimaryPresent,
-        CancellationToken cancellationToken = default)
-        => wasPrimaryPresent
-            ? eventBus.PublishAsync(new FrontingPrimaryChangedEvent(systemId, null), cancellationToken)
-            : ValueTask.CompletedTask;
 
     public static async Task EndAltersBestEffortAsync(
         IFrontingRepository frontingRepository,

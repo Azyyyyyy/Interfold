@@ -48,8 +48,7 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
         if (FriendshipCommandFlow.RejectIfMutationOutcomeFailed(command, outcome) is { } rejection)
             return rejection;
 
-        await FriendshipEventFlow.PublishRequestRemovedFromThenToAsync(
-            _eventBus,
+        await _eventBus.PublishRequestRemovedFromThenToAsync(
             canonicalPrincipalId,
             canonicalSourceSystemId,
             cancellationToken);

@@ -30,6 +30,6 @@ public sealed class DeleteAvatarCommandHandler : ICommandHandler<DeleteAvatarCom
             EntityRefs.SettingsAvatarDelete,
             _idempotencyStore,
             ct => _accountRepository.ClearAvatarAsync(command.PrincipalId, ct),
-            ct => SettingsCommandHelper.PublishProfileUpdatedAsync(_eventBus, command.PrincipalId, includeUsername: false, ct),
+            ct => _eventBus.PublishProfileUpdatedAsync(command.PrincipalId, includeUsername: false, ct),
             cancellationToken);
 }

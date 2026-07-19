@@ -87,8 +87,7 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
         //TODO: Check this path sends the required events
         if (outcome is SendFriendRequestOutcome.Accepted)
         {
-            await FriendshipEventFlow.PublishFriendshipAddedBothWaysAsync(
-                _eventBus,
+            await _eventBus.PublishFriendshipAddedBothWaysAsync(
                 command.PrincipalId,
                 targetScopedId,
                 cancellationToken);

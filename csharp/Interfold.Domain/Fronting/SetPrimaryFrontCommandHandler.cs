@@ -46,8 +46,8 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
             cancellationToken) is { } setReject)
             return setReject;
 
-        await FrontingCommandFlow.PublishStateChangedAndPrimaryChangedAsync(_eventBus, command.PrincipalId, command.Payload.AlterId, cancellationToken);
-        await SettingsCommandHelper.PublishProfileUpdatedAsync(_eventBus, command.PrincipalId, includeUsername: false, cancellationToken);
+        await _eventBus.PublishStateChangedAndPrimaryChangedAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
+        await _eventBus.PublishProfileUpdatedAsync(command.PrincipalId, includeUsername: false, cancellationToken);
 
         return FrontingCommandFlow.Success(command.PrincipalId, command.Payload.AlterId, frontId: null);
     }

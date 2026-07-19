@@ -46,8 +46,7 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
                 cancellationToken) is { } removalReject)
             return removalReject;
 
-        await FriendshipEventFlow.PublishFriendshipRemovedBothWaysAsync(
-            _eventBus,
+        await _eventBus.PublishFriendshipRemovedBothWaysAsync(
             canonicalPrincipalId,
             canonicalFriendSystemId,
             cancellationToken);

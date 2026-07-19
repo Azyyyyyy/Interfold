@@ -56,7 +56,7 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
 
         var alterId = resolution.AlterId;
 
-        await FrontingCommandFlow.PublishDeletedAsync(_eventBus, command.PrincipalId, command.Payload.FrontId, resolution.WasActive, cancellationToken);
+        await _eventBus.PublishDeletedAsync(command.PrincipalId, command.Payload.FrontId, resolution.WasActive, cancellationToken);
 
         return FrontingCommandFlow.Success(command.PrincipalId, alterId, command.Payload.FrontId);
     }

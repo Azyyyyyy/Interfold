@@ -54,7 +54,7 @@ protected override async Task<CommandExecutionResult<AccountCommandResult>> Exec
 
         var result = new AccountCommandResult(command.PrincipalId, command.Payload.Username, Replay: false);
 
-        await SettingsCommandHelper.PublishProfileUpdatedAsync(_eventBus, command.PrincipalId, includeUsername: true, cancellationToken);
+        await _eventBus.PublishProfileUpdatedAsync(command.PrincipalId, includeUsername: true, cancellationToken);
         return CommandExecutionResult<AccountCommandResult>.Success(result);
     }
 

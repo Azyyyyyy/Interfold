@@ -100,8 +100,7 @@ public sealed class SetFrontCommandHandler : IdempotentCommandHandler<SetFrontCo
         // Per-alter FrontingEndedEvent for every alter that was ended by this set. Clients
         // listening on the socket layer rely on this to clear those alters from their
         // local "currently fronting" view.
-        await FrontingCommandFlow.PublishEndedForAltersAsync(
-            _eventBus,
+        await _eventBus.PublishEndedForAltersAsync(
             command.PrincipalId,
             others.Select(other => other.Front.AlterId),
             cancellationToken);
@@ -109,8 +108,7 @@ public sealed class SetFrontCommandHandler : IdempotentCommandHandler<SetFrontCo
         // FrontingPrimaryChangedEvent only fires when primary actually transitioned away from
         // a real value - emitting it unconditionally would spam clients with no-op events
         // every time `set` is called against a no-primary state.
-        await FrontingCommandFlow.PublishPrimaryClearedIfNeededAsync(
-            _eventBus,
+        await _eventBus.PublishPrimaryClearedIfNeededAsync(
             command.PrincipalId,
             primaryWasPresent,
             cancellationToken);
@@ -119,7 +117,7 @@ public sealed class SetFrontCommandHandler : IdempotentCommandHandler<SetFrontCo
         // when the target was already the only fronter (idempotent "set" returns success
         // with the existing front id; the client may have called this to recover from a
         // desync and should still receive the event).
-        await FrontingCommandFlow.PublishStateChangedAndSetAsync(_eventBus, command.PrincipalId, frontId, cancellationToken);
+        await _eventBus.PublishStateChangedAndSetAsync(command.PrincipalId, frontId, cancellationToken);
 
         return FrontingCommandFlow.Success(command.PrincipalId, command.Payload.AlterId, frontId);
     }

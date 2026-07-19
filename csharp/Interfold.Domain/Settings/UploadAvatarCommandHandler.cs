@@ -40,6 +40,6 @@ public sealed class UploadAvatarCommandHandler : ICommandHandler<UploadAvatarCom
             EntityRefs.SettingsAvatarUpload,
             _idempotencyStore,
             ct => _accountRepository.UpdateAvatarAsync(command.PrincipalId, command.Payload.AvatarUrl, command.Payload.Source, ct),
-            ct => SettingsCommandHelper.PublishProfileUpdatedAsync(_eventBus, command.PrincipalId, includeUsername: false, ct),
+            ct => _eventBus.PublishProfileUpdatedAsync(command.PrincipalId, includeUsername: false, ct),
             cancellationToken);
 }

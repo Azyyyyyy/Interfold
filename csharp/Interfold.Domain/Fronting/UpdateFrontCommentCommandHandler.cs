@@ -53,7 +53,7 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
             return updateReject;
 
         // Emit granular event for socket layer to handle front_updated
-        await FrontingCommandFlow.PublishStateChangedAndCommentUpdatedAsync(_eventBus, command.PrincipalId, command.Payload.FrontId, cancellationToken);
+        await _eventBus.PublishStateChangedAndCommentUpdatedAsync(command.PrincipalId, command.Payload.FrontId, cancellationToken);
 
         return FrontingCommandFlow.Success(command.PrincipalId, existing!.Front.AlterId, command.Payload.FrontId);
     }
