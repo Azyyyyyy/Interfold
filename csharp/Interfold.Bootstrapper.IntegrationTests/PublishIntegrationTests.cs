@@ -1,6 +1,7 @@
 using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
+using Interfold.Bootstrapper.IntegrationTests.TestServices;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.IntegrationTests;
@@ -47,7 +48,7 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
         var (scratch, _) = await dinD.PublishAsync(nameof(BindMountPathsResolveAbsoluteInComposeEnv), TestConfigPaths.DefaultConfig);
 
         var envBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/.env");
-        var env = ParseEnv(envBytes);
+        var env = DotEnvParser.ParseEnv(envBytes);
 
         // The compose graph emits one bind-mount key per service+target pair; Aspire names them
         // <SERVICE>_BINDMOUNTS__<N>. Single-mode scylla emits one rackdc mount + the api gets
@@ -92,7 +93,7 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
         var (scratch, _) = await dinD.PublishAsync(nameof(EnvFileContainsAllRequiredKeys), TestConfigPaths.DefaultConfig);
 
         var envBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/.env");
-        var env = ParseEnv(envBytes);
+        var env = DotEnvParser.ParseEnv(envBytes);
 
         foreach (var key in ExpectedEnvParameterKeys)
         {
@@ -119,26 +120,6 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
             .Because("scylla admin credential must live in internal.secrets, not the .env");
     }
 
-    /// <summary>
-    /// Cheap-and-cheerful .env parser - lines of the form <c>KEY=VALUE</c>, comments stripped,
-    /// blank lines ignored. We don't bother handling quoted values because the bootstrapper's
-    /// emitter doesn't produce any (every value is either a known-safe alphabet password or an
-    /// absolute path).
-    /// </summary>
-    private static IDictionary<string, string> ParseEnv(byte[] bytes)
-    {
-        var text = Encoding.UTF8.GetString(bytes);
-        var dict = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var rawLine in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var line = rawLine.TrimEnd('\r').Trim();
-            if (line.Length == 0 || line.StartsWith('#')) continue;
-            var eq = line.IndexOf('=');
-            if (eq <= 0) continue;
-            dict[line[..eq]] = line[(eq + 1)..];
-        }
-        return dict;
-    }
 }
 
 

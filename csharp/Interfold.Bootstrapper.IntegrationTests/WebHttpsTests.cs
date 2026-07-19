@@ -1,6 +1,7 @@
 using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
+using Interfold.Bootstrapper.IntegrationTests.TestServices;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.IntegrationTests;
@@ -30,7 +31,7 @@ public class WebHttpsTests(UbuntuDinDFixture dinD)
         var (scratch, _) = await dinD.PublishAsync(nameof(PublishWithWebHttpsEmitsCertAndTemplateBindMounts), TestConfigPaths.WebHttpsConfig);
 
         var envBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/.env");
-        var env = ParseEnv(envBytes);
+        var env = DotEnvParser.ParseEnv(envBytes);
 
         // Every bind-mount-source line in the post-processed .env should resolve to an absolute
         // path. We don't assert the exact key names because Aspire derives them from the service
@@ -224,26 +225,6 @@ public class WebHttpsTests(UbuntuDinDFixture dinD)
             await Assert.That(trimmed.EndsWith('=')).IsFalse()
                 .Because($"octocon-web env line has a blank value (compose up would fail): {trimmed}");
         }
-    }
-
-    /// <summary>
-    /// Cheap-and-cheerful .env parser - lines of the form <c>KEY=VALUE</c>, comments stripped,
-    /// blank lines ignored. Mirrors the helper in <see cref="PublishIntegrationTests"/>; the two
-    /// projects don't share a test-only helpers assembly so we keep a one-screen duplicate.
-    /// </summary>
-    private static IDictionary<string, string> ParseEnv(byte[] bytes)
-    {
-        var text = Encoding.UTF8.GetString(bytes);
-        var dict = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var rawLine in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var line = rawLine.TrimEnd('\r').Trim();
-            if (line.Length == 0 || line.StartsWith('#')) continue;
-            var eq = line.IndexOf('=');
-            if (eq <= 0) continue;
-            dict[line[..eq]] = line[(eq + 1)..];
-        }
-        return dict;
     }
 }
 
