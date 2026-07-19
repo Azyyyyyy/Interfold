@@ -23,8 +23,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
 
     public Task<IReadOnlyList<SettingsFieldReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetStore(systemId, out var store))
         {
             return Task.FromResult<IReadOnlyList<SettingsFieldReadModel>>(Array.Empty<SettingsFieldReadModel>());
         }
@@ -68,8 +67,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
         bool? locked,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetStore(systemId, out var store))
             return Task.FromResult(false);
 
         lock (store)
@@ -94,8 +92,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
 
     public Task<bool> DeleteAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetStore(systemId, out var store))
             return Task.FromResult(false);
 
         lock (store)
@@ -129,8 +126,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
 
     public Task<bool> RelocateAsync(SystemId systemId, FieldId fieldId, int index, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetStore(systemId, out var store))
             return Task.FromResult(false);
 
         lock (store)
@@ -157,6 +153,12 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
         {
             fields[i] = fields[i] with { Index = i };
         }
+    }
+
+    private bool TryGetStore(SystemId systemId, out List<SettingsFieldReadModel> store)
+    {
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+        return _bySystem.TryGetValue(systemKey, out store!);
     }
 }
 

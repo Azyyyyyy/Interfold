@@ -80,8 +80,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     public Task<bool> ExistsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        var exists = _bySystem.TryGetValue(systemKey, out var store) && store.ContainsKey(alterId);
+        var exists = TryGetStore(systemId, out var store) && store.ContainsKey(alterId);
         return Task.FromResult(exists);
     }
 
@@ -91,9 +90,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         CancellationToken cancellationToken = default
     )
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-
-        if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(command.AlterId, out var existing))
+        if (!TryGetAlter(systemId, command.AlterId, out var existing))
         {
             return Task.FromResult(false);
         }
@@ -174,9 +171,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     public async Task<bool> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetStore(systemId, out var store))
         {
             return false;
         }
@@ -192,8 +187,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     public async Task<IReadOnlyList<AlterReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetStore(systemId, out var store))
         {
             return Array.Empty<AlterReadModel>();
         }
@@ -215,10 +209,9 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         CancellationToken cancellationToken = default)
     {
         var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
 
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetStore(systemId, out var store))
         {
             return Array.Empty<BareAlter>();
         }
@@ -242,8 +235,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     public async Task<AlterReadModel?> GetAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(alterId, out var alter))
+        if (!TryGetAlter(systemId, alterId, out var alter))
         {
             return null;
         }
@@ -261,8 +253,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     {
         var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
         var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(alterId, out var alter))
+        if (!TryGetAlter(systemId, alterId, out var alter))
         {
             return null;
         }
@@ -290,9 +281,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         CancellationToken cancellationToken = default
     )
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetStore(systemId, out var store))
         {
             return Task.FromResult(false);
         }
@@ -308,7 +297,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     internal void RemoveFieldValuesForSystem(Guid fieldId, ScopedSystemId systemKey)
     {
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetStore(systemKey, out var store))
             return;
 
         FieldId fieldKey = new(fieldId);
@@ -365,6 +354,26 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         => _settingsFields is null
             ? Task.FromResult<IReadOnlyList<SettingsFieldReadModel>>(Array.Empty<SettingsFieldReadModel>())
             : AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken);
+
+    private bool TryGetStore(SystemId systemId, out ConcurrentDictionary<AlterId, AlterState> store)
+    {
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+        return TryGetStore(systemKey, out store);
+    }
+
+    private bool TryGetStore(ScopedSystemId systemKey, out ConcurrentDictionary<AlterId, AlterState> store)
+        => _bySystem.TryGetValue(systemKey, out store!);
+
+    private bool TryGetAlter(SystemId systemId, AlterId alterId, out AlterState alter)
+    {
+        if (TryGetStore(systemId, out var store) && store.TryGetValue(alterId, out alter!))
+        {
+            return true;
+        }
+
+        alter = null!;
+        return false;
+    }
 }
 
 

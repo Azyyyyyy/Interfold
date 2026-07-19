@@ -48,7 +48,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
         lock (_sync)
         {
-            var active = _activeBySystem.TryGetValue(systemKey, out var set) && set.ContainsKey(alterId);
+            var active = TryGetActiveSet(systemKey, out var set) && set.ContainsKey(alterId);
             return Task.FromResult(active);
         }
     }
@@ -100,7 +100,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
         lock (_sync)
         {
-            if (!_activeBySystem.TryGetValue(systemKey, out var set))
+            if (!TryGetActiveSet(systemKey, out var set))
             {
                 return Task.FromResult(false);
             }
@@ -111,7 +111,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
                 _primaryBySystem[systemKey] = null;
             }
 
-            if (removed && removedFront is not null && _historyBySystem.TryGetValue(systemKey, out var history))
+            if (removed && removedFront is not null && TryGetHistory(systemKey, out var history))
             {
                 var historical = history.LastOrDefault(
                     x => x.FrontId == removedFront.FrontId &&
@@ -134,7 +134,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         {
             if (alterId is { } value)
             {
-                if (!_activeBySystem.TryGetValue(systemKey, out var set) || !set.ContainsKey(value))
+                if (!TryGetActiveSet(systemKey, out var set) || !set.ContainsKey(value))
                 {
                     return Task.FromResult(false);
                 }
@@ -153,7 +153,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
         lock (_sync)
         {
-            if (!_activeBySystem.TryGetValue(systemKey, out var set))
+            if (!TryGetActiveSet(systemKey, out var set))
                 return Array.Empty<FrontActiveReadModel>();
 
             activeFronts = set.Values.ToArray();
@@ -223,7 +223,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
         lock (_sync)
         {
-            if (!_historyBySystem.TryGetValue(systemKey, out var history))
+            if (!TryGetHistory(systemKey, out var history))
             {
                 return Task.FromResult<IReadOnlyList<FrontHistoryReadModel>>(Array.Empty<FrontHistoryReadModel>());
             }
@@ -244,7 +244,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
         lock (_sync)
         {
-            if (!_activeBySystem.TryGetValue(systemKey, out var set))
+            if (!TryGetActiveSet(systemKey, out var set))
                 return Task.FromResult<FrontActiveReadModel?>(null);
 
             _primaryBySystem.TryGetValue(systemKey, out var primary);
@@ -266,7 +266,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
         lock (_sync)
         {
-            if (!_historyBySystem.TryGetValue(systemKey, out var history))
+            if (!TryGetHistory(systemKey, out var history))
                 return Task.FromResult<FrontHistoryReadModel?>(null);
 
             var entry = history.FirstOrDefault(x => x.FrontId == frontId);
@@ -293,7 +293,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
         lock (_sync)
         {
-            if (!_historyBySystem.TryGetValue(systemKey, out var history))
+            if (!TryGetHistory(systemKey, out var history))
                 return Task.FromResult(false);
 
             var entry = history.FirstOrDefault(x => x.FrontId == frontId);
@@ -302,7 +302,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
             history.Remove(entry);
 
-            if (_activeBySystem.TryGetValue(systemKey, out var active)
+            if (TryGetActiveSet(systemKey, out var active)
                 && active.TryGetValue(entry.AlterId, out var frontState)
                 && frontState.FrontId == entry.FrontId)
             {
@@ -322,7 +322,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
         lock (_sync)
         {
-            if (!_activeBySystem.TryGetValue(systemKey, out var set))
+            if (!TryGetActiveSet(systemKey, out var set))
                 return Task.FromResult(false);
 
             var found = set.Values.FirstOrDefault(x => x.FrontId == frontId);
@@ -331,7 +331,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
             found.Comment = comment;
 
-            if (_historyBySystem.TryGetValue(systemKey, out var history))
+            if (TryGetHistory(systemKey, out var history))
             {
                 var historical = history.LastOrDefault(
                     x => x.FrontId == frontId && x.EndedAt is null);
@@ -344,6 +344,12 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
             return Task.FromResult(true);
         }
     }
+
+    private bool TryGetActiveSet(ScopedSystemId systemKey, out ConcurrentDictionary<AlterId, FrontState> set)
+        => _activeBySystem.TryGetValue(systemKey, out set!);
+
+    private bool TryGetHistory(ScopedSystemId systemKey, out List<FrontHistoryState> history)
+        => _historyBySystem.TryGetValue(systemKey, out history!);
 
 }
 

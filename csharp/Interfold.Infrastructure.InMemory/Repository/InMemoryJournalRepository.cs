@@ -71,15 +71,13 @@ public sealed class InMemoryJournalRepository : IJournalRepository
 
     public Task<bool> ExistsGlobalAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        var exists = _bySystem.TryGetValue(systemKey, out var store) && store.ContainsKey(entryId);
+        var exists = GlobalEntryExists(systemId, entryId);
         return Task.FromResult(exists);
     }
 
     public Task<bool> UpdateGlobalAsync(SystemId systemId, UpdateGlobalJournalEntryCommand command, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(command.EntryId, out var entry))
+        if (!TryGetGlobalEntry(systemId, command.EntryId, out var entry))
             return Task.FromResult(false);
 
         if (command.Title is not null) entry.Title = command.Title;
@@ -93,7 +91,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     public Task<bool> DeleteGlobalAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default)
     {
         var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetGlobalStore(systemId, out var store))
             return Task.FromResult(false);
 
         var removed = store.TryRemove(entryId, out _);
@@ -111,7 +109,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     public Task<bool> SetGlobalLockedAsync(SystemId systemId, EntryId entryId, bool locked, CancellationToken cancellationToken = default)
     {
         var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store) || !store.ContainsKey(entryId))
+        if (!GlobalEntryExists(systemId, entryId))
             return Task.FromResult(false);
 
         var stateStore = _stateBySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<EntryId, (bool Pinned, bool Locked)>());
@@ -123,7 +121,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     public Task<bool> SetGlobalPinnedAsync(SystemId systemId, EntryId entryId, bool pinned, CancellationToken cancellationToken = default)
     {
         var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store) || !store.ContainsKey(entryId))
+        if (!GlobalEntryExists(systemId, entryId))
             return Task.FromResult(false);
 
         var stateStore = _stateBySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<EntryId, (bool Pinned, bool Locked)>());
@@ -134,8 +132,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
 
     public Task<bool> AttachGlobalAlterAsync(SystemId systemId, EntryId entryId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store) || !store.ContainsKey(entryId))
+        if (!GlobalEntryExists(systemId, entryId))
             return Task.FromResult(false);
 
         var key = GetEntryKey(systemId, entryId);
@@ -147,7 +144,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     public Task<bool> DetachGlobalAlterAsync(SystemId systemId, EntryId entryId, AlterId alterId, CancellationToken cancellationToken = default)
     {
         var key = GetEntryKey(systemId, entryId);
-        if (!_entryAlters.TryGetValue(key, out var alters))
+        if (!TryGetEntryAlterMap(key, out var alters))
             return Task.FromResult(false);
 
         return Task.FromResult(alters.TryRemove(alterId, out _));
@@ -179,8 +176,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
 
     public Task<AlterJournalRef?> GetAlterRefAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_alterEntriesBySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(entryId, out var entry))
+        if (!TryGetAlterEntry(systemId, entryId, out var entry))
             return Task.FromResult<AlterJournalRef?>(null);
 
         return Task.FromResult<AlterJournalRef?>(new AlterJournalRef(entry.EntryId, entry.AlterId));
@@ -188,8 +184,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
 
     public Task<bool> UpdateAlterAsync(SystemId systemId, UpdateAlterJournalEntryCommand command, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_alterEntriesBySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(command.EntryId, out var entry))
+        if (!TryGetAlterEntry(systemId, command.EntryId, out var entry))
             return Task.FromResult(false);
 
         if (command.Title is not null) entry.Title = command.Title;
@@ -202,8 +197,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
 
     public Task<bool> DeleteAlterAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_alterEntriesBySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetAlterStore(systemId, out var store))
             return Task.FromResult(false);
 
         return Task.FromResult(store.TryRemove(entryId, out _));
@@ -211,10 +205,9 @@ public sealed class InMemoryJournalRepository : IJournalRepository
 
     public Task<int> DeleteAllForAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var removedAlterJournals = 0;
 
-        if (_alterEntriesBySystem.TryGetValue(systemKey, out var store))
+        if (TryGetAlterStore(systemId, out var store))
         {
             // Snapshot the keys to remove first; mutating the ConcurrentDictionary while
             // enumerating its values is undefined behaviour (entries may be skipped or
@@ -243,31 +236,14 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     }
 
     public Task<bool> SetAlterLockedAsync(SystemId systemId, EntryId entryId, bool locked, CancellationToken cancellationToken = default)
-    {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_alterEntriesBySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(entryId, out var entry))
-            return Task.FromResult(false);
-
-        entry.Locked = locked;
-        entry.UpdatedAt = DateTime.UtcNow;
-        return Task.FromResult(true);
-    }
+        => SetAlterFlagAsync(systemId, entryId, static (entry, value) => entry.Locked = value, locked);
 
     public Task<bool> SetAlterPinnedAsync(SystemId systemId, EntryId entryId, bool pinned, CancellationToken cancellationToken = default)
-    {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_alterEntriesBySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(entryId, out var entry))
-            return Task.FromResult(false);
-
-        entry.Pinned = pinned;
-        entry.UpdatedAt = DateTime.UtcNow;
-        return Task.FromResult(true);
-    }
+        => SetAlterFlagAsync(systemId, entryId, static (entry, value) => entry.Pinned = value, pinned);
 
     public Task<IReadOnlyList<AlterJournalReadModel>> ListAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_alterEntriesBySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetAlterStore(systemId, out var store))
             return Task.FromResult<IReadOnlyList<AlterJournalReadModel>>(Array.Empty<AlterJournalReadModel>());
 
         var entries = store.Values
@@ -281,17 +257,44 @@ public sealed class InMemoryJournalRepository : IJournalRepository
 
     public Task<AlterJournalReadModel?> GetAlterAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_alterEntriesBySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(entryId, out var entry))
+        if (!TryGetAlterEntry(systemId, entryId, out var entry))
             return Task.FromResult<AlterJournalReadModel?>(null);
 
         return Task.FromResult<AlterJournalReadModel?>(MapAlterJournalReadModel(entry));
     }
 
-    public Task<IReadOnlyList<JournalReadModel>> ListGlobalAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    private Task<bool> SetAlterFlagAsync(
+        SystemId systemId,
+        EntryId entryId,
+        Action<AlterEntryState, bool> apply,
+        bool value)
+    {
+        if (!TryGetAlterEntry(systemId, entryId, out var entry))
+        {
+            return Task.FromResult(false);
+        }
+
+        apply(entry, value);
+        entry.UpdatedAt = DateTime.UtcNow;
+        return Task.FromResult(true);
+    }
+
+    private bool TryGetAlterEntry(SystemId systemId, EntryId entryId, out AlterEntryState entry)
     {
         var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (_alterEntriesBySystem.TryGetValue(systemKey, out var store)
+            && store.TryGetValue(entryId, out entry!))
+        {
+            return true;
+        }
+
+        entry = null!;
+        return false;
+    }
+
+    public Task<IReadOnlyList<JournalReadModel>> ListGlobalAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetGlobalStore(systemId, out var store))
             return Task.FromResult<IReadOnlyList<JournalReadModel>>(Array.Empty<JournalReadModel>());
 
         // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
@@ -311,8 +314,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
 
     public Task<JournalReadModel?> GetGlobalAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default)
     {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(entryId, out var entry))
+        if (!TryGetGlobalEntry(systemId, entryId, out var entry))
             return Task.FromResult<JournalReadModel?>(null);
 
         var (pinned, locked) = GetGlobalState(systemId, entryId);
@@ -332,7 +334,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     private IReadOnlyList<AlterId> GetGlobalAlterIds(SystemId systemId, EntryId entryId)
     {
         var key = GetEntryKey(systemId, entryId);
-        if (!_entryAlters.TryGetValue(key, out var alters))
+        if (!TryGetEntryAlterMap(key, out var alters))
             return Array.Empty<AlterId>();
         return alters.Keys.ToArray();
     }
@@ -372,5 +374,36 @@ public sealed class InMemoryJournalRepository : IJournalRepository
             alterIds
         );
     }
+
+    private bool TryGetGlobalStore(SystemId systemId, out ConcurrentDictionary<EntryId, EntryState> store)
+    {
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+        return _bySystem.TryGetValue(systemKey, out store!);
+    }
+
+    private bool TryGetAlterStore(SystemId systemId, out ConcurrentDictionary<EntryId, AlterEntryState> store)
+    {
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+        return _alterEntriesBySystem.TryGetValue(systemKey, out store!);
+    }
+
+    private bool TryGetEntryAlterMap(
+        (ScopedSystemId System, EntryId EntryId) key,
+        out ConcurrentDictionary<AlterId, bool> alters)
+        => _entryAlters.TryGetValue(key, out alters!);
+
+    private bool TryGetGlobalEntry(SystemId systemId, EntryId entryId, out EntryState entry)
+    {
+        if (TryGetGlobalStore(systemId, out var store) && store.TryGetValue(entryId, out entry!))
+        {
+            return true;
+        }
+
+        entry = null!;
+        return false;
+    }
+
+    private bool GlobalEntryExists(SystemId systemId, EntryId entryId)
+        => TryGetGlobalStore(systemId, out var store) && store.ContainsKey(entryId);
 }
 
