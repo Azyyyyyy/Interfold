@@ -12,6 +12,7 @@ using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory;
+using Interfold.IntegrationTests.TestServices;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -31,7 +32,7 @@ namespace Interfold.IntegrationTests.SimplyPluralImport;
 /// </summary>
 public sealed class SpImportTests : BaseEndpointTest
 {
-    private static SystemId Uid() => new($"sys-{Guid.NewGuid():N}"[..16]);
+    private static SystemId Uid() => TestIds.NewTypedSystemId("sys", maxLen: 16);
     private static string MemberUuid() => Guid.NewGuid().ToString("N");
 
     // Synthetic timestamps (ms since Unix epoch). The whole point of this test file is to

@@ -162,7 +162,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
         // left every alter-journal entry orphaned in the database.
         using var client = TestClient.NoRedirect(fixture);
 
-        var principal = $"parity-alter-delete-cascade-{Guid.NewGuid():N}"[..32];
+        var principal = TestIds.NewSystemId("parity-alter-delete-cascade");
         var deletedAlterId = await CreateAlterAsync(client, principal, "DeleteMe");
         var keeperAlterId = await CreateAlterAsync(client, principal, "KeepMe");
 
@@ -228,7 +228,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
     {
         using var client = fixture.Factory.CreateClient();
 
-        var systemId = $"itest-{Guid.NewGuid():N}"[..14];
+        var systemId = TestIds.NewSystemId("itest", maxLen: 14);
         var idempotencyKey = Guid.NewGuid().ToString("N");
 
         using var firstRes = await client.SendAsJsonAsync(

@@ -49,7 +49,7 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
     {
         using var client = TestClient.NoRedirect(fixture);
 
-        var principal = $"alterid-front-ok-{Guid.NewGuid():N}"[..32];
+        var principal = TestIds.NewSystemId("alterid-front-ok");
         var alterId = await CreateAlterAsync(client, principal, "HappyPathAlter");
 
         using var res = await client.SendAsJsonAsync(
@@ -143,7 +143,7 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
     [Test]
     public async Task PublicSystemsShowAlter_ZeroRouteAlterId_Returns400InvalidAlterId()
     {
-        var systemId = $"public-alterid-{Guid.NewGuid():N}"[..32];
+        var systemId = TestIds.NewSystemId("public-alterid");
         await AssertInvalidAlterIdRoute(HttpMethod.Get, $"/api/systems/{systemId}/alters/0");
     }
 
@@ -157,7 +157,7 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
         // rows created by other tests in the same session — the model-binding 400 fires
         // before the controller reads persistence, but authorisation still runs, so we need
         // a legitimate token bound to a real user row.
-        var principal = $"alterid-neg-{Guid.NewGuid():N}"[..32];
+        var principal = TestIds.NewSystemId("alterid-neg");
         await EnsureUserExistsAsync(client, principal);
 
         using var res = await client.SendRawJsonAsync(method, path, rawJsonBody, principal);
@@ -179,7 +179,7 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
     {
         using var client = TestClient.NoRedirect(fixture);
 
-        var principal = $"alterid-route-neg-{Guid.NewGuid():N}"[..32];
+        var principal = TestIds.NewSystemId("alterid-route-neg");
         await EnsureUserExistsAsync(client, principal);
 
         HttpResponseMessage res;

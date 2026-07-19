@@ -79,7 +79,7 @@ public sealed class MultiNodeScyllaTests(MultiNodeScyllaFixture fixture)
             // csharp/Interfold.Infrastructure.Scylla/Migrations/002_create_interfold_schema.templated.cql
             // (PRIMARY KEY (user_id) on the `global.user_registry` table); the previous
             // `id` literal would now fail with "Unknown identifier id".
-            var testUserId = $"test-{Guid.NewGuid():N}"[..20];
+            var testUserId = TestIds.NewSystemId("test", maxLen: 20);
 
             await namSession.ExecuteAsync(new SimpleStatement(
                 "INSERT INTO global.user_registry (user_id, region) VALUES (?, ?)", testUserId, "nam"));

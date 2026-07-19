@@ -85,7 +85,7 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     {
         using var client = TestClient.NoRedirect(fixture);
 
-        var principal = $"front-set-empty-{Guid.NewGuid():N}"[..32];
+        var principal = TestIds.NewSystemId("front-set-empty");
         var target = await CreateAlterAsync(client, principal, "TargetAlter");
 
         using var setResult = await SendFrontSetAsync(client, target, principal, comment: "from-empty");
@@ -104,7 +104,7 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         // idempotent set call would break clients that pinned that id).
         using var client = TestClient.NoRedirect(fixture);
 
-        var principal = $"front-set-target-only-{Guid.NewGuid():N}"[..32];
+        var principal = TestIds.NewSystemId("front-set-target-only");
         var target = await CreateAlterAsync(client, principal, "TargetAlter");
 
         using var initialStart = await SendFrontStartAsync(client, alterId: target, comment: "initial", principal);
@@ -129,7 +129,7 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     {
         using var client = TestClient.NoRedirect(fixture);
 
-        var principal = $"front-set-others-only-{Guid.NewGuid():N}"[..32];
+        var principal = TestIds.NewSystemId("front-set-others-only");
         var other = await CreateAlterAsync(client, principal, "OtherAlter");
         var target = await CreateAlterAsync(client, principal, "TargetAlter");
 
@@ -153,7 +153,7 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         // target's existing front row intact (preserving front_id and start_time).
         using var client = TestClient.NoRedirect(fixture);
 
-        var principal = $"front-set-mixed-{Guid.NewGuid():N}"[..32];
+        var principal = TestIds.NewSystemId("front-set-mixed");
         var target = await CreateAlterAsync(client, principal, "TargetAlter");
         var other = await CreateAlterAsync(client, principal, "OtherAlter");
 

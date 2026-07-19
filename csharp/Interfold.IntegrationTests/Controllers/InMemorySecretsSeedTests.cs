@@ -33,7 +33,7 @@ public class InMemorySecretsSeedTests : BaseEndpointTest
         await using var factory = new InterfoldWebApplicationFactory("inmemory");
         using var client = factory.CreateClient();
 
-        var principalId = $"sys-secrets-seed-{Guid.NewGuid():N}"[..24];
+        var principalId = TestIds.NewSystemId("sys-secrets-seed", maxLen: 24);
 
         // POST /api/settings/username is a [Authorize]-gated route. Reaching 204 NoContent
         // proves end-to-end that:
@@ -108,7 +108,7 @@ public class InMemorySecretsSeedTests : BaseEndpointTest
                 seedInMemorySecretsFromFactoryConfig: false);
             using var client = factory.CreateClient();
 
-            var principalId = $"sys-secrets-env-{Guid.NewGuid():N}"[..24];
+            var principalId = TestIds.NewSystemId("sys-secrets-env", maxLen: 24);
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/settings/username")
             {
                 Content = JsonContent.Create(new { username = principalId })

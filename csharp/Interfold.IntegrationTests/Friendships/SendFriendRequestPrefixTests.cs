@@ -163,7 +163,7 @@ public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : B
 
     // ---------------- Helpers ----------------------------------------------
 
-    private static string UniqueId(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
+    private static string UniqueId(string prefix) => TestIds.NewSystemId(prefix, maxLen: 24);
 
     private static async Task<HttpStatusCode> SendFriendRequestAsync(
         HttpClient client, string sender, string recipientHandle)

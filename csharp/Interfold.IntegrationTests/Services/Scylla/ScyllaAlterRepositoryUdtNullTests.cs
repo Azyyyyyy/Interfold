@@ -42,7 +42,7 @@ public sealed class ScyllaAlterRepositoryUdtNullTests(ScyllaWebFactoryFixture fi
         var factory = fixture.Factory;
         using var client = factory.CreateClient();
 
-        var rawSystemId = $"sys-null-sec-{Guid.NewGuid():N}"[..32];
+        var rawSystemId = TestIds.NewSystemId("sys-null-sec");
         var systemId = new SystemId(rawSystemId);
         // CreateAlterAsync primes the users row so the region keyspace is real and the
         // repo's ResolveRegionalKeyspace succeeds. We overwrite the resulting alter row's
@@ -91,7 +91,7 @@ public sealed class ScyllaAlterRepositoryUdtNullTests(ScyllaWebFactoryFixture fi
         var factory = fixture.Factory;
         using var client = factory.CreateClient();
 
-        var rawSystemId = $"sys-null-udt-{Guid.NewGuid():N}"[..32];
+        var rawSystemId = TestIds.NewSystemId("sys-null-udt");
         var systemId = new SystemId(rawSystemId);
         var seededAlterId = await CreateAlterAsync(client, rawSystemId, "field-udt-alter");
 

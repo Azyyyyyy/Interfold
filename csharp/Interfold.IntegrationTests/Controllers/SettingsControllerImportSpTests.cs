@@ -52,7 +52,7 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
     public async Task ImportSp_FreshDispatch_Returns202WithOperationId()
     {
         using var client = TestClient.NoRedirect(fixture);
-        var principal = $"sp-import-202-{Guid.NewGuid():N}"[..24];
+        var principal = TestIds.NewSystemId("sp-import-202", maxLen: 24);
         await EnsureUserExistsAsync(client, principal);
 
         using var res = await client.SendAsJsonAsync(
@@ -81,7 +81,7 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
     public async Task ImportPk_FreshDispatch_Returns202WithOperationId()
     {
         using var client = TestClient.NoRedirect(fixture);
-        var principal = $"pk-import-202-{Guid.NewGuid():N}"[..24];
+        var principal = TestIds.NewSystemId("pk-import-202", maxLen: 24);
         await EnsureUserExistsAsync(client, principal);
 
         using var res = await client.SendAsJsonAsync(
@@ -109,7 +109,7 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
     public async Task ImportSp_AfterDispatch_WorkerProcessesAndPublishesFailedEvent(CancellationToken token)
     {
         using var client = TestClient.NoRedirect(fixture);
-        var principal = $"sp-import-wf-{Guid.NewGuid():N}"[..24];
+        var principal = TestIds.NewSystemId("sp-import-wf", maxLen: 24);
         await EnsureUserExistsAsync(client, principal);
 
         // Subscribe BEFORE dispatching so we can't miss the publish.
@@ -163,7 +163,7 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
     public async Task ImportSp_EmptyToken_ReturnsErrorWithoutAccepting()
     {
         using var client = TestClient.NoRedirect(fixture);
-        var principal = $"sp-import-bad-{Guid.NewGuid():N}"[..24];
+        var principal = TestIds.NewSystemId("sp-import-bad", maxLen: 24);
         await EnsureUserExistsAsync(client, principal);
 
         using var res = await client.SendAsJsonAsync(

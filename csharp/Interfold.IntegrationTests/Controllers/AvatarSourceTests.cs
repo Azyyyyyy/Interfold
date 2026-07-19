@@ -21,7 +21,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
     {
         using var client = TestClient.NoRedirect(fixture);
 
-        var principalId = $"sys-extavatar-{Guid.NewGuid():N}"[..24];
+        var principalId = TestIds.NewSystemId("sys-extavatar", maxLen: 24);
         await EnsureUserExistsAsync(client, principalId);
 
         using var uploadResponse = await client.SendAsJsonAsync(
@@ -46,7 +46,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
     {
         using var client = TestClient.NoRedirect(fixture);
 
-        var principalId = $"sys-altext-{Guid.NewGuid():N}"[..20];
+        var principalId = TestIds.NewSystemId("sys-altext", maxLen: 20);
 
         using var usernameResponse = await client.SendAsJsonAsync(
             HttpMethod.Post, "/api/settings/username",
@@ -89,7 +89,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
     {
         using var client = TestClient.NoRedirect(fixture);
 
-        var principalId = $"sys-bad-{Guid.NewGuid():N}"[..16];
+        var principalId = TestIds.NewSystemId("sys-bad", maxLen: 16);
         await EnsureUserExistsAsync(client, principalId);
 
         // AvatarUrl's constructor doesn't validate, so the typed record carries the
@@ -109,7 +109,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
     {
         using var client = TestClient.NoRedirect(fixture);
 
-        var principalId = $"sys-altrel-{Guid.NewGuid():N}"[..20];
+        var principalId = TestIds.NewSystemId("sys-altrel", maxLen: 20);
 
         using var usernameResponse = await client.SendAsJsonAsync(
             HttpMethod.Post, "/api/settings/username",
@@ -177,7 +177,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
             using var client = isolatedFactory.CreateClient();
 
-            var principalId = $"sys-localavatar-{Guid.NewGuid():N}"[..24];
+            var principalId = TestIds.NewSystemId("sys-localavatar", maxLen: 24);
 
             using var uploadRequest = BuildMultipartUploadRequest(client, "/api/settings/avatar", principalId, "avatar.png", "image/png");
             using var uploadResponse = await client.SendAsync(uploadRequest);

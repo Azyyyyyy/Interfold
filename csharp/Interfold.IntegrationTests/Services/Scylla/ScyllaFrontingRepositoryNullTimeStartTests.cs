@@ -30,7 +30,7 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
         // Mint a unique principal — this becomes the system id throughout the test. The
         // synthetic prefix makes leaked rows easy to spot if a future regression drops
         // the cleanup. CreateAlterAsync also ensures the system + users row exist.
-        var rawSystemId = $"sys-null-ts-{Guid.NewGuid():N}"[..32];
+        var rawSystemId = TestIds.NewSystemId("sys-null-ts");
         var systemId = new SystemId(rawSystemId);
         var typedAlterId = await CreateAlterAsync(client, rawSystemId, "synthetic-alter");
         var alterId = typedAlterId.Value;

@@ -126,7 +126,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
 
             using var client = isolatedFactory.CreateClient();
 
-            var principalId = $"sys-avatar-{Guid.NewGuid():N}"[..18];
+            var principalId = TestIds.NewSystemId("sys-avatar", maxLen: 18);
 
             using var uploadRequest = BuildMultipartUploadRequest(client, "/api/settings/avatar", principalId, "avatar-system.png", "image/png");
             using var uploadResponse = await client.SendAsync(uploadRequest);
@@ -195,7 +195,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
 
             using var client = isolatedFactory.CreateClient();
 
-            var principalId = $"sys-alter-avatar-{Guid.NewGuid():N}"[..24];
+            var principalId = TestIds.NewSystemId("sys-alter-avatar", maxLen: 24);
 
             using var usernameResponse = await client.SendAsJsonAsync(
                 HttpMethod.Post, "/api/settings/username",

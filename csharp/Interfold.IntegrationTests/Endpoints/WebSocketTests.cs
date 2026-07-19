@@ -19,7 +19,7 @@ namespace Interfold.IntegrationTests.Endpoints;
 [ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
-    internal static string UniqueId(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
+    internal static string UniqueId(string prefix) => TestIds.NewSystemId(prefix, maxLen: int.MaxValue);
 
     // Events carry ScopedSystemId, so tests that publish directly onto the bus compose
     // one from the raw test id. NAM is the only region the test bootstrapper seeds;
