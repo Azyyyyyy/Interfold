@@ -106,26 +106,8 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     [Test, NotInParallel("avatar-storage-config")]
     public async Task Api_SettingsAvatarMultipart_PersistsAndServesAvatar()
     {
-        var runId = Guid.NewGuid().ToString("N");
-        var storageRoot = Path.Combine(Path.GetTempPath(), "octocon-itest", "avatars", runId);
-        // AvatarPublicBase is validated by [AbsoluteHttpUri] on StorageConfiguration, so
-        // the configured value must be an absolute http(s) URL. WebApplicationFactory's
-        // default BaseAddress is http://localhost/, so "http://localhost" matches request
-        // origin resolution downstream. publicBasePath is what we assert against, because
-        // UrlPathStartsWith compares against Uri.AbsolutePath (the path, not the full URL).
-        var publicBasePath = $"/avatars-itest/{runId}";
-        var publicBase = $"http://localhost{publicBasePath}";
-
-        try
+        await IsolatedAvatarStorage.RunAsync(fixture, async (client, publicBasePath) =>
         {
-            Directory.CreateDirectory(storageRoot);
-
-            await using var isolatedFactory = fixture.CreatePrivateFactory()
-                .WithConfiguration("OCTOCON_AVATAR_STORAGE_ROOT", storageRoot)
-                .WithConfiguration("OCTOCON_AVATAR_PUBLIC_BASE", publicBase);
-
-            using var client = isolatedFactory.CreateClient();
-
             var principalId = TestIds.NewSystemId("sys-avatar", maxLen: 18);
 
             using var uploadRequest = BuildMultipartUploadRequest(client, "/api/settings/avatar", principalId, "avatar-system.png", "image/png");
@@ -162,12 +144,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
                 await Assert.That(avatarBytes.Length).IsGreaterThan(0)
                     .Because("Expected non-zero bytes back from the avatar GET — a zero-length response would indicate the middleware matched the path but couldn't read the file off disk.");
             }
-        }
-        finally
-        {
-            if (Directory.Exists(storageRoot))
-                Directory.Delete(storageRoot, true);
-        }
+        });
     }
 
     // Isolation contract: see the sibling Api_SettingsAvatarMultipart_PersistsAndServesAvatar
@@ -177,24 +154,8 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     [Test, NotInParallel("avatar-storage-config")]
     public async Task Api_AlterAvatarMultipart_PersistsAndReflectsOnPublicAlter()
     {
-        var runId = Guid.NewGuid().ToString("N");
-        var storageRoot = Path.Combine(Path.GetTempPath(), "octocon-itest", "avatars", runId);
-        // See sibling test for the AbsoluteHttpUri constraint on AvatarPublicBase and the
-        // path-vs-URL split. publicBasePath is what we assert against because
-        // UrlPathStartsWith compares Uri.AbsolutePath (the path portion) not the full URL.
-        var publicBasePath = $"/avatars-itest/{runId}";
-        var publicBase = $"http://localhost{publicBasePath}";
-
-        try
+        await IsolatedAvatarStorage.RunAsync(fixture, async (client, publicBasePath) =>
         {
-            Directory.CreateDirectory(storageRoot);
-
-            await using var isolatedFactory = fixture.CreatePrivateFactory()
-                .WithConfiguration("OCTOCON_AVATAR_STORAGE_ROOT", storageRoot)
-                .WithConfiguration("OCTOCON_AVATAR_PUBLIC_BASE", publicBase);
-
-            using var client = isolatedFactory.CreateClient();
-
             var principalId = TestIds.NewSystemId("sys-alter-avatar", maxLen: 24);
 
             using var usernameResponse = await client.SendAsJsonAsync(
@@ -234,12 +195,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
             var afterDelete = await afterDeleteResponse.ReadEnvelopeAsync<BareAlter>(HttpStatusCode.OK);
 
             await Assert.That(afterDelete.Data.AvatarUrl).IsNull();
-        }
-        finally
-        {
-            if (Directory.Exists(storageRoot))
-                Directory.Delete(storageRoot, true);
-        }
+        });
     }
 }
 

@@ -156,27 +156,8 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
     [Test, NotInParallel("avatar-storage-config")]
     public async Task Api_SettingsAvatarMultipart_ReportsLocalSource()
     {
-        var runId = Guid.NewGuid().ToString("N");
-        var storageRoot = Path.Combine(Path.GetTempPath(), "octocon-itest", "avatars", runId);
-        // AvatarPublicBase carries [AbsoluteHttpUri] validation on StorageConfiguration,
-        // so the configured value MUST be an absolute http(s) URL. WebApplicationFactory's
-        // default BaseAddress is http://localhost/, so the "http://localhost" host is
-        // guaranteed to match request-origin resolution downstream. publicBasePath is the
-        // URL-path portion we assert against, because UrlPathStartsWith compares against
-        // Uri.AbsolutePath (the path, not the full URL).
-        var publicBasePath = $"/avatars-itest/{runId}";
-        var publicBase = $"http://localhost{publicBasePath}";
-
-        try
+        await IsolatedAvatarStorage.RunAsync(fixture, async (client, publicBasePath) =>
         {
-            Directory.CreateDirectory(storageRoot);
-
-            await using var isolatedFactory = fixture.CreatePrivateFactory()
-                .WithConfiguration("OCTOCON_AVATAR_STORAGE_ROOT", storageRoot)
-                .WithConfiguration("OCTOCON_AVATAR_PUBLIC_BASE", publicBase);
-
-            using var client = isolatedFactory.CreateClient();
-
             var principalId = TestIds.NewSystemId("sys-localavatar", maxLen: 24);
 
             using var uploadRequest = BuildMultipartUploadRequest(client, "/api/settings/avatar", principalId, "avatar.png", "image/png");
@@ -212,12 +193,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
                 await Assert.That(avatarBytes.Length).IsGreaterThan(0)
                     .Because("Expected non-zero bytes back from the avatar GET.");
             }
-        }
-        finally
-        {
-            if (Directory.Exists(storageRoot))
-                Directory.Delete(storageRoot, true);
-        }
+        });
     }
 }
 
