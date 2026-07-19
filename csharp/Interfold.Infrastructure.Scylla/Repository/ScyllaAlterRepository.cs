@@ -114,7 +114,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             var batch = new BatchStatement();
 
-            var exists = await ExistsAsync(session, keyspace, normalizedSystemId, command.AlterId);
+            var exists = await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "alters", "id", normalizedSystemId, command.AlterId.Value);
             if (!exists)
             {
                 return false;
@@ -248,7 +248,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var keyspace = scope.Keyspace;
             var alterIdShort = alterId.Value;
 
-            var exists = await ExistsAsync(session, keyspace, normalizedSystemId, alterId);
+            var exists = await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "alters", "id", normalizedSystemId, alterId.Value);
             if (!exists)
             {
                 return false;
@@ -542,9 +542,6 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             return rows.Any(row => row.GetValue<short>("id") != alterId.Value);
         }, cancellationToken);
     }
-
-    private static Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, AlterId alterId)
-        => ScyllaExistsQueries.RowExistsAsync(session, keyspace, "alters", "id", normalizedSystemId, alterId.Value);
 
     public static void EnsureAlterFieldUdtMapping(ISession session, string keyspace)
     {

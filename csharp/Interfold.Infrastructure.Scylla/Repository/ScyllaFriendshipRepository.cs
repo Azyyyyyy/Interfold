@@ -433,9 +433,6 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
     private static Task<bool> ExistsFriendshipAsync(ISession session, string userId, string friendId)
         => ScyllaExistsQueries.RowExistsAsync(session, ScyllaGlobalKeyspace.Name, "friendships", "friend_id", userId, friendId);
 
-    private static Task<bool> SystemExistsAsync(ISession session, string userId)
-        => ScyllaExistsQueries.RowExistsAsync(session, ScyllaGlobalKeyspace.Name, "user_registry", "user_id", userId, userId);
-
     private async Task<SystemId?> ResolveUserIdInScyllaAsync(
         ISession session,
         string input,

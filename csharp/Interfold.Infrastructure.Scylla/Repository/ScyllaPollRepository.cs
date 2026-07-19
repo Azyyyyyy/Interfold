@@ -124,7 +124,7 @@ public sealed class ScyllaPollRepository : IPollRepository
             var normalizedSystemId = scope.NormalizedSystemId;
             var keyspace = scope.Keyspace;
 
-            var exists = await ExistsAsync(session, keyspace, normalizedSystemId, command.Id.Value);
+            var exists = await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "polls", "id", normalizedSystemId, command.Id.Value);
             if (!exists)
                 return false;
 
@@ -183,7 +183,7 @@ public sealed class ScyllaPollRepository : IPollRepository
             var normalizedSystemId = scope.NormalizedSystemId;
             var keyspace = scope.Keyspace;
 
-            var exists = await ExistsAsync(session, keyspace, normalizedSystemId, pollId.Value);
+            var exists = await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "polls", "id", normalizedSystemId, pollId.Value);
             if (!exists)
                 return false;
 
@@ -196,9 +196,6 @@ public sealed class ScyllaPollRepository : IPollRepository
             return true;
         }, cancellationToken);
     }
-
-    private static Task<bool> ExistsAsync(ISession session, string keyspace, string normalizedSystemId, Guid pollGuid)
-        => ScyllaExistsQueries.RowExistsAsync(session, keyspace, "polls", "id", normalizedSystemId, pollGuid);
 
     // The data blob's confirmed shape (see PollDataJson) keeps per-alter votes in the
     // top-level `responses` array as {"alter_id":<int>,...} entries; deleting an alter
