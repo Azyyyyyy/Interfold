@@ -203,21 +203,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
         var rows = store.Values
             .OrderBy(x => x.AlterId.Value)
-            .Select(x => new AlterReadModel(
-                x.AlterId,
-                x.Name,
-                x.Description,
-                x.AvatarUrl,
-                x.AvatarSource,
-                x.Color,
-                x.Pronouns,
-                x.VisibilityLevel,
-                ResolveGuardedFields(x, definitions),
-                x.ProxyName,
-                x.Alias,
-                x.Untracked,
-                x.Archived,
-                x.Pinned))
+            .Select(x => MapAlterReadModel(x, definitions))
             .ToArray();
 
         return rows;
@@ -264,21 +250,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
         var definitions = await ResolveVisibleDefinitionsAsync(systemId, FriendshipLevel.TrustedFriend, cancellationToken);
 
-        return new AlterReadModel(
-            alter.AlterId,
-            alter.Name,
-            alter.Description,
-            alter.AvatarUrl,
-            alter.AvatarSource,
-            alter.Color,
-            alter.Pronouns,
-            alter.VisibilityLevel,
-            ResolveGuardedFields(alter, definitions),
-            alter.ProxyName,
-            alter.Alias,
-            alter.Untracked,
-            alter.Archived,
-            alter.Pinned);
+        return MapAlterReadModel(alter, definitions);
     }
 
     public async Task<BareAlter?> GetGuardedAsync(
@@ -372,6 +344,27 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         AlterState alter,
         IReadOnlyList<SettingsFieldReadModel> definitions)
         => AlterFieldProjection.ResolveGuardedFields(alter.Fields, definitions);
+
+    private static AlterReadModel MapAlterReadModel(
+        AlterState alter,
+        IReadOnlyList<SettingsFieldReadModel> definitions)
+    {
+        return new AlterReadModel(
+            alter.AlterId,
+            alter.Name,
+            alter.Description,
+            alter.AvatarUrl,
+            alter.AvatarSource,
+            alter.Color,
+            alter.Pronouns,
+            alter.VisibilityLevel,
+            ResolveGuardedFields(alter, definitions),
+            alter.ProxyName,
+            alter.Alias,
+            alter.Untracked,
+            alter.Archived,
+            alter.Pinned);
+    }
 
     // _settingsFields is nullable historically (see the constructor); the shared helper
     // wants a non-null repo so the null-check stays here at the InMemory boundary.

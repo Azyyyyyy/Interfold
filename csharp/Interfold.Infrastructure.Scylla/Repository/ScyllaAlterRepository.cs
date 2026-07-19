@@ -424,22 +424,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             var rows = await session.ExecuteAsync(query);
             return rows
-                .Select(row => new AlterReadModel(
-                    new(row.GetValue<short>("id")),
-                    row.GetValue<string>("name"),
-                    row.GetValue<string?>("description"),
-                    AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    row.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
-                    HexColor.FromNullable(row.GetValue<string?>("color")),
-                    row.GetValue<string?>("pronouns"),
-                    row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
-                    ScyllaSharedQueries.ResolveAlterFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
-                    row.GetValue<string?>("proxy_name"),
-                    row.GetValue<string?>("alias"),
-                    row.GetValue<bool?>("untracked"),
-                    row.GetValue<bool?>("archived"),
-                    row.GetValue<bool?>("pinned")
-                ))
+                .Select(row => AlterRowMappers.MapAlterReadModel(row, definitions))
                 .OrderBy(x => x.Id.Value)
                 .ToArray();
         }, cancellationToken);
@@ -493,22 +478,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             return row is null
                 ? null
-                : new AlterReadModel(
-                    new(row.GetValue<short>("id")),
-                    row.GetValue<string>("name"),
-                    row.GetValue<string?>("description"),
-                    AvatarUrl.FromNullable(row.GetValue<string?>("avatar_url")),
-                    row.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
-                    HexColor.FromNullable(row.GetValue<string?>("color")),
-                    row.GetValue<string?>("pronouns"),
-                    row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
-                    ScyllaSharedQueries.ResolveAlterFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
-                    row.GetValue<string?>("proxy_name"),
-                    row.GetValue<string?>("alias"),
-                    row.GetValue<bool?>("untracked"),
-                    row.GetValue<bool?>("archived"),
-                    row.GetValue<bool?>("pinned")
-                );
+                : AlterRowMappers.MapAlterReadModel(row, definitions);
         }, cancellationToken);
     }
 
