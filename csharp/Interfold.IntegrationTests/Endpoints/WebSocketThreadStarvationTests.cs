@@ -203,19 +203,7 @@ public class WebSocketThreadStarvationTests(IWebFactoryFixture fixture) : BaseEn
         await WebSocketTests.JoinTopicAsync(recipientWs, $"system:{recipientSystemId}", recipientSocketToken, token);
 
         // Send friend request — the original regression dropped friend_request_received here.
-        var sendRequestFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "PUT",
-                Path = "/api/friend-requests/" + recipientSystemId,
-                Body = new object()
-            },
-            Ref = "2",
-            JoinRef = "1",
-        }.ToBytes();
+        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
 
         await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -227,19 +215,7 @@ public class WebSocketThreadStarvationTests(IWebFactoryFixture fixture) : BaseEn
             .Because("Expected friend_request_received before accept (under thread starvation).");
 
         // Accept friend request
-        var acceptFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = "system:" + recipientSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "POST",
-                Path = "/api/friend-requests/" + senderSystemId + "/accept",
-                Body = new object()
-            },
-            Ref = "3",
-            JoinRef = "1",
-        }.ToBytes();
+        var acceptFrame = PhxEndpointFrame.Build("system:" + recipientSystemId, "POST", "/api/friend-requests/" + senderSystemId + "/accept", new object(), "3");
 
         await recipientWs.SendAsync(acceptFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -247,19 +223,7 @@ public class WebSocketThreadStarvationTests(IWebFactoryFixture fixture) : BaseEn
         _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.Added);
 
         // Trust friend — the action that emits the push the CI failure was missing.
-        var trustFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "POST",
-                Path = "/api/friends/" + recipientSystemId + "/trust",
-                Body = new object()
-            },
-            Ref = "4",
-            JoinRef = "1",
-        }.ToBytes();
+        var trustFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "POST", "/api/friends/" + recipientSystemId + "/trust", new object(), "4");
 
         await senderWs.SendAsync(trustFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -281,19 +245,7 @@ public class WebSocketThreadStarvationTests(IWebFactoryFixture fixture) : BaseEn
         }
 
         // Untrust friend — second push that the original CI failure also lost.
-        var untrustFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "POST",
-                Path = "/api/friends/" + recipientSystemId + "/untrust",
-                Body = new object()
-            },
-            Ref = "5",
-            JoinRef = "1",
-        }.ToBytes();
+        var untrustFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "POST", "/api/friends/" + recipientSystemId + "/untrust", new object(), "5");
 
         await senderWs.SendAsync(untrustFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 

@@ -168,14 +168,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var (rawWs, socketToken) = await WebSocketHarness.ConnectAndJoinAsync(fixture, systemId, token);
         using var ws = rawWs;
 
-        var createAlterFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = topic,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload { Method = "POST", Path = "/api/systems/me/alters", Body = new { name = "FrontPushAlter" } },
-            Ref = "2",
-            JoinRef = "1"
-        }.ToBytes();
+        var createAlterFrame = PhxEndpointFrame.Build(topic, "POST", "/api/systems/me/alters", new { name = "FrontPushAlter" }, "2");
 
         await ws.SendAsync(createAlterFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -188,14 +181,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             ? createAlterPush.RawPayload!.Value.GetProperty("alter").GetProperty("id").GetInt32()
             : ExtractAlterIdFromEndpointReply(createAlterReply!);
 
-        var startFrontFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = topic,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload { Method = "POST", Path = "/api/systems/me/front/start", Body = new { id = createdAlterId } },
-            Ref = "3",
-            JoinRef = "1"
-        }.ToBytes();
+        var startFrontFrame = PhxEndpointFrame.Build(topic, "POST", "/api/systems/me/front/start", new { id = createdAlterId }, "3");
 
         await ws.SendAsync(startFrontFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -224,14 +210,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var (rawWs, socketToken) = await WebSocketHarness.ConnectAndJoinAsync(fixture, systemId, token);
         using var ws = rawWs;
 
-        var createAlterFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = topic,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload { Method = "POST", Path = "/api/systems/me/alters", Body = new { name = "DomainFanoutAlter" } },
-            Ref = "2",
-            JoinRef = "1"
-        }.ToBytes();
+        var createAlterFrame = PhxEndpointFrame.Build(topic, "POST", "/api/systems/me/alters", new { name = "DomainFanoutAlter" }, "2");
 
         var (alterReply, alterPush) = await SendEndpointAndCaptureAsync(ws, createAlterFrame, SocketEventNames.Alters.Created, token);
         using (Assert.Multiple())
@@ -242,14 +221,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         await Assert.That(alterPush!.RawPayload?.GetProperty("alter").GetProperty("name").GetString())
             .IsEqualTo("DomainFanoutAlter").Because("Expected alter name in push payload.");
 
-        var createTagFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = topic,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload { Method = "POST", Path = "/api/systems/me/tags", Body = new { name = "DomainFanoutTag" } },
-            Ref = "3",
-            JoinRef = "1"
-        }.ToBytes();
+        var createTagFrame = PhxEndpointFrame.Build(topic, "POST", "/api/systems/me/tags", new { name = "DomainFanoutTag" }, "3");
 
         var (tagReply, tagPush) = await SendEndpointAndCaptureAsync(ws, createTagFrame, SocketEventNames.Tags.Created, token);
         using (Assert.Multiple())
@@ -260,14 +232,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         await Assert.That(tagPush!.RawPayload?.GetProperty("tag").GetProperty("name").GetString())
             .IsEqualTo("DomainFanoutTag").Because("Expected tag name in push payload.");
 
-        var createFieldFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = topic,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload { Method = "POST", Path = "/api/settings/fields", Body = new { name = "DomainFanoutField", type = "text", security_level = "private", locked = false } },
-            Ref = "4",
-            JoinRef = "1"
-        }.ToBytes();
+        var createFieldFrame = PhxEndpointFrame.Build(topic, "POST", "/api/settings/fields", new { name = "DomainFanoutField", type = "text", security_level = "private", locked = false }, "4");
 
         var (fieldReply, fieldPush) = await SendEndpointAndCaptureAsync(ws, createFieldFrame, SocketEventNames.Settings.FieldsUpdated, token);
         using (Assert.Multiple())
@@ -291,18 +256,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var senderWs = pair.FirstWs;
         using var recipientWs = pair.SecondWs;
 
-        var sendRequestFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "PUT",
-                Path = "/api/friend-requests/" + recipientSystemId,
-                Body = new object()
-            },
-            Ref = "2",
-            JoinRef = "1",
-        }.ToBytes();
+        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
 
         await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -336,18 +290,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var senderWs = pair.FirstWs;
         using var recipientWs = pair.SecondWs;
 
-        var sendRequestFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "PUT",
-                Path = "/api/friend-requests/" + recipientSystemId,
-                Body = new object()
-            },
-            Ref = "2",
-            JoinRef = "1",
-        }.ToBytes();
+        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
 
         await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -357,19 +300,8 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var recipientEvent = await ReceivedPhxFrame.ReceiveEventFrameAsync(recipientWs, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
         await Assert.That(recipientEvent).IsNotNull().Because("Expected friend_request_received");
 
-        var acceptFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + recipientSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "POST",
-                Path = "/api/friend-requests/" + senderSystemId + "/accept",
-                Body = new object()
-            },
-            Ref = "3",
-            JoinRef = "1",
-        }.ToBytes();
-        
+        var acceptFrame = PhxEndpointFrame.Build("system:" + recipientSystemId, "POST", "/api/friend-requests/" + senderSystemId + "/accept", new object(), "3");
+
         await recipientWs.SendAsync(acceptFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
         var (recipientAck, recipientFriendAdded) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
@@ -418,37 +350,15 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var senderWs = pair.FirstWs;
         using var recipientWs = pair.SecondWs;
 
-        var sendRequestFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "PUT",
-                Path = "/api/friend-requests/" + recipientSystemId,
-                Body = new object()
-            },
-            Ref = "2",
-            JoinRef = "1",
-        }.ToBytes();
-        
+        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
+
         await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
         _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.RequestSent);
         var recipientEvent = await ReceivedPhxFrame.ReceiveEventFrameAsync(recipientWs, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
         await Assert.That(recipientEvent).IsNotNull().Because("Expected friend_request_received");
 
-        var rejectFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + recipientSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "DELETE",
-                Path = "/api/friend-requests/" + senderSystemId,
-                Body = new object()
-            },
-            Ref = "3",
-            JoinRef = "1",
-        }.ToBytes();
+        var rejectFrame = PhxEndpointFrame.Build("system:" + recipientSystemId, "DELETE", "/api/friend-requests/" + senderSystemId, new object(), "3");
 
         await recipientWs.SendAsync(rejectFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -477,18 +387,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var senderWs = pair.FirstWs;
         using var recipientWs = pair.SecondWs;
 
-        var sendRequestFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "PUT",
-                Path = "/api/friend-requests/" + recipientSystemId,
-                Body = new object()
-            },
-            Ref = "2",
-            JoinRef = "1",
-        }.ToBytes();
+        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
 
         await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -497,18 +396,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var recipientReceived = await ReceivedPhxFrame.ReceiveEventFrameAsync(recipientWs, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
         await Assert.That(recipientReceived).IsNotNull().Because("Expected friend_request_received before cancel.");
 
-        var cancelFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "DELETE",
-                Path = "/api/friend-requests/" + recipientSystemId,
-                Body = new object()
-            },
-            Ref = "3",
-            JoinRef = "1",
-        }.ToBytes();
+        var cancelFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "DELETE", "/api/friend-requests/" + recipientSystemId, new object(), "3");
 
         await senderWs.SendAsync(cancelFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -540,18 +428,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var recipientWs = pair.SecondWs;
 
         // Send friend request
-        var sendRequestFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "PUT",
-                Path = "/api/friend-requests/" + recipientSystemId,
-                Body = new object()
-            },
-            Ref = "2",
-            JoinRef = "1",
-        }.ToBytes();
+        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
 
         await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -561,18 +438,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         await Assert.That(recipientReceived).IsNotNull().Because("Expected friend_request_received before accept.");
 
         // Accept friend request
-        var acceptFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + recipientSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "POST",
-                Path = "/api/friend-requests/" + senderSystemId + "/accept",
-                Body = new object()
-            },
-            Ref = "3",
-            JoinRef = "1",
-        }.ToBytes();
+        var acceptFrame = PhxEndpointFrame.Build("system:" + recipientSystemId, "POST", "/api/friend-requests/" + senderSystemId + "/accept", new object(), "3");
 
         await recipientWs.SendAsync(acceptFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -589,18 +455,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.Added);
 
         // Remove friend
-        var removeFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "DELETE",
-                Path = "/api/friends/" + recipientSystemId,
-                Body = new object()
-            },
-            Ref = "4",
-            JoinRef = "1",
-        }.ToBytes();
+        var removeFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "DELETE", "/api/friends/" + recipientSystemId, new object(), "4");
 
         await senderWs.SendAsync(removeFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -638,18 +493,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var recipientWs = pair.SecondWs;
 
         // Send friend request
-        var sendRequestFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "PUT",
-                Path = "/api/friend-requests/" + recipientSystemId,
-                Body = new object()
-            },
-            Ref = "2",
-            JoinRef = "1",
-        }.ToBytes();
+        var sendRequestFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "PUT", "/api/friend-requests/" + recipientSystemId, new object(), "2");
 
         await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -659,18 +503,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         await Assert.That(recipientReceived).IsNotNull().Because("Expected friend_request_received before accept.");
 
         // Accept friend request
-        var acceptFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + recipientSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "POST",
-                Path = "/api/friend-requests/" + senderSystemId + "/accept",
-                Body = new object()
-            },
-            Ref = "3",
-            JoinRef = "1",
-        }.ToBytes();
+        var acceptFrame = PhxEndpointFrame.Build("system:" + recipientSystemId, "POST", "/api/friend-requests/" + senderSystemId + "/accept", new object(), "3");
 
         await recipientWs.SendAsync(acceptFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -679,18 +512,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.Added);
 
         // Trust friend
-        var trustFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "POST",
-                Path = "/api/friends/" + recipientSystemId + "/trust",
-                Body = new object()
-            },
-            Ref = "4",
-            JoinRef = "1",
-        }.ToBytes();
+        var trustFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "POST", "/api/friends/" + recipientSystemId + "/trust", new object(), "4");
 
         await senderWs.SendAsync(trustFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -710,18 +532,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         }
 
         // Untrust friend
-        var untrustFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "POST",
-                Path = "/api/friends/" + recipientSystemId + "/untrust",
-                Body = new object()
-            },
-            Ref = "5",
-            JoinRef = "1",
-        }.ToBytes();
+        var untrustFrame = PhxEndpointFrame.Build("system:" + senderSystemId, "POST", "/api/friends/" + recipientSystemId + "/untrust", new object(), "5");
 
         await senderWs.SendAsync(untrustFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -755,36 +566,14 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         using var wsB = pair.SecondWs;
 
         // A sends friend request to B
-        var sendAFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + systemAId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "PUT",
-                Path = "/api/friend-requests/" + systemBId,
-                Body = new object()
-            },
-            Ref = "2",
-            JoinRef = "1",
-        }.ToBytes();
+        var sendAFrame = PhxEndpointFrame.Build("system:" + systemAId, "PUT", "/api/friend-requests/" + systemBId, new object(), "2");
 
         await wsA.SendAsync(sendAFrame, WebSocketMessageType.Text, endOfMessage: true, token);
         _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(wsA, token, SocketEventNames.Friendships.RequestSent);
         _ = await ReceivedPhxFrame.ReceiveEventFrameAsync(wsB, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
 
         // B sends mutual friend request to A (should auto-accept)
-        var sendBFrame = new PhxFrame<PhxEndpointPayload> {
-            Topic = "system:" + systemBId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "PUT",
-                Path = "/api/friend-requests/" + systemAId,
-                Body = new object()
-            },
-            Ref = "3",
-            JoinRef = "1",
-        }.ToBytes();
+        var sendBFrame = PhxEndpointFrame.Build("system:" + systemBId, "PUT", "/api/friend-requests/" + systemAId, new object(), "3");
 
         await wsB.SendAsync(sendBFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -848,25 +637,11 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         // Seed a tag so the wipe path actually iterates the repository — exercises the cascade
         // path Octocon.Accounts.wipe_tags/1 used to cover in the legacy worker.
-        var createTagFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = topic,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload { Method = "POST", Path = "/api/systems/me/tags", Body = new { name = "WipeMe" } },
-            Ref = "2",
-            JoinRef = "1"
-        }.ToBytes();
+        var createTagFrame = PhxEndpointFrame.Build(topic, "POST", "/api/systems/me/tags", new { name = "WipeMe" }, "2");
 
         _ = await SendEndpointAndCaptureAsync(ws, createTagFrame, SocketEventNames.Tags.Created, token);
 
-        var wipeFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = topic,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload { Method = "POST", Path = "/api/settings/wipe-tags", Body = new object() },
-            Ref = "3",
-            JoinRef = "1"
-        }.ToBytes();
+        var wipeFrame = PhxEndpointFrame.Build(topic, "POST", "/api/settings/wipe-tags", new object(), "3");
 
         var (wipeAck, wipePush) = await SendEndpointAndCaptureAsync(ws, wipeFrame, SocketEventNames.Settings.TagsWiped, token);
 
@@ -893,14 +668,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var (rawWs, socketToken) = await WebSocketHarness.ConnectAndJoinAsync(fixture, systemId, token);
         using var ws = rawWs;
 
-        var unlinkFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = topic,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload { Method = "POST", Path = "/api/settings/unlink_email", Body = new object() },
-            Ref = "2",
-            JoinRef = "1"
-        }.ToBytes();
+        var unlinkFrame = PhxEndpointFrame.Build(topic, "POST", "/api/settings/unlink_email", new object(), "2");
 
         var (ack, push) = await SendEndpointAndCaptureAsync(ws, unlinkFrame, SocketEventNames.Settings.GoogleAccountUnlinked, token);
 
@@ -1054,19 +822,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             // returns 201 with a JSON body. Choosing an established endpoint keeps
             // this test's signal focused on the URI-composition regression rather
             // than on controller-level wiring.
-            var endpointFrame = new PhxFrame<PhxEndpointPayload>
-            {
-                Topic = topic,
-                Event = "endpoint",
-                Payload = new PhxEndpointPayload
-                {
-                    Method = "POST",
-                    Path = "/api/systems/me/alters",
-                    Body = new { name = "LoopbackProbeAlter" }
-                },
-                Ref = "2",
-                JoinRef = "1"
-            }.ToBytes();
+            var endpointFrame = PhxEndpointFrame.Build(topic, "POST", "/api/systems/me/alters", new { name = "LoopbackProbeAlter" }, "2");
 
             // POST /api/systems/me/alters triggers an alter_created domain-event push that
             // arrives interleaved with the endpoint phx_reply on the same socket. The shared
