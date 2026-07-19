@@ -68,10 +68,8 @@ public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
         await Assert.That(apiIdBefore.Length).IsGreaterThan(0)
             .Because("bootstrap should have produced a running interfold-api container");
 
-        var update = await dinD.RunBootstrapperAsync(nameof(UpdateWithNoChangedImagesIsNoOp),
-            ["update-images", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--service", "msg-db", "--service", "scylla",
-             "--non-interactive"]);
+        var update = await dinD.RunOnScratchAsync(scratch, nameof(UpdateWithNoChangedImagesIsNoOp), "update-images",
+            "--service", "msg-db", "--service", "scylla");
         await Assert.That(update.ExitCode).IsEqualTo(0).Because($"update-images failed: {update.Stderr}");
 
         var combined = update.Stdout + update.Stderr;
@@ -103,10 +101,8 @@ public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
         await Assert.That(int.Parse(pgBefore.Stdout.Trim())).IsEqualTo(0)
             .Because("baseline: bootstrap should not have taken any backups yet");
 
-        var update = await dinD.RunBootstrapperAsync(nameof(UpdatePerformsPreUpdateBackup),
-            ["update-images", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--service", "msg-db", "--service", "scylla",
-             "--non-interactive"]);
+        var update = await dinD.RunOnScratchAsync(scratch, nameof(UpdatePerformsPreUpdateBackup), "update-images",
+            "--service", "msg-db", "--service", "scylla");
         await Assert.That(update.ExitCode).IsEqualTo(0).Because($"update-images failed: {update.Stderr}");
 
         // Both components must have received a fresh archive from the pre-update backup step.
@@ -129,10 +125,9 @@ public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
         // Pinned so a future refactor that flips the default behaviour gets caught.
         var (scratch, _) = await dinD.BootstrapAsync(nameof(UpdateWithSkipPreUpdateBackupDoesNotWriteArchives), TestConfigPaths.DefaultConfig);
 
-        var update = await dinD.RunBootstrapperAsync(nameof(UpdateWithSkipPreUpdateBackupDoesNotWriteArchives),
-            ["update-images", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--service", "msg-db", "--service", "scylla",
-             "--skip-pre-update-backup", "--non-interactive"]);
+        var update = await dinD.RunOnScratchAsync(scratch, nameof(UpdateWithSkipPreUpdateBackupDoesNotWriteArchives), "update-images",
+            "--service", "msg-db", "--service", "scylla",
+            "--skip-pre-update-backup");
         await Assert.That(update.ExitCode).IsEqualTo(0).Because($"update-images failed: {update.Stderr}");
 
         var pgAfter = await dinD.ExecAsync(["sh", "-c",
@@ -159,9 +154,7 @@ public class UpdateImagesPhaseTests(UbuntuDinDFixture dinD)
         // gives us the "guide to bootstrap" contract.
         var scratch = await dinD.CreateScratchAsync(nameof(UpdateWithoutComposeFailsClearly), TestConfigPaths.DefaultConfig);
 
-        var result = await dinD.RunBootstrapperAsync(nameof(UpdateWithoutComposeFailsClearly),
-            ["update-images", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive"]);
+        var result = await dinD.RunOnScratchAsync(scratch, nameof(UpdateWithoutComposeFailsClearly), "update-images");
 
         await Assert.That(result.ExitCode).IsNotEqualTo(0)
             .Because("update-images against a bare scratch must fail");

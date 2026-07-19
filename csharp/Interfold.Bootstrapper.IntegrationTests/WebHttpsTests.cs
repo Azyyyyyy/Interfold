@@ -95,14 +95,7 @@ public class WebHttpsTests(UbuntuDinDFixture dinD)
         // paths we passed in. The healthcheck itself probes https://localhost:443/ with `-kf`
         // from inside the container, so a healthy state implies a successful TLS handshake
         // against the bootstrapper-issued leaf cert.
-        var scratch = await dinD.CreateScratchAsync(nameof(WebContainerServesHttpsAfterComposeUp), TestConfigPaths.WebHttpsConfig);
-
-        // `publish` runs config + secrets + certs + compose-publish (no docker compose up). The
-        // certs phase emits /certs/{leaf.crt,leaf.key,leaf.pfx} under the scratch output dir, so
-        // the bind mount we then ask docker compose to consume has real files behind it.
-        var publish = await dinD.RunBootstrapperAsync($"{nameof(WebContainerServesHttpsAfterComposeUp)}-publish",
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(publish.ExitCode).IsEqualTo(0).Because(publish.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(WebContainerServesHttpsAfterComposeUp), TestConfigPaths.WebHttpsConfig);
 
         // Bring up only the web service. --no-deps because the compose file networks reference
         // the api network but the web container itself has no service-level depends_on; compose

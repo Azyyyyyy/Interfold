@@ -27,9 +27,8 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
         // `docker compose exec`).
         var (scratch, _) = await dinD.BootstrapAsync(nameof(BackupCreatesPostgresAndScyllaArtifacts), TestConfigPaths.DefaultConfig);
 
-        var backup = await dinD.RunBootstrapperAsync(nameof(BackupCreatesPostgresAndScyllaArtifacts),
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "all", "--non-interactive"]);
+        var backup = await dinD.RunOnScratchAsync(scratch, nameof(BackupCreatesPostgresAndScyllaArtifacts), "backup",
+            "--component", "all");
         await Assert.That(backup.ExitCode).IsEqualTo(0).Because($"backup failed: {backup.Stderr}");
 
         // ls the per-component subdirs — must contain at least one matching archive each.
@@ -72,9 +71,8 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
             // sleep 1s between backups so the timestamps differ; backup filenames use second-
             // resolution and we need each iteration's archive to be distinguishable on disk.
             await dinD.ExecAsync(["sleep", "1"]);
-            var b = await dinD.RunBootstrapperAsync($"{nameof(BackupRetentionPrunesOldestPastRetainCount)}-{i}",
-                ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-                 "--component", "all", "--retain", "2", "--non-interactive"]);
+            var b = await dinD.RunOnScratchAsync(scratch, $"{nameof(BackupRetentionPrunesOldestPastRetainCount)}-{i}", "backup",
+                "--component", "all", "--retain", "2");
             await Assert.That(b.ExitCode).IsEqualTo(0).Because($"backup #{i} failed: {b.Stderr}");
         }
 
@@ -84,9 +82,8 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
 
         // Third run: pruning kicks in, exactly 2 must remain.
         await dinD.ExecAsync(["sleep", "1"]);
-        var third = await dinD.RunBootstrapperAsync($"{nameof(BackupRetentionPrunesOldestPastRetainCount)}-third",
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "all", "--retain", "2", "--non-interactive"]);
+        var third = await dinD.RunOnScratchAsync(scratch, $"{nameof(BackupRetentionPrunesOldestPastRetainCount)}-third", "backup",
+            "--component", "all", "--retain", "2");
         await Assert.That(third.ExitCode).IsEqualTo(0).Because($"third backup failed: {third.Stderr}");
 
         var pgCount = await dinD.ExecAsync(["sh", "-c", $"ls -1 {scratch.OutputDir}/backups/postgres/ | wc -l"]);
@@ -105,9 +102,8 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
         // versa. Pins the contract so a future refactor that ignores the flag is caught.
         var (scratch, _) = await dinD.BootstrapAsync(nameof(BackupComponentFlagRestrictsScope), TestConfigPaths.DefaultConfig);
 
-        var pgOnly = await dinD.RunBootstrapperAsync($"{nameof(BackupComponentFlagRestrictsScope)}-pg",
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "postgres", "--non-interactive"]);
+        var pgOnly = await dinD.RunOnScratchAsync(scratch, $"{nameof(BackupComponentFlagRestrictsScope)}-pg", "backup",
+            "--component", "postgres");
         await Assert.That(pgOnly.ExitCode).IsEqualTo(0).Because(pgOnly.Stderr);
 
         // Postgres subdir populated; scylla subdir either missing or empty.
@@ -132,9 +128,8 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
 
         // Write the config but skip the bootstrap. The scratch's outputDir has only the
         // config file, no compose stack.
-        var result = await dinD.RunBootstrapperAsync(nameof(BackupWithoutComposeFailsClearly),
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "postgres", "--non-interactive"]);
+        var result = await dinD.RunOnScratchAsync(scratch, nameof(BackupWithoutComposeFailsClearly), "backup",
+            "--component", "postgres");
 
         await Assert.That(result.ExitCode).IsNotEqualTo(0)
             .Because("backup against a bare scratch (no compose, no secrets) must fail");

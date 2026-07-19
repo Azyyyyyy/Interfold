@@ -54,9 +54,8 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
             .Because($"seeding marker table failed: {seed.Stderr}");
 
         // Take the backup that we'll restore from.
-        var backup = await dinD.RunBootstrapperAsync($"{nameof(RestorePostgresFromDumpRoundTripsMarkerTable)}-backup",
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "postgres", "--non-interactive"]);
+        var backup = await dinD.RunOnScratchAsync(scratch, $"{nameof(RestorePostgresFromDumpRoundTripsMarkerTable)}-backup", "backup",
+            "--component", "postgres");
         await Assert.That(backup.ExitCode).IsEqualTo(0).Because($"backup failed: {backup.Stderr}");
 
         // Drop the marker table so the restore path has something concrete to bring back.
@@ -80,9 +79,8 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
 
         // Restore --restore-latest picks up the .dump we just took. --force skips the
         // destructive-op confirmation prompt (required in --non-interactive mode).
-        var restore = await dinD.RunBootstrapperAsync(nameof(RestorePostgresFromDumpRoundTripsMarkerTable),
-            ["restore", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--restore-latest", "--force", "--non-interactive"]);
+        var restore = await dinD.RunOnScratchAsync(scratch, nameof(RestorePostgresFromDumpRoundTripsMarkerTable), "restore",
+            "--restore-latest", "--force");
         await Assert.That(restore.ExitCode).IsEqualTo(0).Because($"restore failed: {restore.Stderr}");
 
         // The marker must be back. Value check pins that the round-trip preserved the
@@ -109,16 +107,14 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
 
         // First backup, then a 2s sleep so mtimes are distinguishable at second
         // resolution, then a second backup.
-        var b1 = await dinD.RunBootstrapperAsync($"{nameof(RestoreLatestPicksMostRecentArchive)}-b1",
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "postgres", "--non-interactive"]);
+        var b1 = await dinD.RunOnScratchAsync(scratch, $"{nameof(RestoreLatestPicksMostRecentArchive)}-b1", "backup",
+            "--component", "postgres");
         await Assert.That(b1.ExitCode).IsEqualTo(0).Because(b1.Stderr);
 
         await dinD.ExecAsync(["sleep", "2"]);
 
-        var b2 = await dinD.RunBootstrapperAsync($"{nameof(RestoreLatestPicksMostRecentArchive)}-b2",
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "postgres", "--non-interactive"]);
+        var b2 = await dinD.RunOnScratchAsync(scratch, $"{nameof(RestoreLatestPicksMostRecentArchive)}-b2", "backup",
+            "--component", "postgres");
         await Assert.That(b2.ExitCode).IsEqualTo(0).Because(b2.Stderr);
 
         // Resolve the newest archive name via a shell one-liner so we know what the
@@ -132,9 +128,8 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
 
         // Restore with --restore-latest and no explicit --restore-postgres so the
         // resolver picks by mtime. The log line names the chosen path — assert it.
-        var restore = await dinD.RunBootstrapperAsync(nameof(RestoreLatestPicksMostRecentArchive),
-            ["restore", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--restore-latest", "--force", "--non-interactive"]);
+        var restore = await dinD.RunOnScratchAsync(scratch, nameof(RestoreLatestPicksMostRecentArchive), "restore",
+            "--restore-latest", "--force");
         await Assert.That(restore.ExitCode).IsEqualTo(0).Because($"restore failed: {restore.Stderr}");
 
         var combined = restore.Stdout + restore.Stderr;
@@ -150,9 +145,8 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
         // missing selectors, not crash somewhere deep in pg_restore.
         var (scratch, _) = await dinD.BootstrapAsync(nameof(RestoreWithoutArchivesFailsClearly), TestConfigPaths.DefaultConfig);
 
-        var result = await dinD.RunBootstrapperAsync(nameof(RestoreWithoutArchivesFailsClearly),
-            ["restore", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--restore-latest", "--force", "--non-interactive"]);
+        var result = await dinD.RunOnScratchAsync(scratch, nameof(RestoreWithoutArchivesFailsClearly), "restore",
+            "--restore-latest", "--force");
 
         await Assert.That(result.ExitCode).IsNotEqualTo(0)
             .Because("restore --restore-latest with no archives on disk must fail");
@@ -171,15 +165,13 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
         var (scratch, _) = await dinD.BootstrapAsync(nameof(RestoreInNonInteractiveModeRequiresForce), TestConfigPaths.DefaultConfig);
 
         // Take a backup so there's a real archive to point at.
-        var backup = await dinD.RunBootstrapperAsync($"{nameof(RestoreInNonInteractiveModeRequiresForce)}-backup",
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "postgres", "--non-interactive"]);
+        var backup = await dinD.RunOnScratchAsync(scratch, $"{nameof(RestoreInNonInteractiveModeRequiresForce)}-backup", "backup",
+            "--component", "postgres");
         await Assert.That(backup.ExitCode).IsEqualTo(0).Because(backup.Stderr);
 
         // No --force. Must fail with a clear error mentioning --force.
-        var result = await dinD.RunBootstrapperAsync(nameof(RestoreInNonInteractiveModeRequiresForce),
-            ["restore", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--restore-latest", "--non-interactive"]);
+        var result = await dinD.RunOnScratchAsync(scratch, nameof(RestoreInNonInteractiveModeRequiresForce), "restore",
+            "--restore-latest");
 
         await Assert.That(result.ExitCode).IsNotEqualTo(0)
             .Because("restore in non-interactive mode without --force must be refused");

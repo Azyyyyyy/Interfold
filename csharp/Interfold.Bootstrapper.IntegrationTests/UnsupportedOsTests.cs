@@ -23,8 +23,7 @@ public class UnsupportedOsTests(UnsupportedDistroDinDFixture dinD)
     {
         var scratch = await dinD.CreateScratchAsync(nameof(RefusesToRunOnUnsupportedDistro), TestConfigPaths.DefaultConfig);
 
-        var result = await dinD.RunBootstrapperAsync(nameof(RefusesToRunOnUnsupportedDistro),
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
+        var result = await dinD.RunOnScratchAsync(scratch, nameof(RefusesToRunOnUnsupportedDistro), "bootstrap");
 
         await Assert.That(result.ExitCode).IsNotEqualTo(0L)
             .Because("bootstrap must exit non-zero on an unsupported distro");

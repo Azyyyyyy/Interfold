@@ -39,9 +39,8 @@ public class DbInitFaultRecoveryTests(UbuntuDinDFixture dinD)
         // Run #1: bootstrap halts mid-DatabaseInitPhase, after Postgres admin role creation but
         // before Scylla. Exit code is non-zero because the phase throws to skip Launch (we don't
         // want compose up against an un-initialised scylla).
-        var halted = await dinD.RunBootstrapperAsync($"{nameof(PartiallyBootstrappedDbCompletesOnRerun)}-halt",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs", "--fault-inject=after-db-postgres"]);
+        var halted = await dinD.RunOnScratchAsync(scratch, $"{nameof(PartiallyBootstrappedDbCompletesOnRerun)}-halt", "bootstrap",
+            "--skip-prereqs", "--fault-inject=after-db-postgres");
         await Assert.That(halted.ExitCode).IsNotEqualTo(0)
             .Because("fault-inject=after-db-postgres should surface a non-zero exit so launch is skipped");
 
@@ -74,9 +73,8 @@ public class DbInitFaultRecoveryTests(UbuntuDinDFixture dinD)
         // Run #2: rerun without the fault flag. The orchestrator hits db-init again, the
         // postgres state probe short-circuits the admin bootstrap, scylla init runs fresh, and
         // launch brings everything up to health.
-        var resumed = await dinD.RunBootstrapperAsync($"{nameof(PartiallyBootstrappedDbCompletesOnRerun)}-resume",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs", "--print-phase-status"]);
+        var resumed = await dinD.RunOnScratchAsync(scratch, $"{nameof(PartiallyBootstrappedDbCompletesOnRerun)}-resume", "bootstrap",
+            "--skip-prereqs", "--print-phase-status");
         await Assert.That(resumed.ExitCode).IsEqualTo(0)
             .Because($"resumed bootstrap should complete cleanly: {resumed.Stderr}");
         await Assert.That(resumed.Stdout)

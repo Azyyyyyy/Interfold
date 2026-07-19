@@ -49,10 +49,10 @@ public class MdnsGateTests(UbuntuDinDFixture dinD)
             nameof(NonInteractiveBootstrapStripsUnresolvableLocalHostsAndContinues),
             TestConfigPaths.MdnsGateConfig);
 
-        var result = await dinD.RunBootstrapperAsync(
+        var result = await dinD.RunOnScratchAsync(scratch,
             nameof(NonInteractiveBootstrapStripsUnresolvableLocalHostsAndContinues),
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs", "--fault-inject=after-publish"]);
+            "bootstrap",
+            "--skip-prereqs", "--fault-inject=after-publish");
 
         // Exit 0 pins the "bootstrap always continues" contract. A regression that (say) started
         // treating the strip as a fatal error would flip this to non-zero and fail loudly.

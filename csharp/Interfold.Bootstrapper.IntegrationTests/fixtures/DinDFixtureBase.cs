@@ -278,6 +278,38 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
     }
 
     /// <summary>
+    /// Runs an arbitrary bootstrapper subcommand against an already-created scratch, with the
+    /// three flags that every test would otherwise repeat (<c>--config</c>, <c>--output-dir</c>,
+    /// <c>--non-interactive</c>) pre-populated. Does NOT assert on exit code — callers make
+    /// their own success/failure assertions since different sites expect different exit codes
+    /// (health-timeout wants non-zero; secondary <c>bootstrap</c> re-runs want zero; etc.).
+    /// </summary>
+    /// <remarks>
+    /// Use this instead of hand-rolling <see cref="RunBootstrapperAsync"/> whenever a test is
+    /// invoking a single subcommand (<c>install-service</c>, <c>update-images</c>, <c>backup</c>,
+    /// <c>restore</c>, <c>up</c>, <c>rotate-secrets</c>, <c>rotate-certs</c>, second <c>bootstrap</c>,
+    /// etc.) against a scratch it already holds. For the primary <c>bootstrap</c>/<c>publish</c>
+    /// at the top of a test body, prefer <see cref="BootstrapAsync"/>/<see cref="PublishAsync"/>
+    /// which also create the scratch and assert exit zero.
+    /// </remarks>
+    public Task<ExecResult> RunOnScratchAsync(
+        DinDScratch scratch,
+        string testName,
+        string command,
+        params string[] extraArgs)
+    {
+        var args = new List<string>(4 + extraArgs.Length)
+        {
+            command,
+            "--config", scratch.ConfigPath,
+            "--output-dir", scratch.OutputDir,
+            "--non-interactive",
+        };
+        args.AddRange(extraArgs);
+        return RunBootstrapperAsync(testName, args);
+    }
+
+    /// <summary>
     /// Drives a full bootstrap against a fresh scratch and returns the in-container compose
     /// file path. Each test calls this once at the top of its body, then issues its probes.
     /// </summary>

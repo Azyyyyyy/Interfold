@@ -34,8 +34,6 @@ public class TrustStoreFalseTests(UbuntuDinDFixture dinD)
     [NotInParallel("ubuntu-trust-install")]
     public async Task TrustStoreInstallFalseLeavesSystemStoreClean()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(TrustStoreInstallFalseLeavesSystemStoreClean), TestConfigPaths.DefaultConfig);
-
         // Snapshot the trust-store paths BEFORE running publish. The DinD fixture is shared
         // (SharedType.PerTestSession) with UbuntuBootstrapTests.RootCaInstalledInDebianTrustStore,
         // so a successful sibling run can leave `interfold-root-ca.crt` in the anchor dir and
@@ -45,9 +43,7 @@ public class TrustStoreFalseTests(UbuntuDinDFixture dinD)
         var anchorBefore = await ListInterfoldEntriesAsync("/usr/local/share/ca-certificates/");
         var sslCertsBefore = await ListInterfoldEntriesAsync("/etc/ssl/certs/");
 
-        var result = await dinD.RunBootstrapperAsync(nameof(TrustStoreInstallFalseLeavesSystemStoreClean),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(TrustStoreInstallFalseLeavesSystemStoreClean), TestConfigPaths.DefaultConfig);
 
         var anchorAfter = await ListInterfoldEntriesAsync("/usr/local/share/ca-certificates/");
         var sslCertsAfter = await ListInterfoldEntriesAsync("/etc/ssl/certs/");

@@ -94,10 +94,9 @@ public class UpdateImagesCassandraModeTests(UbuntuCassandraDinDFixture dinD)
         await Assert.That(imgBefore.Stdout.Trim().Length).IsGreaterThan(0)
             .Because("bootstrap should have built interfold-cassandra:local via CassandraImagePhase.EnsureBuiltAsync");
 
-        var update = await dinD.RunBootstrapperAsync(nameof(UpdateInCassandraModeSkipsCassandraOnPullAndRebuildsLocalImage),
-            ["update-images", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--service", "msg-db", "--service", "cassandra",
-             "--skip-pre-update-backup", "--non-interactive"]);
+        var update = await dinD.RunOnScratchAsync(scratch, nameof(UpdateInCassandraModeSkipsCassandraOnPullAndRebuildsLocalImage), "update-images",
+            "--service", "msg-db", "--service", "cassandra",
+            "--skip-pre-update-backup");
         await Assert.That(update.ExitCode).IsEqualTo(0).Because($"update-images failed: {update.Stderr}");
 
         var combined = update.Stdout + update.Stderr;
@@ -130,10 +129,9 @@ public class UpdateImagesCassandraModeTests(UbuntuCassandraDinDFixture dinD)
         // "whitelist excludes cassandra" branch in a real invocation.
         var (scratch, _) = await dinD.BootstrapAsync(nameof(UpdateInCassandraModeWithMsgDbWhitelistSkipsRebuild), TestConfigPaths.CassandraConfig);
 
-        var update = await dinD.RunBootstrapperAsync(nameof(UpdateInCassandraModeWithMsgDbWhitelistSkipsRebuild),
-            ["update-images", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--service", "msg-db",
-             "--skip-pre-update-backup", "--non-interactive"]);
+        var update = await dinD.RunOnScratchAsync(scratch, nameof(UpdateInCassandraModeWithMsgDbWhitelistSkipsRebuild), "update-images",
+            "--service", "msg-db",
+            "--skip-pre-update-backup");
         await Assert.That(update.ExitCode).IsEqualTo(0).Because($"update-images failed: {update.Stderr}");
 
         var combined = update.Stdout + update.Stderr;

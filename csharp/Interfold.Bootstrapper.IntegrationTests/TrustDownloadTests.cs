@@ -27,14 +27,7 @@ public class TrustDownloadTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task WellKnownEndpointServesBootstrapperCert()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(WellKnownEndpointServesBootstrapperCert), TestConfigPaths.DefaultConfig);
-
-        // Full `bootstrap`: publish + db-init + launch. LaunchPhase polls /health/ready, so a
-        // 0 exit here means the API container is up and ready to serve.
-        var result = await dinD.RunBootstrapperAsync(nameof(WellKnownEndpointServesBootstrapperCert),
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(result.ExitCode).IsEqualTo(0)
-            .Because($"full bootstrap failed: {result.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(WellKnownEndpointServesBootstrapperCert), TestConfigPaths.DefaultConfig);
 
         // On-disk artefacts the bootstrapper just produced — our golden truth for the three
         // endpoint responses.

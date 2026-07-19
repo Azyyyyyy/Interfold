@@ -31,17 +31,15 @@ public class BootstrapIdempotenceTests(UbuntuDinDFixture dinD)
 
         // First bootstrap: full path - prereqs (skipped) -> config -> secrets -> certs -> publish
         // -> db-init -> launch. Brings the postgres + scylla admin work all the way through.
-        var first = await dinD.RunBootstrapperAsync($"{nameof(SecondBootstrapShortCircuitsDbInit)}-first",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
+        var first = await dinD.RunOnScratchAsync(scratch, $"{nameof(SecondBootstrapShortCircuitsDbInit)}-first", "bootstrap",
+            "--skip-prereqs");
         await Assert.That(first.ExitCode).IsEqualTo(0)
             .Because($"first bootstrap failed: {first.Stderr}");
 
         // Second bootstrap against the same scratch: the orchestrator runs the same phase
         // sequence, but each idempotent phase should self-skip or short-circuit.
-        var second = await dinD.RunBootstrapperAsync($"{nameof(SecondBootstrapShortCircuitsDbInit)}-second",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs", "--print-phase-status"]);
+        var second = await dinD.RunOnScratchAsync(scratch, $"{nameof(SecondBootstrapShortCircuitsDbInit)}-second", "bootstrap",
+            "--skip-prereqs", "--print-phase-status");
         await Assert.That(second.ExitCode).IsEqualTo(0)
             .Because($"second bootstrap failed: {second.Stderr}");
 
@@ -66,9 +64,8 @@ public class BootstrapIdempotenceTests(UbuntuDinDFixture dinD)
     {
         var scratch = await dinD.CreateScratchAsync(nameof(SecondBootstrapLeavesContainersHealthy), TestConfigPaths.DefaultConfig);
 
-        await dinD.RunBootstrapperAsync($"{nameof(SecondBootstrapLeavesContainersHealthy)}-first",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
+        await dinD.RunOnScratchAsync(scratch, $"{nameof(SecondBootstrapLeavesContainersHealthy)}-first", "bootstrap",
+            "--skip-prereqs");
 
         // Capture the container IDs after the first pass so we can compare against the second.
         var composeFile = $"{scratch.OutputDir}/docker-compose.yaml";
@@ -76,9 +73,8 @@ public class BootstrapIdempotenceTests(UbuntuDinDFixture dinD)
         await Assert.That(firstIds.Count).IsGreaterThan(0)
             .Because("first bootstrap must have brought at least one container up");
 
-        var second = await dinD.RunBootstrapperAsync($"{nameof(SecondBootstrapLeavesContainersHealthy)}-second",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
+        var second = await dinD.RunOnScratchAsync(scratch, $"{nameof(SecondBootstrapLeavesContainersHealthy)}-second", "bootstrap",
+            "--skip-prereqs");
         await Assert.That(second.ExitCode).IsEqualTo(0).Because(second.Stderr);
 
         var secondIds = await ContainerIdsAsync(composeFile);
