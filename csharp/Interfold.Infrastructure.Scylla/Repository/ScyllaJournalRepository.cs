@@ -466,17 +466,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
 
             var rows = await session.ExecuteAsync(query);
             return rows
-                .Select(row => new AlterJournalReadModel(
-                    new(row.GetValue<Guid>("id")),
-                    new(row.GetValue<string>("user_id")),
-                    new(row.GetValue<short>("alter_id")),
-                    row.GetValue<string>("title"),
-                    row.GetValue<string?>("content"),
-                    HexColor.FromNullable(row.GetValue<string?>("color")),
-                    row.GetValue<bool>("locked"),
-                    row.GetValue<bool>("pinned"),
-                    row.GetValue<DateTime>("inserted_at"),
-                    row.GetValue<DateTime>("updated_at")))
+                .Select(row => JournalRowMappers.MapAlterJournalReadModel(row))
                 .OrderByDescending(e => e.InsertedAt)
                 .ToArray();
         }, cancellationToken);
@@ -499,17 +489,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             return row is null
                 ? null
-                : new AlterJournalReadModel(
-                    new(row.GetValue<Guid>("id")),
-                    new(row.GetValue<string>("user_id")),
-                    new(row.GetValue<short>("alter_id")),
-                    row.GetValue<string>("title"),
-                    row.GetValue<string?>("content"),
-                    HexColor.FromNullable(row.GetValue<string?>("color")),
-                    row.GetValue<bool>("locked"),
-                    row.GetValue<bool>("pinned"),
-                    row.GetValue<DateTime>("inserted_at"),
-                    row.GetValue<DateTime>("updated_at"));
+                : JournalRowMappers.MapAlterJournalReadModel(row);
         }, cancellationToken);
     }
 
@@ -539,17 +519,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 var alterRows = await session.ExecuteAsync(altersQuery);
                 var alterIds = alterRows.Select(r => new AlterId(r.GetValue<short>("alter_id"))).ToArray();
 
-                result.Add(new JournalReadModel(
-                    new(id),
-                    new(row.GetValue<string>("user_id")),
-                    row.GetValue<string>("title"),
-                    row.GetValue<string?>("content"),
-                    HexColor.FromNullable(row.GetValue<string?>("color")),
-                    row.GetValue<bool>("locked"),
-                    row.GetValue<bool>("pinned"),
-                    row.GetValue<DateTime>("inserted_at"),
-                    row.GetValue<DateTime>("updated_at"),
-                    alterIds));
+                result.Add(JournalRowMappers.MapJournalReadModel(row, alterIds));
             }
 
             // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
@@ -586,17 +556,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 .Select(r => new AlterId(r.GetValue<short>("alter_id")))
                 .ToArray();
 
-            return new JournalReadModel(
-                new(entryRow.GetValue<Guid>("id")),
-                new(entryRow.GetValue<string>("user_id")),
-                entryRow.GetValue<string>("title"),
-                entryRow.GetValue<string?>("content"),
-                HexColor.FromNullable(entryRow.GetValue<string?>("color")),
-                entryRow.GetValue<bool>("locked"),
-                entryRow.GetValue<bool>("pinned"),
-                entryRow.GetValue<DateTime>("inserted_at"),
-                entryRow.GetValue<DateTime>("updated_at"),
-                alterIds);
+            return JournalRowMappers.MapJournalReadModel(entryRow, alterIds);
         }, cancellationToken);
     }
 

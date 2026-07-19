@@ -273,7 +273,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         var entries = store.Values
             .Where(e => e.AlterId == alterId)
             .OrderByDescending(e => e.InsertedAt)
-            .Select(e => new AlterJournalReadModel(e.EntryId, e.UserId, e.AlterId, e.Title, e.Content, e.Color, e.Locked, e.Pinned, e.InsertedAt, e.UpdatedAt))
+            .Select(MapAlterJournalReadModel)
             .ToArray();
 
         return Task.FromResult<IReadOnlyList<AlterJournalReadModel>>(entries);
@@ -285,9 +285,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         if (!_alterEntriesBySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(entryId, out var entry))
             return Task.FromResult<AlterJournalReadModel?>(null);
 
-        return Task.FromResult<AlterJournalReadModel?>(
-            new AlterJournalReadModel(entry.EntryId, entry.UserId, entry.AlterId, entry.Title, entry.Content, entry.Color, entry.Locked, entry.Pinned, entry.InsertedAt, entry.UpdatedAt)
-        );
+        return Task.FromResult<AlterJournalReadModel?>(MapAlterJournalReadModel(entry));
     }
 
     public Task<IReadOnlyList<JournalReadModel>> ListGlobalAsync(SystemId systemId, CancellationToken cancellationToken = default)
@@ -304,17 +302,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
             {
                 var (pinned, locked) = GetGlobalState(systemId, e.EntryId);
                 var alterIds = GetGlobalAlterIds(systemId, e.EntryId);
-                return new JournalReadModel(
-                    e.EntryId,
-                    e.UserId,
-                    e.Title,
-                    e.Content,
-                    e.Color,
-                    locked,
-                    pinned,
-                    e.InsertedAt,
-                    e.UpdatedAt,
-                    alterIds);
+                return MapJournalReadModel(e, locked, pinned, alterIds);
             })
             .ToArray();
 
@@ -329,18 +317,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
 
         var (pinned, locked) = GetGlobalState(systemId, entryId);
         var alterIds = GetGlobalAlterIds(systemId, entryId);
-        return Task.FromResult<JournalReadModel?>(
-            new JournalReadModel(
-                entry.EntryId,
-                entry.UserId,
-                entry.Title,
-                entry.Content,
-                entry.Color,
-                locked,
-                pinned,
-                entry.InsertedAt,
-                entry.UpdatedAt,
-                alterIds));
+        return Task.FromResult<JournalReadModel?>(MapJournalReadModel(entry, locked, pinned, alterIds));
     }
 
     private (bool Pinned, bool Locked) GetGlobalState(SystemId systemId, EntryId entryId)
@@ -365,5 +342,37 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         => (InMemoryStorageKeys.ForSystem(_regionContext, systemId), entryId);
 
     private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+
+    private static AlterJournalReadModel MapAlterJournalReadModel(AlterEntryState entry)
+    {
+        return new AlterJournalReadModel(
+            entry.EntryId,
+            entry.UserId,
+            entry.AlterId,
+            entry.Title,
+            entry.Content,
+            entry.Color,
+            entry.Locked,
+            entry.Pinned,
+            entry.InsertedAt,
+            entry.UpdatedAt
+        );
+    }
+
+    private static JournalReadModel MapJournalReadModel(EntryState entry, bool locked, bool pinned, IReadOnlyList<AlterId> alterIds)
+    {
+        return new JournalReadModel(
+            entry.EntryId,
+            entry.UserId,
+            entry.Title,
+            entry.Content,
+            entry.Color,
+            locked,
+            pinned,
+            entry.InsertedAt,
+            entry.UpdatedAt,
+            alterIds
+        );
+    }
 }
 
