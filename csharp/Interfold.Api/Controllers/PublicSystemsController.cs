@@ -1,4 +1,5 @@
 using Interfold.Api.Controllers.Base;
+using Interfold.Api.Filters;
 using Interfold.Api.Models;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
@@ -52,26 +53,18 @@ public sealed class PublicSystemsController : InterfoldControllerBase
 
     //TODO: To ensure route works as expected
     [HttpGet("alters")]
+    [SystemMustExist]
     public async Task<Response<IReadOnlyList<BareAlter>>> ListAlters([FromRoute] SystemId systemId, CancellationToken ct)
     {
-        if (!await SystemExistsAsync(systemId, ct))
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
         var alters = await _alters.ListGuardedAsync(systemId, PrincipalId, ct);
         foreach (var a in alters) a.AvatarUrl = QualifyAvatar(a.AvatarUrl, a.AvatarSource);
         return new SuccessResponse<IReadOnlyList<BareAlter>>(alters);
     }
 
     [HttpGet("alters/{alterId:int}")]
+    [SystemMustExist]
     public async Task<Response<BareAlter>> ShowAlter([FromRoute] SystemId systemId, [FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
-        if (!await SystemExistsAsync(systemId, ct))
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
         var alter = await _alters.GetGuardedAsync(systemId, alterId, PrincipalId, ct);
         if (alter is not null)
         {
@@ -85,25 +78,17 @@ public sealed class PublicSystemsController : InterfoldControllerBase
 
     //TODO: To ensure route works as expected
     [HttpGet("tags")]
+    [SystemMustExist]
     public async Task<Response<IReadOnlyList<TagPublicReadModel>>> ListTags([FromRoute] SystemId systemId, CancellationToken ct)
     {
-        if (!await SystemExistsAsync(systemId, ct))
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
         var tags = await _tags.ListGuardedAsync(systemId, PrincipalId, ct);
         return new SuccessResponse<IReadOnlyList<TagPublicReadModel>>(tags);
     }
 
     [HttpGet("tags/{tagId}")]
+    [SystemMustExist]
     public async Task<Response<TagPublicReadModel>> ShowTag([FromRoute] SystemId systemId, [FromRoute] TagId tagId, CancellationToken ct)
     {
-        if (!await SystemExistsAsync(systemId, ct))
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
         var tag = await _tags.GetGuardedAsync(systemId, tagId, PrincipalId, ct);
         return tag is null
             ? new ErrorResponse("Tag not found.", ErrorCodes.TagNotFound, System.Net.HttpStatusCode.NotFound)
@@ -112,25 +97,17 @@ public sealed class PublicSystemsController : InterfoldControllerBase
 
     //TODO: To ensure route works as expected
     [HttpGet("fronting")]
+    [SystemMustExist]
     public async Task<Response<IReadOnlyList<FrontActiveReadModel>>> ListFronting([FromRoute] SystemId systemId, CancellationToken ct)
     {
-        if (!await SystemExistsAsync(systemId, ct))
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
         var fronts = await _fronting.ListActiveGuardedAsync(systemId, PrincipalId, ct);
         return new SuccessResponse<IReadOnlyList<FrontActiveReadModel>>(fronts);
     }
 
     [HttpGet("batch")]
+    [SystemMustExist]
     public async Task<Response<PublicSystemBatchReadModel>> Batch([FromRoute] SystemId systemId, CancellationToken ct)
     {
-        if (!await SystemExistsAsync(systemId, ct))
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
         var principalId = PrincipalId;
         // Semantic self-check. RepresentsSameUserAs compares scoped-to-scoped when both
         // sides carry a region prefix, so a cross-region collision (same raw id, different
@@ -170,9 +147,4 @@ public sealed class PublicSystemsController : InterfoldControllerBase
             Alters: batchAlters);
     }
 
-    private async Task<bool> SystemExistsAsync(SystemId systemId, CancellationToken ct)
-    {
-        var profile = await _accounts.GetPublicProfileAsync(systemId, ct);
-        return profile is not null;
-    }
 }
