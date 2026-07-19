@@ -23,14 +23,7 @@ internal static class LaunchPhase
         const string Phase = "launch";
         logger.PhaseStart(Phase);
 
-        var composeFile = BootstrapArtifactPaths.FindComposeFile(options.OutputDir);
-        if (composeFile is null)
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.NoComposeFile);
-            throw new InvalidOperationException(
-                $"docker-compose.yaml not found under {options.OutputDir}. Run `bootstrap publish` first.");
-        }
-        logger.Info($"    using compose file {composeFile}");
+        var composeFile = PhaseArtifactLoader.RequireComposeFileOrFail(options, logger, Phase);
 
         var apiHttpPort = await ResolveApiHttpPortAsync(options, ct).ConfigureAwait(false);
 

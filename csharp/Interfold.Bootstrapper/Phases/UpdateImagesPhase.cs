@@ -38,31 +38,11 @@ internal static class UpdateImagesPhase
     {
         logger.PhaseStart(Phase);
 
-        var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
-        if (!File.Exists(configPath))
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.MissingConfig);
-            throw new InvalidOperationException(
-                $"update-images requires a populated bootstrap config at {configPath}. " +
-                "Run `bootstrap` first.");
-        }
+        var config = await PhaseArtifactLoader
+            .LoadRequiredConfigAsync(options, logger, Phase, "update-images", ct)
+            .ConfigureAwait(false);
 
-        BootstrapConfig config;
-        await using (var stream = File.OpenRead(configPath))
-        {
-            config = await JsonSerializer.DeserializeAsync(
-                stream, BootstrapJsonContext.Default.BootstrapConfig, ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException($"Failed to parse {configPath}.");
-        }
-
-        var composeFile = BootstrapArtifactPaths.FindComposeFile(options.OutputDir);
-        if (composeFile is null)
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.NoComposeFile);
-            throw new InvalidOperationException(
-                $"docker-compose.yaml not found under {options.OutputDir}. Run `bootstrap publish` first.");
-        }
-        logger.Info($"    using compose file {composeFile}");
+        var composeFile = PhaseArtifactLoader.RequireComposeFileOrFail(options, logger, Phase);
 
         // Whitelist precedence: CLI --service beats config.update.services beats "every service".
         // The empty-array sentinel means "pass no service names to docker compose" which

@@ -66,22 +66,9 @@ internal static class BackupPhase
                 $"--component='{options.BackupComponent}' is invalid. Expected one of: {string.Join(", ", ValidComponents)}.");
         }
 
-        var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
-        if (!File.Exists(configPath))
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.MissingConfig);
-            throw new InvalidOperationException(
-                $"Backup requires a populated bootstrap config at {configPath}. " +
-                "Run `bootstrap` first.");
-        }
-
-        BootstrapConfig config;
-        await using (var stream = File.OpenRead(configPath))
-        {
-            config = await System.Text.Json.JsonSerializer.DeserializeAsync(
-                stream, BootstrapJsonContext.Default.BootstrapConfig, ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException($"Failed to parse {configPath}.");
-        }
+        var config = await PhaseArtifactLoader
+            .LoadRequiredConfigAsync(options, logger, Phase, "Backup", ct)
+            .ConfigureAwait(false);
 
         GeneratedSecrets secrets;
         try
@@ -98,14 +85,7 @@ internal static class BackupPhase
                 "Run `bootstrap` first to generate them.", ex);
         }
 
-        var composeFile = BootstrapArtifactPaths.FindComposeFile(options.OutputDir);
-        if (composeFile is null)
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.NoComposeFile);
-            throw new InvalidOperationException(
-                $"docker-compose.yaml not found under {options.OutputDir}. Run `bootstrap publish` first.");
-        }
-        logger.Info($"    using compose file {composeFile}");
+        var composeFile = PhaseArtifactLoader.RequireComposeFileOrFail(options, logger, Phase);
 
         var backupRoot = ResolveBackupRoot(options, config);
         var retainCount = options.BackupRetainOverride ?? config.Backup.RetainCount;

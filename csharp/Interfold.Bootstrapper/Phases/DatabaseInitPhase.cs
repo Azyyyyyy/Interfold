@@ -45,10 +45,7 @@ internal static class DatabaseInitPhase
     {
         logger.PhaseStart(Phase);
 
-        var composeFile = BootstrapArtifactPaths.FindComposeFile(options.OutputDir)
-            ?? throw new InvalidOperationException(
-                $"docker-compose.yaml not found under {options.OutputDir}. Run `bootstrap publish` first.");
-        logger.Info($"    using compose file {composeFile}");
+        var composeFile = PhaseArtifactLoader.RequireComposeFileOrFail(options, logger, Phase);
 
         // Scylla service name depends on launch profile. The 'cassandra' fallback and
         // multi-region scylla deployments use a different container alias - we drive the

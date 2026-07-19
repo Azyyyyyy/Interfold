@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.IO.Compression;
-using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
@@ -49,22 +48,9 @@ internal static class RestorePhase
     {
         logger.PhaseStart(Phase);
 
-        var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
-        if (!File.Exists(configPath))
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.MissingConfig);
-            throw new InvalidOperationException(
-                $"restore requires a populated bootstrap config at {configPath}. " +
-                "Run `bootstrap` first.");
-        }
-
-        BootstrapConfig config;
-        await using (var stream = File.OpenRead(configPath))
-        {
-            config = await JsonSerializer.DeserializeAsync(
-                stream, BootstrapJsonContext.Default.BootstrapConfig, ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException($"Failed to parse {configPath}.");
-        }
+        var config = await PhaseArtifactLoader
+            .LoadRequiredConfigAsync(options, logger, Phase, "restore", ct)
+            .ConfigureAwait(false);
 
         GeneratedSecrets secrets;
         try
@@ -79,14 +65,7 @@ internal static class RestorePhase
                 "Run `bootstrap` first to generate them.", ex);
         }
 
-        var composeFile = BootstrapArtifactPaths.FindComposeFile(options.OutputDir);
-        if (composeFile is null)
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.NoComposeFile);
-            throw new InvalidOperationException(
-                $"docker-compose.yaml not found under {options.OutputDir}. Run `bootstrap publish` first.");
-        }
-        logger.Info($"    using compose file {composeFile}");
+        var composeFile = PhaseArtifactLoader.RequireComposeFileOrFail(options, logger, Phase);
 
         var backupRoot = BackupPhase.ResolveBackupRoot(options, config);
         var (postgresArchive, scyllaArchive) = ResolveArchives(options, backupRoot, logger);
