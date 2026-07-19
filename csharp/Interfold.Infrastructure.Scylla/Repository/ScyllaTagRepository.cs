@@ -96,9 +96,12 @@ public sealed class ScyllaTagRepository : ITagRepository
     )
     {
         return await _scopeResolver.ExecuteAsync(systemId, scope =>
-            ScyllaExistsQueries.RowExistsAsync(scope.Session, scope.Keyspace, "tags", "id", scope.NormalizedSystemId, tagId.Value),
+            ExistsAsync(scope, tagId),
             cancellationToken);
     }
+
+    private static Task<bool> ExistsAsync(ScyllaScope scope, TagId tagId)
+        => ScyllaExistsQueries.RowExistsAsync(scope.Session, scope.Keyspace, "tags", "id", scope.NormalizedSystemId, tagId.Value);
 
     public async Task<bool> UpdateAsync(
         SystemId systemId,
@@ -110,7 +113,7 @@ public sealed class ScyllaTagRepository : ITagRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            var exists = await ExistsAsync(systemId, command.TagId, cancellationToken);
+            var exists = await ExistsAsync(scope, command.TagId);
             if (!exists)
             {
                 return false;
@@ -168,7 +171,7 @@ public sealed class ScyllaTagRepository : ITagRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            var exists = await ExistsAsync(systemId, tagId, cancellationToken);
+            var exists = await ExistsAsync(scope, tagId);
             if (!exists)
             {
                 return false;
@@ -215,7 +218,7 @@ public sealed class ScyllaTagRepository : ITagRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            var tagExists = await ExistsAsync(systemId, tagId, cancellationToken);
+            var tagExists = await ExistsAsync(scope, tagId);
             if (!tagExists)
             {
                 return false;
@@ -315,8 +318,8 @@ public sealed class ScyllaTagRepository : ITagRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            var childExists = await ExistsAsync(systemId, tagId, cancellationToken);
-            var parentExists = await ExistsAsync(systemId, parentTagId, cancellationToken);
+            var childExists = await ExistsAsync(scope, tagId);
+            var parentExists = await ExistsAsync(scope, parentTagId);
             if (!childExists || !parentExists)
             {
                 return false;
@@ -344,7 +347,7 @@ public sealed class ScyllaTagRepository : ITagRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            var exists = await ExistsAsync(systemId, tagId, cancellationToken);
+            var exists = await ExistsAsync(scope, tagId);
             if (!exists)
             {
                 return false;

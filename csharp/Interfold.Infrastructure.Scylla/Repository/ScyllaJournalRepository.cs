@@ -54,11 +54,11 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     public async Task<bool> ExistsGlobalAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default)
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
-        {
-            var (session, keyspace, normalizedSystemId) = scope;
-            return await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "global_journals", "id", normalizedSystemId, entryId.Value);
-        }, cancellationToken);
+            await ExistsGlobalCoreAsync(scope, entryId), cancellationToken);
     }
+
+    private static Task<bool> ExistsGlobalCoreAsync(ScyllaScope scope, EntryId entryId)
+        => ScyllaExistsQueries.RowExistsAsync(scope.Session, scope.Keyspace, "global_journals", "id", scope.NormalizedSystemId, entryId.Value);
 
     public async Task<bool> UpdateGlobalAsync(SystemId systemId, UpdateGlobalJournalEntryCommand command, CancellationToken cancellationToken = default)
     {
@@ -66,7 +66,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            var exists = await ExistsGlobalAsync(systemId, command.EntryId, cancellationToken);
+            var exists = await ExistsGlobalCoreAsync(scope, command.EntryId);
             if (!exists)
                 return false;
 
@@ -120,7 +120,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            var exists = await ExistsGlobalAsync(systemId, entryId, cancellationToken);
+            var exists = await ExistsGlobalCoreAsync(scope, entryId);
             if (!exists)
                 return false;
 
@@ -151,7 +151,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var exists = await ExistsGlobalAsync(systemId, entryId, cancellationToken);
+            var exists = await ExistsGlobalCoreAsync(scope, entryId);
             if (!exists)
                 return false;
 
@@ -173,7 +173,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            var exists = await ExistsGlobalAsync(systemId, entryId, cancellationToken);
+            var exists = await ExistsGlobalCoreAsync(scope, entryId);
             if (!exists)
                 return false;
 

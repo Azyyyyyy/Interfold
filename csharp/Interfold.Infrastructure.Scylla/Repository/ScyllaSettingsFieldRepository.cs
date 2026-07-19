@@ -36,9 +36,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
             var (session, keyspace, normalizedSystemId) = scope;
-            EnsureFieldUdtMapping(session, keyspace);
-
-            var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
+            var fields = await LoadFieldsWithMappingAsync(session, keyspace, normalizedSystemId);
             if (fields is null)
             {
                 return Array.Empty<SettingsFieldReadModel>();
@@ -71,17 +69,12 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         return await _scopeResolver.ExecuteAsync<FieldId?>(systemId, async scope =>
         {
             var (session, keyspace, normalizedSystemId) = scope;
-            EnsureFieldUdtMapping(session, keyspace);
-
-            var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId) ?? [];
+            var fields = await LoadFieldsWithMappingAsync(session, keyspace, normalizedSystemId) ?? [];
 
             var fieldId = Guid.NewGuid();
             fields.Add(CreateFieldUdt(session, keyspace, fieldId, name, type, securityLevel, locked, insertedAtUtc));
 
-            await session.ExecuteAsync(new SimpleStatement(
-                $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                fields,
-                normalizedSystemId));
+            await session.ExecuteAsync(BuildPersistFieldsStatement(keyspace, fields, normalizedSystemId));
 
             return new(fieldId);
         }, cancellationToken);
@@ -98,9 +91,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
             var (session, keyspace, normalizedSystemId) = scope;
-            EnsureFieldUdtMapping(session, keyspace);
-
-            var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
+            var fields = await LoadFieldsWithMappingAsync(session, keyspace, normalizedSystemId);
             if (fields is null)
             {
                 return false;
@@ -139,10 +130,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 return false;
             }
 
-            await session.ExecuteAsync(new SimpleStatement(
-                $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                fields,
-                normalizedSystemId));
+            await session.ExecuteAsync(BuildPersistFieldsStatement(keyspace, fields, normalizedSystemId));
 
             return true;
         }, cancellationToken);
@@ -153,9 +141,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
             var (session, keyspace, normalizedSystemId) = scope;
-            EnsureFieldUdtMapping(session, keyspace);
-
-            var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
+            var fields = await LoadFieldsWithMappingAsync(session, keyspace, normalizedSystemId);
             if (fields is null)
             {
                 return false;
@@ -170,10 +156,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             // Remove the field values from all alters before deleting the field itself
             // We want to ensure that the field values are removed to ensure no leakage of deleted field data
             var batch = await RemoveFieldValuesFromAltersAsync(session, keyspace, normalizedSystemId, fieldId.Value);
-            batch.Add(new SimpleStatement(
-                $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                fields,
-                normalizedSystemId));
+            batch.Add(BuildPersistFieldsStatement(keyspace, fields, normalizedSystemId));
 
             await session.ExecuteAsync(batch);
 
@@ -186,9 +169,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
             var (session, keyspace, normalizedSystemId) = scope;
-            EnsureFieldUdtMapping(session, keyspace);
-
-            var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
+            var fields = await LoadFieldsWithMappingAsync(session, keyspace, normalizedSystemId);
             if (fields is null)
             {
                 return false;
@@ -207,10 +188,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             var boundedIndex = Math.Max(0, Math.Min(index, fields.Count));
             fields.Insert(boundedIndex, field);
 
-            await session.ExecuteAsync(new SimpleStatement(
-                $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                fields,
-                normalizedSystemId));
+            await session.ExecuteAsync(BuildPersistFieldsStatement(keyspace, fields, normalizedSystemId));
 
             return true;
         }, cancellationToken);
@@ -229,6 +207,12 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         }
 
         return row.GetValue<IEnumerable<UserFieldUdt>?>("fields")?.ToList() ?? [];
+    }
+
+    private static async Task<List<UserFieldUdt>?> LoadFieldsWithMappingAsync(ISession session, string keyspace, string normalizedSystemId)
+    {
+        EnsureFieldUdtMapping(session, keyspace);
+        return await LoadFieldsAsync(session, keyspace, normalizedSystemId);
     }
 
     private static UserFieldUdt CreateFieldUdt(
@@ -258,6 +242,15 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             UpdatedAt = insertedAtOffset
         };
     }
+
+    private static SimpleStatement BuildPersistFieldsStatement(
+        string keyspace,
+        IReadOnlyCollection<UserFieldUdt> fields,
+        string normalizedSystemId)
+        => new(
+            $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
+            fields,
+            normalizedSystemId);
 
     private static void EnsureFieldUdtMapping(ISession session, string keyspace)
     {

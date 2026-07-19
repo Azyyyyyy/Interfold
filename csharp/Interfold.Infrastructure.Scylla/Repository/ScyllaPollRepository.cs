@@ -93,12 +93,11 @@ public sealed class ScyllaPollRepository : IPollRepository
 
     public async Task<bool> ExistsAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
-        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
-        {
-            var (session, keyspace, normalizedSystemId) = scope;
-            return await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "polls", "id", normalizedSystemId, pollId.Value);
-        }, cancellationToken);
+        return await _scopeResolver.ExecuteAsync(systemId, scope => ExistsAsync(scope, pollId), cancellationToken);
     }
+
+    private static Task<bool> ExistsAsync(ScyllaScope scope, PollId pollId)
+        => ScyllaExistsQueries.RowExistsAsync(scope.Session, scope.Keyspace, "polls", "id", scope.NormalizedSystemId, pollId.Value);
 
     public async Task<bool> UpdateAsync(SystemId systemId, UpdatePollCommand command, CancellationToken cancellationToken = default)
     {
@@ -106,7 +105,7 @@ public sealed class ScyllaPollRepository : IPollRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            var exists = await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "polls", "id", normalizedSystemId, command.Id.Value);
+            var exists = await ExistsAsync(scope, command.Id);
             if (!exists)
                 return false;
 
@@ -163,7 +162,7 @@ public sealed class ScyllaPollRepository : IPollRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            var exists = await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "polls", "id", normalizedSystemId, pollId.Value);
+            var exists = await ExistsAsync(scope, pollId);
             if (!exists)
                 return false;
 

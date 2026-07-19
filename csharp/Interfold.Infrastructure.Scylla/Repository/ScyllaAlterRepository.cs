@@ -84,12 +84,11 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
     public async Task<bool> ExistsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
-        {
-            var (session, keyspace, normalizedSystemId) = scope;
-            return await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "alters", "id", normalizedSystemId, alterId.Value);
-        }, cancellationToken);
+        return await _scopeResolver.ExecuteAsync(systemId, scope => ExistsAsync(scope, alterId), cancellationToken);
     }
+
+    private static Task<bool> ExistsAsync(ScyllaScope scope, AlterId alterId)
+        => ScyllaExistsQueries.RowExistsAsync(scope.Session, scope.Keyspace, "alters", "id", scope.NormalizedSystemId, alterId.Value);
 
     public async Task<bool> UpdateAsync(SystemId systemId, UpdateAlterCommand command, CancellationToken cancellationToken = default)
     {
@@ -100,7 +99,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             var batch = new BatchStatement();
 
-            var exists = await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "alters", "id", normalizedSystemId, command.AlterId.Value);
+            var exists = await ExistsAsync(scope, command.AlterId);
             if (!exists)
             {
                 return false;
@@ -232,7 +231,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var (session, keyspace, normalizedSystemId) = scope;
             var alterIdShort = alterId.Value;
 
-            var exists = await ScyllaExistsQueries.RowExistsAsync(session, keyspace, "alters", "id", normalizedSystemId, alterId.Value);
+            var exists = await ExistsAsync(scope, alterId);
             if (!exists)
             {
                 return false;
