@@ -81,9 +81,7 @@ public sealed class FriendsController : InterfoldControllerBase
                 System.Net.HttpStatusCode.BadRequest);
         }
 
-        var envelope = BuildEnvelope(OperationIds.FriendDelete, new RemoveFriendshipCommand(id));
-
-        return CommandNoContent(await _remove.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_remove, OperationIds.FriendDelete, new RemoveFriendshipCommand(id), ct);
     }
 
     [HttpPost("{id}/trust")]
@@ -108,8 +106,6 @@ public sealed class FriendsController : InterfoldControllerBase
             return new ErrorResponse("Cannot trust self.", selfErrorCode, System.Net.HttpStatusCode.BadRequest);
         }
 
-        var envelope = BuildEnvelope(operationId, new SetFriendTrustCommand(id, trusted));
-
-        return CommandNoContent(await _setTrust.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_setTrust, operationId, new SetFriendTrustCommand(id, trusted), ct);
     }
 }

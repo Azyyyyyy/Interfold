@@ -58,13 +58,9 @@ public sealed class PollsController : InterfoldControllerBase
         // here keeps the hashed payload stable across retries with the same idempotency key
         // (otherwise every call would stamp a fresh DateTime.UtcNow and look like a
         // different request, triggering ConflictDuplicate on every replay).
-        var envelope = BuildEnvelope(OperationIds.PollCreate, new CreatePollCommand(req.Title, req.Description, req.Type ?? PollType.Vote, req.TimeEnd, InsertedAtUtc: default));
-
-        return await CommandCreatedAsync(
-            await _create.HandleAsync(envelope, ct),
-            async (res) => await _pollRepository.GetAsync(principal, res.PollId, ct),
+        return await DispatchCreatedAsync(_create, OperationIds.PollCreate, new CreatePollCommand(req.Title, req.Description, req.Type ?? PollType.Vote, req.TimeEnd, InsertedAtUtc: default), async (res) => await _pollRepository.GetAsync(principal, res.PollId, ct),
             replaySelector: res => res?.Replay
-        );
+        , ct);
     }
 
     [HttpPatch("{id}")]
@@ -80,18 +76,14 @@ public sealed class PollsController : InterfoldControllerBase
 
         DateTime? resolvedTimeEnd = req.TimeEnd.State == PatchValueState.Value ? req.TimeEnd.Value : null;
 
-        var envelope = BuildEnvelope(OperationIds.PollUpdate, new UpdatePollCommand(id, req.Title, req.Description, resolvedTimeEnd, req.TimeEnd.IsSet, req.Data)
-        );
-
-        return CommandNoContent(await _update.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_update, OperationIds.PollUpdate, new UpdatePollCommand(id, req.Title, req.Description, resolvedTimeEnd, req.TimeEnd.IsSet, req.Data)
+        , ct);
     }
 
     [HttpDelete("{id}")]
     public async Task<Response> Delete(PollId id, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.PollDelete, new DeletePollCommand(id)
-        );
-
-        return CommandNoContent(await _delete.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_delete, OperationIds.PollDelete, new DeletePollCommand(id)
+        , ct);
     }
 }

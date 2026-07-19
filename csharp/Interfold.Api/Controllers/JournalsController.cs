@@ -63,31 +63,23 @@ public sealed class JournalsController : InterfoldControllerBase
     public async Task<Response<JournalReadModel>> Create([FromBody] CreateGlobalJournalRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        var envelope = BuildEnvelope(OperationIds.JournalGlobalCreate, new CreateGlobalJournalEntryCommand(req.Title));
-
-        return await CommandCreatedAsync(
-            await _create.HandleAsync(envelope, ct),
-            async (res) => await _journalRepository.GetGlobalAsync(principal, res.EntryId, ct),
+        return await DispatchCreatedAsync(_create, OperationIds.JournalGlobalCreate, new CreateGlobalJournalEntryCommand(req.Title), async (res) => await _journalRepository.GetGlobalAsync(principal, res.EntryId, ct),
             replaySelector: res => res?.Replay
-        );
+        , ct);
     }
 
     [HttpPatch("{id}")]
     public async Task<Response> Update(EntryId id, [FromBody] UpdateGlobalJournalRequest req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.JournalGlobalUpdate, new UpdateGlobalJournalEntryCommand(id, req.Title, req.Content, req.Color)
-        );
-
-        return CommandNoContent(await _update.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_update, OperationIds.JournalGlobalUpdate, new UpdateGlobalJournalEntryCommand(id, req.Title, req.Content, req.Color)
+        , ct);
     }
 
     [HttpDelete("{id}")]
     public async Task<Response> Delete(EntryId id, [FromBody] DeleteGlobalJournalRequest? req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.JournalGlobalDelete, new DeleteGlobalJournalEntryCommand(id)
-        );
-
-        return CommandNoContent(await _delete.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_delete, OperationIds.JournalGlobalDelete, new DeleteGlobalJournalEntryCommand(id)
+        , ct);
     }
 
     [HttpPost("{id}/lock")]
@@ -109,34 +101,26 @@ public sealed class JournalsController : InterfoldControllerBase
     [HttpPost("{id}/alter")]
     public async Task<Response> AttachAlter(EntryId id, [FromBody] JournalAlterRequest req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.JournalGlobalAttachAlter, new AttachAlterToGlobalJournalCommand(id, req.AlterId)
-        );
-
-        return CommandNoContent(await _attachAlter.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_attachAlter, OperationIds.JournalGlobalAttachAlter, new AttachAlterToGlobalJournalCommand(id, req.AlterId)
+        , ct);
     }
 
     [HttpDelete("{id}/alter")]
     public async Task<Response> DetachAlter(EntryId id, [FromBody] JournalAlterRequest req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.JournalGlobalDetachAlter, new DetachAlterFromGlobalJournalCommand(id, req.AlterId)
-        );
-
-        return CommandNoContent(await _detachAlter.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_detachAlter, OperationIds.JournalGlobalDetachAlter, new DetachAlterFromGlobalJournalCommand(id, req.AlterId)
+        , ct);
     }
 
     private async Task<Response> SetLockedInternal(EntryId id, bool locked, OperationId operationId, JournalActionRequest? req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(operationId, new SetGlobalJournalLockedCommand(id, locked)
-        );
-
-        return CommandNoContent(await _setLocked.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_setLocked, operationId, new SetGlobalJournalLockedCommand(id, locked)
+        , ct);
     }
 
     private async Task<Response> SetPinnedInternal(EntryId id, bool pinned, OperationId operationId, JournalActionRequest? req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(operationId, new SetGlobalJournalPinnedCommand(id, pinned)
-        );
-
-        return CommandNoContent(await _setPinned.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_setPinned, operationId, new SetGlobalJournalPinnedCommand(id, pinned)
+        , ct);
     }
 }

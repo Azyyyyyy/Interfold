@@ -316,6 +316,97 @@ public abstract class InterfoldControllerBase : ControllerBase
     }
 
     /// <summary>
+    /// Builds a command envelope, handles it, and maps it to a 204 No Content response on success,
+    /// or maps conflicts to error responses.
+    /// </summary>
+    protected async Task<Response> DispatchNoContentAsync<TPayload, TResult>(
+        ICommandHandler<TPayload, TResult> handler,
+        OperationId operationId,
+        TPayload payload,
+        CancellationToken ct)
+        where TResult : ICommandResult
+    {
+        var envelope = BuildEnvelope(operationId, payload);
+        var result = await handler.HandleAsync(envelope, ct);
+        return CommandNoContent(result);
+    }
+
+    /// <summary>
+    /// Builds a command envelope, handles it, and maps it to a 201 Created response carrying
+    /// the mapped data on success, or maps conflicts to error responses.
+    /// </summary>
+    protected async Task<Response<TData>> DispatchCreatedAsync<TPayload, TResult, TData>(
+        ICommandHandler<TPayload, TResult> handler,
+        OperationId operationId,
+        TPayload payload,
+        Func<TResult, TData> dataSelector,
+        Func<TResult?, bool?>? replaySelector,
+        CancellationToken ct)
+        where TResult : ICommandResult
+    {
+        var envelope = BuildEnvelope(operationId, payload);
+        var result = await handler.HandleAsync(envelope, ct);
+        return CommandCreated(result, dataSelector, replaySelector);
+    }
+
+    /// <summary>
+    /// Builds a command envelope, handles it, and maps it to a 201 Created response by
+    /// fetching the created entity asynchronously on success, or maps conflicts to error responses.
+    /// </summary>
+    protected async Task<Response<TData>> DispatchCreatedAsync<TPayload, TResult, TData>(
+        ICommandHandler<TPayload, TResult> handler,
+        OperationId operationId,
+        TPayload payload,
+        Func<TResult, Task<TData?>> dataSelector,
+        Func<TResult, string>? locationSelector,
+        Func<TResult?, bool?>? replaySelector,
+        CancellationToken ct)
+        where TResult : ICommandResult
+    {
+        var envelope = BuildEnvelope(operationId, payload);
+        var result = await handler.HandleAsync(envelope, ct);
+        return await CommandCreatedAsync(result, dataSelector, locationSelector, replaySelector);
+    }
+
+    /// <summary>
+    /// Builds a command envelope, handles it, and maps it to a 201 Created response by
+    /// fetching the created entity asynchronously on success (without a Location header),
+    /// or maps conflicts to error responses.
+    /// </summary>
+    protected async Task<Response<TData>> DispatchCreatedAsync<TPayload, TResult, TData>(
+        ICommandHandler<TPayload, TResult> handler,
+        OperationId operationId,
+        TPayload payload,
+        Func<TResult, Task<TData?>> dataSelector,
+        Func<TResult?, bool?>? replaySelector,
+        CancellationToken ct)
+        where TResult : ICommandResult
+    {
+        var envelope = BuildEnvelope(operationId, payload);
+        var result = await handler.HandleAsync(envelope, ct);
+        return await CommandCreatedAsync(result, dataSelector, null, replaySelector);
+    }
+
+
+    /// <summary>
+    /// Builds a command envelope, handles it, and maps it to a 202 Accepted response on success,
+    /// or maps conflicts to error responses.
+    /// </summary>
+    protected async Task<Response<TData>> DispatchAcceptedAsync<TPayload, TResult, TData>(
+        ICommandHandler<TPayload, TResult> handler,
+        OperationId operationId,
+        TPayload payload,
+        Func<TResult, TData> dataSelector,
+        CancellationToken ct)
+        where TResult : ICommandResult
+    {
+        var envelope = BuildEnvelope(operationId, payload);
+        var result = await handler.HandleAsync(envelope, ct);
+        return CommandAccepted(result, dataSelector);
+    }
+
+
+    /// <summary>
     /// Maps a <see cref="CommandExecutionResult{T}"/> to a 204 No Content <see cref="Response{NoContent}"/>
     /// on success, or an <see cref="ErrorResponse"/> on failure.
     /// </summary>

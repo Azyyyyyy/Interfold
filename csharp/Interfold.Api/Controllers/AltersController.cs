@@ -100,18 +100,15 @@ public sealed class AltersController : InterfoldControllerBase
             UpdatedAt: TimeProvider.GetUtcNow()
         );
 
-        var envelope = BuildEnvelope(OperationIds.AlterUpdate, payload);
-
-        return CommandNoContent(await _updateHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_updateHandler, OperationIds.AlterUpdate, payload, ct);
     }
 
     //TODO: To ensure route works as expected - check if we delete alter journal entries, unattach from gobal journals when an alter is deleted and delete them from polls
     [HttpDelete("{alterId:int}")]
     public async Task<Response> Delete([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.AlterDelete, new DeleteAlterCommand(alterId)
-        );
-        return CommandNoContent(await _deleteHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_deleteHandler, OperationIds.AlterDelete, new DeleteAlterCommand(alterId)
+        , ct);
     }
 
     [HttpPut("{alterId:int}/avatar")]

@@ -79,9 +79,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
                 System.Net.HttpStatusCode.BadRequest);
         }
 
-        var envelope = BuildEnvelope(OperationIds.FriendRequestSend, new SendFriendRequestCommand(id));
-
-        return CommandNoContent(await _send.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_send, OperationIds.FriendRequestSend, new SendFriendRequestCommand(id), ct);
     }
 
     [HttpDelete("{id}")]
@@ -99,9 +97,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
                 System.Net.HttpStatusCode.BadRequest);
         }
 
-        var envelope = BuildEnvelope(OperationIds.FriendRequestCancel, new CancelFriendRequestCommand(id));
-
-        return CommandNoContent(await _cancel.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_cancel, OperationIds.FriendRequestCancel, new CancelFriendRequestCommand(id), ct);
     }
 
     [HttpPost("{id}/accept")]
@@ -117,9 +113,7 @@ public sealed class FriendRequestsController : InterfoldControllerBase
                 System.Net.HttpStatusCode.BadRequest);
         }
 
-        var envelope = BuildEnvelope(OperationIds.FriendRequestAccept, new AcceptFriendRequestCommand(id));
-
-        return CommandNoContent(await _accept.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_accept, OperationIds.FriendRequestAccept, new AcceptFriendRequestCommand(id), ct);
     }
 
     [HttpPost("{id}/reject")]
@@ -135,8 +129,6 @@ public sealed class FriendRequestsController : InterfoldControllerBase
                 System.Net.HttpStatusCode.BadRequest);
         }
 
-        var envelope = BuildEnvelope(OperationIds.FriendRequestReject, new RejectFriendRequestCommand(id));
-
-        return CommandNoContent(await _reject.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_reject, OperationIds.FriendRequestReject, new RejectFriendRequestCommand(id), ct);
     }
 }

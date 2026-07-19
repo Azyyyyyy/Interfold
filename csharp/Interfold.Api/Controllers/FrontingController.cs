@@ -52,9 +52,7 @@ public sealed class FrontingController : InterfoldControllerBase
             req.Start.Select(x => new FrontStartItem(x.AlterId, x.Comment)).ToArray(),
             req.End.ToArray());
 
-        var envelope = BuildEnvelope(OperationIds.FrontBulkUpdate, payload);
-
-        return CommandNoContent(await _bulkUpdateHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_bulkUpdateHandler, OperationIds.FrontBulkUpdate, payload, ct);
     }
 
     [HttpPost("start")]
@@ -77,28 +75,22 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("end")]
     public async Task<Response> End([FromBody] FrontEndRequest req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.FrontEnd, new EndFrontCommand(req.Id)
-        );
-
-        return CommandNoContent(await _endHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_endHandler, OperationIds.FrontEnd, new EndFrontCommand(req.Id)
+        , ct);
     }
 
     [HttpPost("set")]
     public async Task<Response> Set([FromBody] FrontSetRequest req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.FrontSet, new SetFrontCommand(req.Id, req.Comment)
-        );
-
-        return CommandNoContent(await _setHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_setHandler, OperationIds.FrontSet, new SetFrontCommand(req.Id, req.Comment)
+        , ct);
     }
 
     [HttpPost("primary")]
     public async Task<Response> Primary([FromBody] FrontPrimaryRequest req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.FrontPrimary, new SetPrimaryFrontCommand(req.Id)
-        );
-
-        return CommandNoContent(await _primaryHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_primaryHandler, OperationIds.FrontPrimary, new SetPrimaryFrontCommand(req.Id)
+        , ct);
     }
 
     //TODO: To ensure route works as expected
@@ -152,18 +144,14 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpDelete("{id}")]
     public async Task<Response> Delete(FrontId id, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.FrontDelete, new DeleteFrontByIdCommand(id)
-        );
-
-        return CommandNoContent(await _deleteByIdHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_deleteByIdHandler, OperationIds.FrontDelete, new DeleteFrontByIdCommand(id)
+        , ct);
     }
 
     [HttpPost("{id}/comment")]
     public async Task<Response> UpdateComment(FrontId id, [FromBody] FrontCommentRequest req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.FrontCommentUpdate, new UpdateFrontCommentCommand(id, req.Comment)
-        );
-
-        return CommandNoContent(await _updateCommentHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_updateCommentHandler, OperationIds.FrontCommentUpdate, new UpdateFrontCommentCommand(id, req.Comment)
+        , ct);
     }
 }

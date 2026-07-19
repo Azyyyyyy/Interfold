@@ -60,31 +60,23 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     public async Task<Response<AlterJournalReadModel>> Create([FromRoute][ValidAlterId] AlterId alterId, [FromBody] CreateAlterJournalRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        var envelope = BuildEnvelope(OperationIds.JournalAlterCreate, new CreateAlterJournalEntryCommand(alterId, req.Title, TimeProvider.GetUtcNow()));
-
-        return await CommandCreatedAsync(
-            await _create.HandleAsync(envelope, ct),
-            async (res) => await _journalRepository.GetAlterAsync(principal, res.EntryId, ct),
+        return await DispatchCreatedAsync(_create, OperationIds.JournalAlterCreate, new CreateAlterJournalEntryCommand(alterId, req.Title, TimeProvider.GetUtcNow()), async (res) => await _journalRepository.GetAlterAsync(principal, res.EntryId, ct),
             replaySelector: res => res?.Replay
-        );
+        , ct);
     }
 
     [HttpPatch("journals/{journalId}")]
     public async Task<Response> Update(EntryId journalId, [FromBody] UpdateAlterJournalRequest req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.JournalAlterUpdate, new UpdateAlterJournalEntryCommand(journalId, req.Title, req.Content, req.Color, TimeProvider.GetUtcNow())
-        );
-
-        return CommandNoContent(await _update.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_update, OperationIds.JournalAlterUpdate, new UpdateAlterJournalEntryCommand(journalId, req.Title, req.Content, req.Color, TimeProvider.GetUtcNow())
+        , ct);
     }
 
     [HttpDelete("journals/{journalId}")]
     public async Task<Response> Delete(EntryId journalId, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.JournalAlterDelete, new DeleteAlterJournalEntryCommand(journalId)
-        );
-
-        return CommandNoContent(await _delete.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_delete, OperationIds.JournalAlterDelete, new DeleteAlterJournalEntryCommand(journalId)
+        , ct);
     }
 
     [HttpPost("journals/{journalId}/lock")]
@@ -105,17 +97,13 @@ public sealed class AlterJournalsController : InterfoldControllerBase
 
     private async Task<Response> SetLockedInternal(EntryId journalId, bool locked, OperationId operationId, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(operationId, new SetAlterJournalLockedCommand(journalId, locked)
-        );
-
-        return CommandNoContent(await _setLocked.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_setLocked, operationId, new SetAlterJournalLockedCommand(journalId, locked)
+        , ct);
     }
 
     private async Task<Response> SetPinnedInternal(EntryId journalId, bool pinned, OperationId operationId, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(operationId, new SetAlterJournalPinnedCommand(journalId, pinned)
-        );
-
-        return CommandNoContent(await _setPinned.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_setPinned, operationId, new SetAlterJournalPinnedCommand(journalId, pinned)
+        , ct);
     }
 }

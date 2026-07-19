@@ -145,19 +145,15 @@ public sealed class SettingsController : InterfoldControllerBase
     public async Task<Response> UpdateUsername([FromBody] SettingsUsernameRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        var envelope = BuildEnvelope(OperationIds.SettingsUsernameUpdate, new UpdateUsernameCommand(req.Username)
-        );
-
-        return CommandNoContent(await _usernameHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_usernameHandler, OperationIds.SettingsUsernameUpdate, new UpdateUsernameCommand(req.Username)
+        , ct);
     }
 
     [HttpPost("description")]
     public async Task<Response> UpdateDescription([FromBody] SettingsDescriptionRequest req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.SettingsDescriptionUpdate, new UpdateDescriptionCommand(req.Description)
-        );
-
-        return CommandNoContent(await _descriptionHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_descriptionHandler, OperationIds.SettingsDescriptionUpdate, new UpdateDescriptionCommand(req.Description)
+        , ct);
     }
 
     [HttpPost("push-token")]
@@ -166,10 +162,8 @@ public sealed class SettingsController : InterfoldControllerBase
         if (req.Token is not { } pushToken || string.IsNullOrWhiteSpace(pushToken.Value))
             return new ErrorResponse("Invalid push token.", ErrorCodes.InvalidPushToken, System.Net.HttpStatusCode.BadRequest);
 
-        var envelope = BuildEnvelope(OperationIds.SettingsPushTokenAdd, new AddPushTokenCommand(pushToken)
-        );
-
-        return CommandNoContent(await _addPushTokenHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_addPushTokenHandler, OperationIds.SettingsPushTokenAdd, new AddPushTokenCommand(pushToken)
+        , ct);
     }
 
     [HttpDelete("push-token")]
@@ -178,10 +172,8 @@ public sealed class SettingsController : InterfoldControllerBase
         if (req.Token is not { } pushToken || string.IsNullOrWhiteSpace(pushToken.Value))
             return new ErrorResponse("Invalid push token.", ErrorCodes.InvalidPushToken, System.Net.HttpStatusCode.BadRequest);
 
-        var envelope = BuildEnvelope(OperationIds.SettingsPushTokenRemove, new RemovePushTokenCommand(pushToken)
-        );
-
-        return CommandNoContent(await _removePushTokenHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_removePushTokenHandler, OperationIds.SettingsPushTokenRemove, new RemovePushTokenCommand(pushToken)
+        , ct);
     }
 
     [HttpPost("setup-encryption")]
@@ -221,10 +213,8 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("reset-encryption")]
     public async Task<Response> ResetEncryption(CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.SettingsEncryptionReset, new ResetEncryptionCommand()
-        );
-
-        return CommandNoContent(await _resetEncryptionHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_resetEncryptionHandler, OperationIds.SettingsEncryptionReset, new ResetEncryptionCommand()
+        , ct);
     }
 
     [HttpPut("avatar")]
@@ -334,57 +324,45 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("unlink_discord")]
     public async Task<Response> UnlinkDiscord(CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.SettingsAuthUnlinkDiscord, new UnlinkDiscordCommand()
-        );
-
-        return CommandNoContent(await _unlinkDiscordHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_unlinkDiscordHandler, OperationIds.SettingsAuthUnlinkDiscord, new UnlinkDiscordCommand()
+        , ct);
     }
 
     [HttpPost("unlink_email")]
     public async Task<Response> UnlinkEmail(CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.SettingsAuthUnlinkEmail, new UnlinkEmailCommand()
-        );
-
-        return CommandNoContent(await _unlinkEmailHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_unlinkEmailHandler, OperationIds.SettingsAuthUnlinkEmail, new UnlinkEmailCommand()
+        , ct);
     }
 
     //TODO: To ensure route works as expected - other ones work but this one needs testing to ensure the command handler is correctly implemented
     [HttpPost("unlink_apple")]
     public async Task<Response> UnlinkApple(CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.SettingsAuthUnlinkApple, new UnlinkAppleCommand()
-        );
-
-        return CommandNoContent(await _unlinkAppleHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_unlinkAppleHandler, OperationIds.SettingsAuthUnlinkApple, new UnlinkAppleCommand()
+        , ct);
     }
 
     //TODO: To ensure route works as expected
     [HttpPost("delete-account")]
     public async Task<Response> DeleteAccount(CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.SettingsAccountDelete, new DeleteAccountCommand()
-        );
-
-        return CommandNoContent(await _deleteAccountHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_deleteAccountHandler, OperationIds.SettingsAccountDelete, new DeleteAccountCommand()
+        , ct);
     }
 
     [HttpPost("wipe-alters")]
     public async Task<Response> WipeAlters(CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.SettingsAltersWipe, new WipeAltersCommand()
-        );
-
-        return CommandNoContent(await _wipeAltersHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_wipeAltersHandler, OperationIds.SettingsAltersWipe, new WipeAltersCommand()
+        , ct);
     }
 
     [HttpPost("wipe-tags")]
     public async Task<Response> WipeTags(CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.SettingsTagsWipe, new WipeTagsCommand()
-        );
-
-        return CommandNoContent(await _wipeTagsHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_wipeTagsHandler, OperationIds.SettingsTagsWipe, new WipeTagsCommand()
+        , ct);
     }
 
     [HttpPost("fields")]
@@ -408,28 +386,22 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPatch("fields/{id}")]
     public async Task<Response> UpdateField([FromRoute] FieldId id, [FromBody] SettingsUpdateFieldRequest req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.SettingsFieldUpdate, new UpdateFieldCommand(id, req.Name, req.SecurityLevel, req.Locked)
-        );
-
-        return CommandNoContent(await _updateFieldHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_updateFieldHandler, OperationIds.SettingsFieldUpdate, new UpdateFieldCommand(id, req.Name, req.SecurityLevel, req.Locked)
+        , ct);
     }
 
     [HttpDelete("fields/{id}")]
     public async Task<Response> DeleteField([FromRoute] FieldId id, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.SettingsFieldDelete, new DeleteFieldCommand(id)
-        );
-
-        return CommandNoContent(await _deleteFieldHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_deleteFieldHandler, OperationIds.SettingsFieldDelete, new DeleteFieldCommand(id)
+        , ct);
     }
 
     [HttpPost("fields/{id}/relocate")]
     public async Task<Response> RelocateField([FromRoute] FieldId id, [FromBody] SettingsRelocateFieldRequest req, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.SettingsFieldRelocate, new RelocateFieldCommand(id, req.Index)
-        );
-
-        return CommandNoContent(await _relocateFieldHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_relocateFieldHandler, OperationIds.SettingsFieldRelocate, new RelocateFieldCommand(id, req.Index)
+        , ct);
     }
 
     /* New endpoints from here! */
