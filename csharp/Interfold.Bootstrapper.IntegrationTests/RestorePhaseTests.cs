@@ -1,4 +1,3 @@
-using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
 using TUnit.Core;
@@ -41,15 +40,19 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
         // 5. Restore --restore-postgres --force. 6. Assert the marker table + row are back.
         var (scratch, composeFile) = await dinD.BootstrapAsync(nameof(RestorePostgresFromDumpRoundTripsMarkerTable), TestConfigPaths.DefaultConfig);
 
-        // Seed a marker table into the test DB using the admin role from secrets.json.
-        // Extracting the admin password from the JSON via `grep + sed` — keeps the test
-        // self-contained without needing to parse secrets.json in the test process.
-        var seed = await dinD.ExecAsync(["sh", "-c",
-            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.SecretsJsonPath} | " +
-            "sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1); " +
-            $"docker compose -f {composeFile} exec -T -e PGPASSWORD=\"$ADMIN_PW\" msg-db " +
-            "psql -U interfold_admin -d test_pg_db -c " +
-            "\"CREATE TABLE restore_marker(id int primary key); INSERT INTO restore_marker(id) VALUES (42);\""]);
+        // Extract the admin password once from secrets.json — every psql probe below reuses it.
+        // Kept out-of-process on purpose so the test stays self-contained (no need to import the
+        // bootstrapper's secrets parser).
+        var adminPassRaw = await dinD.ExecAsync(["sh", "-c",
+            $"grep postgresAdminPassword {scratch.SecretsJsonPath} | sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1"]);
+        var adminPass = adminPassRaw.Stdout.Trim();
+        await Assert.That(adminPass).IsNotEmpty()
+            .Because("postgresAdminPassword must be present in secrets.json after bootstrap");
+
+        var seed = await dinD.PsqlAsync(
+            composeFile, "interfold_admin", "test_pg_db",
+            "\"CREATE TABLE restore_marker(id int primary key); INSERT INTO restore_marker(id) VALUES (42);\"",
+            password: adminPass, psqlFlags: "-c", host: null);
         await Assert.That(seed.ExitCode).IsEqualTo(0L)
             .Because($"seeding marker table failed: {seed.Stderr}");
 
@@ -59,21 +62,19 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
         await Assert.That(backup.ExitCode).IsEqualTo(0).Because($"backup failed: {backup.Stderr}");
 
         // Drop the marker table so the restore path has something concrete to bring back.
-        var drop = await dinD.ExecAsync(["sh", "-c",
-            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.SecretsJsonPath} | " +
-            "sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1); " +
-            $"docker compose -f {composeFile} exec -T -e PGPASSWORD=\"$ADMIN_PW\" msg-db " +
-            "psql -U interfold_admin -d test_pg_db -c \"DROP TABLE restore_marker;\""]);
+        var drop = await dinD.PsqlAsync(
+            composeFile, "interfold_admin", "test_pg_db",
+            "\"DROP TABLE restore_marker;\"",
+            password: adminPass, psqlFlags: "-c", host: null);
         await Assert.That(drop.ExitCode).IsEqualTo(0L)
             .Because($"dropping the marker table failed: {drop.Stderr}");
 
         // Confirm the table is really gone before the restore — otherwise we'd be
         // testing a no-op path and the assertion below would pass vacuously.
-        var missing = await dinD.ExecAsync(["sh", "-c",
-            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.SecretsJsonPath} | " +
-            "sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1); " +
-            $"docker compose -f {composeFile} exec -T -e PGPASSWORD=\"$ADMIN_PW\" msg-db " +
-            "psql -U interfold_admin -d test_pg_db -tAc \"SELECT to_regclass('public.restore_marker') IS NULL\""]);
+        var missing = await dinD.PsqlAsync(
+            composeFile, "interfold_admin", "test_pg_db",
+            "\"SELECT to_regclass('public.restore_marker') IS NULL\"",
+            password: adminPass, host: null);
         await Assert.That(missing.Stdout.Trim()).IsEqualTo("t")
             .Because("marker table must actually be absent before the restore");
 
@@ -85,11 +86,10 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
 
         // The marker must be back. Value check pins that the round-trip preserved the
         // row data, not just the schema.
-        var probe = await dinD.ExecAsync(["sh", "-c",
-            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.SecretsJsonPath} | " +
-            "sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1); " +
-            $"docker compose -f {composeFile} exec -T -e PGPASSWORD=\"$ADMIN_PW\" msg-db " +
-            "psql -U interfold_admin -d test_pg_db -tAc \"SELECT id FROM restore_marker\""]);
+        var probe = await dinD.PsqlAsync(
+            composeFile, "interfold_admin", "test_pg_db",
+            "\"SELECT id FROM restore_marker\"",
+            password: adminPass, host: null);
         await Assert.That(probe.ExitCode).IsEqualTo(0L)
             .Because($"post-restore probe failed: {probe.Stderr}");
         await Assert.That(probe.Stdout.Trim()).IsEqualTo("42")

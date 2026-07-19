@@ -271,6 +271,65 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
     }
 
     /// <summary>
+    /// Runs a <c>psql</c> command against the <c>msg-db</c> service of the compose project at
+    /// <paramref name="composeFile"/> inside the DinD container. Concentrates the
+    /// <c>docker compose -f … exec -T [-e PGPASSWORD=…] msg-db psql -U … -d … -h … …</c> shape
+    /// that every DB-init / restore integration test was hand-rolling with slight variations.
+    /// <para>
+    /// <paramref name="quotedSql"/> must include its outer shell quoting (single or double).
+    /// <paramref name="password"/>, when supplied, is forwarded verbatim, so both literal
+    /// values (<c>"abc123"</c>) and shell expressions (<c>"$ADMIN_PW"</c>, subshells) work.
+    /// Set <paramref name="softFail"/> to append <c>2&gt;&amp;1 || true</c> for probes that
+    /// deliberately expect a non-zero psql exit (auth-refused, permission-denied etc.).
+    /// </para>
+    /// </summary>
+    public Task<ExecResult> PsqlAsync(
+        string composeFile,
+        string user,
+        string database,
+        string quotedSql,
+        string? password = null,
+        string psqlFlags = "-tAc",
+        string? host = "127.0.0.1",
+        bool softFail = false,
+        CancellationToken ct = default)
+    {
+        var pwPrefix = password is null ? string.Empty : $"-e PGPASSWORD={password} ";
+        var hostArg = host is null ? string.Empty : $"-h {host} ";
+        var tail = softFail ? " 2>&1 || true" : string.Empty;
+        var cmd = $"docker compose -f {composeFile} exec -T {pwPrefix}msg-db " +
+                  $"psql -U {user} -d {database} {hostArg}{psqlFlags} {quotedSql}{tail}";
+        return ExecAsync(["sh", "-c", cmd], ct);
+    }
+
+    /// <summary>
+    /// Runs a <c>cqlsh</c> command against the <c>scylla</c> service of the compose project at
+    /// <paramref name="composeFile"/> inside the DinD container. Concentrates the
+    /// <c>docker compose -f … exec -T scylla cqlsh -u … -p … -e "…" 2&gt;&amp;1 || true</c>
+    /// shape shared by every Scylla auth/role invariant test.
+    /// <para>
+    /// <paramref name="quotedCqlExpression"/> must include its outer double quotes.
+    /// <paramref name="password"/> is forwarded verbatim (literal values, shell variables,
+    /// and <c>"$(...)"</c> subshells all work). <paramref name="softFail"/> defaults to
+    /// <c>true</c> because Scylla auth probes typically expect a non-zero cqlsh exit and
+    /// grep the stdout/stderr for the failure mode.
+    /// </para>
+    /// </summary>
+    public Task<ExecResult> CqlshAsync(
+        string composeFile,
+        string user,
+        string password,
+        string quotedCqlExpression,
+        bool softFail = true,
+        CancellationToken ct = default)
+    {
+        var tail = softFail ? " 2>&1 || true" : string.Empty;
+        var cmd = $"docker compose -f {composeFile} exec -T scylla " +
+                  $"cqlsh -u {user} -p {password} -e {quotedCqlExpression}{tail}";
+        return ExecAsync(["sh", "-c", cmd], ct);
+    }
+
+    /// <summary>
     /// Runs the bootstrapper binary inside the DinD container with the given args, capturing
     /// stdout/stderr into <see cref="BootstrapperLogs"/> keyed by <paramref name="testName"/>.
     /// </summary>

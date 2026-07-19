@@ -51,10 +51,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
         // After BootstrapScyllaAsync, the default cassandra/cassandra login is locked - either
         // LOGIN=false or the password is scrambled. Either failure mode produces a non-zero
         // cqlsh exit; we don't care which, just that the default no longer authenticates.
-        var auth = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"docker compose -f {composeFile} exec -T scylla " +
-             "cqlsh -u cassandra -p cassandra -e \"DESCRIBE CLUSTER\" 2>&1 || true"]);
+        var auth = await dinD.CqlshAsync(composeFile, "cassandra", "cassandra", "\"DESCRIBE CLUSTER\"");
         // cqlsh prints "Authentication error" or "Bad credentials"; the exact string varies by
         // scylla version so we just check the cqlsh exit code via grep — a clean auth would
         // print the cluster name on stdout and exit 0.
@@ -78,10 +75,9 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
         await Assert.That(initPassword).IsNotEmpty()
             .Because("POSTGRES_INIT_PASSWORD must be present in the published .env");
 
-        var auth = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"docker compose -f {composeFile} exec -T -e PGPASSWORD={initPassword} msg-db " +
-             $"psql -U {PostgresRoles.Init} -d postgres -h 127.0.0.1 -tAc 'SELECT 1' 2>&1 || true"]);
+        var auth = await dinD.PsqlAsync(
+            composeFile, PostgresRoles.Init, "postgres", "'SELECT 1'",
+            password: initPassword, softFail: true);
         // Auth failure prints "password authentication failed for user" on stderr.
         await Assert.That(auth.Stdout + auth.Stderr).Contains("authentication failed")
             .Or.Contains("password authentication")
@@ -105,10 +101,9 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
 
         // Try a DDL statement the DML-only role should NOT be able to execute. CREATE ROLE
         // requires SUPERUSER/CREATEROLE, neither of which the app user has.
-        var ddl = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"docker compose -f {composeFile} exec -T -e PGPASSWORD={appPass} msg-db " +
-             $"psql -U interfold -d {TestPostgresDb} -h 127.0.0.1 -tAc \"CREATE ROLE escalation_attempt\" 2>&1 || true"]);
+        var ddl = await dinD.PsqlAsync(
+            composeFile, "interfold", TestPostgresDb, "\"CREATE ROLE escalation_attempt\"",
+            password: appPass, softFail: true);
         await Assert.That(ddl.Stdout + ddl.Stderr).Contains("permission denied")
             .Or.Contains("must be superuser")
             .Because($"app user must not be allowed to CREATE ROLE: {ddl.Stdout} / {ddl.Stderr}");
@@ -135,11 +130,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
         // LIST ROLES OF '<user>' from the admin session prints a table that includes a 'super'
         // column. The app user must show super=False there.
         var adminUser = "interfold_admin";
-        var roles = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"docker compose -f {composeFile} exec -T scylla " +
-             $"cqlsh -u {adminUser} -p {adminPass} " +
-             "-e \"LIST ROLES OF 'interfold'\" 2>&1 || true"]);
+        var roles = await dinD.CqlshAsync(composeFile, adminUser, adminPass, "\"LIST ROLES OF 'interfold'\"");
 
         // cqlsh prints a fixed-width table: ` role | super | login | options`. We have to
         // look at the SUPER column specifically — a blanket `Contains("True")` matches the
@@ -179,11 +170,10 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
         await Assert.That(adminPass).IsNotEmpty()
             .Because("postgresAdminPassword must be persisted in secrets.json");
 
-        var probe = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"docker compose -f {composeFile} exec -T -e PGPASSWORD={adminPass} msg-db " +
-             $"psql -U interfold_admin -d {TestPostgresDb} -h 127.0.0.1 -tAc " +
-             "\"SELECT rolsuper FROM pg_roles WHERE rolname='interfold_admin'\""]);
+        var probe = await dinD.PsqlAsync(
+            composeFile, "interfold_admin", TestPostgresDb,
+            "\"SELECT rolsuper FROM pg_roles WHERE rolname='interfold_admin'\"",
+            password: adminPass);
         await Assert.That(probe.ExitCode).IsEqualTo(0L).Because(probe.Stderr);
         await Assert.That(probe.Stdout.Trim()).IsEqualTo("t")
             .Because("interfold_admin must have rolsuper=true");
@@ -202,10 +192,9 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
 
         // The app user has SELECT on internal.secrets - we use it (not admin) so we also
         // implicitly confirm the grant from BootstrapPostgresAsync still applies.
-        var count = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"docker compose -f {composeFile} exec -T -e PGPASSWORD={appPass} msg-db " +
-             $"psql -U interfold -d {TestPostgresDb} -h 127.0.0.1 -tAc 'SELECT COUNT(*) FROM internal.secrets'"]);
+        var count = await dinD.PsqlAsync(
+            composeFile, "interfold", TestPostgresDb, "'SELECT COUNT(*) FROM internal.secrets'",
+            password: appPass);
         await Assert.That(count.ExitCode).IsEqualTo(0L).Because(count.Stderr);
         // The seed list in BootstrapPostgresAsync inserts ~12 keys (only OAuth secrets that
         // are blank are skipped). Anything > 0 confirms seeding ran end-to-end; we use a soft

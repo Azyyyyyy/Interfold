@@ -46,10 +46,10 @@ public class DbInitFaultRecoveryTests(UbuntuDinDFixture dinD)
 
         // The postgres compose service must be running and the admin role must exist.
         var composeFile = $"{scratch.OutputDir}/docker-compose.yaml";
-        var pgAdminProbe = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"docker compose -f {composeFile} exec -T msg-db psql -U {PostgresRoles.Init} -d postgres -tAc " +
-             "\"SELECT rolsuper FROM pg_roles WHERE rolname='interfold_admin'\""]);
+        var pgAdminProbe = await dinD.PsqlAsync(
+            composeFile, PostgresRoles.Init, "postgres",
+            "\"SELECT rolsuper FROM pg_roles WHERE rolname='interfold_admin'\"",
+            host: null);
         await Assert.That(pgAdminProbe.ExitCode).IsEqualTo(0L)
             .Because($"postgres should be running after a partial bootstrap: {pgAdminProbe.Stderr}");
         await Assert.That(pgAdminProbe.Stdout.Trim()).IsEqualTo("t")
@@ -63,10 +63,7 @@ public class DbInitFaultRecoveryTests(UbuntuDinDFixture dinD)
         // latter errors with `<role 'interfold_admin'> doesn't exist` on a missing role — the error
         // text contains the role name we're checking for, producing a false-positive match. The
         // full listing only mentions a role if it actually exists in the cluster.
-        var scyllaAdminProbe = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"docker compose -f {composeFile} exec -T scylla " +
-             "cqlsh -u cassandra -p cassandra -e \"LIST ROLES\" 2>&1 || true"]);
+        var scyllaAdminProbe = await dinD.CqlshAsync(composeFile, "cassandra", "cassandra", "\"LIST ROLES\"");
         await Assert.That(scyllaAdminProbe.Stdout.Contains("interfold_admin")).IsFalse()
             .Because("the scylla admin role must NOT exist yet after a halt-after-postgres run");
 
@@ -83,12 +80,10 @@ public class DbInitFaultRecoveryTests(UbuntuDinDFixture dinD)
             .Because("the postgres state probe should surface the short-circuit on rerun");
 
         // Final state: scylla admin must now exist, locking the original cassandra default.
-        var scyllaAdminFinal = await dinD.ExecAsync(
-            ["sh", "-c",
-             $"docker compose -f {composeFile} exec -T scylla " +
-             "cqlsh -u interfold_admin -p \"$(grep scyllaAdminPassword " +
-             $"{scratch.SecretsJsonPath} | sed -E 's/.*\\\"([^\\\"]+)\\\".*$/\\1/' | tail -1)\" " +
-             "-e \"LIST ROLES\" 2>&1 || true"]);
+        var scyllaAdminFinal = await dinD.CqlshAsync(
+            composeFile, "interfold_admin",
+            $"\"$(grep scyllaAdminPassword {scratch.SecretsJsonPath} | sed -E 's/.*\\\"([^\\\"]+)\\\".*$/\\1/' | tail -1)\"",
+            "\"LIST ROLES\"");
         await Assert.That(scyllaAdminFinal.Stdout.Contains("interfold_admin")).IsTrue()
             .Because($"after resume, interfold_admin must exist in scylla: {scyllaAdminFinal.Stdout}");
     }
