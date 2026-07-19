@@ -173,14 +173,16 @@ public sealed class InMemoryAccountRepository : IAccountRepository
                 : null);
     }
 
-    // Two ProviderIdentity-keyed entry points dispatch to per-branch private helpers.
-    // The three FindOrCreate* helpers each write to a distinct pair of dictionaries
-    // (discord / email / apple); LinkIdentifier is generic across the identity wrapper.
+    // Every ProviderIdentity-keyed public entry point below dispatches to the same three
+    // generic helpers (FindOrCreateIdentifier / LinkIdentifier / UnlinkIdentifier) with
+    // per-branch dictionary + raw-value-extractor lambdas. Keeping the dispatch here and
+    // the storage-agnostic body in the generic means adding a fourth provider takes only a
+    // new dict pair + a fourth MatchOrThrow arm — not a fresh copy of the three-way body.
     public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default)
         => identity.MatchOrThrow(
-            discordId => FindOrCreateSystemIdByDiscord(discordId),
-            email => FindOrCreateSystemIdByEmail(email),
-            appleId => FindOrCreateSystemIdByApple(appleId));
+            discordId => FindOrCreateIdentifier(discordId, _discordBySystem, _systemByDiscord, static id => id.Value),
+            email => FindOrCreateIdentifier(email, _emailBySystem, _systemByEmail, static e => e.Value),
+            appleId => FindOrCreateIdentifier(appleId, _appleBySystem, _systemByApple, static id => id.Value));
 
     public Task<AccountLinkResult> LinkIdentityToUserAsync(SystemId systemId, ProviderIdentity identity, CancellationToken cancellationToken = default)
         => identity.MatchOrThrow(
@@ -188,110 +190,14 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             email => Task.FromResult(LinkIdentifier(systemId, email, _emailBySystem, _systemByEmail, static e => e.Value)),
             appleId => Task.FromResult(LinkIdentifier(systemId, appleId, _appleBySystem, _systemByApple, static id => id.Value)));
 
-    private Task<SystemId?> FindOrCreateSystemIdByDiscord(DiscordId discordId)
-    {
-        if (string.IsNullOrWhiteSpace(discordId.Value))
-        {
-            return Task.FromResult<SystemId?>(null);
-        }
-
-        if (_systemByDiscord.TryGetValue(discordId.Value, out var scopedSystemId))
-        {
-            return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
-        }
-
-        // Hold the ScopedSystemId typed locally so EnsureEncryptionSaltForSystem receives
-        // the wrapper directly and the return widens through AsSystemId with no string
-        // round-trip. Reverse-map dicts key on ScopedSystemId so the write key matches
-        // the SCOPED composite every downstream read (LinkIdentifier / Unlink* /
-        // GetPublicProfile) uses via GetSystemKey.
-        var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new(newSystemId)), newSystemId);
-        _discordBySystem[scopedNew] = discordId;
-        _systemByDiscord[discordId.Value] = scopedNew;
-
-        EnsureEncryptionSaltForSystem(scopedNew);
-        return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
-    }
-
-    private Task<SystemId?> FindOrCreateSystemIdByEmail(Email email)
-    {
-        if (string.IsNullOrWhiteSpace(email.Value))
-        {
-            return Task.FromResult<SystemId?>(null);
-        }
-
-        if (_systemByEmail.TryGetValue(email.Value, out var scopedSystemId))
-        {
-            return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
-        }
-
-        // See FindOrCreateSystemIdByDiscord above for the "typed local + scoped-composite
-        // reverse-map key" rationale.
-        var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new(newSystemId)), newSystemId);
-        _emailBySystem[scopedNew] = email;
-        _systemByEmail[email.Value] = scopedNew;
-
-        EnsureEncryptionSaltForSystem(scopedNew);
-        return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
-    }
-
-    private Task<SystemId?> FindOrCreateSystemIdByApple(AppleId appleId)
-    {
-        if (string.IsNullOrWhiteSpace(appleId.Value))
-        {
-            return Task.FromResult<SystemId?>(null);
-        }
-
-        if (_systemByApple.TryGetValue(appleId.Value, out var scopedSystemId))
-        {
-            return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
-        }
-
-        // See FindOrCreateSystemIdByDiscord above for the "typed local + scoped-composite
-        // reverse-map key" rationale.
-        var newSystemId = Guid.NewGuid().ToString("N");
-        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new(newSystemId)), newSystemId);
-        _appleBySystem[scopedNew] = appleId;
-        _systemByApple[appleId.Value] = scopedNew;
-
-        EnsureEncryptionSaltForSystem(scopedNew);
-        return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
-    }
-
     public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
-    {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (_discordBySystem.TryRemove(systemKey, out var discordId) && !string.IsNullOrWhiteSpace(discordId.Value))
-        {
-            _systemByDiscord.TryRemove(discordId.Value, out _);
-        }
-
-        return Task.FromResult(true);
-    }
+        => Task.FromResult(UnlinkIdentifier(systemId, _discordBySystem, _systemByDiscord, static id => id.Value));
 
     public Task<bool> UnlinkEmailAsync(SystemId systemId, CancellationToken cancellationToken = default)
-    {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (_emailBySystem.TryRemove(systemKey, out var email) && !string.IsNullOrWhiteSpace(email.Value))
-        {
-            _systemByEmail.TryRemove(email.Value, out _);
-        }
-
-        return Task.FromResult(true);
-    }
+        => Task.FromResult(UnlinkIdentifier(systemId, _emailBySystem, _systemByEmail, static e => e.Value));
 
     public Task<bool> UnlinkAppleAsync(SystemId systemId, CancellationToken cancellationToken = default)
-    {
-        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-        if (_appleBySystem.TryRemove(systemKey, out var appleId) && !string.IsNullOrWhiteSpace(appleId.Value))
-        {
-            _systemByApple.TryRemove(appleId.Value, out _);
-        }
-
-        return Task.FromResult(true);
-    }
+        => Task.FromResult(UnlinkIdentifier(systemId, _appleBySystem, _systemByApple, static id => id.Value));
 
     public Task<bool> DeleteAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
@@ -306,20 +212,11 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             _systemByLinkToken.TryRemove(token, out _);
         }
 
-        if (_discordBySystem.TryRemove(systemKey, out var discordId) && !string.IsNullOrWhiteSpace(discordId.Value))
-        {
-            _systemByDiscord.TryRemove(discordId.Value, out _);
-        }
-
-        if (_emailBySystem.TryRemove(systemKey, out var email) && !string.IsNullOrWhiteSpace(email.Value))
-        {
-            _systemByEmail.TryRemove(email.Value, out _);
-        }
-
-        if (_appleBySystem.TryRemove(systemKey, out var appleId) && !string.IsNullOrWhiteSpace(appleId.Value))
-        {
-            _systemByApple.TryRemove(appleId.Value, out _);
-        }
+        // Delete = the union of every Unlink* — same forward/reverse dict pattern, so route
+        // through the shared helper rather than open-code the three identical blocks.
+        UnlinkIdentifier(systemId, _discordBySystem, _systemByDiscord, static id => id.Value);
+        UnlinkIdentifier(systemId, _emailBySystem, _systemByEmail, static e => e.Value);
+        UnlinkIdentifier(systemId, _appleBySystem, _systemByApple, static id => id.Value);
 
         return Task.FromResult(true);
     }
@@ -352,8 +249,6 @@ public sealed class InMemoryAccountRepository : IAccountRepository
                 appleId));
     }
 
-    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
-
     private ScopedSystemId ResolveScoped(SystemId systemId)
         => ScopedSystemId.Compose(_regionContext.ResolveUserRegion(systemId), systemId);
 
@@ -384,6 +279,69 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         {
             _systemByLinkToken.TryRemove(storedToken, out _);
         }
+    }
+
+    /// <summary>
+    /// Generic-typed find-or-create helper. <typeparamref name="TIdentity"/> is one of
+    /// <see cref="DiscordId"/>, <see cref="Email"/>, <see cref="AppleId"/>. Existing user:
+    /// unwrapped from the reverse map via <paramref name="extractRawValue"/> (raw string
+    /// key so <see cref="StringComparer.OrdinalIgnoreCase"/> semantics survive for email);
+    /// missing user: mint a fresh systemId + ScopedSystemId, write both dicts, seed the
+    /// encryption salt. Kept typed locally so <see cref="EnsureEncryptionSaltForSystem"/>
+    /// receives the wrapper directly and the return widens through <c>AsSystemId</c>
+    /// without a string round-trip.
+    /// </summary>
+    private Task<SystemId?> FindOrCreateIdentifier<TIdentity>(
+        TIdentity identifier,
+        ConcurrentDictionary<ScopedSystemId, TIdentity> identifierBySystem,
+        ConcurrentDictionary<string, ScopedSystemId> systemByIdentifier,
+        Func<TIdentity, string> extractRawValue)
+        where TIdentity : struct
+    {
+        var rawValue = extractRawValue(identifier);
+        if (string.IsNullOrWhiteSpace(rawValue))
+        {
+            return Task.FromResult<SystemId?>(null);
+        }
+
+        if (systemByIdentifier.TryGetValue(rawValue, out var scopedSystemId))
+        {
+            return Task.FromResult<SystemId?>(scopedSystemId.AsSystemId());
+        }
+
+        var newSystemId = Guid.NewGuid().ToString("N");
+        var scopedNew = ScopedSystemId.Compose(_regionContext.ResolveUserRegion(new(newSystemId)), newSystemId);
+        identifierBySystem[scopedNew] = identifier;
+        systemByIdentifier[rawValue] = scopedNew;
+
+        EnsureEncryptionSaltForSystem(scopedNew);
+        return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
+    }
+
+    /// <summary>
+    /// Generic-typed unlink helper. Drops the (systemKey -&gt; identifier) forward pointer
+    /// and, if the removed identifier carried a non-empty raw value, the paired
+    /// (raw -&gt; systemKey) reverse pointer. Always returns true — parity with the Scylla
+    /// adapter, which treats "user has nothing to unlink" as an idempotent success.
+    /// </summary>
+    private bool UnlinkIdentifier<TIdentity>(
+        SystemId systemId,
+        ConcurrentDictionary<ScopedSystemId, TIdentity> identifierBySystem,
+        ConcurrentDictionary<string, ScopedSystemId> systemByIdentifier,
+        Func<TIdentity, string> extractRawValue)
+        where TIdentity : struct
+    {
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+        if (identifierBySystem.TryRemove(systemKey, out var identifier))
+        {
+            var rawValue = extractRawValue(identifier);
+            if (!string.IsNullOrWhiteSpace(rawValue))
+            {
+                systemByIdentifier.TryRemove(rawValue, out _);
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
