@@ -209,7 +209,7 @@ public abstract class InterfoldControllerBase : ControllerBase
     }
 
     protected async Task<Response> HandleAvatarUploadAsync(
-        Func<CancellationToken, Task<(AvatarUrl? Url, AvatarSource? Source)>> getExistingAvatarAsync,
+        Func<CancellationToken, Task<IAvatarBearing>> getExistingAvatarAsync,
         Func<ScopedSystemId, Stream, CancellationToken, Task<AvatarUrl>> saveToStorageAsync,
         Func<AvatarUrl, CancellationToken, Task<Response>> updateMetadataAsync,
         IAvatarStorage avatarStorage,
@@ -243,7 +243,9 @@ public abstract class InterfoldControllerBase : ControllerBase
         AvatarSource? currentAvatarSource = null;
         try
         {
-            (currentAvatarUrl, currentAvatarSource) = await getExistingAvatarAsync(ct);
+            var existingAvatar = await getExistingAvatarAsync(ct);
+            currentAvatarUrl = existingAvatar.AvatarUrl;
+            currentAvatarSource = existingAvatar.AvatarSource;
         }
         catch { }
 
@@ -260,7 +262,7 @@ public abstract class InterfoldControllerBase : ControllerBase
 
     protected async Task<Response> HandleAvatarUrlUploadAsync(
         string? requestUrl,
-        Func<CancellationToken, Task<(AvatarUrl? Url, AvatarSource? Source)>> getExistingAvatarAsync,
+        Func<CancellationToken, Task<IAvatarBearing>> getExistingAvatarAsync,
         Func<AvatarUrl, CancellationToken, Task<Response>> updateMetadataAsync,
         IAvatarStorage avatarStorage,
         CancellationToken ct)
@@ -280,7 +282,7 @@ public abstract class InterfoldControllerBase : ControllerBase
     }
 
     protected Task<Response> HandleAvatarDeleteAsync(
-        Func<CancellationToken, Task<(AvatarUrl? Url, AvatarSource? Source)>> getExistingAvatarAsync,
+        Func<CancellationToken, Task<IAvatarBearing>> getExistingAvatarAsync,
         Func<CancellationToken, Task<Response>> updateMetadataAsync,
         IAvatarStorage avatarStorage,
         CancellationToken ct)
@@ -297,7 +299,7 @@ public abstract class InterfoldControllerBase : ControllerBase
     /// isn't worth failing an otherwise-successful metadata write over.
     /// </summary>
     private async Task<Response> RunAvatarMetadataChangeAsync(
-        Func<CancellationToken, Task<(AvatarUrl? Url, AvatarSource? Source)>> getExistingAvatarAsync,
+        Func<CancellationToken, Task<IAvatarBearing>> getExistingAvatarAsync,
         Func<CancellationToken, Task<Response>> updateMetadataAsync,
         IAvatarStorage avatarStorage,
         CancellationToken ct)
@@ -306,7 +308,9 @@ public abstract class InterfoldControllerBase : ControllerBase
         AvatarSource? currentAvatarSource = null;
         try
         {
-            (currentAvatarUrl, currentAvatarSource) = await getExistingAvatarAsync(ct);
+            var existingAvatar = await getExistingAvatarAsync(ct);
+            currentAvatarUrl = existingAvatar.AvatarUrl;
+            currentAvatarSource = existingAvatar.AvatarSource;
         }
         catch { }
 

@@ -217,11 +217,7 @@ public sealed class SettingsController : InterfoldControllerBase
     public async Task<Response> UploadAvatarMultipart(CancellationToken ct)
     {
         return await HandleAvatarUploadAsync(
-            async (c) =>
-            {
-                var profile = await _accountRepository.GetPublicProfileAsync(PrincipalId, c);
-                return (profile?.AvatarUrl, profile?.AvatarSource);
-            },
+            async (c) => await _accountRepository.GetPublicProfileAsync(PrincipalId, c),
             async (principal, stream, c) => await _avatarStorage.SaveSystemAvatarAsync(principal, stream, c),
             async (url, c) => CommandNoContent(await _uploadAvatarHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsAvatarUpload, new UploadAvatarCommand(url, AvatarSource.Local)), c)),
             _avatarStorage,
@@ -237,11 +233,7 @@ public sealed class SettingsController : InterfoldControllerBase
 
         return await HandleAvatarUrlUploadAsync(
             req.Url.Value,
-            async (c) =>
-            {
-                var profile = await _accountRepository.GetPublicProfileAsync(PrincipalId, c);
-                return (profile?.AvatarUrl, profile?.AvatarSource);
-            },
+            async (c) => await _accountRepository.GetPublicProfileAsync(PrincipalId, c),
             async (url, c) => CommandNoContent(await _uploadAvatarHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsAvatarUpload, new UploadAvatarCommand(url, AvatarSource.External)), c)),
             _avatarStorage,
             ct);
@@ -251,11 +243,7 @@ public sealed class SettingsController : InterfoldControllerBase
     public async Task<Response> DeleteAvatar(CancellationToken ct)
     {
         return await HandleAvatarDeleteAsync(
-            async (c) =>
-            {
-                var profile = await _accountRepository.GetPublicProfileAsync(PrincipalId, c);
-                return (profile?.AvatarUrl, profile?.AvatarSource);
-            },
+            async (c) => await _accountRepository.GetPublicProfileAsync(PrincipalId, c),
             async (c) => CommandNoContent(await _deleteAvatarHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsAvatarDelete, new DeleteAvatarCommand()), c)),
             _avatarStorage,
             ct);

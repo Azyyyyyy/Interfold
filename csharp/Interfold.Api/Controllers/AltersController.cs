@@ -112,11 +112,7 @@ public sealed class AltersController : InterfoldControllerBase
     public async Task<Response> UploadAvatarMultipart([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
         return await HandleAvatarUploadAsync(
-            async (c) =>
-            {
-                var existing = await _alterRepository.GetAsync(PrincipalId, alterId, c);
-                return (existing?.AvatarUrl, existing?.AvatarSource);
-            },
+            async (c) => await _alterRepository.GetAsync(PrincipalId, alterId, c),
             async (principal, stream, c) => await _avatarStorage.SaveAlterAvatarAsync(principal, alterId, stream, c),
             async (url, c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarUpload, new UpdateAlterCommand
             {
@@ -142,11 +138,7 @@ public sealed class AltersController : InterfoldControllerBase
 
         return await HandleAvatarUrlUploadAsync(
             req.Url.Value,
-            async (c) =>
-            {
-                var existing = await _alterRepository.GetAsync(PrincipalId, alterId, c);
-                return (existing?.AvatarUrl, existing?.AvatarSource);
-            },
+            async (c) => await _alterRepository.GetAsync(PrincipalId, alterId, c),
             async (url, c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarUpload, new UpdateAlterCommand
             {
                 AlterId = alterId,
@@ -162,11 +154,7 @@ public sealed class AltersController : InterfoldControllerBase
     public async Task<Response> DeleteAvatar([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
         return await HandleAvatarDeleteAsync(
-            async (c) =>
-            {
-                var existing = await _alterRepository.GetAsync(PrincipalId, alterId, c);
-                return (existing?.AvatarUrl, existing?.AvatarSource);
-            },
+            async (c) => await _alterRepository.GetAsync(PrincipalId, alterId, c),
             async (c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarDelete, new UpdateAlterCommand
             {
                 AlterId = alterId,
