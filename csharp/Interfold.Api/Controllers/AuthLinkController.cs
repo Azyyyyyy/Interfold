@@ -107,20 +107,11 @@ public sealed class AuthLinkController : OAuthControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
         }
 
-        // This endpoint is [AllowAnonymous] (the caller is a browser mid-OAuth-round-trip,
-        // not an authenticated principal), so InterfoldPrincipalMiddleware doesn't populate
-        // HttpContext.Items — BuildEnvelope would throw. Follow the sibling pattern from
-        // AuthController.Callback: hand-build the envelope with the synthetic "nam:auth"
-        // principal. The command handler resolves the real system id off the link token
-        // itself (ResolveSystemIdByLinkTokenAsync), so command.PrincipalId is never read.
-        var envelope = new CommandEnvelope<LinkOAuthIdentityCommand>(
-            OperationIds.AuthLinkCallback,
-            Guid.NewGuid(),
-            ScopedSystemId.ParseScoped("nam:auth"),
-            GetIdempotencyKey(),
-            TimeProvider.GetUtcNow(),
-            new LinkOAuthIdentityCommand(linkToken.Value, typedIdentity)
-        );
+        // [AllowAnonymous] endpoint: the middleware doesn't populate the principal, but
+        // BuildEnvelope stamps the synthetic AnonymousPrincipalId in that case. The link
+        // handler resolves the real system id off the link token itself
+        // (ResolveSystemIdByLinkTokenAsync), so command.PrincipalId is never read.
+        var envelope = BuildEnvelope(OperationIds.AuthLinkCallback, new LinkOAuthIdentityCommand(linkToken.Value, typedIdentity));
         var commandResult = await _linkHandler.HandleAsync(envelope, HttpContext.RequestAborted);
         if (!commandResult.Accepted || commandResult.Result is null)
         {

@@ -113,14 +113,11 @@ public sealed class AuthController : OAuthControllerBase
             return OAuthIdentityFailureResponse();
         }
 
-        var envelope = new CommandEnvelope<AuthenticateOAuthCommand>(
-            OperationIds.AuthOAuthCallback,
-            Guid.NewGuid(),
-            ScopedSystemId.ParseScoped("nam:auth"),
-            GetIdempotencyKey(),
-            TimeProvider.GetUtcNow(),
-            new AuthenticateOAuthCommand(typedIdentity)
-        );
+        // [AllowAnonymous] endpoint: the middleware doesn't populate the principal, but
+        // BuildEnvelope stamps the synthetic AnonymousPrincipalId in that case (the OAuth
+        // handler resolves the real system id off the identity itself and never reads
+        // command.PrincipalId), so we can share the standard envelope shape.
+        var envelope = BuildEnvelope(OperationIds.AuthOAuthCallback, new AuthenticateOAuthCommand(typedIdentity));
 
         var result = await _authHandler.HandleAsync(envelope, HttpContext.RequestAborted);
         if (!result.Accepted)

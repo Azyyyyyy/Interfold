@@ -270,26 +270,32 @@ public abstract class InterfoldControllerBase : ControllerBase
         if (!AvatarUrlValidator.TryNormalize(requestUrl, out var url, out var err))
             return new ErrorResponse("Invalid avatar URL.", err, HttpStatusCode.BadRequest);
 
-        AvatarUrl? currentAvatarUrl = null;
-        AvatarSource? currentAvatarSource = null;
-        try
-        {
-            (currentAvatarUrl, currentAvatarSource) = await getExistingAvatarAsync(ct);
-        }
-        catch { }
-
-        var result = await updateMetadataAsync(new AvatarUrl(url), ct);
-        if (!result.IsSuccess) return result;
-
-        if (currentAvatarSource == AvatarSource.Local && currentAvatarUrl is not null)
-        {
-            try { await avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct); } catch { }
-        }
-
-        return result;
+        var normalisedUrl = new AvatarUrl(url);
+        return await RunAvatarMetadataChangeAsync(
+            getExistingAvatarAsync,
+            c => updateMetadataAsync(normalisedUrl, c),
+            avatarStorage,
+            ct);
     }
 
-    protected async Task<Response> HandleAvatarDeleteAsync(
+    protected Task<Response> HandleAvatarDeleteAsync(
+        Func<CancellationToken, Task<(AvatarUrl? Url, AvatarSource? Source)>> getExistingAvatarAsync,
+        Func<CancellationToken, Task<Response>> updateMetadataAsync,
+        IAvatarStorage avatarStorage,
+        CancellationToken ct)
+        => RunAvatarMetadataChangeAsync(getExistingAvatarAsync, updateMetadataAsync, avatarStorage, ct);
+
+    /// <summary>
+    /// Shared body for the "no bytes uploaded" avatar mutations
+    /// (<see cref="HandleAvatarUrlUploadAsync"/> and
+    /// <see cref="HandleAvatarDeleteAsync"/>): read the current avatar (best-effort;
+    /// failures here don't abort the mutation), run the metadata update, and if the
+    /// mutation succeeded AND the previous avatar was locally hosted, best-effort
+    /// delete the old bytes from storage. Errors from either the "read current" probe
+    /// or the "delete old" cleanup are intentionally swallowed — a stale bytes-file
+    /// isn't worth failing an otherwise-successful metadata write over.
+    /// </summary>
+    private async Task<Response> RunAvatarMetadataChangeAsync(
         Func<CancellationToken, Task<(AvatarUrl? Url, AvatarSource? Source)>> getExistingAvatarAsync,
         Func<CancellationToken, Task<Response>> updateMetadataAsync,
         IAvatarStorage avatarStorage,
@@ -388,59 +394,31 @@ public abstract class InterfoldControllerBase : ControllerBase
     }
 
     /// <summary>
-    /// Builds a command envelope, handles it, and maps it to a 201 Created response carrying
-    /// the mapped data on success, or maps conflicts to error responses.
-    /// </summary>
-    protected async Task<Response<TData>> DispatchCreatedAsync<TPayload, TResult, TData>(
-        ICommandHandler<TPayload, TResult> handler,
-        OperationId operationId,
-        TPayload payload,
-        Func<TResult, TData> dataSelector,
-        Func<TResult?, bool?>? replaySelector,
-        CancellationToken ct)
-        where TResult : ICommandResult
-    {
-        var envelope = BuildEnvelope(operationId, payload);
-        var result = await handler.HandleAsync(envelope, ct);
-        return CommandCreated(result, dataSelector, replaySelector);
-    }
-
-    /// <summary>
     /// Builds a command envelope, handles it, and maps it to a 201 Created response by
-    /// fetching the created entity asynchronously on success, or maps conflicts to error responses.
+    /// fetching the created entity asynchronously on success, or maps conflicts to error
+    /// responses. Pass <paramref name="locationSelector"/> to emit a <c>Location</c>
+    /// header pointing at the created resource; omit it for endpoints that don't expose
+    /// a canonical URL for the row.
     /// </summary>
+    /// <remarks>
+    /// The sync (<c>Func&lt;TResult, TData&gt;</c>) overload this method used to sit
+    /// alongside was dropped because no controller called it — the create paths all
+    /// need an async repository round-trip to hydrate the response body. Callers whose
+    /// response IS the command result directly should use <see cref="CommandCreated{T,TData}"/>
+    /// with their own <c>HandleAsync</c> call (see <c>FrontingController.StartFront</c>).
+    /// </remarks>
     protected async Task<Response<TData>> DispatchCreatedAsync<TPayload, TResult, TData>(
         ICommandHandler<TPayload, TResult> handler,
         OperationId operationId,
         TPayload payload,
         Func<TResult, Task<TData?>> dataSelector,
-        Func<TResult, string>? locationSelector,
-        Func<TResult?, bool?>? replaySelector,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<TResult, string>? locationSelector = null)
         where TResult : ICommandResult
     {
         var envelope = BuildEnvelope(operationId, payload);
         var result = await handler.HandleAsync(envelope, ct);
-        return await CommandCreatedAsync(result, dataSelector, locationSelector, replaySelector);
-    }
-
-    /// <summary>
-    /// Builds a command envelope, handles it, and maps it to a 201 Created response by
-    /// fetching the created entity asynchronously on success (without a Location header),
-    /// or maps conflicts to error responses.
-    /// </summary>
-    protected async Task<Response<TData>> DispatchCreatedAsync<TPayload, TResult, TData>(
-        ICommandHandler<TPayload, TResult> handler,
-        OperationId operationId,
-        TPayload payload,
-        Func<TResult, Task<TData?>> dataSelector,
-        Func<TResult?, bool?>? replaySelector,
-        CancellationToken ct)
-        where TResult : ICommandResult
-    {
-        var envelope = BuildEnvelope(operationId, payload);
-        var result = await handler.HandleAsync(envelope, ct);
-        return await CommandCreatedAsync(result, dataSelector, null, replaySelector);
+        return await CommandCreatedAsync(result, dataSelector, locationSelector);
     }
 
 
@@ -476,12 +454,15 @@ public abstract class InterfoldControllerBase : ControllerBase
 
     /// <summary>
     /// Maps a <see cref="CommandExecutionResult{T}"/> to a 201 Created <see cref="Response{TData}"/>
-    /// carrying the mapped <paramref name="dataSelector"/> result, or an <see cref="ErrorResponse"/> on failure.
+    /// carrying the mapped <paramref name="dataSelector"/> result, or an <see cref="ErrorResponse"/>
+    /// on failure. The Replay flag is read straight off the result via
+    /// <see cref="ICommandResult.Replay"/> — callers no longer thread a selector.
     /// </summary>
-    protected Response<TData> CommandCreated<T, TData>(CommandExecutionResult<T> result, Func<T, TData> dataSelector, Func<T?, bool?>? replaySelector = null)
+    protected Response<TData> CommandCreated<T, TData>(CommandExecutionResult<T> result, Func<T, TData> dataSelector)
+        where T : ICommandResult
     {
         if (result.Accepted)
-            return new SuccessResponse<TData>(dataSelector(result.Result!), HttpStatusCode.Created, replaySelector?.Invoke(result.Result));
+            return new SuccessResponse<TData>(dataSelector(result.Result!), HttpStatusCode.Created, result.Result!.Replay);
 
         return ConflictToError(result.Conflict!);
     }
@@ -491,12 +472,14 @@ public abstract class InterfoldControllerBase : ControllerBase
     /// by asynchronously fetching the created entity via <paramref name="dataSelector"/>. Returns an
     /// <see cref="ErrorResponse"/> on conflict or if the entity fetch returns null.
     /// Optionally sets the Location header if <paramref name="locationSelector"/> is provided.
+    /// The Replay flag is read straight off the result via
+    /// <see cref="ICommandResult.Replay"/> — callers no longer thread a selector.
     /// </summary>
     protected async Task<Response<TData>> CommandCreatedAsync<T, TData>(
         CommandExecutionResult<T> result,
         Func<T, Task<TData?>> dataSelector,
-        Func<T, string>? locationSelector = null,
-        Func<T?, bool?>? replaySelector = null)
+        Func<T, string>? locationSelector = null)
+        where T : ICommandResult
     {
         if (!result.Accepted)
             return ConflictToError(result.Conflict!);
@@ -508,7 +491,7 @@ public abstract class InterfoldControllerBase : ControllerBase
         if (locationSelector != null)
             Response.Headers.Location = locationSelector(result.Result!);
 
-        return new SuccessResponse<TData>(data, HttpStatusCode.Created, replaySelector?.Invoke(result.Result));
+        return new SuccessResponse<TData>(data, HttpStatusCode.Created, result.Result!.Replay);
     }
 
     /// <summary>
@@ -542,9 +525,69 @@ public abstract class InterfoldControllerBase : ControllerBase
         };
     }
 
+    /// <summary>
+    /// Synthetic principal id stamped on envelopes built from an <c>[AllowAnonymous]</c>
+    /// endpoint (currently the OAuth auth / auth-link callbacks). The command handler on
+    /// the other side resolves the real system id off the payload itself — an anonymous
+    /// endpoint must never read <see cref="CommandEnvelope{T}.PrincipalId"/> for
+    /// authorisation. See <see cref="AuthController"/> / <see cref="AuthLinkController"/>
+    /// callbacks.
+    /// </summary>
+    private static readonly ScopedSystemId AnonymousPrincipalId = ScopedSystemId.ParseScoped("nam:auth");
+
+    /// <summary>
+    /// Non-throwing <see cref="PrincipalId"/> — returns the middleware-populated
+    /// principal when present, or <see langword="null"/> for endpoints that reach
+    /// dispatch without an authenticated caller (only <c>[AllowAnonymous]</c> routes
+    /// legitimately land here). Wrapped by <see cref="BuildEnvelope{TPayload}"/> so
+    /// callers get a synthetic <see cref="AnonymousPrincipalId"/> stamp instead of the
+    /// <c>PrincipalId is unavailable</c> throw the strict accessor produces.
+    /// </summary>
+    private ScopedSystemId? TryGetPrincipalId()
+        => HttpContext.Items.TryGetValue(InterfoldPrincipalMiddleware.PrincipalIdItemKey, out var value)
+            && value is ScopedSystemId principal
+            ? principal
+            : null;
+
+    /// <summary>
+    /// Builds a <see cref="CommandEnvelope{TPayload}"/> for the current request. On
+    /// authenticated endpoints the envelope carries the middleware-populated principal;
+    /// on <c>[AllowAnonymous]</c> routes it falls back to <see cref="AnonymousPrincipalId"/>
+    /// so the callback controllers no longer have to hand-construct envelopes purely to
+    /// dodge <see cref="PrincipalId"/>'s throw. The synthetic principal is safe because
+    /// the handlers behind anonymous endpoints resolve the real system id off the
+    /// payload (link token, OAuth identity) rather than trusting the envelope.
+    /// </summary>
     protected CommandEnvelope<TPayload> BuildEnvelope<TPayload>(OperationId operationId, TPayload payload)
-        => new(operationId, Guid.NewGuid(), PrincipalId: PrincipalId, IdempotencyKey: GetIdempotencyKey(),
+        => new(operationId, Guid.NewGuid(),
+               PrincipalId: TryGetPrincipalId() ?? AnonymousPrincipalId,
+               IdempotencyKey: GetIdempotencyKey(),
                OccurredAt: TimeProvider.GetUtcNow(), Payload: payload);
+
+    /// <summary>
+    /// Builds a command envelope, handles it, and maps it to a 200 OK response by
+    /// projecting the command result into a wire-shaped response body via
+    /// <paramref name="wireSelector"/>. Callers use this when the command's on-the-wire
+    /// response body is a wrapper record around a single computed field
+    /// (see <c>SettingsController.SetupEncryption</c> / <c>RecoverEncryption</c>) — the
+    /// alternative was a hand-rolled per-endpoint dispatcher that inlined the accepted /
+    /// conflict split every time.
+    /// </summary>
+    protected async Task<Response<TWire>> DispatchOkAsync<TPayload, TResult, TWire>(
+        ICommandHandler<TPayload, TResult> handler,
+        OperationId operationId,
+        TPayload payload,
+        Func<TResult, TWire> wireSelector,
+        CancellationToken ct)
+        where TResult : ICommandResult
+    {
+        var envelope = BuildEnvelope(operationId, payload);
+        var result = await handler.HandleAsync(envelope, ct);
+        if (result.Accepted)
+            return new SuccessResponse<TWire>(wireSelector(result.Result!));
+
+        return ConflictToError(result.Conflict!);
+    }
 
     /// <summary>
     /// Show-endpoint helper: returns a 404 <see cref="ErrorResponse"/> naming

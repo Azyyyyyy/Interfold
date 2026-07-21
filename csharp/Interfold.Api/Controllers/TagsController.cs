@@ -54,9 +54,12 @@ public sealed class TagsController : InterfoldControllerBase
         // here keeps the hashed payload stable across retries with the same idempotency key
         // (otherwise every call would stamp a fresh DateTime.UtcNow and look like a
         // different request, triggering ConflictDuplicate on every replay).
-        return await DispatchCreatedAsync(_create, OperationIds.TagCreate, new CreateTagCommand(body.Name, body.ParentTagId, InsertedAtUtc: default), async (res) => await _tagRepository.GetAsync(principal, res.TagId, cancellationToken),
-            replaySelector: res => res?.Replay
-        , cancellationToken);
+        return await DispatchCreatedAsync(
+            _create,
+            OperationIds.TagCreate,
+            new CreateTagCommand(body.Name, body.ParentTagId, InsertedAtUtc: default),
+            async (res) => await _tagRepository.GetAsync(principal, res.TagId, cancellationToken),
+            cancellationToken);
     }
 
     [HttpPatch("{id}")]

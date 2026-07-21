@@ -62,7 +62,7 @@ public sealed class FrontingController : InterfoldControllerBase
         );
 
         var execution = await _startHandler.HandleAsync(envelope, ct);
-        var response = CommandCreated(execution, r => new FrontStartedResponse(r.FrontId!.Value), r => r?.Replay);
+        var response = CommandCreated(execution, r => new FrontStartedResponse(r.FrontId!.Value));
 
         if (response.IsSuccess && response.AsSuccess.Data.FrontId != FrontId.Empty)
         {

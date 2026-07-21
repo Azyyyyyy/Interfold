@@ -61,9 +61,12 @@ public sealed class JournalsController : InterfoldControllerBase
     public async Task<Response<JournalReadModel>> Create([FromBody] CreateGlobalJournalRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        return await DispatchCreatedAsync(_create, OperationIds.JournalGlobalCreate, new CreateGlobalJournalEntryCommand(req.Title), async (res) => await _journalRepository.GetGlobalAsync(principal, res.EntryId, ct),
-            replaySelector: res => res?.Replay
-        , ct);
+        return await DispatchCreatedAsync(
+            _create,
+            OperationIds.JournalGlobalCreate,
+            new CreateGlobalJournalEntryCommand(req.Title),
+            async (res) => await _journalRepository.GetGlobalAsync(principal, res.EntryId, ct),
+            ct);
     }
 
     [HttpPatch("{id}")]

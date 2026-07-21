@@ -57,9 +57,12 @@ public sealed class AlterJournalsController : InterfoldControllerBase
     public async Task<Response<AlterJournalReadModel>> Create([FromRoute][ValidAlterId] AlterId alterId, [FromBody] CreateAlterJournalRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        return await DispatchCreatedAsync(_create, OperationIds.JournalAlterCreate, new CreateAlterJournalEntryCommand(alterId, req.Title, TimeProvider.GetUtcNow()), async (res) => await _journalRepository.GetAlterAsync(principal, res.EntryId, ct),
-            replaySelector: res => res?.Replay
-        , ct);
+        return await DispatchCreatedAsync(
+            _create,
+            OperationIds.JournalAlterCreate,
+            new CreateAlterJournalEntryCommand(alterId, req.Title, TimeProvider.GetUtcNow()),
+            async (res) => await _journalRepository.GetAlterAsync(principal, res.EntryId, ct),
+            ct);
     }
 
     [HttpPatch("journals/{journalId}")]

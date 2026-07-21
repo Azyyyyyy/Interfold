@@ -56,9 +56,12 @@ public sealed class PollsController : InterfoldControllerBase
         // here keeps the hashed payload stable across retries with the same idempotency key
         // (otherwise every call would stamp a fresh DateTime.UtcNow and look like a
         // different request, triggering ConflictDuplicate on every replay).
-        return await DispatchCreatedAsync(_create, OperationIds.PollCreate, new CreatePollCommand(req.Title, req.Description, req.Type ?? PollType.Vote, req.TimeEnd, InsertedAtUtc: default), async (res) => await _pollRepository.GetAsync(principal, res.PollId, ct),
-            replaySelector: res => res?.Replay
-        , ct);
+        return await DispatchCreatedAsync(
+            _create,
+            OperationIds.PollCreate,
+            new CreatePollCommand(req.Title, req.Description, req.Type ?? PollType.Vote, req.TimeEnd, InsertedAtUtc: default),
+            async (res) => await _pollRepository.GetAsync(principal, res.PollId, ct),
+            ct);
     }
 
     [HttpPatch("{id}")]

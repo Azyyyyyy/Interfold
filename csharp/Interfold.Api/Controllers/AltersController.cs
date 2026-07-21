@@ -67,8 +67,7 @@ public sealed class AltersController : InterfoldControllerBase
         return await CommandCreatedAsync(
             await _createHandler.HandleAsync(envelope, ct),
             async (res) => await _alterRepository.GetAsync(principal, res.AlterId, ct),
-            locationSelector: res => $"/api/systems/me/alters/{res.AlterId}",
-            replaySelector: res => res?.Replay
+            locationSelector: res => $"/api/systems/me/alters/{res.AlterId}"
         );
     }
 
