@@ -396,6 +396,34 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, cancellationToken);
     }
 
+    public async Task<PublicSystemReadModel?> GetPublicSystemAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    {
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
+        {
+            var (session, keyspace, normalizedSystemId) = scope;
+
+            // Narrower SELECT than GetPublicProfileAsync — no discord/email/apple columns,
+            // since the public wire projection intentionally drops them.
+            var profileQuery = new SimpleStatement(
+                $"SELECT username, avatar_url, avatar_source, description FROM {keyspace}.users WHERE id = ? LIMIT 1",
+                normalizedSystemId
+            );
+
+            var profile = (await session.ExecuteAsync(profileQuery)).FirstOrDefault();
+            if (profile is null)
+            {
+                return null;
+            }
+
+            return new PublicSystemReadModel(
+                Id: new SystemId(normalizedSystemId),
+                AvatarUrl: AvatarUrl.FromNullable(profile.GetValue<string?>("avatar_url")),
+                AvatarSource: profile.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
+                Username: profile.GetValue<string?>("username") is { } username ? new Username(username) : null,
+                Description: profile.GetValue<string?>("description"));
+        }, cancellationToken);
+    }
+
     // Returns the scoped `{region}:{userId}` composite wrapped in a SystemId — in-process
     // caches and downstream callers all operate in the scoped-composite shape. The column
     // parameter is a typed ProviderColumn enum, with the CQL literal derived locally via

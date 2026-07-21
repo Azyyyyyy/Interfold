@@ -249,6 +249,41 @@ public sealed class InMemoryAccountRepository : IAccountRepository
                 appleId));
     }
 
+    public Task<PublicSystemReadModel?> GetPublicSystemAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    {
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+        Username? username = _usernameBySystem.TryGetValue(systemKey, out var u) ? u : null;
+        var description = _descriptionBySystem.TryGetValue(systemKey, out var d) ? d : null;
+        AvatarUrl? avatarUrl = _avatarBySystem.TryGetValue(systemKey, out var a) ? a : null;
+        AvatarSource? avatarSource = _avatarSourceBySystem.TryGetValue(systemKey, out var s) ? s : null;
+
+        // Same existence check as GetPublicProfileAsync — an account is considered
+        // "present" when any of the identity-bearing fields are set. Falling back on the
+        // internal Discord/Email/Apple pointers keeps the two projections in agreement:
+        // a system that returns non-null from GetPublicProfileAsync must also return
+        // non-null here, otherwise PublicSystemsController.Show would 404 rows that
+        // SystemMustExistAttribute happily lets through.
+        var hasIdentity = username is not null
+            || description is not null
+            || avatarUrl is not null
+            || _discordBySystem.ContainsKey(systemKey)
+            || _emailBySystem.ContainsKey(systemKey)
+            || _appleBySystem.ContainsKey(systemKey);
+
+        if (!hasIdentity)
+        {
+            return Task.FromResult<PublicSystemReadModel?>(null);
+        }
+
+        return Task.FromResult<PublicSystemReadModel?>(
+            new PublicSystemReadModel(
+                Id: systemId,
+                AvatarUrl: avatarUrl,
+                AvatarSource: avatarSource,
+                Username: username,
+                Description: description));
+    }
+
     private ScopedSystemId ResolveScoped(SystemId systemId)
         => ScopedSystemId.Compose(_regionContext.ResolveUserRegion(systemId), systemId);
 

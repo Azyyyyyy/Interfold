@@ -37,16 +37,13 @@ public sealed class PublicSystemsController : InterfoldControllerBase
     [HttpGet]
     public async Task<Response<PublicSystemReadModel>> Show([FromRoute] SystemId systemId, CancellationToken ct)
     {
-        var profile = await _accounts.GetPublicProfileAsync(systemId, ct);
-        var projected = profile is null
-            ? null
-            : new PublicSystemReadModel(
-                Id: profile.SystemId,
-                AvatarUrl: QualifyAvatar(profile.AvatarUrl, profile.AvatarSource),
-                AvatarSource: profile.AvatarSource,
-                Username: profile.Username,
-                Description: profile.Description);
-        return OkOrNotFound(projected, "System not found.", ErrorCodes.SystemNotFound);
+        var model = await _accounts.GetPublicSystemAsync(systemId, ct);
+        if (model is not null)
+        {
+            model = model with { AvatarUrl = QualifyAvatar(model.AvatarUrl, model.AvatarSource) };
+        }
+
+        return OkOrNotFound(model, "System not found.", ErrorCodes.SystemNotFound);
     }
 
     //TODO: To ensure route works as expected
