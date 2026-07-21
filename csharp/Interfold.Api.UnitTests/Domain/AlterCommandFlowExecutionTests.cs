@@ -127,22 +127,12 @@ public sealed class AlterCommandFlowExecutionTests
     // -----------------------------------------------------------------------------
 
     private static UpdateAlterCommand NewMutatingPayload(string newName) =>
-        new(
-            AlterId: AnyAlterId,
-            Name: newName,
-            Description: null,
-            AvatarUrl: null,
-            AvatarSource: null,
-            Color: null,
-            Pronouns: null,
-            SecurityLevel: null,
-            Fields: null,
-            ProxyName: null,
-            Alias: null,
-            Untracked: null,
-            Archived: null,
-            Pinned: null,
-            UpdatedAt: DateTimeOffset.UtcNow);
+        new()
+        {
+            AlterId = AnyAlterId,
+            Name = newName,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
 
     private static CommandEnvelope<UpdateAlterCommand> NewEnvelope(UpdateAlterCommand payload) =>
         new(

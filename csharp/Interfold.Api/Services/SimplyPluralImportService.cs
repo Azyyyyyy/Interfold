@@ -332,23 +332,21 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 }
             }
 
-            var updateCommand = new UpdateAlterCommand(
-                AlterId: alterId.Value,
-                Name: null, // already set via CreateAsync
-                Description: desc,
-                AvatarUrl: AvatarUrl.FromNullable(passthroughUrl),
-                AvatarSource: passthroughUrl is null ? null : AvatarSource.External,
-                Color: HexColor.FromNullable(color),
-                Pronouns: pronouns,
-                SecurityLevel: securityLevel,
-                Fields: fields,
-                ProxyName: null,
-                Alias: null,
-                Untracked: isCustomFront,
-                Archived: content.Archived,
-                Pinned: false,
-                UpdatedAt: updatedAt
-            );
+            var updateCommand = new UpdateAlterCommand
+            {
+                AlterId = alterId.Value,
+                Description = desc,
+                AvatarUrl = AvatarUrl.FromNullable(passthroughUrl),
+                AvatarSource = passthroughUrl is null ? null : AvatarSource.External,
+                Color = HexColor.FromNullable(color),
+                Pronouns = pronouns,
+                SecurityLevel = securityLevel,
+                Fields = fields,
+                Untracked = isCustomFront,
+                Archived = content.Archived,
+                Pinned = false,
+                UpdatedAt = updatedAt,
+            };
 
             await _alterRepository.UpdateAsync(systemId, updateCommand, ct);
 
@@ -869,23 +867,13 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                     // command payload boundary preserves the "avatar was captured locally" signal.
                     var localUrl = await _avatarStorage.SaveAlterAvatarAsync(download.SystemId, download.AlterId!.Value, stream, cancellationToken);
 
-                    await _alterRepository.UpdateAsync(systemId, new UpdateAlterCommand(
-                        AlterId: download.AlterId!.Value,
-                        Name: null,
-                        Description: null,
-                        AvatarUrl: localUrl,
-                        AvatarSource: AvatarSource.Local,
-                        Color: null,
-                        Pronouns: null,
-                        SecurityLevel: null,
-                        Fields: null,
-                        ProxyName: null,
-                        Alias: null,
-                        Untracked: null,
-                        Archived: null,
-                        Pinned: null,
-                        UpdatedAt: _timeProvider.GetUtcNow()
-                    ), cancellationToken);
+                    await _alterRepository.UpdateAsync(systemId, new UpdateAlterCommand
+                    {
+                        AlterId = download.AlterId!.Value,
+                        AvatarUrl = localUrl,
+                        AvatarSource = AvatarSource.Local,
+                        UpdatedAt = _timeProvider.GetUtcNow(),
+                    }, cancellationToken);
                 }
             }
             catch (Exception ex)

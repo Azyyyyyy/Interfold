@@ -75,11 +75,12 @@ public sealed class InMemoryAlterRepositoryTests
             .ContinueWith(t => t.Result ?? throw new InvalidOperationException($"CreateAsync returned null for '{name}'."));
 
     private static Task<bool> SetVisibilityAsync(InMemoryAlterRepository alters, SystemId systemId, AlterId alterId, VisibilityLevel level)
-        => alters.UpdateAsync(systemId, new UpdateAlterCommand(
-            alterId, Name: null, Description: null, AvatarUrl: null, AvatarSource: null,
-            Color: null, Pronouns: null, SecurityLevel: level, Fields: null, ProxyName: null,
-            Alias: null, Untracked: null, Archived: null, Pinned: null,
-            UpdatedAt: DateTimeOffset.UtcNow));
+        => alters.UpdateAsync(systemId, new UpdateAlterCommand
+        {
+            AlterId = alterId,
+            SecurityLevel = level,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
 
     // -------------------- Visibility matrix (list) ------------------------
 
@@ -196,17 +197,17 @@ public sealed class InMemoryAlterRepositoryTests
 
         var alterId = await CreateAlterAsync(harness.Alters, OwnerId, "Alter With Fields");
         await SetVisibilityAsync(harness.Alters, OwnerId, alterId, VisibilityLevel.Public);
-        var updated = await harness.Alters.UpdateAsync(OwnerId, new UpdateAlterCommand(
-            alterId, Name: null, Description: null, AvatarUrl: null, AvatarSource: null,
-            Color: null, Pronouns: null, SecurityLevel: null,
-            Fields: new[]
+        var updated = await harness.Alters.UpdateAsync(OwnerId, new UpdateAlterCommand
+        {
+            AlterId = alterId,
+            Fields = new[]
             {
                 new AlterFieldCommand(publicField, "public-value"),
                 new AlterFieldCommand(friendsField, "friends-value"),
                 new AlterFieldCommand(trustedField, "trusted-value"),
             },
-            ProxyName: null, Alias: null, Untracked: null, Archived: null, Pinned: null,
-            UpdatedAt: DateTimeOffset.UtcNow));
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
         await Assert.That(updated).IsTrue();
 
         await SeedFriendshipAsync(harness.Friendships, OwnerId, FriendId);
@@ -248,12 +249,12 @@ public sealed class InMemoryAlterRepositoryTests
 
         var alterId = await CreateAlterAsync(harness.Alters, OwnerId, "Sparse Alter");
         await SetVisibilityAsync(harness.Alters, OwnerId, alterId, VisibilityLevel.Public);
-        await harness.Alters.UpdateAsync(OwnerId, new UpdateAlterCommand(
-            alterId, Name: null, Description: null, AvatarUrl: null, AvatarSource: null,
-            Color: null, Pronouns: null, SecurityLevel: null,
-            Fields: new[] { new AlterFieldCommand(populated, "the-only-value") },
-            ProxyName: null, Alias: null, Untracked: null, Archived: null, Pinned: null,
-            UpdatedAt: DateTimeOffset.UtcNow));
+        await harness.Alters.UpdateAsync(OwnerId, new UpdateAlterCommand
+        {
+            AlterId = alterId,
+            Fields = new[] { new AlterFieldCommand(populated, "the-only-value") },
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
 
         var view = await harness.Alters.GetGuardedAsync(OwnerId, alterId, StrangerId);
 

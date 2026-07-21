@@ -80,23 +80,22 @@ public sealed class AltersController : InterfoldControllerBase
         // PATCH does not currently expose AvatarUrl as a mutable field — avatar updates go
         // through the dedicated PUT .../avatar endpoints (multipart for Local, JSON for External)
         // so we never observe a half-set (url-without-source) here.
-        var payload = new UpdateAlterCommand(
-            AlterId: alterId,
-            Name: req.Name,
-            Description: req.Description,
-            AvatarUrl: null,
-            AvatarSource: null,
-            Color: req.Color,
-            Pronouns: req.Pronouns,
-            SecurityLevel: req.SecurityLevel,
-            Fields: fields,
-            ProxyName: req.ProxyName,
-            Alias: req.Alias,
-            Untracked: req.Untracked,
-            Archived: req.Archived,
-            Pinned: req.Pinned,
-            UpdatedAt: TimeProvider.GetUtcNow()
-        );
+        var payload = new UpdateAlterCommand
+        {
+            AlterId = alterId,
+            Name = req.Name,
+            Description = req.Description,
+            Color = req.Color,
+            Pronouns = req.Pronouns,
+            SecurityLevel = req.SecurityLevel,
+            Fields = fields,
+            ProxyName = req.ProxyName,
+            Alias = req.Alias,
+            Untracked = req.Untracked,
+            Archived = req.Archived,
+            Pinned = req.Pinned,
+            UpdatedAt = TimeProvider.GetUtcNow(),
+        };
 
         return await DispatchNoContentAsync(_updateHandler, OperationIds.AlterUpdate, payload, ct);
     }
@@ -120,9 +119,13 @@ public sealed class AltersController : InterfoldControllerBase
                 return (existing?.AvatarUrl, existing?.AvatarSource);
             },
             async (principal, stream, c) => await _avatarStorage.SaveAlterAvatarAsync(principal, alterId, stream, c),
-            async (url, c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarUpload, new UpdateAlterCommand(
-                AlterId: alterId,
-                Name: null, Description: null, AvatarUrl: url, AvatarSource: AvatarSource.Local, Color: null, Pronouns: null, SecurityLevel: null, Fields: null, ProxyName: null, Alias: null, Untracked: null, Archived: null, Pinned: null, UpdatedAt: TimeProvider.GetUtcNow())), c)),
+            async (url, c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarUpload, new UpdateAlterCommand
+            {
+                AlterId = alterId,
+                AvatarUrl = url,
+                AvatarSource = AvatarSource.Local,
+                UpdatedAt = TimeProvider.GetUtcNow(),
+            }), c)),
             _avatarStorage,
             ct);
     }
@@ -145,9 +148,13 @@ public sealed class AltersController : InterfoldControllerBase
                 var existing = await _alterRepository.GetAsync(PrincipalId, alterId, c);
                 return (existing?.AvatarUrl, existing?.AvatarSource);
             },
-            async (url, c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarUpload, new UpdateAlterCommand(
-                AlterId: alterId,
-                Name: null, Description: null, AvatarUrl: url, AvatarSource: AvatarSource.External, Color: null, Pronouns: null, SecurityLevel: null, Fields: null, ProxyName: null, Alias: null, Untracked: null, Archived: null, Pinned: null, UpdatedAt: TimeProvider.GetUtcNow())), c)),
+            async (url, c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarUpload, new UpdateAlterCommand
+            {
+                AlterId = alterId,
+                AvatarUrl = url,
+                AvatarSource = AvatarSource.External,
+                UpdatedAt = TimeProvider.GetUtcNow(),
+            }), c)),
             _avatarStorage,
             ct);
     }
@@ -161,9 +168,12 @@ public sealed class AltersController : InterfoldControllerBase
                 var existing = await _alterRepository.GetAsync(PrincipalId, alterId, c);
                 return (existing?.AvatarUrl, existing?.AvatarSource);
             },
-            async (c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarDelete, new UpdateAlterCommand(
-                AlterId: alterId,
-                Name: null, Description: null, AvatarUrl: null, AvatarSource: null, Color: null, Pronouns: null, SecurityLevel: null, Fields: null, ProxyName: null, Alias: null, Untracked: null, Archived: null, Pinned: null, UpdatedAt: TimeProvider.GetUtcNow(), ClearAvatar: true)), c)),
+            async (c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarDelete, new UpdateAlterCommand
+            {
+                AlterId = alterId,
+                UpdatedAt = TimeProvider.GetUtcNow(),
+                ClearAvatar = true,
+            }), c)),
             _avatarStorage,
             ct);
     }
