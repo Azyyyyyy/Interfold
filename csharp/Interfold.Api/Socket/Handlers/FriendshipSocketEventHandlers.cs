@@ -91,7 +91,7 @@ public static class FriendshipSocketEventHandlers
                 new FriendProfileReadModel(otherSystemId, new Username(string.Empty), null, null, string.Empty, new DiscordId(string.Empty)))
             : new FriendRequestSocketPayload(
                 matched.Request,
-                matched.System with { AvatarUrl = AvatarUrlQualifier.QualifyAvatar(matched.System.AvatarUrl, matched.System.AvatarSource, context.RequestOrigin) });
+                matched.System with { AvatarUrl = AvatarUrlQualifier.QualifyAvatar(matched.System, context.RequestOrigin) });
 
         await context.SendAsync(topic, joinRef, asArray, eventName, payload);
     }

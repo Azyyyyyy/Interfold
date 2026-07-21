@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Interfold.Contracts.Ids;
@@ -8,31 +7,18 @@ namespace Interfold.Contracts.Ids;
 /// these types intentionally does NOT return the raw value — accidental logging or string
 /// interpolation yields a redacted form (first 4 chars + "…"). Use <c>Value</c> explicitly
 /// at serialization/DB/HTTP boundaries.
+///
+/// <para>
+/// The JSON converters for these structs use <see cref="StringBackedJsonConverter{T}"/>
+/// (same as the non-secret wrappers) — the wire body IS the raw string in both families,
+/// so a single shared converter shape is enough; the "secret" behaviour lives on each
+/// struct's own <c>ToString()</c> override below.
+/// </para>
 /// </summary>
 internal static class SecretRedaction
 {
     public static string Redact(string value)
         => value.Length <= 4 ? "…" : $"{value[..4]}…";
-}
-
-/// <summary>
-/// Common JSON converter shape for the wrapper structs in this file: read as a raw string
-/// into the struct's public ctor, write the struct's <c>Value</c> as a raw string. Six
-/// concrete subclasses (LinkToken / PushToken / ImportToken / RecoveryCode / Jti /
-/// SocketToken) plug in their type via <see cref="Create"/> and <see cref="GetValue"/>;
-/// they stay <c>sealed</c> and are named individually because
-/// <c>[JsonConverter(typeof(...))]</c> attribute application requires a concrete class name.
-/// </summary>
-internal abstract class SecretStringJsonConverter<T> : JsonConverter<T>
-{
-    protected abstract T Create(string value);
-    protected abstract string GetValue(T value);
-
-    public sealed override T Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => Create(reader.GetString() ?? string.Empty);
-
-    public sealed override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options)
-        => writer.WriteStringValue(GetValue(value));
 }
 
 /// <summary>
@@ -71,7 +57,7 @@ public readonly record struct LinkToken
         => string.IsNullOrWhiteSpace(value) ? null : new LinkToken(value);
 }
 
-internal sealed class LinkTokenJsonConverter : SecretStringJsonConverter<LinkToken>
+internal sealed class LinkTokenJsonConverter : StringBackedJsonConverter<LinkToken>
 {
     protected override LinkToken Create(string value) => new(value);
     protected override string GetValue(LinkToken value) => value.Value;
@@ -103,7 +89,7 @@ public readonly record struct PushToken
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class PushTokenJsonConverter : SecretStringJsonConverter<PushToken>
+internal sealed class PushTokenJsonConverter : StringBackedJsonConverter<PushToken>
 {
     protected override PushToken Create(string value) => new(value);
     protected override string GetValue(PushToken value) => value.Value;
@@ -134,7 +120,7 @@ public readonly record struct ImportToken
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class ImportTokenJsonConverter : SecretStringJsonConverter<ImportToken>
+internal sealed class ImportTokenJsonConverter : StringBackedJsonConverter<ImportToken>
 {
     protected override ImportToken Create(string value) => new(value);
     protected override string GetValue(ImportToken value) => value.Value;
@@ -165,7 +151,7 @@ public readonly record struct RecoveryCode
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class RecoveryCodeJsonConverter : SecretStringJsonConverter<RecoveryCode>
+internal sealed class RecoveryCodeJsonConverter : StringBackedJsonConverter<RecoveryCode>
 {
     protected override RecoveryCode Create(string value) => new(value);
     protected override string GetValue(RecoveryCode value) => value.Value;
@@ -213,7 +199,7 @@ public readonly record struct Jti
     public static Jti NewJti() => new(Guid.NewGuid().ToString("N"));
 }
 
-internal sealed class JtiJsonConverter : SecretStringJsonConverter<Jti>
+internal sealed class JtiJsonConverter : StringBackedJsonConverter<Jti>
 {
     protected override Jti Create(string value) => new(value);
     protected override string GetValue(Jti value) => value.Value;
@@ -244,7 +230,7 @@ public readonly record struct SocketToken
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class SocketTokenJsonConverter : SecretStringJsonConverter<SocketToken>
+internal sealed class SocketTokenJsonConverter : StringBackedJsonConverter<SocketToken>
 {
     protected override SocketToken Create(string value) => new(value);
     protected override string GetValue(SocketToken value) => value.Value;

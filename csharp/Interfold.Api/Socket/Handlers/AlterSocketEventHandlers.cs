@@ -26,7 +26,7 @@ public static class AlterSocketEventHandlers
             ct => alterRepository.GetAsync(systemId, alterId, ct),
             alter =>
             {
-                alter.AvatarUrl = AvatarUrlQualifier.QualifyAvatar(alter.AvatarUrl, alter.AvatarSource, context.RequestOrigin);
+                alter.AvatarUrl = AvatarUrlQualifier.QualifyAvatar(alter, context.RequestOrigin);
                 return new AlterSocketPayload(alter);
             });
 }

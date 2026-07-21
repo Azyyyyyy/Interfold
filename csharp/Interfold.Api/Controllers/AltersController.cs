@@ -53,7 +53,7 @@ public sealed class AltersController : InterfoldControllerBase
         var alter = await _alterRepository.GetAsync(PrincipalId, alterId, ct);
         if (alter is not null)
         {
-            alter.AvatarUrl = QualifyAvatar(alter.AvatarUrl, alter.AvatarSource);
+            alter.AvatarUrl = QualifyAvatar(alter);
         }
         return OkOrNotFound(alter, "Alter not found.", ErrorCodes.AlterNotFound);
     }

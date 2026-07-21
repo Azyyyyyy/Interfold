@@ -40,7 +40,7 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         var model = await _accounts.GetPublicSystemAsync(systemId, ct);
         if (model is not null)
         {
-            model = model with { AvatarUrl = QualifyAvatar(model.AvatarUrl, model.AvatarSource) };
+            model = model with { AvatarUrl = QualifyAvatar(model) };
         }
 
         return OkOrNotFound(model, "System not found.", ErrorCodes.SystemNotFound);
@@ -52,7 +52,7 @@ public sealed class PublicSystemsController : InterfoldControllerBase
     public async Task<Response<IReadOnlyList<BareAlter>>> ListAlters([FromRoute] SystemId systemId, CancellationToken ct)
     {
         var alters = await _alters.ListGuardedAsync(systemId, PrincipalId, ct);
-        foreach (var a in alters) a.AvatarUrl = QualifyAvatar(a.AvatarUrl, a.AvatarSource);
+        foreach (var a in alters) a.AvatarUrl = QualifyAvatar(a);
         return new SuccessResponse<IReadOnlyList<BareAlter>>(alters);
     }
 
@@ -63,7 +63,7 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         var alter = await _alters.GetGuardedAsync(systemId, alterId, PrincipalId, ct);
         if (alter is not null)
         {
-            alter.AvatarUrl = QualifyAvatar(alter.AvatarUrl, alter.AvatarSource);
+            alter.AvatarUrl = QualifyAvatar(alter);
         }
 
         return OkOrNotFound(alter, "Alter not found.", ErrorCodes.AlterNotFound);
@@ -118,7 +118,7 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         await Task.WhenAll(altersTask, tagsTask, friendshipTask);
 
         var batchAlters = altersTask.Result;
-        foreach (var a in batchAlters) a.AvatarUrl = QualifyAvatar(a.AvatarUrl, a.AvatarSource);
+        foreach (var a in batchAlters) a.AvatarUrl = QualifyAvatar(a);
 
         var friendship = friendshipTask.Result;
         if (friendship is not null)

@@ -1,5 +1,6 @@
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 
 namespace Interfold.Api.Helpers;
@@ -79,6 +80,25 @@ internal static class AvatarUrlQualifier
     }
 
     /// <summary>
+    /// <see cref="IAvatarBearing"/> overload of
+    /// <see cref="QualifyAvatar(AvatarUrl?, AvatarSource?, string, HostString)"/>. Every
+    /// avatar-carrying read model implements the interface, so callers pass the bearing
+    /// itself instead of the <c>x.AvatarUrl, x.AvatarSource</c> pair that was previously
+    /// spelled at every callsite. Null bearings pass through as <c>null</c> so the
+    /// <c>profile?.QualifyAvatar(...)</c> style at socket boundaries stays a one-liner.
+    /// </summary>
+    internal static AvatarUrl? QualifyAvatar(IAvatarBearing? bearing, string scheme, HostString host)
+        => bearing is null ? null : QualifyAvatar(bearing.AvatarUrl, bearing.AvatarSource, scheme, host);
+
+    /// <summary>
+    /// Origin-string overload of the <see cref="IAvatarBearing"/> qualifier — pairs with
+    /// <see cref="QualifyAvatar(AvatarUrl?, AvatarSource?, string?)"/> for socket callers
+    /// that already hold a pre-built <c>RequestOrigin</c>.
+    /// </summary>
+    internal static AvatarUrl? QualifyAvatar(IAvatarBearing? bearing, string? origin)
+        => bearing is null ? null : QualifyAvatar(bearing.AvatarUrl, bearing.AvatarSource, origin);
+
+    /// <summary>
     /// Returns <paramref name="friendship"/> with the friend's avatar and every fronting
     /// alter's avatar qualified against the server origin. Preserves the input's field
     /// values verbatim except for the two <see cref="AvatarUrl"/> holes; external avatar
@@ -98,14 +118,14 @@ internal static class AvatarUrlQualifier
         {
             Friend = friendship.Friend with
             {
-                AvatarUrl = QualifyAvatar(friendship.Friend.AvatarUrl, friendship.Friend.AvatarSource, scheme, host),
+                AvatarUrl = QualifyAvatar(friendship.Friend, scheme, host),
             },
             Fronting = friendship.Fronting
                 .Select(f => f with
                 {
                     Alter = f.Alter with
                     {
-                        AvatarUrl = QualifyAvatar(f.Alter.AvatarUrl, f.Alter.AvatarSource, scheme, host),
+                        AvatarUrl = QualifyAvatar(f.Alter, scheme, host),
                     },
                 })
                 .ToArray(),
@@ -122,14 +142,14 @@ internal static class AvatarUrlQualifier
         {
             Friend = friendship.Friend with
             {
-                AvatarUrl = QualifyAvatar(friendship.Friend.AvatarUrl, friendship.Friend.AvatarSource, origin),
+                AvatarUrl = QualifyAvatar(friendship.Friend, origin),
             },
             Fronting = friendship.Fronting
                 .Select(f => f with
                 {
                     Alter = f.Alter with
                     {
-                        AvatarUrl = QualifyAvatar(f.Alter.AvatarUrl, f.Alter.AvatarSource, origin),
+                        AvatarUrl = QualifyAvatar(f.Alter, origin),
                     },
                 })
                 .ToArray(),
@@ -150,7 +170,7 @@ internal static class AvatarUrlQualifier
         {
             System = request.System with
             {
-                AvatarUrl = QualifyAvatar(request.System.AvatarUrl, request.System.AvatarSource, scheme, host),
+                AvatarUrl = QualifyAvatar(request.System, scheme, host),
             },
         };
 }

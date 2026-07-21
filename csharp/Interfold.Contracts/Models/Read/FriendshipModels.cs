@@ -13,7 +13,7 @@ public sealed record FriendProfileReadModel(
     AvatarSource? AvatarSource,
     string? Description,
     DiscordId? DiscordId
-);
+) : IAvatarBearing;
 
 // Fields carries the same per-alter custom-field entries as AlterReadModel.Fields; the Kotlin
 // client reads it as List<ExternalAlterCustomField> (id/name/type/value). Today's only producer
@@ -28,7 +28,7 @@ public sealed record FriendFrontingAlterReadModel(
     AvatarSource? AvatarSource,
     IReadOnlyList<AvatarUrl> ExtraImages,
     HexColor? Color
-);
+) : IAvatarBearing;
 
 public sealed record FriendFrontingFrontReadModel(
     AlterId AlterId,

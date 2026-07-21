@@ -100,14 +100,15 @@ public abstract class InterfoldControllerBase : ControllerBase
             : null;
 
     /// <summary>
-    /// Source-aware avatar qualification: prepends the server origin only when the avatar
-    /// is locally hosted (<see cref="AvatarSource.Local"/>). External URLs pass through
-    /// verbatim; a null / blank input returns unchanged. Non-avatar callers that need
-    /// origin qualification without the <see cref="AvatarSource"/> discriminator can call
+    /// Source-aware avatar qualification for any <see cref="IAvatarBearing"/> read model:
+    /// prepends the server origin only when the avatar is locally hosted
+    /// (<see cref="AvatarSource.Local"/>). External URLs pass through verbatim; a null
+    /// bearing / blank input returns unchanged. Non-avatar callers that need origin
+    /// qualification without the <see cref="AvatarSource"/> discriminator can call
     /// <c>AvatarUrlQualifier.Qualify(string?, string, HostString)</c> directly.
     /// </summary>
-    protected AvatarUrl? QualifyAvatar(AvatarUrl? url, AvatarSource? source)
-        => AvatarUrlQualifier.QualifyAvatar(url, source, Request.Scheme, Request.Host);
+    protected AvatarUrl? QualifyAvatar(IAvatarBearing? bearing)
+        => AvatarUrlQualifier.QualifyAvatar(bearing, Request.Scheme, Request.Host);
 
     /// <summary>
     /// Convenience: qualifies both the friend's avatar and every fronting alter's avatar

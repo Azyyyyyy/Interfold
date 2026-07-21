@@ -9,7 +9,7 @@ namespace Interfold.Contracts.Models;
 // (field definition id → value) pairs joined against SettingsFieldReadModel.Id.
 public sealed record AlterPublicFieldReadModel(FieldId Id, string Name, FieldType Type, string? Value);
 
-public class BareAlter {
+public class BareAlter : IAvatarBearing {
     public static BareAlter CreatePlaceholder(AlterId id) => new(id, $"Alter {id}", null, null, null, null, null, Array.Empty<AlterPublicFieldReadModel>());
     public BareAlter(
         AlterId id,
