@@ -28,14 +28,14 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
     }
 
     private readonly IRegionContext _regionContext;
-    private readonly IFriendshipRepository? _friendships;
-    private readonly IAlterRepository? _alters;
+    private readonly IFriendshipRepository _friendships;
+    private readonly IAlterRepository _alters;
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<AlterId, FrontState>> _activeBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, List<FrontHistoryState>> _historyBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, AlterId?> _primaryBySystem = new();
     private readonly object _sync = new();
 
-    public InMemoryFrontingRepository(IRegionContext regionContext, IFriendshipRepository friendships, IAlterRepository? alters = null)
+    public InMemoryFrontingRepository(IRegionContext regionContext, IFriendshipRepository friendships, IAlterRepository alters)
     {
         _regionContext = regionContext;
         _friendships = friendships;
@@ -163,23 +163,10 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         var results = new List<FrontActiveReadModel>(activeFronts.Count);
         foreach (var x in activeFronts.OrderByDescending(f => f.StartedAt))
         {
-            BareAlter bareAlter;
-            if (_alters is not null)
-            {
-                var alterModel = await _alters.GetAsync(systemId, x.AlterId, cancellationToken);
-                if (alterModel is not null)
-                {
-                    bareAlter = new BareAlter(x.AlterId, alterModel.Name, alterModel.AvatarUrl, alterModel.AvatarSource, alterModel.Color, alterModel.Pronouns, alterModel.Description, alterModel.Fields ?? Array.Empty<AlterPublicFieldReadModel>());
-                }
-                else
-                {
-                    bareAlter = BareAlter.CreatePlaceholder(x.AlterId);
-                }
-            }
-            else
-            {
-                bareAlter = BareAlter.CreatePlaceholder(x.AlterId);
-            }
+            var alterModel = await _alters.GetAsync(systemId, x.AlterId, cancellationToken);
+            var bareAlter = alterModel is not null
+                ? new BareAlter(x.AlterId, alterModel.Name, alterModel.AvatarUrl, alterModel.AvatarSource, alterModel.Color, alterModel.Pronouns, alterModel.Description, alterModel.Fields ?? Array.Empty<AlterPublicFieldReadModel>())
+                : BareAlter.CreatePlaceholder(x.AlterId);
 
             results.Add(new FrontActiveReadModel(
                 bareAlter,
@@ -202,7 +189,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         }
 
         var all = await ListActiveAsync(systemId, cancellationToken);
-        if (all.Count == 0 || _alters is null)
+        if (all.Count == 0)
         {
             return all;
         }
