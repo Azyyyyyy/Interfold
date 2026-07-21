@@ -49,11 +49,11 @@ public sealed class AuthLinkController : OAuthControllerBase
         // Fail-fast: the client is contractually required to pass redirect_uri on Begin so
         // the callback (which reads it back from the octocon_link_redirect_uri cookie) can
         // route the user home after the OAuth round-trip. Detecting it upfront avoids the
-        // full challenge round-trip landing in the 400 branch of RedirectWithSocketEventAsync
-        // — the client sees the same error code, just before the browser leaves for the
-        // provider. Sibling AuthController.Begin has the same contract; the check lives here
-        // as a per-endpoint guard rather than base-class middleware because only the Begin
-        // shape carries the redirect_uri query param.
+        // full challenge round-trip landing in the 400 branch of RedirectToClient — the
+        // client sees the same error code, just before the browser leaves for the provider.
+        // Sibling AuthController.Begin has the same contract; the check lives here as a
+        // per-endpoint guard rather than base-class middleware because only the Begin shape
+        // carries the redirect_uri query param.
         var redirectUri = Request.Query[OAuthQueryKeys.RedirectUri].ToString();
         if (string.IsNullOrWhiteSpace(redirectUri))
         {
@@ -131,7 +131,7 @@ public sealed class AuthLinkController : OAuthControllerBase
 
         return result switch
         {
-            AccountLinkResult.Success when systemId != null => RedirectWithSocketEventAsync(redirectUri),
+            AccountLinkResult.Success when systemId != null => RedirectToClient(redirectUri),
             AccountLinkResult.AlreadyLinked => StatusCode(StatusCodes.Status403Forbidden, new ErrorMessageResponse(
                 oauthProvider switch
                 {
@@ -152,7 +152,7 @@ public sealed class AuthLinkController : OAuthControllerBase
         };
     }
 
-    private IActionResult RedirectWithSocketEventAsync(string? redirectUri)
+    private IActionResult RedirectToClient(string? redirectUri)
     {
         // The client is responsible for supplying its own redirect_uri on the initial
         // GET /auth/link/{provider}?redirect_uri=... call; the cookie threads it through

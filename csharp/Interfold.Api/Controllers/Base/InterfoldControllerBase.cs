@@ -239,25 +239,16 @@ public abstract class InterfoldControllerBase : ControllerBase
             return new ErrorResponse("An error occurred while uploading the file.", ErrorCodes.UnknownError, HttpStatusCode.InternalServerError);
         }
 
-        AvatarUrl? currentAvatarUrl = null;
-        AvatarSource? currentAvatarSource = null;
-        try
-        {
-            var existingAvatar = await getExistingAvatarAsync(ct);
-            currentAvatarUrl = existingAvatar.AvatarUrl;
-            currentAvatarSource = existingAvatar.AvatarSource;
-        }
-        catch { }
-
-        var result = await updateMetadataAsync(avatarUrl, ct);
-        if (!result.IsSuccess) return result;
-
-        if (currentAvatarSource == AvatarSource.Local && currentAvatarUrl is not null)
-        {
-            try { await avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct); } catch { }
-        }
-
-        return result;
+        // Post-save tail (read-current → update-metadata → best-effort cleanup of old
+        // Local bytes) is identical to the URL / delete flows — delegate through the
+        // shared helper via the same closure trick HandleAvatarUrlUploadAsync uses so a
+        // future change to the cleanup rules (e.g. also purging External URLs, retry
+        // policy on the delete probe) only has to be made in one spot.
+        return await RunAvatarMetadataChangeAsync(
+            getExistingAvatarAsync,
+            c => updateMetadataAsync(avatarUrl, c),
+            avatarStorage,
+            ct);
     }
 
     protected async Task<Response> HandleAvatarUrlUploadAsync(
@@ -289,14 +280,16 @@ public abstract class InterfoldControllerBase : ControllerBase
         => RunAvatarMetadataChangeAsync(getExistingAvatarAsync, updateMetadataAsync, avatarStorage, ct);
 
     /// <summary>
-    /// Shared body for the "no bytes uploaded" avatar mutations
-    /// (<see cref="HandleAvatarUrlUploadAsync"/> and
-    /// <see cref="HandleAvatarDeleteAsync"/>): read the current avatar (best-effort;
-    /// failures here don't abort the mutation), run the metadata update, and if the
-    /// mutation succeeded AND the previous avatar was locally hosted, best-effort
-    /// delete the old bytes from storage. Errors from either the "read current" probe
-    /// or the "delete old" cleanup are intentionally swallowed — a stale bytes-file
-    /// isn't worth failing an otherwise-successful metadata write over.
+    /// Shared post-save / no-save tail for every avatar mutation
+    /// (<see cref="HandleAvatarUploadAsync"/> after the multipart bytes have already
+    /// landed in storage, <see cref="HandleAvatarUrlUploadAsync"/> for the External-URL
+    /// path, <see cref="HandleAvatarDeleteAsync"/> for the clear-metadata path): read
+    /// the current avatar (best-effort; failures here don't abort the mutation), run
+    /// the metadata update, and if the mutation succeeded AND the previous avatar was
+    /// locally hosted, best-effort delete the old bytes from storage. Errors from
+    /// either the "read current" probe or the "delete old" cleanup are intentionally
+    /// swallowed — a stale bytes-file isn't worth failing an otherwise-successful
+    /// metadata write over.
     /// </summary>
     private async Task<Response> RunAvatarMetadataChangeAsync(
         Func<CancellationToken, Task<IAvatarBearing>> getExistingAvatarAsync,
