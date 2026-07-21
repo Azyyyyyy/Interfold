@@ -155,7 +155,7 @@ public sealed class InMemoryAccountRepositoryIdentityRegressionTests
         var result = await repo.UnlinkDiscordAsync(new("nam:never-linked"));
 
         await Assert.That(result).IsTrue()
-            .Because("Unlink on a user with no linked Discord id must return true — parity with the Scylla adapter, which returns true for the same shape and drives the SettingsCommandHelper's Accepted/Replay envelope.");
+            .Because("Unlink on a user with no linked Discord id must return true — parity with the Scylla adapter, which returns true for the same shape and drives the settings-command flow's Accepted/Replay envelope.");
     }
 
     // ---------------- Unlink: dict-pair isolation (the refactor's core risk) -

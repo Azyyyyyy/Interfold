@@ -10,29 +10,31 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
-public sealed class UnlinkDiscordCommandHandler : ICommandHandler<UnlinkDiscordCommand, SettingsCommandResult>
+public sealed class UnlinkDiscordCommandHandler : IdempotentCommandHandler<UnlinkDiscordCommand, SettingsCommandResult>
 {
     private readonly IAccountRepository _accountRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public UnlinkDiscordCommandHandler(
-        IAccountRepository accountRepository, 
-        IIdempotencyStore idempotencyStore, 
+        IAccountRepository accountRepository,
+        IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
+        : base(idempotencyStore)
     {
         _accountRepository = accountRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<UnlinkDiscordCommand> command, CancellationToken cancellationToken = default)
-        => await SettingsCommandHelper.ExecuteAndPublishAsync(
+    protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsUnlinkDiscord;
+
+    protected override Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync(
+        CommandEnvelope<UnlinkDiscordCommand> command,
+        CancellationToken cancellationToken)
+        => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
-            SettingsAction.DiscordUnlinked,
-            EntityRefs.SettingsUnlinkDiscord,
-            _idempotencyStore,
             ct => _accountRepository.UnlinkDiscordAsync(command.PrincipalId, ct),
+            EntityRefs.SettingsActionFailed(SettingsAction.DiscordUnlinked),
+            SettingsAction.DiscordUnlinked,
             ct => _eventBus.PublishAsync(new SettingsDiscordAccountUnlinkedSignalEvent(command.PrincipalId), ct),
             cancellationToken);
 }

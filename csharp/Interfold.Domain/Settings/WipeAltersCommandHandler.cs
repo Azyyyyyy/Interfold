@@ -10,9 +10,8 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
-public sealed class WipeAltersCommandHandler : ICommandHandler<WipeAltersCommand, SettingsCommandResult>
+public sealed class WipeAltersCommandHandler : IdempotentCommandHandler<WipeAltersCommand, SettingsCommandResult>
 {
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
     private readonly IAlterRepository _alterRepository;
 
@@ -20,23 +19,33 @@ public sealed class WipeAltersCommandHandler : ICommandHandler<WipeAltersCommand
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus,
         IAlterRepository alterRepository)
+        : base(idempotencyStore)
     {
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
         _alterRepository = alterRepository;
     }
 
-    public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<WipeAltersCommand> command, CancellationToken cancellationToken = default)
-        => await SettingsCommandHelper.ExecuteAndPublishAsync(command, SettingsAction.AltersWiped, EntityRefs.SettingsAltersWipe, _idempotencyStore, async ct =>
-        {
-            var systemId = command.PrincipalId;
-            var alters = await _alterRepository.ListAsync(systemId, ct);
-            foreach (var alter in alters)
-            {
-                await _alterRepository.DeleteAsync(systemId, alter.Id, ct);
-                //TODO: Delete alter image if it exists
-            }
+    protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsAltersWipe;
 
-            return true;
-        }, ct => _eventBus.PublishAsync(new SettingsAltersWipedSignalEvent(command.PrincipalId), ct), cancellationToken);
+    protected override Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync(
+        CommandEnvelope<WipeAltersCommand> command,
+        CancellationToken cancellationToken)
+        => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
+            command,
+            async ct =>
+            {
+                var systemId = command.PrincipalId;
+                var alters = await _alterRepository.ListAsync(systemId, ct);
+                foreach (var alter in alters)
+                {
+                    await _alterRepository.DeleteAsync(systemId, alter.Id, ct);
+                    //TODO: Delete alter image if it exists
+                }
+
+                return true;
+            },
+            EntityRefs.SettingsActionFailed(SettingsAction.AltersWiped),
+            SettingsAction.AltersWiped,
+            ct => _eventBus.PublishAsync(new SettingsAltersWipedSignalEvent(command.PrincipalId), ct),
+            cancellationToken);
 }

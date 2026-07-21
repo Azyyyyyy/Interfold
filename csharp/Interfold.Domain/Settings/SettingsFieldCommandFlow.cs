@@ -11,9 +11,9 @@ namespace Interfold.Domain.Settings;
 /// Field-creation helper for handlers whose result shape is
 /// <see cref="SettingsFieldCommandResult"/> (carries the created
 /// <see cref="FieldId"/>) rather than <see cref="SettingsCommandResult"/>. Distinct from
-/// <see cref="SettingsCommandHelper"/> and <see cref="SettingsIdempotentCommandFlow"/>
-/// along the result-shape axis — see the type-choice table on
-/// <see cref="SettingsCommandHelper"/>.
+/// <see cref="SettingsIdempotentCommandFlow"/> along the result-shape axis — this helper
+/// carries the created <see cref="FieldId"/> in the result envelope, the other returns a
+/// plain <see cref="SettingsCommandResult"/>.
 /// </summary>
 internal static class SettingsFieldCommandFlow
 {

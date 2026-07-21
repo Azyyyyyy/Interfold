@@ -11,9 +11,9 @@ namespace Interfold.Domain.Settings;
 /// Lightweight mutate → check → publish → success helper for settings-shaped handlers
 /// that already inherit <see cref="IdempotentCommandHandler{TPayload, TResult}"/> — the
 /// base class does the idempotency lookup/save, so this helper only handles the body of
-/// <c>ExecuteCoreAsync</c>. Distinct from <see cref="SettingsCommandHelper"/> (which owns
-/// the idempotency store) and <see cref="SettingsFieldCommandFlow"/> (which returns a
-/// different result shape) — see the type-choice table on <see cref="SettingsCommandHelper"/>.
+/// <c>ExecuteCoreAsync</c>. Distinct from <see cref="SettingsFieldCommandFlow"/>, which
+/// returns a different result shape (see the field-creation helper for the
+/// <see cref="SettingsFieldCommandResult"/> flavour).
 /// </summary>
 internal static class SettingsIdempotentCommandFlow
 {

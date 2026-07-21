@@ -10,35 +10,34 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
-public sealed class UnlinkEmailCommandHandler : ICommandHandler<UnlinkEmailCommand, SettingsCommandResult>
+public sealed class UnlinkEmailCommandHandler : IdempotentCommandHandler<UnlinkEmailCommand, SettingsCommandResult>
 {
     private readonly IAccountRepository _accountRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public UnlinkEmailCommandHandler(
         IAccountRepository accountRepository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
+        : base(idempotencyStore)
     {
         _accountRepository = accountRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<UnlinkEmailCommand> command, CancellationToken cancellationToken = default)
-        => await SettingsCommandHelper.ExecuteAndPublishAsync(
+    protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsUnlinkEmail;
+
+    protected override Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync(
+        CommandEnvelope<UnlinkEmailCommand> command,
+        CancellationToken cancellationToken)
+        => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
-            SettingsAction.EmailUnlinked,
-            EntityRefs.SettingsUnlinkEmail,
-            _idempotencyStore,
             ct => _accountRepository.UnlinkEmailAsync(command.PrincipalId, ct),
-            ct =>
-            {
-                // Legacy Octocon.Accounts.unlink_email_from_user broadcast google_account_unlinked
-                // because the only email auth path in the old stack was the Google OAuth one;
-                // mirror that contract so existing clients keep receiving the same socket signal.
-                return _eventBus.PublishAsync(new SettingsGoogleAccountUnlinkedSignalEvent(command.PrincipalId), ct);
-            },
+            EntityRefs.SettingsActionFailed(SettingsAction.EmailUnlinked),
+            SettingsAction.EmailUnlinked,
+            // Legacy Octocon.Accounts.unlink_email_from_user broadcast google_account_unlinked
+            // because the only email auth path in the old stack was the Google OAuth one;
+            // mirror that contract so existing clients keep receiving the same socket signal.
+            ct => _eventBus.PublishAsync(new SettingsGoogleAccountUnlinkedSignalEvent(command.PrincipalId), ct),
             cancellationToken);
 }

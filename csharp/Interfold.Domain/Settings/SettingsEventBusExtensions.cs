@@ -8,14 +8,14 @@ namespace Interfold.Domain.Settings;
 /// Intent-named publish helpers on <see cref="IClusterEventBus"/> for settings-shaped
 /// events. Extensions so command-handler bodies read as
 /// <c>_eventBus.PublishProfileUpdatedAsync(command.PrincipalId, includeUsername: true, ct)</c>
-/// rather than <c>SettingsCommandHelper.PublishProfileUpdatedAsync(_eventBus, ...)</c> —
-/// the noun the caller cares about (the bus) sits at the front.
+/// rather than a helper-first spelling — the noun the caller cares about (the bus) sits
+/// at the front.
 ///
 /// <para>
 /// Named "…EventBusExtensions" (not "…EventFlow" or "…PublisherHelper") to signal that
 /// every method here is a thin, side-effect-only publish to the cluster bus with no
-/// orchestration, idempotency, or DB access. Anything more complex belongs in
-/// <see cref="SettingsCommandHelper"/>.
+/// orchestration, idempotency, or DB access. Anything more complex belongs in the
+/// per-handler <see cref="SettingsIdempotentCommandFlow"/> mutate → publish body.
 /// </para>
 /// </summary>
 internal static class SettingsEventBusExtensions
