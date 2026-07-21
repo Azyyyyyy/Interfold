@@ -60,12 +60,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var next = (short)(current + 1);
             var createdAt = command.CreatedAt.ToUniversalTime();
 
-            // Stamp security_level at insert time so the read-back path never sees a null
-            // column. The Option D 2026-07-17 strict-throw flip (see
-            // ScyllaAlterRepositoryUdtNullTests.GetGuardedAsync_NullSecurityLevelOnRow_ThrowsAfterStrictFlip)
-            // requires that every API-written row carries a declared VisibilityLevel member;
-            // omitting the column here made AltersController.Create's read-back throw
-            // ArgumentOutOfRangeException on the very next call, 500-ing the create.
+            // Stamp security_level so read-back never sees null — see ScyllaAlterRepositoryUdtNullTests.GetGuardedAsync_NullSecurityLevelOnRow_ThrowsAfterStrictFlip.
             var insert = new SimpleStatement(
                 $"INSERT INTO {keyspace}.alters (user_id, id, name, alias, security_level, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 normalizedSystemId,

@@ -182,14 +182,7 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
                 { Kind: UserRegistryLookupKind.Discord } h => (UserRegistryLookupColumn.DiscordId, h.RawId),
                 { Kind: UserRegistryLookupKind.Region } h => (UserRegistryLookupColumn.UserId, h.RawId),
                 { Kind: UserRegistryLookupKind.Id } h => (UserRegistryLookupColumn.UserId, h.RawId),
-                // INTENTIONAL fallback (Option D 2026-07-17): fires only when handle is
-                // null — i.e. UserRegistryLookup.TryParse rejected the input (bare-prefix
-                // like "nam:", unknown non-region prefix like "xxx:abcdefg"). Routing
-                // through user_id with the WHOLE originalInput is the "opaque bare-id"
-                // contract described in UserRegistryLookup's type-doc. If a new
-                // UserRegistryLookupKind is added, add an explicit branch above rather
-                // than letting the new kind land here — this fallback is safe for the
-                // null-handle case only and would mis-route a non-null-but-unmapped kind.
+                // Only fires when handle is null (TryParse rejected). Routes bare id through user_id per UserRegistryLookup's opaque-bare-id contract — a new UserRegistryLookupKind must add an explicit branch above.
                 _ => (UserRegistryLookupColumn.UserId, originalInput),
             };
 
@@ -238,13 +231,7 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
             // same user_registry row).
             UserRegistryLookupKind.Region => parsed.RawId,
             UserRegistryLookupKind.Id => parsed.RawId,
-            // INTENTIONAL fallback (Option D 2026-07-17): today covers exactly the two
-            // remaining kinds — Username and Discord. Both must keep their prefix in the
-            // cache key so a username "abcdefg" doesn't spuriously alias the bare id
-            // "abcdefg". If a new UserRegistryLookupKind is added, add an explicit branch
-            // above and pick RawId vs OriginalValue deliberately — the OriginalValue
-            // policy here is only safe when a bare-id collision is possible; new kinds
-            // may want a different key shape entirely.
+            // Only Username and Discord land here — both must keep their prefix in the cache key so a username can't alias a bare id. A new UserRegistryLookupKind must add an explicit branch above.
             _ => parsed.OriginalValue,
         };
 

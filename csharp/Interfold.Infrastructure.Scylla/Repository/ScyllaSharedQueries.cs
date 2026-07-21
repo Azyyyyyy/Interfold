@@ -54,7 +54,7 @@ internal static class ScyllaSharedQueries
     {
         if (definitions.Count == 0)
         {
-            return Array.Empty<AlterPublicFieldReadModel>();
+            return [];
         }
 
         return definitions

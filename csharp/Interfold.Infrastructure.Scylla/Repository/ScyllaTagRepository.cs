@@ -65,14 +65,8 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             var tagGuid = Guid.NewGuid();
 
+            // Stamp security_level so read-back never sees null — same invariant as ScyllaAlterRepository.CreateAsync / ScyllaAlterRepositoryUdtNullTests.
             var insert = new SimpleStatement(
-                // Stamp security_level at insert time to satisfy the Option D 2026-07-17
-                // strict-throw invariant: every API-written row must carry a declared
-                // VisibilityLevel member so the fallback-less FromCode<VisibilityLevel>()
-                // read paths (ListAsync/GetAsync/GetGuardedAsync/GetGuardedAlterIdsAsync)
-                // don't fault on the immediate read-back. Private matches the default on
-                // InMemoryTagRepository.TagState.SecurityLevel so both backends behave
-                // identically for freshly-created tags.
                 $"INSERT INTO {keyspace}.tags (user_id, id, parent_tag_id, name, description, color, security_level, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, toTimestamp(now()))",
                 normalizedSystemId,
                 tagGuid,
