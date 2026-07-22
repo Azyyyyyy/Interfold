@@ -19,6 +19,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\host\Interfold.Api\Interfold.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Auth.Contracts\Interfold.Auth.Contracts.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Auth.Domain\Interfold.Auth.Domain.csproj" />
   </ItemGroup>
 </Project>

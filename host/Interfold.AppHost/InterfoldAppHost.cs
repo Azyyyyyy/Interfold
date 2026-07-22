@@ -522,7 +522,7 @@ public static class InterfoldAppHost
             }
             else
             {
-                var apiProject = builder.AddProject<Projects.Interfold_Api>(ComposeServices.InterfoldApi)
+                var apiProject = builder.AddProject<Projects.Interfold_Api_Host>(ComposeServices.InterfoldApi)
                     .WithHttpEndpoint(port: apiHttpPort, targetPort: apiContainerHttpPort, name: HttpEndpointName)
                     .WithHttpsEndpoint(port: apiHttpsPort, targetPort: apiContainerHttpsPort, name: HttpsEndpointName)
                     .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)

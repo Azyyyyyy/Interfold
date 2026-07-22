@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\host\Interfold.Api\Interfold.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.ServiceDefaults\Interfold.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
+    <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Postgres\Interfold.Infrastructure.Postgres.csproj" />
+    <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Scylla\Interfold.Infrastructure.Scylla.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Placeholder so Docker volume-init sees a pre-created /app/data/avatars with app:app perms;
+         see InterfoldAppHost.ConfigureApiSelfHostEnv. Web SDK only auto-publishes wwwroot/. -->
+    <None Include="data\avatars\.gitkeep" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

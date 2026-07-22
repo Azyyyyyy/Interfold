@@ -23,6 +23,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Interfold.Api" />
+    <InternalsVisibleTo Include="Interfold.Api.Host" />
     <InternalsVisibleTo Include="Interfold.Auth.Api" />
     <InternalsVisibleTo Include="Interfold.IntegrationTests" />
     <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
