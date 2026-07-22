@@ -10,11 +10,6 @@
     <InternalsVisibleTo Include="Interfold.Infrastructure.InMemory" />
     <InternalsVisibleTo Include="Interfold.Infrastructure.Postgres" />
     <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
-    <!-- Transient back-ref: added in commit 1 of the Phase-3 Polls migration so
-         AddInterfoldDomainHandlers (using Interfold.Domain.Polls;) still compiles across the
-         commit boundary. Removed in commit 2 when the three poll command-handler singletons
-         move into Interfold.Polls.Api.DependencyInjection.AddPollsModule. -->
-    <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CassandraCSharpDriver" />

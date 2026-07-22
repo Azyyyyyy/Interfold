@@ -43,6 +43,15 @@
          Interfold.Domain -> Tags.Contracts dissolution doesn't cascade here. -->
     <ProjectReference Include="..\..\shared\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
+    <!-- Back-refs: four poll-touching files still live in this project until Socket +
+         Systems + Settings migrate — PollSocketEventHandlers (socket handler),
+         SocketEventPumpRunner + WebSocketHandler (socket transport carrying Poll events),
+         SimplyPluralImportService (import path constructs CreatePollCommand). Dissolves
+         when Settings (#7) + Systems (#8) + Socket (#10) all land. Polls.Contracts is
+         also visible transitively via Interfold.Domain; kept explicit so a future
+         Interfold.Domain -> Polls.Contracts dissolution doesn't cascade here. -->
+    <ProjectReference Include="..\..\shared\Interfold.Polls.Contracts\Interfold.Polls.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Postgres\Interfold.Infrastructure.Postgres.csproj" />
