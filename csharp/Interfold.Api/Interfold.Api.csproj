@@ -7,10 +7,10 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Interfold.IntegrationTests" />
     <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.13" />
-    <PackageReference Include="OneOf" Version="3.0.271" />
-    <PackageReference Include="OneOf.SourceGenerator" Version="3.0.271" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="OneOf" />
+    <PackageReference Include="OneOf.SourceGenerator" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
     <ProjectReference Include="..\Interfold.Domain\Interfold.Domain.csproj" />
     <ProjectReference Include="..\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
     <ProjectReference Include="..\Interfold.Infrastructure.Postgres\Interfold.Infrastructure.Postgres.csproj" />
@@ -19,12 +19,8 @@
     <ProjectReference Include="..\Interfold.ServiceDefaults\Interfold.ServiceDefaults.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!--
-      Pre-creates /app/data/avatars in the published image with app:app ownership so the
-      AppHost's `interfold_avatars` named volume (see InterfoldAppHost.ConfigureApiSelfHostEnv)
-      inherits writable perms via Docker's volume-init. The SDK only auto-publishes wwwroot/,
-      so the placeholder needs an explicit <None Include /> to land in the image.
-    -->
+    <!-- Placeholder so Docker volume-init sees a pre-created /app/data/avatars with app:app perms;
+         see InterfoldAppHost.ConfigureApiSelfHostEnv. Web SDK only auto-publishes wwwroot/. -->
     <None Include="data\avatars\.gitkeep" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
