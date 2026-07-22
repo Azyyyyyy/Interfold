@@ -99,7 +99,6 @@ public sealed class AltersController : InterfoldControllerBase
         return await DispatchNoContentAsync(_updateHandler, OperationIds.AlterUpdate, payload, ct);
     }
 
-    //TODO: To ensure route works as expected - check if we delete alter journal entries, unattach from gobal journals when an alter is deleted and delete them from polls
     [HttpDelete("{alterId:int}")]
     public async Task<Response> Delete([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
