@@ -49,8 +49,7 @@ public sealed record SocketJoinBatchedPayload(
 public sealed record SocketBatchedAltersPayload(int BatchIndex, int TotalBatches, IReadOnlyList<AlterReadModel> Alters) : ISocketPayload;
 
 // SocketBatchedTagsPayload lives in Interfold.Tags.Contracts (Phase-3 migration).
-
-public sealed record SocketBatchedFrontsPayload(int BatchIndex, int TotalBatches, IReadOnlyList<FrontActiveReadModel> Fronts) : ISocketPayload;
+// SocketBatchedFrontsPayload lives in Interfold.Fronting.Contracts (Phase-3 migration).
 
 // The four *Linked members keep the legacy identity-shaped wire names (discord_id etc.)
 // but carry only the "SET"/null link-presence flag — see AccountLinkFlag. GoogleLinked is
@@ -78,14 +77,9 @@ public sealed record AlterDeletedSocketPayload(AlterId AlterId) : ISocketPayload
 
 // TagSocketPayload + TagDeletedSocketPayload live in Interfold.Tags.Contracts (Phase-3 migration).
 // PollSocketPayload + PollDeletedSocketPayload live in Interfold.Polls.Contracts (Phase-3 migration).
-
-public sealed record FrontSocketPayload(FrontActiveReadModel Front) : ISocketPayload;
-
-public sealed record FrontsSocketPayload(IReadOnlyList<FrontActiveReadModel> Fronts) : ISocketPayload;
+// FrontSocketPayload + FrontsSocketPayload + FrontIdSocketPayload live in Interfold.Fronting.Contracts (Phase-3 migration).
 
 public sealed record AlterIdSocketPayload(AlterId? AlterId) : ISocketPayload;
-
-public sealed record FrontIdSocketPayload(FrontId FrontId) : ISocketPayload;
 
 public sealed record GlobalJournalSocketPayload(JournalReadModel Entry) : ISocketPayload;
 

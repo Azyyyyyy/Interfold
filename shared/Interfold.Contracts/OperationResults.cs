@@ -14,11 +14,7 @@ public sealed record AlterCommandResult(SystemId SystemId, AlterId AlterId, bool
     public AlterCommandResult WithReplay() => this with { Replay = true };
 }
 
-public sealed record FrontCommandResult(SystemId SystemId, AlterId? AlterId, FrontId? FrontId, bool Replay) : ICommandResult<FrontCommandResult>
-{
-    public FrontCommandResult WithReplay() => this with { Replay = true };
-}
-
+// FrontCommandResult lives in Interfold.Fronting.Contracts (Phase-3 migration).
 // TagCommandResult lives in Interfold.Tags.Contracts (Phase-3 migration).
 // PollCommandResult lives in Interfold.Polls.Contracts (Phase-3 migration).
 

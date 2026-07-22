@@ -5,7 +5,6 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
-using Interfold.Domain.Settings;
 using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Fronting;
@@ -47,7 +46,10 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
             return setReject;
 
         await _eventBus.PublishStateChangedAndPrimaryChangedAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
-        await _eventBus.PublishProfileUpdatedAsync(command.PrincipalId, includeUsername: false, cancellationToken);
+        // Inlined: SettingsEventBusExtensions.PublishProfileUpdatedAsync is internal to
+        // Interfold.Domain and this handler lives in Interfold.Fronting.Domain after the
+        // Phase-3 slice-3 move. The event itself (Interfold.Contracts.Events) is public.
+        await _eventBus.PublishAsync(new SettingsProfileUpdatedEvent(command.PrincipalId, EmitUsernameUpdated: false), cancellationToken);
 
         return FrontingCommandFlow.Success(command.PrincipalId, command.Payload.AlterId, frontId: null);
     }
