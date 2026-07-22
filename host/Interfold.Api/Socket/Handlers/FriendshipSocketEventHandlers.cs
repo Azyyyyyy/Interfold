@@ -18,12 +18,31 @@ public static class FriendshipSocketEventHandlers
         }
 
         var friendship = await GetFriendshipWithRetryAsync(friendshipRepository, evt.TargetSystemId, evt.SystemId, context.CancellationToken);
+        // Inlined from the former AvatarUrlQualifier.QualifyFriendship(origin) overload — the
+        // shared spine helper moved out during the Phase-3 Friendships slice so
+        // Interfold.Api.Shared no longer binds the friendship read-model cluster; per-avatar
+        // qualification still uses the shared primitive.
         var qualified = friendship is null
             ? new FriendshipReadModel(
                 new FriendProfileReadModel(evt.SystemId, new Username(string.Empty), null, null, string.Empty, new DiscordId(string.Empty)),
                 new FriendshipModel(FriendshipLevel.Friend, context.TimeProvider.GetUtcNow()),
                 [])
-            : AvatarUrlQualifier.QualifyFriendship(friendship, context.RequestOrigin);
+            : friendship with
+            {
+                Friend = friendship.Friend with
+                {
+                    AvatarUrl = AvatarUrlQualifier.QualifyAvatar(friendship.Friend, context.RequestOrigin),
+                },
+                Fronting = friendship.Fronting
+                    .Select(f => f with
+                    {
+                        Alter = f.Alter with
+                        {
+                            AvatarUrl = AvatarUrlQualifier.QualifyAvatar(f.Alter, context.RequestOrigin),
+                        },
+                    })
+                    .ToArray(),
+            };
         
         await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Friendships.Added, qualified);
     }

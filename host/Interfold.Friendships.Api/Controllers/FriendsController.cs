@@ -8,6 +8,7 @@ using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Friendships;
 using Interfold.Api.Controllers.Base;
 using Interfold.Contracts;
+using Interfold.Friendships.Api.Helpers;
 
 namespace Interfold.Api.Controllers;
 
@@ -32,7 +33,9 @@ public sealed class FriendsController : InterfoldControllerBase
     public async Task<Response<IReadOnlyList<FriendshipReadModel>>> Index(CancellationToken ct)
     {
         var friendships = await _repository.ListFriendshipsAsync(PrincipalId, ct);
-        var qualified = friendships.Select(QualifyFriendship).ToArray();
+        var qualified = friendships
+            .Select(f => FriendshipAvatarQualifier.QualifyFriendship(f, Request.Scheme, Request.Host))
+            .ToArray();
         return new SuccessResponse<IReadOnlyList<FriendshipReadModel>>(qualified);
     }
 
@@ -50,7 +53,7 @@ public sealed class FriendsController : InterfoldControllerBase
 
         var friendship = await _repository.GetFriendshipAsync(PrincipalId, id, ct);
         return OkOrNotFound(
-            friendship is null ? null : QualifyFriendship(friendship),
+            friendship is null ? null : FriendshipAvatarQualifier.QualifyFriendship(friendship, Request.Scheme, Request.Host),
             "You are not friends with that system.",
             ErrorCodes.FriendshipNotFound);
     }

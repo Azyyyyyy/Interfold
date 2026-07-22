@@ -63,6 +63,16 @@
          moved to Interfold.Fronting.Api. Dissolves when Socket (#10) migrates the
          aggregate-join payloads and per-feature socket handlers. -->
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
+    <!-- Back-ref: three friendship-touching files still live in this project until Socket +
+         Systems migrate — FriendshipSocketEventHandlers (8 events + FriendshipReadModel +
+         FriendRequestSocketPayload + FriendIdSocketPayload), SocketEventPumpRunner
+         (8 friendship-event subscriptions + IFriendshipRepository parameter),
+         PublicSystemsController (IFriendshipRepository + FriendshipReadModel via the
+         relocated PublicSystemBatchReadModel in Models/). Friendships.Domain back-ref is
+         NOT needed here — the only residual consumers of Interfold.Domain.Friendships.*
+         were the two friendship controllers, which moved to Interfold.Friendships.Api.
+         Dissolves when Systems (#8) + Socket (#10) migrate. -->
+    <ProjectReference Include="..\..\shared\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Postgres\Interfold.Infrastructure.Postgres.csproj" />

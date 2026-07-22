@@ -4,7 +4,6 @@ using Interfold.Contracts.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Interfold.Domain.Accounts;
 using Interfold.Domain.Alters;
-using Interfold.Domain.Friendships;
 using Interfold.Domain.Journals;
 using Interfold.Domain.Settings;
 
@@ -123,12 +122,9 @@ public static partial class ServiceCollectionExtensions
             .AddSingleton<UpdateAlterJournalEntryCommandHandler>()
             .AddSingleton<DeleteAlterJournalEntryCommandHandler>()
             .AddSingleton<SetAlterJournalLockedCommandHandler>()
-            .AddSingleton<SetAlterJournalPinnedCommandHandler>()
-            .AddSingleton<RemoveFriendshipCommandHandler>()
-            .AddSingleton<SetFriendTrustCommandHandler>()
-            .AddSingleton<SendFriendRequestCommandHandler>()
-            .AddSingleton<AcceptFriendRequestCommandHandler>()
-            .AddSingleton<RejectFriendRequestCommandHandler>()
-            .AddSingleton<CancelFriendRequestCommandHandler>();
+            .AddSingleton<SetAlterJournalPinnedCommandHandler>();
+            // Friendship command-handler singletons moved to
+            // Interfold.Friendships.Api.DependencyInjection.AddFriendshipsModule during Phase-3
+            // Friendships migration (Remove / SetTrust / Send / Accept / Reject / Cancel).
 }
 

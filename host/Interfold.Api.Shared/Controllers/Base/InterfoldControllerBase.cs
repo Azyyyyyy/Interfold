@@ -72,13 +72,11 @@ public abstract class InterfoldControllerBase : ControllerBase
     protected AvatarUrl? QualifyAvatar(IAvatarBearing? bearing)
         => AvatarUrlQualifier.QualifyAvatar(bearing, Request.Scheme, Request.Host);
 
-    /// <summary>Qualifies friend + fronting alter avatars in one call.</summary>
-    protected FriendshipReadModel QualifyFriendship(FriendshipReadModel friendship)
-        => AvatarUrlQualifier.QualifyFriendship(friendship, Request.Scheme, Request.Host);
-
-    /// <summary>Qualifies the friend-request profile's avatar.</summary>
-    protected FriendRequestReadModel QualifyFriendRequest(FriendRequestReadModel request)
-        => AvatarUrlQualifier.QualifyFriendRequest(request, Request.Scheme, Request.Host);
+    // QualifyFriendship / QualifyFriendRequest protected wrappers moved to
+    // host/Interfold.Friendships.Api/Helpers/FriendshipAvatarQualifier.cs during the Phase-3
+    // Friendships slice; the two Interfold.Api call sites (PublicSystemsController,
+    // FriendshipSocketEventHandlers) inline the same body against AvatarUrlQualifier.QualifyAvatar
+    // so this base class no longer binds the friendship read-model cluster.
 
     /// <summary>Returns the first file part from a multipart/form-data body. Non-multipart
     /// bodies, parse failures, and mid-read IOException yield a null stream; a zero-byte

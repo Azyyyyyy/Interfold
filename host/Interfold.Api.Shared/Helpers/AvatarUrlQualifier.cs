@@ -1,7 +1,6 @@
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
-using Interfold.Contracts.Models.Read;
 
 namespace Interfold.Api.Helpers;
 
@@ -72,59 +71,9 @@ internal static class AvatarUrlQualifier
     internal static AvatarUrl? QualifyAvatar(IAvatarBearing? bearing, string? origin)
         => bearing is null ? null : QualifyAvatar(bearing.AvatarUrl, bearing.AvatarSource, origin);
 
-    /// <summary>Qualifies the friend's and every fronting alter's avatar; other fields pass through.</summary>
-    internal static FriendshipReadModel QualifyFriendship(
-        FriendshipReadModel friendship,
-        string scheme,
-        HostString host)
-        => friendship with
-        {
-            Friend = friendship.Friend with
-            {
-                AvatarUrl = QualifyAvatar(friendship.Friend, scheme, host),
-            },
-            Fronting = friendship.Fronting
-                .Select(f => f with
-                {
-                    Alter = f.Alter with
-                    {
-                        AvatarUrl = QualifyAvatar(f.Alter, scheme, host),
-                    },
-                })
-                .ToArray(),
-        };
-
-    /// <summary>Origin-string overload for socket pushers.</summary>
-    internal static FriendshipReadModel QualifyFriendship(
-        FriendshipReadModel friendship,
-        string? origin)
-        => friendship with
-        {
-            Friend = friendship.Friend with
-            {
-                AvatarUrl = QualifyAvatar(friendship.Friend, origin),
-            },
-            Fronting = friendship.Fronting
-                .Select(f => f with
-                {
-                    Alter = f.Alter with
-                    {
-                        AvatarUrl = QualifyAvatar(f.Alter, origin),
-                    },
-                })
-                .ToArray(),
-        };
-
-    /// <summary>Qualifies the requester/requestee profile's avatar.</summary>
-    internal static FriendRequestReadModel QualifyFriendRequest(
-        FriendRequestReadModel request,
-        string scheme,
-        HostString host)
-        => request with
-        {
-            System = request.System with
-            {
-                AvatarUrl = QualifyAvatar(request.System, scheme, host),
-            },
-        };
+    // QualifyFriendship + QualifyFriendRequest overloads moved to
+    // host/Interfold.Friendships.Api/Helpers/FriendshipAvatarQualifier.cs during the Phase-3
+    // Friendships slice — this shared file no longer binds the friendship read-model cluster
+    // (which now lives in Interfold.Friendships.Contracts). The per-avatar QualifyAvatar
+    // primitives above stay here.
 }

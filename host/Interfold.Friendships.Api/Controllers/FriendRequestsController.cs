@@ -8,6 +8,7 @@ using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Friendships;
 using Interfold.Api.Controllers.Base;
 using Interfold.Contracts;
+using Interfold.Friendships.Api.Helpers;
 
 namespace Interfold.Api.Controllers;
 
@@ -38,8 +39,12 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     public async Task<Response<FriendRequestIndexReadModel>> Index(CancellationToken ct)
     {
         var requests = await _repository.GetFriendRequestsAsync(PrincipalId, ct);
-        var incoming = requests.Incoming.Select(QualifyFriendRequest).ToArray();
-        var outgoing = requests.Outgoing.Select(QualifyFriendRequest).ToArray();
+        var incoming = requests.Incoming
+            .Select(r => FriendshipAvatarQualifier.QualifyFriendRequest(r, Request.Scheme, Request.Host))
+            .ToArray();
+        var outgoing = requests.Outgoing
+            .Select(r => FriendshipAvatarQualifier.QualifyFriendRequest(r, Request.Scheme, Request.Host))
+            .ToArray();
 
         // Same wire shape as the previous anonymous object: {"data":{"incoming":[…],"outgoing":[…]}}.
         return new SuccessResponse<FriendRequestIndexReadModel>(new FriendRequestIndexReadModel(incoming, outgoing));

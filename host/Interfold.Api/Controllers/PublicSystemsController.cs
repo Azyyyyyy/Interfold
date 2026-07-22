@@ -125,7 +125,26 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         var friendship = friendshipTask.Result;
         if (friendship is not null)
         {
-            friendship = QualifyFriendship(friendship);
+            // Inlined from the former InterfoldControllerBase.QualifyFriendship helper — the
+            // shared spine wrapper moved out during the Phase-3 Friendships slice so
+            // Interfold.Api.Shared no longer binds the friendship read-model cluster; per-avatar
+            // qualification still uses the shared primitive.
+            friendship = friendship with
+            {
+                Friend = friendship.Friend with
+                {
+                    AvatarUrl = AvatarUrlQualifier.QualifyAvatar(friendship.Friend, Request.Scheme, Request.Host),
+                },
+                Fronting = friendship.Fronting
+                    .Select(f => f with
+                    {
+                        Alter = f.Alter with
+                        {
+                            AvatarUrl = AvatarUrlQualifier.QualifyAvatar(f.Alter, Request.Scheme, Request.Host),
+                        },
+                    })
+                    .ToArray(),
+            };
         }
 
         return new PublicSystemBatchReadModel(

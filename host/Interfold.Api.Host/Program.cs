@@ -10,6 +10,7 @@ using Interfold.Api.Socket;
 using Interfold.Api.Swagger;
 using Interfold.Api.SimplyPlural;
 using Interfold.Auth.Api.DependencyInjection;
+using Interfold.Friendships.Api.DependencyInjection;
 using Interfold.Fronting.Api.DependencyInjection;
 using Interfold.Polls.Api.DependencyInjection;
 using Interfold.Tags.Api.DependencyInjection;
@@ -47,6 +48,10 @@ builder.Services.AddInterfoldOptions();
 // Must run BEFORE AddInterfoldPersistence — persistence ValidateOnStart reads
 // AuthenticationConfiguration.EncryptionPepper.
 builder.Services.AddAuthModule(builder.Configuration);
+
+// Friendships feature module owns the six friendship command-handler singletons.
+// Order-independent — no options binding, no config reads.
+builder.Services.AddFriendshipsModule();
 
 // Fronting feature module owns the seven fronting command-handler singletons.
 // Order-independent — no options binding, no config reads.
