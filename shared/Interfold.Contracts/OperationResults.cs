@@ -9,11 +9,7 @@ public sealed record AccountCommandResult(SystemId SystemId, Username Username, 
     public AccountCommandResult WithReplay() => this with { Replay = true };
 }
 
-public sealed record AlterCommandResult(SystemId SystemId, AlterId AlterId, bool Replay) : ICommandResult<AlterCommandResult>
-{
-    public AlterCommandResult WithReplay() => this with { Replay = true };
-}
-
+// AlterCommandResult lives in Interfold.Alters.Contracts (Phase-3 migration).
 // FrontCommandResult lives in Interfold.Fronting.Contracts (Phase-3 migration).
 // TagCommandResult lives in Interfold.Tags.Contracts (Phase-3 migration).
 // PollCommandResult lives in Interfold.Polls.Contracts (Phase-3 migration).

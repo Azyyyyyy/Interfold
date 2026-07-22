@@ -4,10 +4,6 @@ using Interfold.Contracts.Models;
 
 namespace Interfold.Contracts.Models.Read;
 
-// Alter request DTOs, temporarily parked here after the Journals slice split them out
-// of AlterJournalReadModel.cs. Future Alters feature slice will absorb these into
-// Interfold.Alters.Contracts alongside AlterReadModel.
-
 public sealed record CreateAlterRequest(
     string Name
 );

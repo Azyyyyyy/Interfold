@@ -31,22 +31,12 @@ public sealed record SocketEndpointProxyResponse(
 /// </summary>
 public sealed record SocketEndpointProxyRequest(string? Method, string? Path, string? Body);
 
-public sealed record SocketJoinInitPayload(
-    SocketSelfReadModel System,
-    IReadOnlyList<AlterReadModel> Alters,
-    IReadOnlyList<FrontActiveReadModel> Fronts,
-    IReadOnlyList<TagReadModel> Tags) : ISocketPayload;
+// SocketJoinInitPayload + SocketJoinBatchedPayload + SocketBatchedAltersPayload physically
+// relocated to host/Interfold.Api/Models/SocketAggregateJoinPayloads.cs during the Phase-3
+// Alters slice (namespace preserved for wire-compat). This breaks the spine-batch-DTO cycle
+// with Interfold.Alters.Contracts; the three payloads migrate into the Socket module (Phase 3 #10).
 
 public sealed record SocketJoinReconnectPayload(SocketSelfReadModel System) : ISocketPayload;
-
-public sealed record SocketJoinBatchedPayload(
-    bool Batched,
-    SocketSelfReadModel System,
-    IReadOnlyList<AlterReadModel>? Alters,
-    IReadOnlyList<FrontActiveReadModel>? Fronts,
-    IReadOnlyList<TagReadModel>? Tags) : ISocketPayload;
-
-public sealed record SocketBatchedAltersPayload(int BatchIndex, int TotalBatches, IReadOnlyList<AlterReadModel> Alters) : ISocketPayload;
 
 // SocketBatchedTagsPayload lives in Interfold.Tags.Contracts (Phase-3 migration).
 // SocketBatchedFrontsPayload lives in Interfold.Fronting.Contracts (Phase-3 migration).
@@ -71,16 +61,10 @@ public sealed record SocketSelfReadModel(
     IReadOnlyList<SettingsFieldReadModel> Fields,
     bool EncryptionInitialized) : ISocketPayload, IAvatarBearing;
 
-public sealed record AlterSocketPayload(AlterReadModel Alter) : ISocketPayload;
-
-public sealed record AlterDeletedSocketPayload(AlterId AlterId) : ISocketPayload;
-
+// AlterSocketPayload + AlterDeletedSocketPayload + AlterIdSocketPayload live in Interfold.Alters.Contracts (Phase-3 migration).
 // TagSocketPayload + TagDeletedSocketPayload live in Interfold.Tags.Contracts (Phase-3 migration).
 // PollSocketPayload + PollDeletedSocketPayload live in Interfold.Polls.Contracts (Phase-3 migration).
 // FrontSocketPayload + FrontsSocketPayload + FrontIdSocketPayload live in Interfold.Fronting.Contracts (Phase-3 migration).
-
-public sealed record AlterIdSocketPayload(AlterId? AlterId) : ISocketPayload;
-
 // GlobalJournalSocketPayload + AlterJournalSocketPayload + EntryDeletedSocketPayload live in Interfold.Journals.Contracts (Phase-3 migration).
 
 public sealed record SettingsFieldsUpdatedPayload(IReadOnlyList<SettingsFieldReadModel> Fields) : ISocketPayload;

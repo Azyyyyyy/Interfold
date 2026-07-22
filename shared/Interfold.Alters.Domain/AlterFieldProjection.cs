@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Interfold.Domain.Alters;
 
-// Backend-agnostic helpers for guarded alter-field projection. Kept in Interfold.Domain
+// Backend-agnostic helpers for guarded alter-field projection. Kept in Interfold.Alters.Domain
 // so InMemory + Scylla repos share the visibility rules and can't drift.
 public static class AlterFieldProjection
 {

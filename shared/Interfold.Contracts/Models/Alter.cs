@@ -1,13 +1,19 @@
 using System;
-using System.Text.Json.Serialization;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 
 namespace Interfold.Contracts.Models;
 
-// The Id here is the settings field definition's FieldId — alter field values are
-// (field definition id → value) pairs joined against SettingsFieldReadModel.Id.
-public sealed record AlterPublicFieldReadModel(FieldId Id, string Name, FieldType Type, string? Value);
+// AlterPublicFieldReadModel moved to shared/Interfold.Contracts/Models/AlterPublicFieldReadModel.cs
+// during the Phase-3 Alters slice pre-move split (stays on spine to avoid a
+// Friendships.Contracts -> Alters.Contracts cross-feature reference).
+//
+// AlterReadModel moved to shared/Interfold.Alters.Contracts/Models/Alter.cs during the Phase-3
+// Alters slice. BareAlter stays on the spine because two spine read models bind it
+// (TagPublicReadModel.Alters, FrontActiveReadModel.Alter) and neither Tags.Contracts nor
+// Fronting.Contracts can back-ref Interfold.Api / Interfold.Alters.Contracts. Dissolves when the
+// Post-Alters follow-up lifts TagReadModel + FrontReadModels into their feature Contracts (which
+// legalises the cross-feature refs to Alters.Contracts and lets BareAlter migrate too).
 
 public class BareAlter : IAvatarBearing {
     public static BareAlter CreatePlaceholder(AlterId id) => new(id, $"Alter {id}", null, null, null, null, null, Array.Empty<AlterPublicFieldReadModel>());
@@ -40,65 +46,3 @@ public class BareAlter : IAvatarBearing {
     public IReadOnlyList<AlterPublicFieldReadModel> Fields { get; set; }
     public string? Description { get; set; }
  }
-
-public sealed class AlterReadModel : BareAlter {
-
-    public AlterReadModel(
-        AlterId id,
-        string name,
-        string? description,
-        AvatarUrl? avatarUrl,
-        AvatarSource? avatarSource,
-        HexColor? color,
-        string? pronouns,
-        VisibilityLevel securityLevel,
-        IReadOnlyList<AlterPublicFieldReadModel> fields,
-        string? proxyName,
-        string? alias,
-        bool? untracked,
-        bool? archived,
-        bool? pinned) : base(id, name, avatarUrl, avatarSource, color, pronouns, description, fields)
-    {
-        Alias = alias;
-        SecurityLevel = securityLevel;
-        ProxyName = proxyName;
-        Untracked = untracked ?? false;
-        Archived = archived ?? false;
-        Pinned = pinned ?? false;
-    }
-
-    // The 14-arg ctor above takes `bool?` for the flag trio so the CQL projections in
-    // ScyllaAlterRepository can bind `row.GetValue<bool?>(...)` directly. STJ's deserialiser
-    // refuses that ctor because `bool? untracked` doesn't type-match the `bool Untracked`
-    // property (STJ requires ctor-param type ↔ property-type equality, case-insensitive name
-    // match alone isn't enough). That refusal breaks any call-site — production or test — that
-    // needs to round-trip an AlterReadModel through JSON. This second ctor accepts the flags
-    // as plain `bool`, marked [JsonConstructor] so STJ picks it and never sees the `bool?`
-    // form, and forwards to the original so the ??-false coercion stays in one place.
-    [JsonConstructor]
-    public AlterReadModel(
-        AlterId id,
-        string name,
-        string? description,
-        AvatarUrl? avatarUrl,
-        AvatarSource? avatarSource,
-        HexColor? color,
-        string? pronouns,
-        VisibilityLevel securityLevel,
-        IReadOnlyList<AlterPublicFieldReadModel> fields,
-        string? proxyName,
-        string? alias,
-        bool untracked,
-        bool archived,
-        bool pinned)
-        : this(id, name, description, avatarUrl, avatarSource, color, pronouns, securityLevel, fields, proxyName, alias, (bool?)untracked, (bool?)archived, (bool?)pinned)
-    {
-    }
-
-    public string? Alias { get; set; }
-    public VisibilityLevel SecurityLevel { get; set; }
-    public string? ProxyName { get; set; }
-    public bool Untracked { get; set; }
-    public bool Archived { get; set; }
-    public bool Pinned { get; set; }
-}
