@@ -7,9 +7,9 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
-  <!-- Mirror the implicit usings Microsoft.NET.Sdk.Web adds. Interfold.Api.Shared is a
+  <!-- Mirror the implicit usings Microsoft.NET.Sdk.Web adds. Interfold.Auth.Api is a
        plain Microsoft.NET.Sdk library (no Kestrel), but every moved file was written
-       assuming the Web-SDK implicits are present. -->
+       assuming the Web-SDK implicits are present. Same shape as Interfold.Api.Shared. -->
   <ItemGroup>
     <Using Include="Microsoft.AspNetCore.Builder" />
     <Using Include="Microsoft.AspNetCore.Hosting" />
@@ -23,17 +23,15 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Interfold.Api" />
-    <InternalsVisibleTo Include="Interfold.Auth.Api" />
     <InternalsVisibleTo Include="Interfold.IntegrationTests" />
     <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="OneOf" />
-    <PackageReference Include="OneOf.SourceGenerator" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\shared\Interfold.Contracts\Interfold.Contracts.csproj" />
-    <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Auth.Domain\Interfold.Auth.Domain.csproj" />
+    <ProjectReference Include="..\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
   </ItemGroup>
 </Project>

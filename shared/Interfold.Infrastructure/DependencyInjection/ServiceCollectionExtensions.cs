@@ -10,7 +10,6 @@ using Interfold.Domain.Journals;
 using Interfold.Domain.Polls;
 using Interfold.Domain.Settings;
 using Interfold.Domain.Tags;
-using Interfold.Domain.Auth;
 
 namespace Interfold.Infrastructure.DependencyInjection;
 
@@ -96,10 +95,6 @@ public static partial class ServiceCollectionExtensions
             .AddSingleton<DeleteFrontByIdCommandHandler>()
             .AddSingleton<UpdateFrontCommentCommandHandler>()
             .AddSingleton<UpdateUsernameCommandHandler>()
-            .AddSingleton<AuthenticateOAuthCommandHandler>()
-            .AddSingleton<LinkOAuthIdentityCommandHandler>()
-            .AddSingleton<RecordAuthTokenCommandHandler>()
-            .AddSingleton<RevokeAuthTokenCommandHandler>()
             .AddSingleton<CreateLinkTokenCommandHandler>()
             .AddSingleton<UpdateDescriptionCommandHandler>()
             .AddSingleton<AddPushTokenCommandHandler>()

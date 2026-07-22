@@ -26,14 +26,6 @@ public static class ConfigurationServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
-        // AuthenticationSecretsPostConfigure patches in the four [Required] secret fields
-        // from internal.secrets between Configure and Validate; a missing row trips
-        // ValidateOnStart naming the offending property.
-        services.AddOptions<AuthenticationConfiguration>()
-            .Configure<IConfiguration>(ApplyAuthentication)
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
         // Platform variants land via FirebaseClientSecretsPostConfigure; a malformed
         // internal.secrets row surfaces at boot as an InvalidOperationException.
         services.AddOptions<FirebaseClientConfiguration>()
@@ -123,22 +115,6 @@ public static class ConfigurationServiceCollectionExtensions
         opts.DbRetryMaxDelay = TimeSpan.FromMilliseconds(
             TryParseInt(config[OctoconEnvKeys.DbRetryMaxDelayMs]) ?? 1500);
         opts.HydrationMaxConcurrency = TryParseInt(config[OctoconEnvKeys.HydrationMaxConcurrency]) ?? 8;
-    }
-
-    // Public / env-bound fields only; secret fields land via AuthenticationSecretsPostConfigure.
-    private static void ApplyAuthentication(AuthenticationConfiguration opts, IConfiguration config)
-    {
-        opts.CallbackBaseUrl = config[OctoconEnvKeys.AuthCallbackBaseUrl];
-        opts.JwtAuthority = config[OctoconEnvKeys.JwtAuthority] ?? "octocon-local";
-        opts.JwtAudience = config[OctoconEnvKeys.JwtAudience] ?? opts.JwtAudience;
-
-        // Client secrets are env-bound as fallback; internal.secrets rows override.
-        opts.DiscordOAuthClientId = config[OctoconEnvKeys.DiscordOAuthClientId];
-        opts.DiscordOAuthClientSecret = config[OctoconEnvKeys.DiscordOAuthClientSecret];
-        opts.GoogleOAuthClientId = config[OctoconEnvKeys.GoogleOAuthClientId];
-        opts.GoogleOAuthClientSecret = config[OctoconEnvKeys.GoogleOAuthClientSecret];
-        opts.AppleOAuthClientId = config[OctoconEnvKeys.AppleOAuthClientId];
-        opts.AppleOAuthClientSecret = config[OctoconEnvKeys.AppleOAuthClientSecret];
     }
 
     // Every platform variant is populated by FirebaseClientSecretsPostConfigure; nothing to

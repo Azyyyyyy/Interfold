@@ -1,5 +1,4 @@
-using Interfold.Contracts.Configuration;
-using Interfold.Infrastructure.DependencyInjection;
+using Microsoft.AspNetCore.Authentication;
 
 namespace Interfold.Api.Auth;
 
