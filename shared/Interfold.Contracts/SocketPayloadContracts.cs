@@ -48,7 +48,7 @@ public sealed record SocketJoinBatchedPayload(
 
 public sealed record SocketBatchedAltersPayload(int BatchIndex, int TotalBatches, IReadOnlyList<AlterReadModel> Alters) : ISocketPayload;
 
-public sealed record SocketBatchedTagsPayload(int BatchIndex, int TotalBatches, IReadOnlyList<TagReadModel> Tags) : ISocketPayload;
+// SocketBatchedTagsPayload lives in Interfold.Tags.Contracts (Phase-3 migration).
 
 public sealed record SocketBatchedFrontsPayload(int BatchIndex, int TotalBatches, IReadOnlyList<FrontActiveReadModel> Fronts) : ISocketPayload;
 
@@ -76,9 +76,7 @@ public sealed record AlterSocketPayload(AlterReadModel Alter) : ISocketPayload;
 
 public sealed record AlterDeletedSocketPayload(AlterId AlterId) : ISocketPayload;
 
-public sealed record TagSocketPayload(TagReadModel Tag) : ISocketPayload;
-
-public sealed record TagDeletedSocketPayload(TagId TagId) : ISocketPayload;
+// TagSocketPayload + TagDeletedSocketPayload live in Interfold.Tags.Contracts (Phase-3 migration).
 
 public sealed record PollSocketPayload(PollReadModel Poll) : ISocketPayload;
 

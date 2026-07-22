@@ -10,6 +10,12 @@
     <InternalsVisibleTo Include="Interfold.Infrastructure.InMemory" />
     <InternalsVisibleTo Include="Interfold.Infrastructure.Postgres" />
     <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
+    <!-- Temporary back-ref: AddInterfoldDomainHandlers still registers the seven tag
+         command-handler singletons via `using Interfold.Domain.Tags;` even though the
+         handler types moved to Interfold.Tags.Domain. Commit 2 of the Phase-3 Tags PR
+         moves those singleton registrations into AddTagsModule (owned by Interfold.Tags.Api)
+         and drops this ref. -->
+    <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CassandraCSharpDriver" />

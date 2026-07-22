@@ -9,11 +9,7 @@ public sealed record AlterUpdatedEvent(ScopedSystemId TargetSystemId, AlterId Al
 
 public sealed record AlterDeletedEvent(ScopedSystemId TargetSystemId, AlterId AlterId) : ITargetedClusterEvent;
 
-public sealed record TagCreatedEvent(ScopedSystemId TargetSystemId, TagId TagId) : ITargetedClusterEvent;
-
-public sealed record TagUpdatedEvent(ScopedSystemId TargetSystemId, TagId TagId) : ITargetedClusterEvent;
-
-public sealed record TagDeletedEvent(ScopedSystemId TargetSystemId, TagId TagId) : ITargetedClusterEvent;
+// Tag*Event records live in Interfold.Tags.Contracts (Phase-3 migration).
 
 public sealed record SettingsFieldsChangedEvent(ScopedSystemId TargetSystemId) : ITargetedClusterEvent;
 

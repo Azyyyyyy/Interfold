@@ -11,6 +11,13 @@
          RecoverEncryptionCommandHandler, IAccountRepository). Phase 3 extracts Settings + splits
          the account repo along feature lines; drop this ref then. -->
     <ProjectReference Include="..\..\shared\Interfold.Auth.Contracts\Interfold.Auth.Contracts.csproj" />
+    <!-- Temporary back-ref: Phase 3 (Tags) moved TagCommands into Interfold.Tags.Contracts, but
+         ITagRepository (shared/Interfold.Domain/Abstractions/Repository/ITagRepository.cs) binds
+         CreateTagCommand + UpdateTagCommand on two of its methods. ITagRepository itself stayed
+         here to avoid a Domain <-> Tags.Domain cycle (two Settings-shape handlers in
+         shared/Interfold.Domain/Settings/ still depend on the interface). Dissolves when Settings
+         (Phase 3 #7) migrates and ITagRepository moves into Interfold.Tags.Domain. -->
+    <ProjectReference Include="..\..\shared\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
