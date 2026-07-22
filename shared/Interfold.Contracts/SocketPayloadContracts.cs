@@ -81,11 +81,7 @@ public sealed record AlterDeletedSocketPayload(AlterId AlterId) : ISocketPayload
 
 public sealed record AlterIdSocketPayload(AlterId? AlterId) : ISocketPayload;
 
-public sealed record GlobalJournalSocketPayload(JournalReadModel Entry) : ISocketPayload;
-
-public sealed record AlterJournalSocketPayload(AlterJournalReadModel Entry) : ISocketPayload;
-
-public sealed record EntryDeletedSocketPayload(EntryId EntryId) : ISocketPayload;
+// GlobalJournalSocketPayload + AlterJournalSocketPayload + EntryDeletedSocketPayload live in Interfold.Journals.Contracts (Phase-3 migration).
 
 public sealed record SettingsFieldsUpdatedPayload(IReadOnlyList<SettingsFieldReadModel> Fields) : ISocketPayload;
 

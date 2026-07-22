@@ -18,16 +18,7 @@ public sealed record AlterCommandResult(SystemId SystemId, AlterId AlterId, bool
 // TagCommandResult lives in Interfold.Tags.Contracts (Phase-3 migration).
 // PollCommandResult lives in Interfold.Polls.Contracts (Phase-3 migration).
 // FriendshipCommandResult lives in Interfold.Friendships.Contracts (Phase-3 migration).
-
-public sealed record GlobalJournalCommandResult(SystemId SystemId, EntryId EntryId, bool Replay) : ICommandResult<GlobalJournalCommandResult>
-{
-    public GlobalJournalCommandResult WithReplay() => this with { Replay = true };
-}
-
-public sealed record AlterJournalCommandResult(SystemId SystemId, EntryId EntryId, AlterId AlterId, bool Replay) : ICommandResult<AlterJournalCommandResult>
-{
-    public AlterJournalCommandResult WithReplay() => this with { Replay = true };
-}
+// GlobalJournalCommandResult + AlterJournalCommandResult live in Interfold.Journals.Contracts (Phase-3 migration).
 
 public sealed record SettingsCommandResult(SystemId SystemId, SettingsAction Action, bool Replay) : ICommandResult<SettingsCommandResult>
 {

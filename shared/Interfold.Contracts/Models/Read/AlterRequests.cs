@@ -4,28 +4,9 @@ using Interfold.Contracts.Models;
 
 namespace Interfold.Contracts.Models.Read;
 
-public sealed record AlterJournalReadModel(
-    EntryId Id,
-    SystemId UserId,
-    AlterId AlterId,
-    string Title,
-    string? Content,
-    HexColor? Color,
-    bool Locked,
-    bool Pinned,
-    DateTime InsertedAt,
-    DateTime UpdatedAt
-);
-
-public sealed record CreateAlterJournalRequest(
-    string Title
-);
-
-public sealed record UpdateAlterJournalRequest(
-    string? Title = null,
-    string? Content = null,
-    HexColor? Color = null
-);
+// Alter request DTOs, temporarily parked here after the Journals slice split them out
+// of AlterJournalReadModel.cs. Future Alters feature slice will absorb these into
+// Interfold.Alters.Contracts alongside AlterReadModel.
 
 public sealed record CreateAlterRequest(
     string Name
@@ -50,6 +31,3 @@ public sealed record UpdateAlterFieldRequest(
     FieldId Id,
     string? Value
 );
-
-
-public sealed record AlterJournalRef(EntryId EntryId, AlterId AlterId);

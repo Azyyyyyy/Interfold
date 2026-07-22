@@ -33,6 +33,15 @@
          cycle (same DeleteAccountCommandHandler consumer). Dissolves when Settings (Phase 3 #7)
          migrates and both IFriendshipRepository and DeleteAccountCommandHandler move out. -->
     <ProjectReference Include="..\..\shared\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
+    <!-- Temporary back-ref: Phase 3 (Journals) moved JournalCommands + Journal read models +
+         EntryId + the 6 journal events + journal command results into Interfold.Journals.Contracts,
+         but IJournalRepository (shared/Interfold.Domain/Abstractions/Repository/IJournalRepository.cs)
+         binds those command + read-model types across its methods, and both
+         DeleteAccountCommandHandler + DeleteAlterCommandHandler (shared/Interfold.Domain/Settings/
+         + shared/Interfold.Domain/Alters/) still consume IJournalRepository. IJournalRepository
+         itself stayed here to avoid a Domain <-> Journals.Domain cycle. Dissolves when Settings
+         (Phase 3 #7) migrates and IJournalRepository moves into Interfold.Journals.Domain. -->
+    <ProjectReference Include="..\..\shared\Interfold.Journals.Contracts\Interfold.Journals.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
