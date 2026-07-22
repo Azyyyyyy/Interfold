@@ -30,6 +30,8 @@
     <ProjectReference Include="..\..\shared\Interfold.Friendships.Domain\Interfold.Friendships.Domain.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Fronting.Api\Interfold.Fronting.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Journals.Api\Interfold.Journals.Api.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Journals.Domain\Interfold.Journals.Domain.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Polls.Api\Interfold.Polls.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Tags.Api\Interfold.Tags.Api.csproj" />

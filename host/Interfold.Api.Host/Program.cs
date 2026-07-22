@@ -12,6 +12,7 @@ using Interfold.Api.SimplyPlural;
 using Interfold.Auth.Api.DependencyInjection;
 using Interfold.Friendships.Api.DependencyInjection;
 using Interfold.Fronting.Api.DependencyInjection;
+using Interfold.Journals.Api.DependencyInjection;
 using Interfold.Polls.Api.DependencyInjection;
 using Interfold.Tags.Api.DependencyInjection;
 using Interfold.Contracts;
@@ -56,6 +57,10 @@ builder.Services.AddFriendshipsModule();
 // Fronting feature module owns the seven fronting command-handler singletons.
 // Order-independent — no options binding, no config reads.
 builder.Services.AddFrontingModule();
+
+// Journals feature module owns the twelve journal command-handler singletons
+// (seven global + five alter). Order-independent — no options binding, no config reads.
+builder.Services.AddJournalsModule();
 
 // Tags feature module owns the seven tag command-handler singletons.
 // Order-independent — no options binding, no config reads.

@@ -16,11 +16,6 @@
          Phase-3 Fronting migration. Dissolves when FrontNotifier migrates into
          Interfold.Fronting.Api. -->
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
-    <!-- Transient back-ref: Phase 3 (Journals) moved the 12 journal command-handler singletons
-         into Interfold.Journals.Domain, but AddInterfoldDomainHandlers() still registers them
-         until AddJournalsModule() takes over in commit 2. Dropped in the same commit that
-         moves the DI block. -->
-    <ProjectReference Include="..\..\shared\Interfold.Journals.Domain\Interfold.Journals.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CassandraCSharpDriver" />

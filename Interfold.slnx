@@ -36,6 +36,7 @@
     <Project Path="host/Interfold.DatabaseBootstrap/Interfold.DatabaseBootstrap.csproj" />
     <Project Path="host/Interfold.Friendships.Api/Interfold.Friendships.Api.csproj" />
     <Project Path="host/Interfold.Fronting.Api/Interfold.Fronting.Api.csproj" />
+    <Project Path="host/Interfold.Journals.Api/Interfold.Journals.Api.csproj" />
     <Project Path="host/Interfold.Polls.Api/Interfold.Polls.Api.csproj" />
     <Project Path="host/Interfold.ServiceDefaults/Interfold.ServiceDefaults.csproj" />
     <Project Path="host/Interfold.Tags.Api/Interfold.Tags.Api.csproj" />

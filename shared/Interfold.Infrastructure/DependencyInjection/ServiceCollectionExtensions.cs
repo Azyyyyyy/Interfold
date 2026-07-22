@@ -4,7 +4,6 @@ using Interfold.Contracts.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Interfold.Domain.Accounts;
 using Interfold.Domain.Alters;
-using Interfold.Domain.Journals;
 using Interfold.Domain.Settings;
 
 namespace Interfold.Infrastructure.DependencyInjection;
@@ -107,24 +106,12 @@ public static partial class ServiceCollectionExtensions
             .AddSingleton<CreateFieldCommandHandler>()
             .AddSingleton<UpdateFieldCommandHandler>()
             .AddSingleton<DeleteFieldCommandHandler>()
-            .AddSingleton<RelocateFieldCommandHandler>()
-            // Tag command-handler singletons moved to Interfold.Tags.Api.DependencyInjection.AddTagsModule
-            // during Phase-3 Tags migration. Poll command-handler singletons moved to
-            // Interfold.Polls.Api.DependencyInjection.AddPollsModule during Phase-3 Polls migration.
-            .AddSingleton<CreateGlobalJournalEntryCommandHandler>()
-            .AddSingleton<UpdateGlobalJournalEntryCommandHandler>()
-            .AddSingleton<DeleteGlobalJournalEntryCommandHandler>()
-            .AddSingleton<SetGlobalJournalLockedCommandHandler>()
-            .AddSingleton<SetGlobalJournalPinnedCommandHandler>()
-            .AddSingleton<AttachAlterToGlobalJournalCommandHandler>()
-            .AddSingleton<DetachAlterFromGlobalJournalCommandHandler>()
-            .AddSingleton<CreateAlterJournalEntryCommandHandler>()
-            .AddSingleton<UpdateAlterJournalEntryCommandHandler>()
-            .AddSingleton<DeleteAlterJournalEntryCommandHandler>()
-            .AddSingleton<SetAlterJournalLockedCommandHandler>()
-            .AddSingleton<SetAlterJournalPinnedCommandHandler>();
-            // Friendship command-handler singletons moved to
-            // Interfold.Friendships.Api.DependencyInjection.AddFriendshipsModule during Phase-3
-            // Friendships migration (Remove / SetTrust / Send / Accept / Reject / Cancel).
+            .AddSingleton<RelocateFieldCommandHandler>();
+            // Phase-3 feature migrations — these singletons moved to per-feature AddXxxModule extensions:
+            //   Tags       -> Interfold.Tags.Api.DependencyInjection.AddTagsModule
+            //   Polls      -> Interfold.Polls.Api.DependencyInjection.AddPollsModule
+            //   Fronting   -> Interfold.Fronting.Api.DependencyInjection.AddFrontingModule
+            //   Friendships -> Interfold.Friendships.Api.DependencyInjection.AddFriendshipsModule
+            //   Journals   -> Interfold.Journals.Api.DependencyInjection.AddJournalsModule
 }
 

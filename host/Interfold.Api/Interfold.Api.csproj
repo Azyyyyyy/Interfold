@@ -73,6 +73,16 @@
          were the two friendship controllers, which moved to Interfold.Friendships.Api.
          Dissolves when Systems (#8) + Socket (#10) migrate. -->
     <ProjectReference Include="..\..\shared\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
+    <!-- Back-ref: four journal-touching files still live in this project until Socket
+         migrates — JournalSocketEventHandlers (6 events + JournalReadModel +
+         AlterJournalReadModel + Global/Alter/Entry socket payloads), SocketEventPumpRunner
+         (6 journal-event subscriptions + IJournalRepository parameter), WebSocketHandler
+         (resolves IJournalRepository from DI), SimplyPluralImportService (imports notes
+         as CreateAlterJournalEntryCommand + UpdateAlterJournalEntryCommand). Journals.Domain
+         back-ref is NOT needed here — the only residual consumers of Interfold.Domain.Journals.*
+         were the two journal controllers, which moved to Interfold.Journals.Api. Dissolves
+         when Socket (#10) migrates. -->
+    <ProjectReference Include="..\..\shared\Interfold.Journals.Contracts\Interfold.Journals.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Postgres\Interfold.Infrastructure.Postgres.csproj" />
