@@ -1,10 +1,13 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Domain.Observability;
+using Microsoft.Extensions.Logging;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
@@ -30,16 +33,18 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
     private readonly IRegionContext _regionContext;
     private readonly IFriendshipRepository _friendships;
     private readonly IAlterRepository _alters;
+    private readonly ILogger<InMemoryFrontingRepository> _logger;
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<AlterId, FrontState>> _activeBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, List<FrontHistoryState>> _historyBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, AlterId?> _primaryBySystem = new();
     private readonly object _sync = new();
 
-    public InMemoryFrontingRepository(IRegionContext regionContext, IFriendshipRepository friendships, IAlterRepository alters)
+    public InMemoryFrontingRepository(IRegionContext regionContext, IFriendshipRepository friendships, IAlterRepository alters, ILogger<InMemoryFrontingRepository> logger)
     {
         _regionContext = regionContext;
         _friendships = friendships;
         _alters = alters;
+        _logger = logger;
     }
 
     public Task<bool> IsFrontingAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
@@ -182,22 +187,28 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
+        var sw = Stopwatch.StartNew();
+        var ownerId = InMemoryStorageKeys.Normalize(systemId).Value;
         var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
         if (!VisibilityLevel.Public.CanBeViewedBy(friendshipLevel))
         {
+            GuardedInstrumentation.RecordList(_logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, ownerId, totalCount: 0, visibleCount: 0, sw.Elapsed.TotalMilliseconds);
             return Array.Empty<FrontActiveReadModel>();
         }
 
         var all = await ListActiveAsync(systemId, cancellationToken);
         if (all.Count == 0)
         {
+            GuardedInstrumentation.RecordList(_logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, ownerId, totalCount: 0, visibleCount: 0, sw.Elapsed.TotalMilliseconds);
             return all;
         }
 
         var guardedAlters = await _alters.ListGuardedAsync(systemId, viewerSystemId, cancellationToken);
         var visibleIds = guardedAlters.Select(a => a.Id).ToHashSet();
 
-        return all.Where(front => visibleIds.Contains(front.Alter.Id)).ToArray();
+        var visible = all.Where(front => visibleIds.Contains(front.Alter.Id)).ToArray();
+        GuardedInstrumentation.RecordList(_logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, ownerId, all.Count, visible.Length, sw.Elapsed.TotalMilliseconds);
+        return visible;
     }
 
     public Task<IReadOnlyList<FrontHistoryReadModel>> ListHistoryBetweenAsync(

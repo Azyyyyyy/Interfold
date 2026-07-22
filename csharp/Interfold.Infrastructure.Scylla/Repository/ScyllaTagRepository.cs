@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Cassandra;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
@@ -6,7 +7,9 @@ using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Domain.Observability;
 using Interfold.Infrastructure.Persistence;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
@@ -18,13 +21,15 @@ public sealed class ScyllaTagRepository : ITagRepository
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
     private readonly IAlterRepository _alterRepository;
+    private readonly ILogger<ScyllaTagRepository> _logger;
 
     public ScyllaTagRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaScopeResolver scopeResolver,
         IScyllaKeyspaceResolver keyspaceResolver,
         IOptions<PersistenceConfiguration> options,
-        IAlterRepository alterRepository
+        IAlterRepository alterRepository,
+        ILogger<ScyllaTagRepository> logger
     )
     {
         _sessionProvider = sessionProvider;
@@ -32,6 +37,7 @@ public sealed class ScyllaTagRepository : ITagRepository
         _keyspaceResolver = keyspaceResolver;
         _options = options.Value;
         _alterRepository = alterRepository;
+        _logger = logger;
     }
 
     public async Task<TagId?> CreateAsync(
@@ -391,10 +397,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
+        var sw = Stopwatch.StartNew();
+        var result = await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
             var (session, keyspace, normalizedSystemId) = scope;
-            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
+            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId, _logger);
             var hydrationConcurrency = _options.HydrationMaxConcurrency;
 
             var query = new SimpleStatement(
@@ -402,7 +409,8 @@ public sealed class ScyllaTagRepository : ITagRepository
                 normalizedSystemId
             );
 
-            var rows = await session.ExecuteAsync(query);
+            var rows = (await session.ExecuteAsync(query)).ToArray();
+            var totalCount = rows.Length;
             var tags = new List<TagPublicReadModel>();
 
             foreach (var row in rows)
@@ -426,8 +434,12 @@ public sealed class ScyllaTagRepository : ITagRepository
                 tags.Add(TagRowMappers.MapTagPublicReadModel(row, alters!));
             }
 
-            return tags.OrderBy(x => x.Id.Value.ToString("N"), StringComparer.Ordinal).ToArray();
+            var ordered = tags.OrderBy(x => x.Id.Value.ToString("N"), StringComparer.Ordinal).ToArray();
+            return (Total: totalCount, Visible: (IReadOnlyList<TagPublicReadModel>)ordered, NormalizedSystemId: normalizedSystemId);
         }, cancellationToken);
+
+        GuardedInstrumentation.RecordList(_logger, "tag", nameof(ListGuardedAsync), viewerSystemId, result.NormalizedSystemId, result.Total, result.Visible.Count, sw.Elapsed.TotalMilliseconds);
+        return result.Visible;
     }
 
     public async Task<TagReadModel?> GetAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
@@ -459,10 +471,11 @@ public sealed class ScyllaTagRepository : ITagRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
+        var sw = Stopwatch.StartNew();
+        var result = await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
             var (session, keyspace, normalizedSystemId) = scope;
-            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
+            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId, _logger);
             var hydrationConcurrency = _options.HydrationMaxConcurrency;
 
             var query = new SimpleStatement(
@@ -474,13 +487,13 @@ public sealed class ScyllaTagRepository : ITagRepository
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             if (row is null)
             {
-                return null;
+                return (Tag: (TagPublicReadModel?)null, Filtered: false, NormalizedSystemId: normalizedSystemId);
             }
 
             var visibility = row.GetValue<short?>("security_level").FromCode<VisibilityLevel>();
             if (!visibility.CanBeViewedBy(friendshipLevel))
             {
-                return null;
+                return (Tag: (TagPublicReadModel?)null, Filtered: true, NormalizedSystemId: normalizedSystemId);
             }
 
             var alterIds = await GetGuardedAlterIdsAsync(session, keyspace, normalizedSystemId, tagId.Value, friendshipLevel);
@@ -493,8 +506,11 @@ public sealed class ScyllaTagRepository : ITagRepository
                         cancellationToken))
                     .Where(x => x != null)
                     .ToArray();
-            return TagRowMappers.MapTagPublicReadModel(row, alters!);
+            return (Tag: (TagPublicReadModel?)TagRowMappers.MapTagPublicReadModel(row, alters!), Filtered: false, NormalizedSystemId: normalizedSystemId);
         }, cancellationToken);
+
+        GuardedInstrumentation.RecordGet(_logger, "tag", nameof(GetGuardedAsync), viewerSystemId, result.NormalizedSystemId, tagId.Value.ToString("N"), found: result.Tag is not null, filtered: result.Filtered, sw.Elapsed.TotalMilliseconds);
+        return result.Tag;
     }
 
     private static async Task<IReadOnlyList<AlterId>> GetAlterIdsAsync(ISession session, string keyspace, string normalizedSystemId, Guid tagId)

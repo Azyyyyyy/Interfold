@@ -4,6 +4,8 @@ using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
+using Interfold.Domain.Observability;
+using Microsoft.Extensions.Logging;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
@@ -18,7 +20,8 @@ internal static class ScyllaSharedQueries
         ISession session,
         IScyllaKeyspaceResolver keyspaceResolver,
         SystemId ownerSystemId,
-        SystemId? viewerSystemId)
+        SystemId? viewerSystemId,
+        ILogger? logger = null)
     {
         if (string.IsNullOrWhiteSpace(viewerSystemId?.Value))
         {
@@ -31,13 +34,26 @@ internal static class ScyllaSharedQueries
             return FriendshipLevel.TrustedFriend;
         }
 
-        var query = new SimpleStatement(
-            $"SELECT level FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
-            ownerSystemId.Value,
-            normalizedViewerSystemId);
+        try
+        {
+            var query = new SimpleStatement(
+                $"SELECT level FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
+                ownerSystemId.Value,
+                normalizedViewerSystemId);
 
-        var row = (await session.ExecuteAsync(query)).FirstOrDefault();
-        return row is null ? null : row.GetValue<short>("level").FromCode<FriendshipLevel>();
+            var row = (await session.ExecuteAsync(query)).FirstOrDefault();
+            return row is null ? null : row.GetValue<short>("level").FromCode<FriendshipLevel>();
+        }
+        catch (Exception ex)
+        {
+            GuardedMetrics.ErrorsTotal.Add(1,
+                new KeyValuePair<string, object?>("entity_type", "friendship"),
+                new KeyValuePair<string, object?>("exception_type", ex.GetType().Name));
+            logger?.LogError(ex,
+                "Guarded friendship lookup failed: owner={OwnerSystemId}, viewer={ViewerSystemId}",
+                ownerSystemId.Value, normalizedViewerSystemId);
+            throw;
+        }
     }
 
     /// <summary>Joins stored field-value UDTs against the system's field definitions,

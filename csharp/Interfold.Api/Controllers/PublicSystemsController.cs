@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using Interfold.Api.Controllers.Base;
 using Interfold.Api.Filters;
+using Interfold.Api.Helpers;
 using Interfold.Api.Models;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
@@ -108,11 +110,14 @@ public sealed class PublicSystemsController : InterfoldControllerBase
                 System.Net.HttpStatusCode.Forbidden);
         }
 
-        var altersTask = _alters.ListGuardedAsync(systemId, principalId, ct);
-        var tagsTask = _tags.ListGuardedAsync(systemId, principalId, ct);
+        var aggregateSw = Stopwatch.StartNew();
+        var altersTask = TimeSliceAsync("alter", _alters.ListGuardedAsync(systemId, principalId, ct));
+        var tagsTask = TimeSliceAsync("tag", _tags.ListGuardedAsync(systemId, principalId, ct));
         var friendshipTask = _friendships.GetFriendshipAsync(principalId, systemId, ct);
 
         await Task.WhenAll(altersTask, tagsTask, friendshipTask);
+        InterfoldMetrics.GuardedBatchLatencyMs.Record(aggregateSw.Elapsed.TotalMilliseconds,
+            new KeyValuePair<string, object?>("slice", "aggregate"));
 
         var batchAlters = altersTask.Result;
         foreach (var a in batchAlters) a.AvatarUrl = QualifyAvatar(a);
@@ -127,6 +132,23 @@ public sealed class PublicSystemsController : InterfoldControllerBase
             Friendship: friendship,
             Tags: tagsTask.Result,
             Alters: batchAlters);
+    }
+
+    // Records a per-slice latency sample for the batch endpoint's parallel branches.
+    // Stopwatch is started before await so slice latency includes queueing when the
+    // scheduler holds the task off the pool.
+    private static async Task<T> TimeSliceAsync<T>(string slice, Task<T> sliceTask)
+    {
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            return await sliceTask.ConfigureAwait(false);
+        }
+        finally
+        {
+            InterfoldMetrics.GuardedBatchLatencyMs.Record(sw.Elapsed.TotalMilliseconds,
+                new KeyValuePair<string, object?>("slice", slice));
+        }
     }
 
 }

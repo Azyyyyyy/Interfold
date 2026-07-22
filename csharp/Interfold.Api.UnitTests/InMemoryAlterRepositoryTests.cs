@@ -7,6 +7,7 @@ using Interfold.Contracts.Models.Read;
 using Interfold.Api.UnitTests.Support;
 using Interfold.Infrastructure.InMemory.Repository;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Interfold.Api.UnitTests;
 
@@ -34,7 +35,7 @@ public sealed class InMemoryAlterRepositoryTests
         // which these tests never trigger.
         var fields = new InMemorySettingsFieldRepository(region, new ServiceCollection().BuildServiceProvider());
         var polls = new InMemoryPollRepository(region);
-        var alters = new InMemoryAlterRepository(region, friendships, fields, polls);
+        var alters = new InMemoryAlterRepository(region, friendships, fields, polls, NullLogger<InMemoryAlterRepository>.Instance);
         return new TestHarness(alters, friendships, fields);
     }
 

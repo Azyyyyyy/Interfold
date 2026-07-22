@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Cassandra;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
@@ -5,6 +6,7 @@ using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Domain.Observability;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -221,15 +223,16 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
+        var sw = Stopwatch.StartNew();
+        var result = await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
             var (session, keyspace, normalizedSystemId) = scope;
-            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
+            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId, _logger);
 
             var all = await ListActiveAsync(systemId, cancellationToken);
             if (all.Count == 0)
             {
-                return all;
+                return (Total: 0, Visible: (IReadOnlyList<FrontActiveReadModel>)all, NormalizedSystemId: normalizedSystemId);
             }
 
             var securityRows = await session.ExecuteAsync(new SimpleStatement(
@@ -244,8 +247,11 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 .Where(front => visibilityByAlterId.TryGetValue(front.Alter.Id, out var level) && level.CanBeViewedBy(friendshipLevel))
                 .ToArray();
 
-            return (IReadOnlyList<FrontActiveReadModel>)filtered;
+            return (Total: all.Count, Visible: (IReadOnlyList<FrontActiveReadModel>)filtered, NormalizedSystemId: normalizedSystemId);
         }, cancellationToken);
+
+        GuardedInstrumentation.RecordList(_logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, result.NormalizedSystemId, result.Total, result.Visible.Count, sw.Elapsed.TotalMilliseconds);
+        return result.Visible;
     }
 
     public async Task<IReadOnlyList<FrontHistoryReadModel>> ListHistoryBetweenAsync(

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
@@ -7,6 +8,8 @@ using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Alters;
+using Interfold.Domain.Observability;
+using Microsoft.Extensions.Logging;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
@@ -38,17 +41,20 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     private readonly IFriendshipRepository? _friendships;
     private readonly ISettingsFieldRepository? _settingsFields;
     private readonly IPollRepository? _polls;
+    private readonly ILogger<InMemoryAlterRepository> _logger;
 
     public InMemoryAlterRepository(
         IRegionContext regionContext,
         IFriendshipRepository friendships,
         ISettingsFieldRepository settingsFields,
-        IPollRepository polls)
+        IPollRepository polls,
+        ILogger<InMemoryAlterRepository> logger)
     {
         _regionContext = regionContext;
         _friendships = friendships;
         _settingsFields = settingsFields;
         _polls = polls;
+        _logger = logger;
     }
 
     public Task<AlterId?> CreateAsync(
@@ -198,14 +204,18 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
+        var sw = Stopwatch.StartNew();
         var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
         var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
 
+        var ownerId = InMemoryStorageKeys.Normalize(systemId).Value;
         if (!TryGetStore(systemId, out var store))
         {
+            GuardedInstrumentation.RecordList(_logger, "alter", nameof(ListGuardedAsync), viewerSystemId, ownerId, totalCount: 0, visibleCount: 0, sw.Elapsed.TotalMilliseconds);
             return Array.Empty<BareAlter>();
         }
 
+        var totalCount = store.Values.Count;
         var rows = store.Values
             .Where(x => x.VisibilityLevel.CanBeViewedBy(friendshipLevel))
             .OrderBy(x => x.AlterId.Value)
@@ -217,9 +227,10 @@ public sealed class InMemoryAlterRepository : IAlterRepository
                 x.Color,
                 x.Pronouns,
                 x.Description,
-                AlterFieldProjection.ResolveGuardedFields(x.Fields, definitions)))
+                AlterFieldProjection.ResolveGuardedFields(x.Fields, definitions, _logger)))
             .ToArray();
 
+        GuardedInstrumentation.RecordList(_logger, "alter", nameof(ListGuardedAsync), viewerSystemId, ownerId, totalCount, rows.Length, sw.Elapsed.TotalMilliseconds);
         return rows;
     }
 
@@ -241,19 +252,23 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
+        var sw = Stopwatch.StartNew();
+        var ownerId = InMemoryStorageKeys.Normalize(systemId).Value;
         var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
         var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
         if (!TryGetAlter(systemId, alterId, out var alter))
         {
+            GuardedInstrumentation.RecordGet(_logger, "alter", nameof(GetGuardedAsync), viewerSystemId, ownerId, alterId.Value.ToString(), found: false, filtered: false, sw.Elapsed.TotalMilliseconds);
             return null;
         }
 
         if (!alter.VisibilityLevel.CanBeViewedBy(friendshipLevel))
         {
+            GuardedInstrumentation.RecordGet(_logger, "alter", nameof(GetGuardedAsync), viewerSystemId, ownerId, alterId.Value.ToString(), found: false, filtered: true, sw.Elapsed.TotalMilliseconds);
             return null;
         }
 
-        return new BareAlter(
+        var result = new BareAlter(
             alter.AlterId,
             alter.Name,
             alter.AvatarUrl,
@@ -261,7 +276,9 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             alter.Color,
             alter.Pronouns,
             alter.Description,
-            AlterFieldProjection.ResolveGuardedFields(alter.Fields, definitions));
+            AlterFieldProjection.ResolveGuardedFields(alter.Fields, definitions, _logger));
+        GuardedInstrumentation.RecordGet(_logger, "alter", nameof(GetGuardedAsync), viewerSystemId, ownerId, alterId.Value.ToString(), found: true, filtered: false, sw.Elapsed.TotalMilliseconds);
+        return result;
     }
 
     public Task<bool> AliasTakenByOtherAsync(
@@ -338,7 +355,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         CancellationToken cancellationToken)
         => _settingsFields is null
             ? Task.FromResult<IReadOnlyList<SettingsFieldReadModel>>(Array.Empty<SettingsFieldReadModel>())
-            : AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken);
+            : AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken, _logger);
 
     private bool TryGetStore(SystemId systemId, out ConcurrentDictionary<AlterId, AlterState> store)
     {

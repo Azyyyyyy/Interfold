@@ -3,6 +3,8 @@ using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Domain.Observability;
+using Microsoft.Extensions.Logging;
 
 namespace Interfold.Domain.Alters;
 
@@ -15,21 +17,35 @@ public static class AlterFieldProjection
     /// guarded path is stricter than the unguarded one.</summary>
     public static IReadOnlyList<AlterPublicFieldReadModel> ResolveGuardedFields(
         IReadOnlyDictionary<FieldId, string?>? alterFieldValues,
-        IReadOnlyList<SettingsFieldReadModel> definitions)
+        IReadOnlyList<SettingsFieldReadModel> definitions,
+        ILogger? logger = null)
     {
         if (alterFieldValues is null || alterFieldValues.Count == 0 || definitions.Count == 0)
         {
             return Array.Empty<AlterPublicFieldReadModel>();
         }
 
-        return definitions
-            .Where(def => alterFieldValues.ContainsKey(def.Id))
-            .Select(def => new AlterPublicFieldReadModel(
-                def.Id,
-                def.Name,
-                def.Type,
-                alterFieldValues[def.Id]))
-            .ToArray();
+        try
+        {
+            return definitions
+                .Where(def => alterFieldValues.ContainsKey(def.Id))
+                .Select(def => new AlterPublicFieldReadModel(
+                    def.Id,
+                    def.Name,
+                    def.Type,
+                    alterFieldValues[def.Id]))
+                .ToArray();
+        }
+        catch (Exception ex)
+        {
+            GuardedMetrics.ErrorsTotal.Add(1,
+                new KeyValuePair<string, object?>("entity_type", "field"),
+                new KeyValuePair<string, object?>("exception_type", ex.GetType().Name));
+            logger?.LogError(ex,
+                "Guarded field projection failed: definitions={DefinitionCount}, values={ValueCount}",
+                definitions.Count, alterFieldValues.Count);
+            throw;
+        }
     }
 
     /// <summary>Field-definition subset visible to the viewer at
@@ -38,11 +54,25 @@ public static class AlterFieldProjection
         ISettingsFieldRepository settingsFields,
         SystemId systemId,
         FriendshipLevel? friendshipLevel,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ILogger? logger = null)
     {
-        var definitions = await settingsFields.ListAsync(systemId, cancellationToken).ConfigureAwait(false);
-        return definitions
-            .Where(def => def.SecurityLevel.CanBeViewedBy(friendshipLevel))
-            .ToArray();
+        try
+        {
+            var definitions = await settingsFields.ListAsync(systemId, cancellationToken).ConfigureAwait(false);
+            return definitions
+                .Where(def => def.SecurityLevel.CanBeViewedBy(friendshipLevel))
+                .ToArray();
+        }
+        catch (Exception ex)
+        {
+            GuardedMetrics.ErrorsTotal.Add(1,
+                new KeyValuePair<string, object?>("entity_type", "field"),
+                new KeyValuePair<string, object?>("exception_type", ex.GetType().Name));
+            logger?.LogError(ex,
+                "Guarded field-definition load failed: system={SystemId}, friendship_level={FriendshipLevel}",
+                systemId.Value, friendshipLevel);
+            throw;
+        }
     }
 }

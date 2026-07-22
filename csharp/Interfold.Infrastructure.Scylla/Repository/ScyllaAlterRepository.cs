@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Cassandra;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
@@ -8,6 +9,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Alters;
+using Interfold.Domain.Observability;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -398,25 +400,31 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
+        var sw = Stopwatch.StartNew();
+        var result = await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
             var (session, keyspace, normalizedSystemId) = scope;
-            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
+            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId, _logger);
             EnsureAlterFieldUdtMapping(session, keyspace);
-            var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken);
+            var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken, _logger);
 
             var query = new SimpleStatement(
                 $"SELECT id, name, avatar_url, avatar_source, color, description, pronouns, pinned, security_level, fields FROM {keyspace}.alters WHERE user_id = ?",
                 normalizedSystemId
             );
 
-            var rows = await session.ExecuteAsync(query);
-            return rows
+            var rows = (await session.ExecuteAsync(query)).ToArray();
+            var visible = rows
                 .Where(row => row.GetValue<short?>("security_level").FromCode<VisibilityLevel>().CanBeViewedBy(friendshipLevel))
                 .Select(row => AlterRowMappers.MapBareAlter(row, definitions))
                 .OrderBy(x => x.Id.Value)
                 .ToArray();
+
+            return (Total: rows.Length, Visible: (IReadOnlyList<BareAlter>)visible, NormalizedSystemId: normalizedSystemId);
         }, cancellationToken);
+
+        GuardedInstrumentation.RecordList(_logger, "alter", nameof(ListGuardedAsync), viewerSystemId, result.NormalizedSystemId, result.Total, result.Visible.Count, sw.Elapsed.TotalMilliseconds);
+        return result.Visible;
     }
 
     public async Task<AlterReadModel?> GetAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
@@ -447,12 +455,13 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
+        var sw = Stopwatch.StartNew();
+        var result = await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
             var (session, keyspace, normalizedSystemId) = scope;
-            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId);
+            var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId, _logger);
             EnsureAlterFieldUdtMapping(session, keyspace);
-            var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken);
+            var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken, _logger);
 
             var query = new SimpleStatement(
                 $"SELECT id, name, avatar_url, avatar_source, description, color, pronouns, pinned, security_level, fields FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
@@ -463,17 +472,20 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             if (row is null)
             {
-                return null;
+                return (Alter: (BareAlter?)null, Filtered: false, NormalizedSystemId: normalizedSystemId);
             }
 
             var securityLevel = row.GetValue<short?>("security_level").FromCode<VisibilityLevel>();
             if (!securityLevel.CanBeViewedBy(friendshipLevel))
             {
-                return null;
+                return (Alter: (BareAlter?)null, Filtered: true, NormalizedSystemId: normalizedSystemId);
             }
 
-            return AlterRowMappers.MapBareAlter(row, definitions);
+            return (Alter: (BareAlter?)AlterRowMappers.MapBareAlter(row, definitions), Filtered: false, NormalizedSystemId: normalizedSystemId);
         }, cancellationToken);
+
+        GuardedInstrumentation.RecordGet(_logger, "alter", nameof(GetGuardedAsync), viewerSystemId, result.NormalizedSystemId, alterId.Value.ToString(), found: result.Alter is not null, filtered: result.Filtered, sw.Elapsed.TotalMilliseconds);
+        return result.Alter;
     }
 
     public async Task<bool> AliasTakenByOtherAsync(

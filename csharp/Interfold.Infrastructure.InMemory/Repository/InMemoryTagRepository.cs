@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
@@ -6,6 +7,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Domain.Observability;
+using Microsoft.Extensions.Logging;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
@@ -24,18 +27,21 @@ public sealed class InMemoryTagRepository : ITagRepository
 
     private readonly IRegionContext _regionContext;
     private readonly IFriendshipRepository? _friendships;
+    private readonly ILogger<InMemoryTagRepository> _logger;
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<TagId, TagState>> _bySystem = new();
     private readonly ConcurrentDictionary<(ScopedSystemId System, TagId TagId), ConcurrentDictionary<BareAlter, bool>> _alterMemberships = new();
 
-    public InMemoryTagRepository(IRegionContext regionContext)
+    public InMemoryTagRepository(IRegionContext regionContext, ILogger<InMemoryTagRepository> logger)
     {
         _regionContext = regionContext;
+        _logger = logger;
     }
 
-    public InMemoryTagRepository(IRegionContext regionContext, IFriendshipRepository friendships)
+    public InMemoryTagRepository(IRegionContext regionContext, IFriendshipRepository friendships, ILogger<InMemoryTagRepository> logger)
     {
         _regionContext = regionContext;
         _friendships = friendships;
+        _logger = logger;
     }
 
     public Task<TagId?> CreateAsync(
@@ -160,17 +166,24 @@ public sealed class InMemoryTagRepository : ITagRepository
            SystemId? viewerSystemId,
            CancellationToken cancellationToken = default)
        {
+           var sw = Stopwatch.StartNew();
+           var ownerId = InMemoryStorageKeys.Normalize(systemId).Value;
            var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
            var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (!TryGetStore(systemKey, out var store))
+           {
+               GuardedInstrumentation.RecordList(_logger, "tag", nameof(ListGuardedAsync), viewerSystemId, ownerId, totalCount: 0, visibleCount: 0, sw.Elapsed.TotalMilliseconds);
                return Array.Empty<TagPublicReadModel>();
+           }
 
+           var totalCount = store.Values.Count;
            var rows = store.Values
                .Where(x => x.SecurityLevel.CanBeViewedBy(friendshipLevel))
                .OrderBy(x => x.TagId.Value.ToString("N"), StringComparer.Ordinal)
                .Select(x => MapTagPublicReadModel(x, GetAlters(systemKey, x.TagId), systemId))
                .ToArray();
 
+           GuardedInstrumentation.RecordList(_logger, "tag", nameof(ListGuardedAsync), viewerSystemId, ownerId, totalCount, rows.Length, sw.Elapsed.TotalMilliseconds);
            return rows;
        }
 
@@ -189,19 +202,25 @@ public sealed class InMemoryTagRepository : ITagRepository
            SystemId? viewerSystemId,
            CancellationToken cancellationToken = default)
        {
+           var sw = Stopwatch.StartNew();
+           var ownerId = InMemoryStorageKeys.Normalize(systemId).Value;
            var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
            var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
            if (!TryGetTag(systemKey, tagId, out var store, out var tag))
            {
+               GuardedInstrumentation.RecordGet(_logger, "tag", nameof(GetGuardedAsync), viewerSystemId, ownerId, tagId.Value.ToString("N"), found: false, filtered: false, sw.Elapsed.TotalMilliseconds);
                return null;
            }
 
            if (!tag.SecurityLevel.CanBeViewedBy(friendshipLevel))
            {
+               GuardedInstrumentation.RecordGet(_logger, "tag", nameof(GetGuardedAsync), viewerSystemId, ownerId, tagId.Value.ToString("N"), found: false, filtered: true, sw.Elapsed.TotalMilliseconds);
                return null;
            }
 
-            return MapTagPublicReadModel(tag, GetAlters(systemKey, tag.TagId), systemId);
+           var result = MapTagPublicReadModel(tag, GetAlters(systemKey, tag.TagId), systemId);
+           GuardedInstrumentation.RecordGet(_logger, "tag", nameof(GetGuardedAsync), viewerSystemId, ownerId, tagId.Value.ToString("N"), found: true, filtered: false, sw.Elapsed.TotalMilliseconds);
+           return result;
        }
 
     private IReadOnlyList<AlterId> GetAlterIds(ScopedSystemId systemKey, TagId tagId)
