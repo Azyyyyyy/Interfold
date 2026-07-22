@@ -26,6 +26,13 @@
          cycle. Dissolves when Settings (Phase 3 #7) migrates and IPollRepository moves into
          Interfold.Polls.Domain. -->
     <ProjectReference Include="..\..\shared\Interfold.Polls.Contracts\Interfold.Polls.Contracts.csproj" />
+    <!-- Temporary back-ref: Phase 3 (Friendships) moved the 8 Friend*Event records into
+         Interfold.Friendships.Contracts.Events, but DeleteAccountCommandHandler
+         (shared/Interfold.Domain/Settings/) publishes FriendshipRemovedEvent during account
+         teardown. IFriendshipRepository itself stayed here to avoid a Domain <-> Friendships.Domain
+         cycle (same DeleteAccountCommandHandler consumer). Dissolves when Settings (Phase 3 #7)
+         migrates and both IFriendshipRepository and DeleteAccountCommandHandler move out. -->
+    <ProjectReference Include="..\..\shared\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" />

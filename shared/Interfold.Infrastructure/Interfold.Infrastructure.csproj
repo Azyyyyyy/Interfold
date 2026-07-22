@@ -16,6 +16,11 @@
          Phase-3 Fronting migration. Dissolves when FrontNotifier migrates into
          Interfold.Fronting.Api. -->
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
+    <!-- Transient back-ref: AddInterfoldDomainHandlers (DependencyInjection/ServiceCollectionExtensions.cs)
+         still registers the 6 friendship command-handler singletons from Interfold.Friendships.Domain
+         during commit 1 of the Phase-3 Friendships migration. Dropped in commit 2 once
+         AddFriendshipsModule() in Interfold.Friendships.Api owns those registrations. -->
+    <ProjectReference Include="..\..\shared\Interfold.Friendships.Domain\Interfold.Friendships.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CassandraCSharpDriver" />

@@ -39,21 +39,7 @@ public sealed record AlterJournalEntryUpdatedEvent(ScopedSystemId TargetSystemId
 
 public sealed record AlterJournalEntryDeletedEvent(ScopedSystemId TargetSystemId, EntryId EntryId) : ITargetedClusterEvent;
 
-public sealed record FriendshipAddedEvent(ScopedSystemId TargetSystemId, SystemId SystemId) : ITargetedClusterEvent;
-
-public sealed record FriendshipRemovedEvent(ScopedSystemId TargetSystemId, SystemId SystemId) : ITargetedClusterEvent;
-
-public sealed record FriendshipTrustedEvent(ScopedSystemId TargetSystemId, SystemId SystemId) : ITargetedClusterEvent;
-
-public sealed record FriendshipUntrustedEvent(ScopedSystemId TargetSystemId, SystemId SystemId) : ITargetedClusterEvent;
-
-public sealed record FriendRequestSentEvent(ScopedSystemId TargetSystemId, SystemId ToSystemId) : ITargetedClusterEvent;
-
-public sealed record FriendRequestReceivedEvent(ScopedSystemId TargetSystemId, SystemId FromSystemId) : ITargetedClusterEvent;
-
-public sealed record FriendRequestRemovedFromEvent(ScopedSystemId TargetSystemId, SystemId FromSystemId) : ITargetedClusterEvent;
-
-public sealed record FriendRequestRemovedToEvent(ScopedSystemId TargetSystemId, SystemId ToSystemId) : ITargetedClusterEvent;
+// Friendship*Event + FriendRequest*Event records live in Interfold.Friendships.Contracts (Phase-3 migration).
 
 // One event per provider (mirrors the per-provider unlink signal events below) so the
 // identity carries its real type and neither producer nor consumer switches on a provider enum.

@@ -14,11 +14,7 @@ public sealed record PublicSystemReadModel(
     string? Description
 ) : IAvatarBearing;
 
-/// <summary>Read model for <c>GET /api/systems/{systemId}/batch</c>. Emits
-/// <c>{ friendship, tags, alters }</c>; guarded (visibility-filtered) projections
-/// use <see cref="TagPublicReadModel"/> and <see cref="BareAlter"/>.</summary>
-public sealed record PublicSystemBatchReadModel(
-    FriendshipReadModel? Friendship,
-    IReadOnlyList<TagPublicReadModel> Tags,
-    IReadOnlyList<BareAlter> Alters
-);
+// PublicSystemBatchReadModel lives in host/Interfold.Api/Models/ (Phase-3 Friendships migration).
+// Namespace preserved as Interfold.Contracts.Models.Read for wire-compat; physical file moved out
+// of spine to break the Interfold.Contracts <-> Interfold.Friendships.Contracts cycle after
+// FriendshipReadModel extracted.

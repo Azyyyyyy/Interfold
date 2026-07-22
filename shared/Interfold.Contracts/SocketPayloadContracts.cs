@@ -99,9 +99,7 @@ public sealed record GoogleAccountLinkedPayload(Email Email) : ISocketPayload;
 
 public sealed record AppleAccountLinkedPayload(AppleId AppleId) : ISocketPayload;
 
-public sealed record FriendRequestSocketPayload(FriendshipRequestModel Request, FriendProfileReadModel System) : ISocketPayload;
-
-public sealed record FriendIdSocketPayload(SystemId FriendId) : ISocketPayload;
+// FriendRequestSocketPayload + FriendIdSocketPayload live in Interfold.Friendships.Contracts (Phase-3 migration).
 
 public sealed record SystemIdSocketPayload(SystemId SystemId) : ISocketPayload;
 
