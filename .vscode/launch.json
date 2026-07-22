@@ -8,7 +8,7 @@
             "name": "C#: Interfold.Api Debug",
             "type": "dotnet",
             "request": "launch",
-            "projectPath": "${workspaceFolder}/csharp/Interfold.Api/Interfold.Api.csproj"
+            "projectPath": "${workspaceFolder}/host/Interfold.Api/Interfold.Api.csproj"
         }
 
     ]
