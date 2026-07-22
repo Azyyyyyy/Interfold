@@ -1,5 +1,4 @@
 using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.Read;
 
 namespace Interfold.Contracts.Models.Commands;
 

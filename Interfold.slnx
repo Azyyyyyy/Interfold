@@ -5,6 +5,8 @@
     <Platform Name="x86" />
   </Configurations>
   <Folder Name="/shared/">
+    <Project Path="shared/Interfold.Auth.Contracts/Interfold.Auth.Contracts.csproj" />
+    <Project Path="shared/Interfold.Auth.Domain/Interfold.Auth.Domain.csproj" />
     <Project Path="shared/Interfold.Contracts/Interfold.Contracts.csproj" />
     <Project Path="shared/Interfold.Domain/Interfold.Domain.csproj" />
     <Project Path="shared/Interfold.Infrastructure/Interfold.Infrastructure.csproj" />

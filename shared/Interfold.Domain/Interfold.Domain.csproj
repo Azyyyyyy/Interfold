@@ -6,6 +6,11 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\shared\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <!-- Temporary back-ref: Phase 2 moved AuthenticationConfiguration + ProviderIdentity into
+         Interfold.Auth.Contracts, but three call sites still live here (SetupEncryptionCommandHandler,
+         RecoverEncryptionCommandHandler, IAccountRepository). Phase 3 extracts Settings + splits
+         the account repo along feature lines; drop this ref then. -->
+    <ProjectReference Include="..\..\shared\Interfold.Auth.Contracts\Interfold.Auth.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
