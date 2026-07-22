@@ -35,8 +35,11 @@ public static class SharedApiServiceCollectionExtensions
         });
 
         // Route DataAnnotations 400s through ErrorResponse so the Kotlin client can decode them
-        // (the default ValidationProblemDetails isn't supported).
-        services.Configure<ApiBehaviorOptions>(options =>
+        // (the default ValidationProblemDetails isn't supported). PostConfigure so we win
+        // against MvcCoreServiceCollectionExtensions.AddApiExplorer's ApiBehaviorOptionsSetup,
+        // which unconditionally assigns InvalidModelStateResponseFactory in its Configure and
+        // would otherwise clobber whichever ordering AddControllers is called with.
+        services.PostConfigure<ApiBehaviorOptions>(options =>
         {
             options.InvalidModelStateResponseFactory = context =>
             {
