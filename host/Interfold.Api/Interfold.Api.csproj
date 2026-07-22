@@ -52,6 +52,17 @@
          Interfold.Domain -> Polls.Contracts dissolution doesn't cascade here. -->
     <ProjectReference Include="..\..\shared\Interfold.Polls.Contracts\Interfold.Polls.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
+    <!-- Back-ref: seven fronting-touching files still live in this project until Socket +
+         Systems + Settings migrate — FrontingSocketEventHandlers (7 events + 3 socket
+         payloads), SocketEventPumpRunner (7 event subscriptions), WebSocketInitialization
+         (SocketBatchedFrontsPayload), WebSocketHandler (IFrontingRepository via Domain),
+         SettingsSocketEventHandlers (IFrontingRepository), SimplyPluralImportService
+         (IFrontingRepository.StartAsync in the SP import path), PublicSystemsController
+         (IFrontingRepository). Fronting.Domain back-ref is NOT needed here — the only
+         residual consumer of Interfold.Domain.Fronting.* was FrontingController, which
+         moved to Interfold.Fronting.Api. Dissolves when Socket (#10) migrates the
+         aggregate-join payloads and per-feature socket handlers. -->
+    <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Postgres\Interfold.Infrastructure.Postgres.csproj" />

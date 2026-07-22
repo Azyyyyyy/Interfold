@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Interfold.Domain.Accounts;
 using Interfold.Domain.Alters;
 using Interfold.Domain.Friendships;
-using Interfold.Domain.Fronting;
 using Interfold.Domain.Journals;
 using Interfold.Domain.Settings;
 
@@ -85,13 +84,9 @@ public static partial class ServiceCollectionExtensions
             .AddSingleton<CreateAlterCommandHandler>()
             .AddSingleton<UpdateAlterCommandHandler>()
             .AddSingleton<DeleteAlterCommandHandler>()
-            .AddSingleton<StartFrontCommandHandler>()
-            .AddSingleton<EndFrontCommandHandler>()
-            .AddSingleton<BulkUpdateFrontCommandHandler>()
-            .AddSingleton<SetFrontCommandHandler>()
-            .AddSingleton<SetPrimaryFrontCommandHandler>()
-            .AddSingleton<DeleteFrontByIdCommandHandler>()
-            .AddSingleton<UpdateFrontCommentCommandHandler>()
+            // Fronting command-handler singletons moved to Interfold.Fronting.Api.DependencyInjection.AddFrontingModule
+            // during Phase-3 Fronting migration (Start / End / BulkUpdate / Set / SetPrimary /
+            // DeleteFrontById / UpdateFrontComment).
             .AddSingleton<UpdateUsernameCommandHandler>()
             .AddSingleton<CreateLinkTokenCommandHandler>()
             .AddSingleton<UpdateDescriptionCommandHandler>()

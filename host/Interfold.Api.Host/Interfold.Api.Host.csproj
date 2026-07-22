@@ -11,6 +11,7 @@
     <ProjectReference Include="..\..\host\Interfold.Api\Interfold.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Fronting.Api\Interfold.Fronting.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Polls.Api\Interfold.Polls.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Tags.Api\Interfold.Tags.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.ServiceDefaults\Interfold.ServiceDefaults.csproj" />

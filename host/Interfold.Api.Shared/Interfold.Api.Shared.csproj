@@ -25,6 +25,10 @@
     <InternalsVisibleTo Include="Interfold.Api" />
     <InternalsVisibleTo Include="Interfold.Api.Host" />
     <InternalsVisibleTo Include="Interfold.Auth.Api" />
+    <!-- Interfold.Fronting.Api is the first feature-module Api project to consume
+         Interfold.Api.Shared internals — FrontingController's Month/Between endpoints
+         bind [UnixSecondsBinding(...)] on their query parameters. -->
+    <InternalsVisibleTo Include="Interfold.Fronting.Api" />
     <InternalsVisibleTo Include="Interfold.IntegrationTests" />
     <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
   </ItemGroup>
