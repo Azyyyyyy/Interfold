@@ -10,11 +10,6 @@
     <InternalsVisibleTo Include="Interfold.Infrastructure.InMemory" />
     <InternalsVisibleTo Include="Interfold.Infrastructure.Postgres" />
     <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
-    <!-- Transient back-ref: Phase-3 (Alters) commit 1 needs AddInterfoldDomainHandlers() to keep
-         registering the 3 Alter*CommandHandler singletons; those types live in
-         Interfold.Alters.Domain post-move. Dropped in commit 2 when AddAltersModule() takes over
-         handler registration from Interfold.Alters.Api. -->
-    <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
     <!-- Interfold.Infrastructure -> Interfold.Fronting.Contracts back-ref:
          FrontNotifierBackgroundService (shared/Interfold.Infrastructure/Coordination/) subscribes
          to FrontingStateChangedEvent, which moved into Interfold.Fronting.Contracts.Events during

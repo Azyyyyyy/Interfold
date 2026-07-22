@@ -22,6 +22,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\host\Interfold.Alters.Api\Interfold.Alters.Api.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Api\Interfold.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Api.Host\Interfold.Api.Host.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />

@@ -63,6 +63,18 @@
          moved to Interfold.Fronting.Api. Dissolves when Socket (#10) migrates the
          aggregate-join payloads and per-feature socket handlers. -->
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
+    <!-- Back-ref: seven alter-touching files still live in this project until Socket +
+         Systems + Settings migrate — AlterSocketEventHandlers (3 events + 2 payloads),
+         SocketEventPumpRunner (3 alter-event subscriptions + IAlterRepository parameter),
+         WebSocketHandler (IAlterRepository DI resolve + batched-join Alters payload),
+         WebSocketInitialization (SocketBatchedAltersPayload construction site),
+         PublicSystemsController (IAlterRepository + BareAlter via PublicSystemBatchReadModel),
+         SettingsController.WipeAlters (WipeAltersCommandHandler binding), and
+         SimplyPluralImportService (CreateAlterCommand + UpdateAlterCommand construction).
+         Alters.Domain back-ref is NOT needed here — the only residual consumer of
+         Interfold.Domain.Alters.* was AltersController, which moved to Interfold.Alters.Api.
+         Dissolves when Settings (#7) + Systems (#8) + Socket (#10) all land. -->
+    <ProjectReference Include="..\..\shared\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
     <!-- Back-ref: three friendship-touching files still live in this project until Socket +
          Systems migrate — FriendshipSocketEventHandlers (8 events + FriendshipReadModel +
          FriendRequestSocketPayload + FriendIdSocketPayload), SocketEventPumpRunner

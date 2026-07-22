@@ -29,6 +29,7 @@
     <Project Path="infrastructure/Interfold.Infrastructure.Scylla/Interfold.Infrastructure.Scylla.csproj" />
   </Folder>
   <Folder Name="/host/">
+    <Project Path="host/Interfold.Alters.Api/Interfold.Alters.Api.csproj" />
     <Project Path="host/Interfold.Api/Interfold.Api.csproj" />
     <Project Path="host/Interfold.Api.Host/Interfold.Api.Host.csproj" />
     <Project Path="host/Interfold.Api.Shared/Interfold.Api.Shared.csproj" />

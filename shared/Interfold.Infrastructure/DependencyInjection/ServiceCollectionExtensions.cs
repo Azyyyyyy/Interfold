@@ -3,7 +3,6 @@ using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Interfold.Domain.Accounts;
-using Interfold.Domain.Alters;
 using Interfold.Domain.Settings;
 
 namespace Interfold.Infrastructure.DependencyInjection;
@@ -79,9 +78,8 @@ public static partial class ServiceCollectionExtensions
 
     public static IServiceCollection AddInterfoldDomainHandlers(this IServiceCollection services) =>
         services
-            .AddSingleton<CreateAlterCommandHandler>()
-            .AddSingleton<UpdateAlterCommandHandler>()
-            .AddSingleton<DeleteAlterCommandHandler>()
+            // Alter command-handler singletons moved to Interfold.Alters.Api.DependencyInjection.AddAltersModule
+            // during Phase-3 Alters migration (Create / Update / Delete).
             // Fronting command-handler singletons moved to Interfold.Fronting.Api.DependencyInjection.AddFrontingModule
             // during Phase-3 Fronting migration (Start / End / BulkUpdate / Set / SetPrimary /
             // DeleteFrontById / UpdateFrontComment).
@@ -108,6 +106,7 @@ public static partial class ServiceCollectionExtensions
             .AddSingleton<DeleteFieldCommandHandler>()
             .AddSingleton<RelocateFieldCommandHandler>();
             // Phase-3 feature migrations — these singletons moved to per-feature AddXxxModule extensions:
+            //   Alters     -> Interfold.Alters.Api.DependencyInjection.AddAltersModule
             //   Tags       -> Interfold.Tags.Api.DependencyInjection.AddTagsModule
             //   Polls      -> Interfold.Polls.Api.DependencyInjection.AddPollsModule
             //   Fronting   -> Interfold.Fronting.Api.DependencyInjection.AddFrontingModule
