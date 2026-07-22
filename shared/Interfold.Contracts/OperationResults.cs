@@ -20,11 +20,7 @@ public sealed record FrontCommandResult(SystemId SystemId, AlterId? AlterId, Fro
 }
 
 // TagCommandResult lives in Interfold.Tags.Contracts (Phase-3 migration).
-
-public sealed record PollCommandResult(SystemId SystemId, PollId PollId, bool Replay) : ICommandResult<PollCommandResult>
-{
-    public PollCommandResult WithReplay() => this with { Replay = true };
-}
+// PollCommandResult lives in Interfold.Polls.Contracts (Phase-3 migration).
 
 public sealed record GlobalJournalCommandResult(SystemId SystemId, EntryId EntryId, bool Replay) : ICommandResult<GlobalJournalCommandResult>
 {

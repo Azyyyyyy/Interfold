@@ -18,6 +18,14 @@
          shared/Interfold.Domain/Settings/ still depend on the interface). Dissolves when Settings
          (Phase 3 #7) migrates and ITagRepository moves into Interfold.Tags.Domain. -->
     <ProjectReference Include="..\..\shared\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
+    <!-- Temporary back-ref: Phase 3 (Polls) moved PollCommands + PollReadModel + PollId into
+         Interfold.Polls.Contracts, but IPollRepository (shared/Interfold.Domain/Abstractions/Repository/IPollRepository.cs)
+         binds CreatePollCommand + UpdatePollCommand + PollReadModel across its methods, and
+         DeleteAccountCommandHandler (shared/Interfold.Domain/Settings/) still consumes
+         IPollRepository. IPollRepository itself stayed here to avoid a Domain <-> Polls.Domain
+         cycle. Dissolves when Settings (Phase 3 #7) migrates and IPollRepository moves into
+         Interfold.Polls.Domain. -->
+    <ProjectReference Include="..\..\shared\Interfold.Polls.Contracts\Interfold.Polls.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" />

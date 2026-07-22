@@ -77,10 +77,7 @@ public sealed record AlterSocketPayload(AlterReadModel Alter) : ISocketPayload;
 public sealed record AlterDeletedSocketPayload(AlterId AlterId) : ISocketPayload;
 
 // TagSocketPayload + TagDeletedSocketPayload live in Interfold.Tags.Contracts (Phase-3 migration).
-
-public sealed record PollSocketPayload(PollReadModel Poll) : ISocketPayload;
-
-public sealed record PollDeletedSocketPayload(PollId PollId) : ISocketPayload;
+// PollSocketPayload + PollDeletedSocketPayload live in Interfold.Polls.Contracts (Phase-3 migration).
 
 public sealed record FrontSocketPayload(FrontActiveReadModel Front) : ISocketPayload;
 

@@ -6,8 +6,9 @@ namespace Interfold.Contracts.Ids;
 // Common JSON converter shape for every string-backed wrapper struct — raw string in,
 // raw string out (redaction lives on each struct's own ToString override). Read is
 // null-tolerant (null → empty). Concrete stubs are sealed and named individually because
-// [JsonConverter(typeof(...))] requires a concrete class name.
-internal abstract class StringBackedJsonConverter<T> : JsonConverter<T>
+// [JsonConverter(typeof(...))] requires a concrete class name. Public so per-feature
+// Contracts projects can derive their own concrete stubs.
+public abstract class StringBackedJsonConverter<T> : JsonConverter<T>
 {
     protected abstract T Create(string value);
     protected abstract string GetValue(T value);

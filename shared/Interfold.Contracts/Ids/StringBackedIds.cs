@@ -32,29 +32,7 @@ public readonly record struct TagId(Guid Value) : IParsable<TagId>
     }
 }
 
-/// <summary>Strongly-typed wrapper around a poll id (Guid, wire form is 32-char lowercase hex).</summary>
-[JsonConverter(typeof(PollIdJsonConverter))]
-public readonly record struct PollId(Guid Value) : IParsable<PollId>
-{
-    public static readonly PollId Empty = new(Guid.Empty);
-
-    public static explicit operator PollId(Guid value) => new(value);
-    public static implicit operator Guid(PollId value) => value.Value;
-
-    public override string ToString() => Value.ToString("N");
-
-    public static PollId Parse(string s, IFormatProvider? provider)
-        => UuidString.TryParse(s, out var g)
-            ? new(g)
-            : throw new FormatException($"Value '{s}' is not a valid PollId.");
-
-    public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out PollId result)
-    {
-        if (s is null || !UuidString.TryParse(s, out var g)) { result = default; return false; }
-        result = new PollId(g);
-        return true;
-    }
-}
+// PollId + PollIdJsonConverter live in Interfold.Polls.Contracts/Ids/PollId.cs.
 
 /// <summary>Strongly-typed wrapper around a journal entry id (Guid, wire form is 32-char lowercase hex).</summary>
 [JsonConverter(typeof(EntryIdJsonConverter))]
@@ -134,8 +112,9 @@ public readonly record struct FieldId(Guid Value) : IParsable<FieldId>
 
 // Common JSON converter shape for the Guid-backed IDs above. Writes 32-char lowercase
 // hex; reads accept both "N" and hyphenated forms. Concrete stubs are named individually
-// because [JsonConverter(typeof(...))] requires a concrete class name.
-internal abstract class GuidIdJsonConverter<T> : JsonConverter<T>
+// because [JsonConverter(typeof(...))] requires a concrete class name. Public so
+// per-feature Contracts projects can derive their own concrete stubs.
+public abstract class GuidIdJsonConverter<T> : JsonConverter<T>
 {
     protected abstract T Create(Guid value);
     protected abstract Guid GetValue(T value);
@@ -155,13 +134,6 @@ internal sealed class TagIdJsonConverter : GuidIdJsonConverter<TagId>
     protected override TagId Create(Guid value) => new(value);
     protected override Guid GetValue(TagId value) => value.Value;
     protected override string TypeLabel => nameof(TagId);
-}
-
-internal sealed class PollIdJsonConverter : GuidIdJsonConverter<PollId>
-{
-    protected override PollId Create(Guid value) => new(value);
-    protected override Guid GetValue(PollId value) => value.Value;
-    protected override string TypeLabel => nameof(PollId);
 }
 
 internal sealed class EntryIdJsonConverter : GuidIdJsonConverter<EntryId>

@@ -25,11 +25,7 @@ public sealed record SettingsDiscordAccountUnlinkedSignalEvent(ScopedSystemId Ta
 
 public sealed record SettingsAppleAccountUnlinkedSignalEvent(ScopedSystemId TargetSystemId) : ITargetedClusterEvent;
 
-public sealed record PollCreatedEvent(ScopedSystemId TargetSystemId, PollId PollId) : ITargetedClusterEvent;
-
-public sealed record PollUpdatedEvent(ScopedSystemId TargetSystemId, PollId PollId) : ITargetedClusterEvent;
-
-public sealed record PollDeletedEvent(ScopedSystemId TargetSystemId, PollId PollId) : ITargetedClusterEvent;
+// Poll*Event records live in Interfold.Polls.Contracts (Phase-3 migration).
 
 public sealed record GlobalJournalEntryCreatedEvent(ScopedSystemId TargetSystemId, EntryId EntryId) : ITargetedClusterEvent;
 
