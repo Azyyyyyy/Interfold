@@ -1,25 +1,21 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using Interfold.Api;
 using Interfold.Api.Auth;
 using Interfold.Api.Helpers;
 using Interfold.Api.Middleware;
-using Interfold.Api.ModelBinding;
-using Interfold.Api.Models;
 using Interfold.Api.Services;
 using Interfold.Api.Services.Http;
 using Interfold.Api.Services.ImportJobs;
 using Interfold.Api.Services.Secrets;
+using Interfold.Api.Shared.DependencyInjection;
 using Interfold.Api.Socket;
 using Interfold.Api.Swagger;
 using Interfold.Api.SimplyPlural;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.ImportJobs;
-using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory;
 using Interfold.Infrastructure.Postgres;
@@ -27,7 +23,6 @@ using Interfold.Infrastructure.Scylla;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using OpenTelemetry.Metrics;
@@ -198,45 +193,10 @@ builder.Services
         metrics.AddMeter(InterfoldMetrics.MeterName);
     });
 
-// UnixSecondsModelBinderProvider at position 0 takes precedence over MVC's SimpleType /
-// ComplexObject providers for UnixSeconds parameters.
-builder.Services.AddControllers(mvcOptions =>
-    {
-        mvcOptions.ModelBinderProviders.Insert(0, new UnixSecondsModelBinderProvider());
-    })
-    .AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
-        options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
-        options.JsonSerializerOptions.Converters.Add(new UtcDateTimeOffsetConverter());
-    });
-
-// Route DataAnnotations 400s through ErrorResponse so the Kotlin client can decode them
-// (the default ValidationProblemDetails isn't supported).
-builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
-{
-    options.InvalidModelStateResponseFactory = context =>
-    {
-        var firstBadField = context.ModelState
-            .FirstOrDefault(kv => kv.Value?.Errors.Count > 0
-                && !string.IsNullOrWhiteSpace(kv.Value.Errors[0].ErrorMessage));
-
-        var firstError = firstBadField.Value?.Errors[0].ErrorMessage
-            ?? "The request payload was invalid.";
-
-        // Prefer the binder's stashed ErrorCode so invalid_end_anchor / invalid_anchor
-        // survive verbatim without needing globally unique messages.
-        var stashedCode = context.HttpContext.Items[
-            UnixSecondsBindingAttribute.ItemsKey(firstBadField.Key ?? string.Empty)] as string;
-
-        var code = stashedCode is not null
-            ? new ErrorCode(stashedCode)
-            : ValidationErrorCodeRegistry.LookupOrDefault(firstError);
-
-        var body = new ErrorResponse(firstError, code, System.Net.HttpStatusCode.BadRequest);
-        return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(body);
-    };
-});
+// AddSharedApi configures JsonOptions (snake_case + UTC), inserts UnixSecondsModelBinderProvider,
+// wires the ErrorResponse InvalidModelStateResponseFactory, and registers the ExceptionHandler.
+builder.Services.AddSharedApi();
+builder.Services.AddControllers();
 
 // --- Swagger/OpenAPI ---
 builder.Services.AddEndpointsApiExplorer();
@@ -307,8 +267,6 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-builder.Services.AddExceptionHandler<ExceptionHandler>();
-
 var app = builder.Build();
 
 // Stable handle for the JWT SignatureValidator closure; safe pre-request-time since
@@ -347,30 +305,7 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// Post-authentication JTI-revocation gate.
-app.Use(async (context, next) =>
-{
-    if (context.User?.Identity?.IsAuthenticated == true)
-    {
-        if (context.User.FindFirst(JwtClaimNames.Jti)?.Value is { } jti && !string.IsNullOrWhiteSpace(jti))
-        {
-            var revocationRepository = context.RequestServices.GetRequiredService<IAuthTokenRevocationRepository>();
-            var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(new Jti(jti), context.RequestAborted);
-            
-            if (!isTokenValid)
-            {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                context.Response.ContentType = "application/json";
-                var error = new ErrorResponse("Token has been revoked.", ErrorCodes.TokenRevoked);
-                var json = JsonSerializer.Serialize(error, JsonSerializerOptions.Web);
-                await context.Response.WriteAsync(json, context.RequestAborted);
-                return;
-            }
-        }
-    }
-
-    await next();
-});
+app.UseMiddleware<AuthTokenRevocationMiddleware>();
 
 // Phase N: correlation ID propagation and structured request logging.
 app.UseMiddleware<RequestCorrelationMiddleware>();

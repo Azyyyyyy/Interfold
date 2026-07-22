@@ -16,6 +16,7 @@
   </Folder>
   <Folder Name="/host/">
     <Project Path="host/Interfold.Api/Interfold.Api.csproj" />
+    <Project Path="host/Interfold.Api.Shared/Interfold.Api.Shared.csproj" />
     <Project Path="host/Interfold.AppHost/Interfold.AppHost.csproj" />
     <Project Path="host/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj" />
     <Project Path="host/Interfold.DatabaseBootstrap/Interfold.DatabaseBootstrap.csproj" />
