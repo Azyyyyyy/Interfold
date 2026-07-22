@@ -10,6 +10,7 @@ using Interfold.Api.Socket;
 using Interfold.Api.Swagger;
 using Interfold.Api.SimplyPlural;
 using Interfold.Auth.Api.DependencyInjection;
+using Interfold.Tags.Api.DependencyInjection;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
 using Interfold.Domain.Abstractions;
@@ -44,6 +45,10 @@ builder.Services.AddInterfoldOptions();
 // Must run BEFORE AddInterfoldPersistence — persistence ValidateOnStart reads
 // AuthenticationConfiguration.EncryptionPepper.
 builder.Services.AddAuthModule(builder.Configuration);
+
+// Tags feature module owns the seven tag command-handler singletons.
+// Order-independent — no options binding, no config reads.
+builder.Services.AddTagsModule();
 
 // AuthenticationConfiguration is deliberately absent from this probe: its patchers pull
 // from the pre-Build secrets snapshot; probing would trip [Required] before the patches

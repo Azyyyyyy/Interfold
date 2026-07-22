@@ -9,7 +9,6 @@ using Interfold.Domain.Fronting;
 using Interfold.Domain.Journals;
 using Interfold.Domain.Polls;
 using Interfold.Domain.Settings;
-using Interfold.Domain.Tags;
 
 namespace Interfold.Infrastructure.DependencyInjection;
 
@@ -116,13 +115,8 @@ public static partial class ServiceCollectionExtensions
             .AddSingleton<UpdateFieldCommandHandler>()
             .AddSingleton<DeleteFieldCommandHandler>()
             .AddSingleton<RelocateFieldCommandHandler>()
-            .AddSingleton<CreateTagCommandHandler>()
-            .AddSingleton<UpdateTagCommandHandler>()
-            .AddSingleton<DeleteTagCommandHandler>()
-            .AddSingleton<AttachAlterToTagCommandHandler>()
-            .AddSingleton<DetachAlterFromTagCommandHandler>()
-            .AddSingleton<SetParentTagCommandHandler>()
-            .AddSingleton<RemoveParentTagCommandHandler>()
+            // Tag command-handler singletons moved to Interfold.Tags.Api.DependencyInjection.AddTagsModule
+            // during Phase-3 Tags migration.
             .AddSingleton<CreatePollCommandHandler>()
             .AddSingleton<UpdatePollCommandHandler>()
             .AddSingleton<DeletePollCommandHandler>()

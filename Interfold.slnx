@@ -27,6 +27,7 @@
     <Project Path="host/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj" />
     <Project Path="host/Interfold.DatabaseBootstrap/Interfold.DatabaseBootstrap.csproj" />
     <Project Path="host/Interfold.ServiceDefaults/Interfold.ServiceDefaults.csproj" />
+    <Project Path="host/Interfold.Tags.Api/Interfold.Tags.Api.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Interfold.SPDump/Interfold.SPDump.csproj" />

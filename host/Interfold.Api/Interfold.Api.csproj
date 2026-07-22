@@ -34,6 +34,15 @@
          the ES256 validator co-located with the rest of the Auth feature rather than
          forcing it into Interfold.Api.Shared just to satisfy the socket handler. -->
     <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
+    <!-- Back-refs: six tag-touching files still live in this project until the Socket +
+         Systems + Settings features migrate — TagSocketEventHandlers, SocketEventPumpRunner,
+         WebSocketHandler, WebSocketInitialization, PublicSystemsController, and
+         SimplyPluralImportService. Dissolves when Settings (#7) + Systems (#8) + Socket
+         (#10) all land and the last tag-typed line leaves Interfold.Api. Tags.Contracts is
+         also visible transitively via Interfold.Domain; kept explicit so a future
+         Interfold.Domain -> Tags.Contracts dissolution doesn't cascade here. -->
+    <ProjectReference Include="..\..\shared\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Postgres\Interfold.Infrastructure.Postgres.csproj" />
