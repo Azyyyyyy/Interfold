@@ -2,25 +2,21 @@ using Interfold.Api;
 using Interfold.Api.Helpers;
 using Interfold.Api.Middleware;
 using Interfold.Api.Services;
-using Interfold.Api.Services.Http;
-using Interfold.Api.Services.ImportJobs;
 using Interfold.Api.Services.Secrets;
 using Interfold.Api.Shared.DependencyInjection;
 using Interfold.Api.Socket;
 using Interfold.Api.Swagger;
-using Interfold.Api.SimplyPlural;
 using Interfold.Alters.Api.DependencyInjection;
 using Interfold.Auth.Api.DependencyInjection;
 using Interfold.Friendships.Api.DependencyInjection;
 using Interfold.Fronting.Api.DependencyInjection;
 using Interfold.Journals.Api.DependencyInjection;
 using Interfold.Polls.Api.DependencyInjection;
+using Interfold.Settings.Api.DependencyInjection;
 using Interfold.Systems.Api.DependencyInjection;
 using Interfold.Tags.Api.DependencyInjection;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory;
 using Interfold.Infrastructure.Postgres;
@@ -76,6 +72,15 @@ builder.Services.AddTagsModule();
 // Order-independent — no options binding, no config reads.
 builder.Services.AddPollsModule();
 
+// Settings feature module owns twenty-two settings/encryption/avatar/import/field
+// command-handler singletons, the two IImportJobRunner implementations + the
+// ImportJobBackgroundService drain loop, the SimplyPlural HttpClient + import service,
+// and the two Firebase IPostConfigureOptions bindings. Must run BEFORE
+// AddInterfoldPersistence when the runtime depends on the FirebaseClient/Fcm secrets
+// snapshot — the PostConfigure patchers read from ISecretsSnapshot registered further
+// down, and the ordering matches AddAuthModule's rationale above.
+builder.Services.AddSettingsModule();
+
 // Systems feature module is a pure read facade (no owned handlers, no .Domain project);
 // AddSystemsModule is a no-op today and exists for wiring symmetry with the other modules.
 builder.Services.AddSystemsModule();
@@ -122,10 +127,11 @@ builder.Services.AddCors(options =>
 
 // Register BEFORE persistence so the pre-Build secrets snapshot is visible when migration
 // services and ValidationHostedService (via [Required] + ValidateOnStart) read secrets.
+// The two IPostConfigureOptions bindings that patched FirebaseClientConfiguration +
+// FcmConfiguration from this snapshot moved into AddSettingsModule with the Firebase +
+// FCM types they patch.
 builder.Services.AddSingleton<ISecretsSnapshot>(secretsSnapshot);
 builder.Services.AddSingleton(secretsSnapshot);
-builder.Services.AddSingleton<IPostConfigureOptions<FirebaseClientConfiguration>, FirebaseClientSecretsPostConfigure>();
-builder.Services.AddSingleton<IPostConfigureOptions<FcmConfiguration>, FcmSecretsPostConfigure>();
 
 builder.Services.AddInterfoldCluster(clusterConfig.NodeGroup);
 builder.Services.AddInterfoldPersistence(persistenceConfig.Mode, persistenceConfig);
@@ -145,13 +151,8 @@ builder.Services.AddSingleton<IAvatarStorage, LocalAvatarStorage>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<SocketJoinRateLimiter>();
 
-builder.Services.AddTransient<HttpLoggingHandler>();
-
-builder.Services.AddSimplyPluralImport();
-
-// Async-import queue lives in AddInterfoldCluster; this hosts the drain loop.
-builder.Services.AddSingleton<IImportJobRunner, PkImportJobRunner>();
-builder.Services.AddHostedService<ImportJobBackgroundService>();
+// HttpLoggingHandler + AddSimplyPluralImport + the two IImportJobRunner singletons +
+// ImportJobBackgroundService all moved into AddSettingsModule (Phase-3 Settings slice).
 
 // Loopback-only named client for the WebSocket relay's self-call (see LoopbackHttpClient).
 // AllowAutoRedirect off — relay targets HTTPS directly, any redirect is a bug.

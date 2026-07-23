@@ -36,6 +36,7 @@
     <ProjectReference Include="..\..\shared\Interfold.Journals.Domain\Interfold.Journals.Domain.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Polls.Api\Interfold.Polls.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Systems.Api\Interfold.Systems.Api.csproj" />

@@ -9,6 +9,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\..\host\Interfold.Api\Interfold.Api.csproj" />
+      <ProjectReference Include="..\..\host\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
     </ItemGroup>
 
 </Project>

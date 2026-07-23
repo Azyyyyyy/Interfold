@@ -2,8 +2,6 @@ using System.Collections.Concurrent;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Interfold.Domain.Accounts;
-using Interfold.Domain.Settings;
 
 namespace Interfold.Infrastructure.DependencyInjection;
 
@@ -76,41 +74,19 @@ public static partial class ServiceCollectionExtensions
         throw new InvalidOperationException($"Persistence mode has not yet been implemented: {mode}");
     }
 
-    public static IServiceCollection AddInterfoldDomainHandlers(this IServiceCollection services) =>
-        services
-            // Alter command-handler singletons moved to Interfold.Alters.Api.DependencyInjection.AddAltersModule
-            // during Phase-3 Alters migration (Create / Update / Delete).
-            // Fronting command-handler singletons moved to Interfold.Fronting.Api.DependencyInjection.AddFrontingModule
-            // during Phase-3 Fronting migration (Start / End / BulkUpdate / Set / SetPrimary /
-            // DeleteFrontById / UpdateFrontComment).
-            .AddSingleton<UpdateUsernameCommandHandler>()
-            .AddSingleton<CreateLinkTokenCommandHandler>()
-            .AddSingleton<UpdateDescriptionCommandHandler>()
-            .AddSingleton<AddPushTokenCommandHandler>()
-            .AddSingleton<RemovePushTokenCommandHandler>()
-            .AddSingleton<SetupEncryptionCommandHandler>()
-            .AddSingleton<RecoverEncryptionCommandHandler>()
-            .AddSingleton<ResetEncryptionCommandHandler>()
-            .AddSingleton<UploadAvatarCommandHandler>()
-            .AddSingleton<DeleteAvatarCommandHandler>()
-            .AddSingleton<ImportPkCommandHandler>()
-            .AddSingleton<ImportSpCommandHandler>()
-            .AddSingleton<UnlinkDiscordCommandHandler>()
-            .AddSingleton<UnlinkEmailCommandHandler>()
-            .AddSingleton<UnlinkAppleCommandHandler>()
-            .AddSingleton<DeleteAccountCommandHandler>()
-            .AddSingleton<WipeAltersCommandHandler>()
-            .AddSingleton<WipeTagsCommandHandler>()
-            .AddSingleton<CreateFieldCommandHandler>()
-            .AddSingleton<UpdateFieldCommandHandler>()
-            .AddSingleton<DeleteFieldCommandHandler>()
-            .AddSingleton<RelocateFieldCommandHandler>();
-            // Phase-3 feature migrations — these singletons moved to per-feature AddXxxModule extensions:
-            //   Alters     -> Interfold.Alters.Api.DependencyInjection.AddAltersModule
-            //   Tags       -> Interfold.Tags.Api.DependencyInjection.AddTagsModule
-            //   Polls      -> Interfold.Polls.Api.DependencyInjection.AddPollsModule
-            //   Fronting   -> Interfold.Fronting.Api.DependencyInjection.AddFrontingModule
-            //   Friendships -> Interfold.Friendships.Api.DependencyInjection.AddFriendshipsModule
-            //   Journals   -> Interfold.Journals.Api.DependencyInjection.AddJournalsModule
+    // Every domain command-handler singleton previously registered here has moved to its
+    // owning feature module's Add<Feature>Module extension:
+    //   Alters      -> Interfold.Alters.Api.DependencyInjection.AddAltersModule
+    //   Auth        -> Interfold.Auth.Api.DependencyInjection.AddAuthModule
+    //   Fronting    -> Interfold.Fronting.Api.DependencyInjection.AddFrontingModule
+    //   Friendships -> Interfold.Friendships.Api.DependencyInjection.AddFriendshipsModule
+    //   Journals    -> Interfold.Journals.Api.DependencyInjection.AddJournalsModule
+    //   Polls       -> Interfold.Polls.Api.DependencyInjection.AddPollsModule
+    //   Settings    -> Interfold.Settings.Api.DependencyInjection.AddSettingsModule
+    //   Tags        -> Interfold.Tags.Api.DependencyInjection.AddTagsModule
+    // AddInterfoldDomainHandlers itself is retained as a no-op for wiring symmetry with the
+    // per-feature Add<Feature>Module extensions and to give a place for future cross-cutting
+    // domain-handler registrations should they ever exist again.
+    public static IServiceCollection AddInterfoldDomainHandlers(this IServiceCollection services) => services;
 }
 
