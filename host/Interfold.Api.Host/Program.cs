@@ -11,6 +11,7 @@ using Interfold.Auth.Api.DependencyInjection;
 using Interfold.Friendships.Api.DependencyInjection;
 using Interfold.Fronting.Api.DependencyInjection;
 using Interfold.Journals.Api.DependencyInjection;
+using Interfold.Ops.Api.DependencyInjection;
 using Interfold.Polls.Api.DependencyInjection;
 using Interfold.Settings.Api.DependencyInjection;
 using Interfold.Systems.Api.DependencyInjection;
@@ -84,6 +85,11 @@ builder.Services.AddSettingsModule();
 // Systems feature module is a pure read facade (no owned handlers, no .Domain project);
 // AddSystemsModule is a no-op today and exists for wiring symmetry with the other modules.
 builder.Services.AddSystemsModule();
+
+// Ops feature module hosts NodeRoleController + TrustController; no owned handlers,
+// no .Domain project, no .Contracts project (nothing cross-module to share).
+// AddOpsModule is a no-op today and exists for wiring symmetry with the other modules.
+builder.Services.AddOpsModule();
 
 // AuthenticationConfiguration is deliberately absent from this probe: its patchers pull
 // from the pre-Build secrets snapshot; probing would trip [Required] before the patches

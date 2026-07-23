@@ -668,7 +668,7 @@ and a critical Name Constraints extension on the root cap the blast radius of bo
 
 ### Endpoints (`/.well-known/interfold-root-ca.*`)
 
-`[TrustController](../host/Interfold.Api/Controllers/TrustController.cs)` serves a
+`[TrustController](../host/Interfold.Ops.Api/Controllers/TrustController.cs)` serves a
 hard-coded allowlist of three routes off the IANA `.well-known` prefix:
 
 | Route                              | Content-Type                                                                              | Body                                                |

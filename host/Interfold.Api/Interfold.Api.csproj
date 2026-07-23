@@ -8,9 +8,17 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <!-- Mirror the implicit usings Microsoft.NET.Sdk.Web adds. Post-Phase-2 the composition
-       binary lives in Interfold.Api.Host; this project is now a class library that carries
-       the twelve non-Auth feature controllers + socket handler until Phase 3 dismantles it.
-       Same shape as Interfold.Api.Shared / Interfold.Auth.Api. -->
+       binary lives in Interfold.Api.Host; this project is now a class library. Post-Phase-3
+       slice #9 (Ops) it carries ZERO controllers — only Socket transport
+       (WebSocketHandler + WebSocketInitialization + SocketEventPumpRunner + SocketPushContext
+       + SocketJoinRateLimiter + PhoenixInboundFrame + per-feature *SocketEventHandlers),
+       the two Settings socket-adjacent handlers deferred to slice #10
+       (SettingsSocketEventHandlers + ImportSocketEventHandlers), Helpers/LoopbackHttpClient,
+       Models/SocketAggregateJoinPayloads, and the Host-owned Secrets pair
+       (SecretsPreBuildLoader + SecretsSnapshot). Slice #10 (Socket) migrates the Socket
+       transport + handlers into Interfold.Socket.Api; the Secrets pair relocates
+       opportunistically into Interfold.Api.Host during Phase-4 retirement. Same shape as
+       Interfold.Api.Shared / Interfold.Auth.Api. -->
   <ItemGroup>
     <Using Include="Microsoft.AspNetCore.Builder" />
     <Using Include="Microsoft.AspNetCore.Hosting" />

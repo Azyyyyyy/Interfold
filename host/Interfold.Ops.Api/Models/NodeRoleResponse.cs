@@ -8,6 +8,3 @@ namespace Interfold.Api.Models;
 /// wire converter (the previous anonymous object lower-cased <c>ToString()</c> by hand).
 /// </summary>
 public sealed record NodeRoleResponse(NodeGroup Role, bool OwnsSingletons);
-
-// LinkTokenUnavailableResponse migrated to Interfold.Settings.Contracts/Models/Wire/
-// (Phase-3 Settings slice; namespace Interfold.Api.Models preserved for wire-compat).

@@ -9,7 +9,7 @@ namespace Interfold.Api.Helpers;
 /// (e.g. bumping startup for slow migrations) doesn't drift one apart from the
 /// other across the four persistence-mode branches in Program.cs.
 /// </summary>
-internal static class HealthCheckExtensions
+public static class HealthCheckExtensions
 {
     /// <summary>Readiness checks fail fast (dependency dropped after boot).</summary>
     public static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(5);
