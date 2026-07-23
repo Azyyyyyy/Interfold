@@ -39,6 +39,12 @@
          AvatarUrlQualifier.QualifyAvatar directly on friendship.Friend + each fronting alter.
          Migrated during Phase-3 Systems facade slice. -->
     <InternalsVisibleTo Include="Interfold.Systems.Api" />
+    <!-- Interfold.Socket.Api: WebSocketInitialization + AlterSocketEventHandlers +
+         FriendshipSocketEventHandlers call the internal AvatarUrlQualifier.QualifyAvatar
+         overloads (the socket batched-init + push payloads emit Alter / FriendshipReadModel
+         / SocketSelfReadModel with origin-qualified avatars). Migrated during Phase-3
+         Socket slice #10. -->
+    <InternalsVisibleTo Include="Interfold.Socket.Api" />
     <InternalsVisibleTo Include="Interfold.IntegrationTests" />
     <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
   </ItemGroup>

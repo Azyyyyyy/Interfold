@@ -40,6 +40,7 @@
     <ProjectReference Include="..\..\host\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Socket.Api\Interfold.Socket.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Systems.Api\Interfold.Systems.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Tags.Api\Interfold.Tags.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />

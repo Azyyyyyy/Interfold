@@ -7,18 +7,13 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
-  <!-- Mirror the implicit usings Microsoft.NET.Sdk.Web adds. Post-Phase-2 the composition
-       binary lives in Interfold.Api.Host; this project is now a class library. Post-Phase-3
-       slice #9 (Ops) it carries ZERO controllers — only Socket transport
-       (WebSocketHandler + WebSocketInitialization + SocketEventPumpRunner + SocketPushContext
-       + SocketJoinRateLimiter + PhoenixInboundFrame + per-feature *SocketEventHandlers),
-       the two Settings socket-adjacent handlers deferred to slice #10
-       (SettingsSocketEventHandlers + ImportSocketEventHandlers), Helpers/LoopbackHttpClient,
-       Models/SocketAggregateJoinPayloads, and the Host-owned Secrets pair
-       (SecretsPreBuildLoader + SecretsSnapshot). Slice #10 (Socket) migrates the Socket
-       transport + handlers into Interfold.Socket.Api; the Secrets pair relocates
-       opportunistically into Interfold.Api.Host during Phase-4 retirement. Same shape as
-       Interfold.Api.Shared / Interfold.Auth.Api. -->
+  <!-- Post-Phase-3-slice-10 skeletal residual. Every feature controller has migrated to its
+       own .Api project, and the Socket transport + handlers + per-feature *SocketEventHandlers
+       + SocketJoinRateLimiter + LoopbackHttpClient + SocketAggregateJoinPayloads all migrated
+       to Interfold.Socket.Api. The only files left are Services/Secrets/SecretsPreBuildLoader.cs
+       + SecretsSnapshot.cs (Host-owned; pending opportunistic relocation into Interfold.Api.Host
+       during Phase 4 retirement) and data/avatars/.gitkeep (Docker publish placeholder). Same
+       shape as Interfold.Api.Shared / Interfold.Auth.Api. -->
   <ItemGroup>
     <Using Include="Microsoft.AspNetCore.Builder" />
     <Using Include="Microsoft.AspNetCore.Hosting" />
@@ -38,63 +33,6 @@
     <PackageReference Include="OneOf.SourceGenerator" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
     <ProjectReference Include="..\..\host\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
-    <!-- Interim back-ref: socket transport + handlers still live here in commit 1 of slice #10
-         and bind ISocketPayload / PhxFrame / SocketJson / *SocketEventNames / SocketSelfReadModel
-         from the newly extracted Interfold.Socket.Contracts leaf. Dissolves in commit 2 when the
-         socket transport + handlers migrate into Interfold.Socket.Api. -->
-    <ProjectReference Include="..\..\shared\Interfold.Socket.Contracts\Interfold.Socket.Contracts.csproj" />
-    <!-- Back-ref: WebSocketHandler.cs calls JwtEs256Validator.ValidateSignature. Keeps
-         the ES256 validator co-located with the rest of the Auth feature rather than
-         forcing it into Interfold.Api.Shared just to satisfy the socket handler. -->
-    <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
-    <!-- Back-refs: four tag-touching files still live in this project — TagSocketEventHandlers,
-         SocketEventPumpRunner, WebSocketHandler, WebSocketInitialization. Dissolves when
-         Socket (#10) migrates the socket handlers + pump + WebSocket transport.
-         Tags.Contracts is also visible transitively via Tags.Domain -> Tags.Contracts;
-         kept explicit so a future dissolution doesn't cascade here. -->
-    <ProjectReference Include="..\..\shared\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
-    <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
-    <!-- Back-refs: three poll-touching files still live in this project — PollSocketEventHandlers,
-         SocketEventPumpRunner + WebSocketHandler (socket transport carrying Poll events).
-         Dissolves when Socket (#10) migrates the socket handlers + WebSocket transport.
-         Polls.Contracts is also visible transitively; kept explicit for the same reason. -->
-    <ProjectReference Include="..\..\shared\Interfold.Polls.Contracts\Interfold.Polls.Contracts.csproj" />
-    <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
-    <!-- Back-ref: five fronting-touching files still live in this project — FrontingSocketEventHandlers,
-         SocketEventPumpRunner, WebSocketInitialization (SocketBatchedFrontsPayload), WebSocketHandler
-         (IFrontingRepository via Fronting.Domain), and a socket handler chain that resolves
-         IFrontingRepository. IFrontingRepository lives in Interfold.Fronting.Domain (relocated from
-         Interfold.Domain during Phase-3 Settings slice #8), so this project needs an explicit
-         Fronting.Domain ref. Dissolves when Socket (#10) migrates the aggregate-join payloads
-         and per-feature socket handlers. -->
-    <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
-    <ProjectReference Include="..\..\shared\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
-    <!-- Back-ref: five alter-touching files still live in this project — AlterSocketEventHandlers,
-         SocketEventPumpRunner (3 alter-event subscriptions + IAlterRepository parameter),
-         WebSocketHandler (IAlterRepository DI resolve + batched-join Alters payload),
-         WebSocketInitialization (SocketBatchedAltersPayload construction site), and one
-         cross-feature socket-event pump wire. IAlterRepository lives in Interfold.Alters.Domain
-         (relocated from Interfold.Domain during Phase-3 Settings slice #8), so this project needs
-         an explicit Alters.Domain ref. Dissolves when Socket (#10) migrates the socket handlers
-         + pump + WebSocket transport. -->
-    <ProjectReference Include="..\..\shared\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
-    <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
-    <!-- Back-ref: two friendship-touching files still live in this project — FriendshipSocketEventHandlers
-         (8 events + FriendshipReadModel + FriendRequestSocketPayload + FriendIdSocketPayload) and
-         SocketEventPumpRunner (8 friendship-event subscriptions + IFriendshipRepository parameter).
-         Both are Socket-scoped. IFriendshipRepository lives in Interfold.Friendships.Domain
-         (relocated from Interfold.Domain during Phase-3 Settings slice #8), so this project needs
-         an explicit Friendships.Domain ref. Dissolves when Socket (#10) migrates. -->
-    <ProjectReference Include="..\..\shared\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
-    <ProjectReference Include="..\..\shared\Interfold.Friendships.Domain\Interfold.Friendships.Domain.csproj" />
-    <!-- Back-ref: three journal-touching files still live in this project — JournalSocketEventHandlers,
-         SocketEventPumpRunner (6 journal-event subscriptions + IJournalRepository parameter), and
-         WebSocketHandler (resolves IJournalRepository from DI). IJournalRepository lives in
-         Interfold.Journals.Domain (relocated from Interfold.Domain during Phase-3 Settings slice #8),
-         so this project needs an explicit Journals.Domain ref. Dissolves when Socket (#10) migrates
-         the socket handlers + pump + WebSocket transport. -->
-    <ProjectReference Include="..\..\shared\Interfold.Journals.Contracts\Interfold.Journals.Contracts.csproj" />
-    <ProjectReference Include="..\..\shared\Interfold.Journals.Domain\Interfold.Journals.Domain.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Postgres\Interfold.Infrastructure.Postgres.csproj" />

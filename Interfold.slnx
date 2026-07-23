@@ -48,6 +48,7 @@
     <Project Path="host/Interfold.Polls.Api/Interfold.Polls.Api.csproj" />
     <Project Path="host/Interfold.ServiceDefaults/Interfold.ServiceDefaults.csproj" />
     <Project Path="host/Interfold.Settings.Api/Interfold.Settings.Api.csproj" />
+    <Project Path="host/Interfold.Socket.Api/Interfold.Socket.Api.csproj" />
     <Project Path="host/Interfold.Systems.Api/Interfold.Systems.Api.csproj" />
     <Project Path="host/Interfold.Tags.Api/Interfold.Tags.Api.csproj" />
   </Folder>

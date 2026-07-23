@@ -4,7 +4,6 @@ using Interfold.Api.Middleware;
 using Interfold.Api.Services;
 using Interfold.Api.Services.Secrets;
 using Interfold.Api.Shared.DependencyInjection;
-using Interfold.Api.Socket;
 using Interfold.Api.Swagger;
 using Interfold.Alters.Api.DependencyInjection;
 using Interfold.Auth.Api.DependencyInjection;
@@ -14,6 +13,7 @@ using Interfold.Journals.Api.DependencyInjection;
 using Interfold.Ops.Api.DependencyInjection;
 using Interfold.Polls.Api.DependencyInjection;
 using Interfold.Settings.Api.DependencyInjection;
+using Interfold.Socket.Api.DependencyInjection;
 using Interfold.Systems.Api.DependencyInjection;
 using Interfold.Tags.Api.DependencyInjection;
 using Interfold.Contracts;
@@ -81,6 +81,11 @@ builder.Services.AddPollsModule();
 // snapshot — the PostConfigure patchers read from ISecretsSnapshot registered further
 // down, and the ordering matches AddAuthModule's rationale above.
 builder.Services.AddSettingsModule();
+
+// Socket feature module owns the Phoenix-protocol WebSocket transport, per-feature socket
+// event handlers, SocketJoinRateLimiter, the LoopbackHttpClient named HttpClient, and the
+// /api/socket/websocket route wiring (MapSocketModule below).
+builder.Services.AddSocketModule();
 
 // Systems feature module is a pure read facade (no owned handlers, no .Domain project);
 // AddSystemsModule is a no-op today and exists for wiring symmetry with the other modules.
@@ -155,22 +160,11 @@ if (persistenceConfig.Mode == PersistenceMode.ScyllaPostgres)
 }
 builder.Services.AddSingleton<IAvatarStorage, LocalAvatarStorage>();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<SocketJoinRateLimiter>();
 
 // HttpLoggingHandler + AddSimplyPluralImport + the two IImportJobRunner singletons +
 // ImportJobBackgroundService all moved into AddSettingsModule (Phase-3 Settings slice).
-
-// Loopback-only named client for the WebSocket relay's self-call (see LoopbackHttpClient).
-// AllowAutoRedirect off — relay targets HTTPS directly, any redirect is a bug.
-builder.Services.AddHttpClient(LoopbackHttpClient.Name)
-    .ConfigurePrimaryHttpMessageHandler(static () => new SocketsHttpHandler
-    {
-        AllowAutoRedirect = false,
-        SslOptions = new System.Net.Security.SslClientAuthenticationOptions
-        {
-            RemoteCertificateValidationCallback = (_, _, _, _) => true,
-        },
-    });
+// SocketJoinRateLimiter + LoopbackHttpClient named client both moved into AddSocketModule
+// (Phase-3 Socket slice #10) — see host/Interfold.Socket.Api/DependencyInjection.
 
 // Cross-cutting authorization policy applies to every module's controllers, so it stays on
 // the composition host rather than moving into AddAuthModule.
@@ -397,7 +391,7 @@ app.UseAuthorization();
 
 app.MapDefaultEndpoints();
 
-app.MapMethods("/api/socket/websocket", ["GET", "CONNECT"], WebSocketHandler.HandleUserSocketAsync).AllowAnonymous();
+app.MapSocketModule();
 app.MapControllers();
 
 app.Run();

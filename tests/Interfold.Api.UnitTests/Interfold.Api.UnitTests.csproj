@@ -32,6 +32,11 @@
     <ProjectReference Include="..\..\shared\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
+    <!-- Socket transport + handlers moved out of Interfold.Api in slice #10; the unit tests
+         still exercise WebSocketHandler / SocketJoinRateLimiter / WebSocketInitialization
+         via the Socket/*Tests classes, plus Helpers/LoopbackHttpClientTests and
+         WireByteFreezeTests, all of which now bind against Interfold.Socket.Api. -->
+    <ProjectReference Include="..\..\host\Interfold.Socket.Api\Interfold.Socket.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Tags.Api\Interfold.Tags.Api.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
