@@ -34,13 +34,13 @@
          the ES256 validator co-located with the rest of the Auth feature rather than
          forcing it into Interfold.Api.Shared just to satisfy the socket handler. -->
     <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
-    <!-- Back-refs: six tag-touching files still live in this project until the Socket +
-         Systems + Settings features migrate — TagSocketEventHandlers, SocketEventPumpRunner,
-         WebSocketHandler, WebSocketInitialization, PublicSystemsController, and
-         SimplyPluralImportService. Dissolves when Settings (#7) + Systems (#8) + Socket
-         (#10) all land and the last tag-typed line leaves Interfold.Api. Tags.Contracts is
-         also visible transitively via Interfold.Domain; kept explicit so a future
-         Interfold.Domain -> Tags.Contracts dissolution doesn't cascade here. -->
+    <!-- Back-refs: five tag-touching files still live in this project until the Socket +
+         Settings features migrate — TagSocketEventHandlers, SocketEventPumpRunner,
+         WebSocketHandler, WebSocketInitialization, and SimplyPluralImportService.
+         Dissolves when Settings (#7) + Systems (#8) + Socket (#10) all land and the last
+         tag-typed line leaves Interfold.Api. Tags.Contracts is also visible transitively
+         via Interfold.Domain; kept explicit so a future Interfold.Domain -> Tags.Contracts
+         dissolution doesn't cascade here. -->
     <ProjectReference Include="..\..\shared\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
     <!-- Back-refs: four poll-touching files still live in this project until Socket +
@@ -52,38 +52,34 @@
          Interfold.Domain -> Polls.Contracts dissolution doesn't cascade here. -->
     <ProjectReference Include="..\..\shared\Interfold.Polls.Contracts\Interfold.Polls.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
-    <!-- Back-ref: seven fronting-touching files still live in this project until Socket +
-         Systems + Settings migrate — FrontingSocketEventHandlers (7 events + 3 socket
-         payloads), SocketEventPumpRunner (7 event subscriptions), WebSocketInitialization
+    <!-- Back-ref: six fronting-touching files still live in this project until Socket +
+         Settings migrate — FrontingSocketEventHandlers (7 events + 3 socket payloads),
+         SocketEventPumpRunner (7 event subscriptions), WebSocketInitialization
          (SocketBatchedFrontsPayload), WebSocketHandler (IFrontingRepository via Domain),
-         SettingsSocketEventHandlers (IFrontingRepository), SimplyPluralImportService
-         (IFrontingRepository.StartAsync in the SP import path), PublicSystemsController
-         (IFrontingRepository). Fronting.Domain back-ref is NOT needed here — the only
-         residual consumer of Interfold.Domain.Fronting.* was FrontingController, which
-         moved to Interfold.Fronting.Api. Dissolves when Socket (#10) migrates the
-         aggregate-join payloads and per-feature socket handlers. -->
+         SettingsSocketEventHandlers (IFrontingRepository), and SimplyPluralImportService
+         (IFrontingRepository.StartAsync in the SP import path). Fronting.Domain back-ref
+         is NOT needed here — the only residual consumer of Interfold.Domain.Fronting.*
+         was FrontingController, which moved to Interfold.Fronting.Api. Dissolves when
+         Socket (#10) migrates the aggregate-join payloads and per-feature socket handlers. -->
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
-    <!-- Back-ref: seven alter-touching files still live in this project until Socket +
-         Systems + Settings migrate — AlterSocketEventHandlers (3 events + 2 payloads),
+    <!-- Back-ref: six alter-touching files still live in this project until Socket +
+         Settings migrate — AlterSocketEventHandlers (3 events + 2 payloads),
          SocketEventPumpRunner (3 alter-event subscriptions + IAlterRepository parameter),
          WebSocketHandler (IAlterRepository DI resolve + batched-join Alters payload),
          WebSocketInitialization (SocketBatchedAltersPayload construction site),
-         PublicSystemsController (IAlterRepository + BareAlter via PublicSystemBatchReadModel),
          SettingsController.WipeAlters (WipeAltersCommandHandler binding), and
          SimplyPluralImportService (CreateAlterCommand + UpdateAlterCommand construction).
          Alters.Domain back-ref is NOT needed here — the only residual consumer of
          Interfold.Domain.Alters.* was AltersController, which moved to Interfold.Alters.Api.
          Dissolves when Settings (#7) + Systems (#8) + Socket (#10) all land. -->
     <ProjectReference Include="..\..\shared\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
-    <!-- Back-ref: three friendship-touching files still live in this project until Socket +
-         Systems migrate — FriendshipSocketEventHandlers (8 events + FriendshipReadModel +
-         FriendRequestSocketPayload + FriendIdSocketPayload), SocketEventPumpRunner
-         (8 friendship-event subscriptions + IFriendshipRepository parameter),
-         PublicSystemsController (IFriendshipRepository + FriendshipReadModel via the
-         relocated PublicSystemBatchReadModel in Models/). Friendships.Domain back-ref is
-         NOT needed here — the only residual consumers of Interfold.Domain.Friendships.*
-         were the two friendship controllers, which moved to Interfold.Friendships.Api.
-         Dissolves when Systems (#8) + Socket (#10) migrate. -->
+    <!-- Back-ref: two friendship-touching files still live in this project until Socket
+         migrates — FriendshipSocketEventHandlers (8 events + FriendshipReadModel +
+         FriendRequestSocketPayload + FriendIdSocketPayload) and SocketEventPumpRunner
+         (8 friendship-event subscriptions + IFriendshipRepository parameter). Both are
+         Socket-scoped. Friendships.Domain back-ref is NOT needed here — the only residual
+         consumers of Interfold.Domain.Friendships.* were the two friendship controllers,
+         which moved to Interfold.Friendships.Api. Dissolves when Socket (#10) migrates. -->
     <ProjectReference Include="..\..\shared\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
     <!-- Back-ref: four journal-touching files still live in this project until Socket
          migrates — JournalSocketEventHandlers (6 events + JournalReadModel +

@@ -45,10 +45,24 @@
     <!-- Temporary back-ref: Post-Alters cleanup moved FrontId + FrontActiveReadModel +
          FrontHistoryReadModel into Interfold.Fronting.Contracts, but IFrontingRepository
          (shared/Interfold.Domain/Abstractions/Repository/IFrontingRepository.cs) binds all
-         three across 9 method signatures. IFrontingRepository itself stayed here to avoid a
-         Domain <-> Fronting.Domain cycle. Dissolves when Systems (Phase 3 #8/9) migrates and
+         three across 9 method signatures, and DeleteAccountCommandHandler
+         (shared/Interfold.Domain/Settings/) still consumes IFrontingRepository during
+         account teardown. IFrontingRepository itself stayed here to avoid a Domain <->
+         Fronting.Domain cycle. Dissolves when Settings (Phase 3 #7) migrates and
          IFrontingRepository moves into Interfold.Fronting.Domain. -->
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
+    <!-- Temporary back-ref: Systems facade slice (Phase 3 #7 in landed order) moved
+         PublicSystemReadModel into Interfold.Systems.Contracts, but IAccountRepository
+         (shared/Interfold.Domain/Abstractions/Repository/IAccountRepository.cs) binds it on
+         GetPublicSystemAsync — the sole Systems-exclusive projection kept on the shared
+         interface (per that slice's deliberate deviation from the plan-doc's "provisional
+         call: read interfaces" note; introducing a one-method IPublicSystemProfileReader
+         was not worth the impl-side ceremony across the two persistence adapters).
+         Acyclic: Systems.Contracts fans out to Spine + Alters/Tags/Fronting/Friendships
+         Contracts, none of which reach Domain. Dissolves when Settings (#8) migrates
+         IAccountRepository into an Accounts/Settings-owned home and GetPublicSystemAsync
+         is either split into a narrow reader or hoisted alongside. -->
+    <ProjectReference Include="..\..\shared\Interfold.Systems.Contracts\Interfold.Systems.Contracts.csproj" />
     <!-- Temporary back-ref: Phase 3 (Journals) moved JournalCommands + Journal read models +
          EntryId + the 6 journal events + journal command results into Interfold.Journals.Contracts,
          but IJournalRepository (shared/Interfold.Domain/Abstractions/Repository/IJournalRepository.cs)

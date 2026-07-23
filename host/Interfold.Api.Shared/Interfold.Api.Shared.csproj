@@ -34,6 +34,11 @@
          Friendships as the feature-owned replacement for the QualifyFriendship / QualifyFriendRequest
          helpers that used to live here. -->
     <InternalsVisibleTo Include="Interfold.Friendships.Api" />
+    <!-- Interfold.Systems.Api: PublicSystemsController.Batch inlines the friendship-avatar
+         qualification (the former InterfoldControllerBase.QualifyFriendship helper) and calls
+         AvatarUrlQualifier.QualifyAvatar directly on friendship.Friend + each fronting alter.
+         Migrated during Phase-3 Systems facade slice. -->
+    <InternalsVisibleTo Include="Interfold.Systems.Api" />
     <InternalsVisibleTo Include="Interfold.IntegrationTests" />
     <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
   </ItemGroup>

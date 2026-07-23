@@ -13,8 +13,3 @@ public sealed record PublicSystemReadModel(
     Username? Username,
     string? Description
 ) : IAvatarBearing;
-
-// PublicSystemBatchReadModel lives in host/Interfold.Api/Models/ (Phase-3 Friendships migration).
-// Namespace preserved as Interfold.Contracts.Models.Read for wire-compat; physical file moved out
-// of spine to break the Interfold.Contracts <-> Interfold.Friendships.Contracts cycle after
-// FriendshipReadModel extracted.

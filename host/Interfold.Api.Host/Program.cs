@@ -15,6 +15,7 @@ using Interfold.Friendships.Api.DependencyInjection;
 using Interfold.Fronting.Api.DependencyInjection;
 using Interfold.Journals.Api.DependencyInjection;
 using Interfold.Polls.Api.DependencyInjection;
+using Interfold.Systems.Api.DependencyInjection;
 using Interfold.Tags.Api.DependencyInjection;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
@@ -74,6 +75,10 @@ builder.Services.AddTagsModule();
 // Polls feature module owns the three poll command-handler singletons.
 // Order-independent — no options binding, no config reads.
 builder.Services.AddPollsModule();
+
+// Systems feature module is a pure read facade (no owned handlers, no .Domain project);
+// AddSystemsModule is a no-op today and exists for wiring symmetry with the other modules.
+builder.Services.AddSystemsModule();
 
 // AuthenticationConfiguration is deliberately absent from this probe: its patchers pull
 // from the pre-Build secrets snapshot; probing would trip [Required] before the patches
