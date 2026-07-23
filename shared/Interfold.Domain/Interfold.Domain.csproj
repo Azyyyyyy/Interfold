@@ -42,6 +42,13 @@
          cycle (same DeleteAccountCommandHandler consumer). Dissolves when Settings (Phase 3 #7)
          migrates and both IFriendshipRepository and DeleteAccountCommandHandler move out. -->
     <ProjectReference Include="..\..\shared\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
+    <!-- Temporary back-ref: Post-Alters cleanup moved FrontId + FrontActiveReadModel +
+         FrontHistoryReadModel into Interfold.Fronting.Contracts, but IFrontingRepository
+         (shared/Interfold.Domain/Abstractions/Repository/IFrontingRepository.cs) binds all
+         three across 9 method signatures. IFrontingRepository itself stayed here to avoid a
+         Domain <-> Fronting.Domain cycle. Dissolves when Systems (Phase 3 #8/9) migrates and
+         IFrontingRepository moves into Interfold.Fronting.Domain. -->
+    <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
     <!-- Temporary back-ref: Phase 3 (Journals) moved JournalCommands + Journal read models +
          EntryId + the 6 journal events + journal command results into Interfold.Journals.Contracts,
          but IJournalRepository (shared/Interfold.Domain/Abstractions/Repository/IJournalRepository.cs)

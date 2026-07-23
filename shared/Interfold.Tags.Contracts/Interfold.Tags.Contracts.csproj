@@ -6,5 +6,11 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <!-- First cross-feature Contracts->Contracts reference in the codebase (paired with the
+         Fronting.Contracts->Alters.Contracts ref added in the same Post-Alters cleanup slice).
+         TagPublicReadModel.Alters binds IReadOnlyList<BareAlter>, which post-cleanup lives in
+         Interfold.Alters.Contracts. Alters.Contracts is the "leaf" feature Contracts that peers
+         can depend on (symmetric with how it already owns AlterReadModel : BareAlter). -->
+    <ProjectReference Include="..\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
   </ItemGroup>
 </Project>
