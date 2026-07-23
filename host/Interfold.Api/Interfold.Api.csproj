@@ -38,6 +38,11 @@
     <PackageReference Include="OneOf.SourceGenerator" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
     <ProjectReference Include="..\..\host\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
+    <!-- Interim back-ref: socket transport + handlers still live here in commit 1 of slice #10
+         and bind ISocketPayload / PhxFrame / SocketJson / *SocketEventNames / SocketSelfReadModel
+         from the newly extracted Interfold.Socket.Contracts leaf. Dissolves in commit 2 when the
+         socket transport + handlers migrate into Interfold.Socket.Api. -->
+    <ProjectReference Include="..\..\shared\Interfold.Socket.Contracts\Interfold.Socket.Contracts.csproj" />
     <!-- Back-ref: WebSocketHandler.cs calls JwtEs256Validator.ValidateSignature. Keeps
          the ES256 validator co-located with the rest of the Auth feature rather than
          forcing it into Interfold.Api.Shared just to satisfy the socket handler. -->

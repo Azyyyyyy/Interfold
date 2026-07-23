@@ -6,5 +6,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <!-- GlobalJournalSocketPayload / AlterJournalSocketPayload / EntryDeletedSocketPayload
+         implement ISocketPayload. -->
+    <ProjectReference Include="..\Interfold.Socket.Contracts\Interfold.Socket.Contracts.csproj" />
   </ItemGroup>
 </Project>

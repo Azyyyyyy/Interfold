@@ -6,5 +6,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <!-- AlterSocketPayload / AlterDeletedSocketPayload / AlterIdSocketPayload in this project
+         implement ISocketPayload, which lives on the socket leaf. -->
+    <ProjectReference Include="..\Interfold.Socket.Contracts\Interfold.Socket.Contracts.csproj" />
   </ItemGroup>
 </Project>

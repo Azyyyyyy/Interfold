@@ -6,6 +6,9 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <!-- TagSocketPayload / TagDeletedSocketPayload / SocketBatchedTagsPayload implement
+         ISocketPayload; back-ref to the socket leaf keeps the marker interface reachable. -->
+    <ProjectReference Include="..\Interfold.Socket.Contracts\Interfold.Socket.Contracts.csproj" />
     <!-- First cross-feature Contracts->Contracts reference in the codebase (paired with the
          Fronting.Contracts->Alters.Contracts ref added in the same Post-Alters cleanup slice).
          TagPublicReadModel.Alters binds IReadOnlyList<BareAlter>, which post-cleanup lives in
