@@ -6,10 +6,14 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+    <!-- SecretsPreBuildLoaderPoolingTests (Phase-4-retirement — moved here from Interfold.Api)
+         still binds three internals (WithDedicatedPoolIdentity + LoaderApplicationName +
+         LoaderMaxPoolSize). Same test-project-sees-composition-host pattern that
+         Interfold.IntegrationTests already uses via WebApplicationFactory<Program>. -->
+    <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\host\Interfold.Alters.Api\Interfold.Alters.Api.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Api\Interfold.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Friendships.Api\Interfold.Friendships.Api.csproj" />

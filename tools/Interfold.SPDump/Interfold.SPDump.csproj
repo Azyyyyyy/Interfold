@@ -8,8 +8,17 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\..\host\Interfold.Api\Interfold.Api.csproj" />
+      <!-- Interfold.Api retired in Phase 4; Program.cs's using Interfold.Api.Services /
+           Interfold.Api.Services.Http / Interfold.Api.SimplyPlural now resolve entirely
+           via the Interfold.Settings.Api reference (the namespaces were preserved when
+           the SimplyPlural + HTTP-logging code moved during Phase-3 slice #8). -->
       <ProjectReference Include="..\..\host\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
+      <!-- Program.cs calls InMemoryServiceCollectionExtensions.Register() before
+           AddInterfoldPersistence(PersistenceMode.InMemory, ...). Previously reached
+           transitively via the (now-retired) Interfold.Api reference; needs an explicit
+           ref now that Settings.Api only pulls in Interfold.Infrastructure, not the
+           InMemory driver. -->
+      <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
     </ItemGroup>
 
 </Project>

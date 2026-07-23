@@ -193,7 +193,7 @@ public static class InterfoldAppHost
 
         // Resolved at AppHost-build time so the OCTOCON_AVATAR_STORAGE_ROOT env var and the
         // WithVolume mount below share one path. Blank → the image's pre-created /app/data/avatars
-        // (app:app ownership baked in via Interfold.Api/data/avatars/.gitkeep so Docker's
+        // (app:app ownership baked in via Interfold.Api.Host/data/avatars/.gitkeep so Docker's
         // named-volume init inherits it and the app user, UID 1654, can write without chown).
         // Operators overriding the path opt out of the managed volume.
         var rawAvatarStorageRoot = builder.Configuration[AppHostParameterKeys.AvatarStorageRoot];
@@ -495,9 +495,9 @@ public static class InterfoldAppHost
 
                 // Managed avatar volume only when persistent AND path is the image's default —
                 // Docker's volume-init inherits app:app ownership from the pre-created dir
-                // (Interfold.Api/data/avatars/.gitkeep) so the app user (UID 1654) can write
-                // without chown. Operator-supplied paths opt out (no matching in-image dir
-                // means EACCES); they own their own bind mount + permissions.
+                // (Interfold.Api.Host/data/avatars/.gitkeep) so the app user (UID 1654) can
+                // write without chown. Operator-supplied paths opt out (no matching in-image
+                // dir means EACCES); they own their own bind mount + permissions.
                 if (persistentContainers && useDefaultAvatarStorageRoot)
                 {
                     api.WithVolume(ComposeVolumes.InterfoldAvatars, ContainerMountPaths.InterfoldAvatars);

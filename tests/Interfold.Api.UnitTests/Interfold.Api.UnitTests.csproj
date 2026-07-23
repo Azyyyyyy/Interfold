@@ -20,7 +20,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\shared\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Api\Interfold.Api.csproj" />
+    <!-- Phase-4 retirement of Interfold.Api relocated SecretsPreBuildLoader + SecretsSnapshot
+         into Interfold.Api.Host; SecretsPreBuildLoaderPoolingTests reaches internal members
+         via the matching InternalsVisibleTo grant in Interfold.Api.Host.csproj. Same
+         test-project-sees-composition-host pattern that Interfold.IntegrationTests uses. -->
+    <ProjectReference Include="..\..\host\Interfold.Api.Host\Interfold.Api.Host.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Auth.Contracts\Interfold.Auth.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />

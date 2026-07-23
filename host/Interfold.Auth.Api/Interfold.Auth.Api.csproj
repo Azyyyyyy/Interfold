@@ -22,7 +22,6 @@
     <Using Include="System.Net.Http.Json" />
   </ItemGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="Interfold.Api" />
     <InternalsVisibleTo Include="Interfold.IntegrationTests" />
     <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
   </ItemGroup>

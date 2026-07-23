@@ -22,7 +22,6 @@
     <Using Include="System.Net.Http.Json" />
   </ItemGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="Interfold.Api" />
     <InternalsVisibleTo Include="Interfold.Api.Host" />
     <InternalsVisibleTo Include="Interfold.Auth.Api" />
     <!-- Interfold.Fronting.Api is the first feature-module Api project to consume

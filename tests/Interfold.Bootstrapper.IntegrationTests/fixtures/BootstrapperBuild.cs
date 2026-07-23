@@ -55,7 +55,7 @@ internal static class BootstrapperBuild
         {
             await RunDotnetAsync(
                 "publish",
-                "host/Interfold.Api/Interfold.Api.csproj",
+                "host/Interfold.Api.Host/Interfold.Api.Host.csproj",
                 "-c", "Release",
                 "/t:PublishContainer",
                 "/p:ContainerImageName=interfold-api",

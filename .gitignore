@@ -48,8 +48,6 @@ TestResults/
 *.nuget.props
 *.nuget.targets
 
-host/Interfold.Api/wwwroot/avatars/**
-host/Interfold.Api/http-messages/**
 scripts/certs/**
 scripts/keys/**
 
