@@ -1,47 +1,9 @@
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
-
 namespace Interfold.Contracts.Events;
 
 // Alter*Event records live in Interfold.Alters.Contracts (Phase-3 migration).
 // Tag*Event records live in Interfold.Tags.Contracts (Phase-3 migration).
-
-public sealed record SettingsFieldsChangedEvent(ScopedSystemId TargetSystemId) : ITargetedClusterEvent;
-
-public sealed record SettingsProfileUpdatedEvent(ScopedSystemId TargetSystemId, bool EmitUsernameUpdated) : ITargetedClusterEvent;
-
-public sealed record SettingsAccountDeletedSignalEvent(ScopedSystemId TargetSystemId) : ITargetedClusterEvent;
-
-public sealed record SettingsAltersWipedSignalEvent(ScopedSystemId TargetSystemId) : ITargetedClusterEvent;
-
-public sealed record SettingsEncryptedDataWipedSignalEvent(ScopedSystemId TargetSystemId) : ITargetedClusterEvent;
-
-public sealed record SettingsDiscordAccountUnlinkedSignalEvent(ScopedSystemId TargetSystemId) : ITargetedClusterEvent;
-
-public sealed record SettingsAppleAccountUnlinkedSignalEvent(ScopedSystemId TargetSystemId) : ITargetedClusterEvent;
-
+// Settings*Event + SimplyPluralImport*Event + PluralKitImport*Event records live in
+// Interfold.Settings.Contracts (Phase-3 Settings migration).
 // Poll*Event records live in Interfold.Polls.Contracts (Phase-3 migration).
-
 // GlobalJournalEntry*Event + AlterJournalEntry*Event records live in Interfold.Journals.Contracts (Phase-3 migration).
-
 // Friendship*Event + FriendRequest*Event records live in Interfold.Friendships.Contracts (Phase-3 migration).
-
-// One event per provider (mirrors the per-provider unlink signal events below) so the
-// identity carries its real type and neither producer nor consumer switches on a provider enum.
-public sealed record SettingsDiscordAccountLinkedEvent(ScopedSystemId TargetSystemId, DiscordId DiscordId) : ITargetedClusterEvent;
-
-public sealed record SettingsGoogleAccountLinkedEvent(ScopedSystemId TargetSystemId, Email Email) : ITargetedClusterEvent;
-
-public sealed record SettingsAppleAccountLinkedEvent(ScopedSystemId TargetSystemId, AppleId AppleId) : ITargetedClusterEvent;
-
-public sealed record SettingsGoogleAccountUnlinkedSignalEvent(ScopedSystemId TargetSystemId) : ITargetedClusterEvent;
-
-public sealed record SettingsTagsWipedSignalEvent(ScopedSystemId TargetSystemId) : ITargetedClusterEvent;
-
-public sealed record SimplyPluralImportCompletedEvent(ScopedSystemId TargetSystemId, int AlterCount) : ITargetedClusterEvent;
-
-public sealed record SimplyPluralImportFailedEvent(ScopedSystemId TargetSystemId) : ITargetedClusterEvent;
-
-public sealed record PluralKitImportCompletedEvent(ScopedSystemId TargetSystemId, int AlterCount) : ITargetedClusterEvent;
-
-public sealed record PluralKitImportFailedEvent(ScopedSystemId TargetSystemId) : ITargetedClusterEvent;

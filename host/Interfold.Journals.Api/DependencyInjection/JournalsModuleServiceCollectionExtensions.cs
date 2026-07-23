@@ -1,3 +1,4 @@
+using Interfold.Domain.Abstractions;
 using Interfold.Domain.Journals;
 
 namespace Interfold.Journals.Api.DependencyInjection;
@@ -9,9 +10,13 @@ namespace Interfold.Journals.Api.DependencyInjection;
 public static class JournalsModuleServiceCollectionExtensions
 {
     /// <summary>Registers everything the Journals feature owns: the twelve journal
-    /// command-handler singletons (seven global + five alter). <c>IJournalRepository</c>
-    /// is registered by the active persistence adapter (Scylla / Postgres / InMemory)
-    /// via <c>AddInterfoldPersistence</c>, so no repository registration lives here.</summary>
+    /// command-handler singletons (seven global + five alter) plus the
+    /// <see cref="IJournalAlterCascade"/> adapter over <c>IJournalRepository</c>
+    /// consumed by <c>DeleteAlterCommandHandler</c> (spine-level abstraction so
+    /// Alters.Domain doesn't back-reference Journals.Domain). <c>IJournalRepository</c>
+    /// itself is registered by the active persistence adapter (Scylla / Postgres /
+    /// InMemory) via <c>AddInterfoldPersistence</c>, so no repository registration
+    /// lives here.</summary>
     public static IServiceCollection AddJournalsModule(this IServiceCollection services) =>
         services
             .AddSingleton<CreateGlobalJournalEntryCommandHandler>()
@@ -25,5 +30,6 @@ public static class JournalsModuleServiceCollectionExtensions
             .AddSingleton<UpdateAlterJournalEntryCommandHandler>()
             .AddSingleton<DeleteAlterJournalEntryCommandHandler>()
             .AddSingleton<SetAlterJournalLockedCommandHandler>()
-            .AddSingleton<SetAlterJournalPinnedCommandHandler>();
+            .AddSingleton<SetAlterJournalPinnedCommandHandler>()
+            .AddSingleton<IJournalAlterCascade, JournalAlterCascadeAdapter>();
 }

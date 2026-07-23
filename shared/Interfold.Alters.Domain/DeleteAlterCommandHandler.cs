@@ -12,17 +12,17 @@ namespace Interfold.Domain.Alters;
 public sealed class DeleteAlterCommandHandler : IdempotentCommandHandler<DeleteAlterCommand, AlterCommandResult>
 {
     private readonly IAlterRepository _alterRepository;
-    private readonly IJournalRepository _journalRepository;
+    private readonly IJournalAlterCascade _journalCascade;
     private readonly IClusterEventBus _eventBus;
 
     public DeleteAlterCommandHandler(
         IAlterRepository alterRepository,
-        IJournalRepository journalRepository,
+        IJournalAlterCascade journalCascade,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
 :base(idempotencyStore)    {
         _alterRepository = alterRepository;
-        _journalRepository = journalRepository;
+        _journalCascade = journalCascade;
         _eventBus = eventBus;
     }
 
@@ -44,7 +44,7 @@ protected override async Task<CommandExecutionResult<AlterCommandResult>> Execut
         // journals if the alter delete succeeded but cleanup later threw. DeleteAllForAlterAsync
         // also detaches the alter from any global journals it was attached to without
         // deleting the global journal itself (multiple alters can share a group journal).
-        await _journalRepository.DeleteAllForAlterAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
+        await _journalCascade.DeleteAllForAlterAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
 
         //TODO: Delete alter image if it exists
 

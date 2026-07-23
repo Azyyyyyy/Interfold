@@ -20,7 +20,7 @@ internal static class AlterJournalCommandFlow
     public static async Task<CommandExecutionResult<TResult>?> RejectIfInvalidOrMissingAlterAsync<TCommand, TResult>(
         CommandEnvelope<TCommand> command,
         AlterId alterId,
-        IAlterRepository alterRepository,
+        IAlterExistenceCheck alterExistence,
         EntityRef invalidAlterIdEntityRef,
         EntityRef missingAlterEntityRef,
         CancellationToken cancellationToken = default)
@@ -28,7 +28,7 @@ internal static class AlterJournalCommandFlow
         if (CommandHandler.RejectIfAlterIdOutOfRange<TResult>(command.OperationId, alterId, invalidAlterIdEntityRef) is { } invalidAlterIdReject)
             return invalidAlterIdReject;
 
-        var alterExists = await alterRepository.ExistsAsync(command.PrincipalId, alterId, cancellationToken);
+        var alterExists = await alterExistence.ExistsAsync(command.PrincipalId, alterId, cancellationToken);
         return alterExists
             ? null
             : CommandHandler.RejectInvariant<TResult>(command.OperationId, missingAlterEntityRef);

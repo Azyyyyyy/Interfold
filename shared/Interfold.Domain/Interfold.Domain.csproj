@@ -6,72 +6,22 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\shared\Interfold.Contracts\Interfold.Contracts.csproj" />
-    <!-- Temporary back-ref: Phase 3 (Alters) moved AlterCommands + AlterReadModel + BareAlter +
-         AlterCommandResult + the 3 Alter*Event records + 3 alter socket payloads into
-         Interfold.Alters.Contracts, but IAlterRepository (shared/Interfold.Domain/Abstractions/Repository/IAlterRepository.cs)
-         binds CreateAlterCommand + UpdateAlterCommand + AlterReadModel + BareAlter across its
-         methods, and both DeleteAccountCommandHandler + WipeAltersCommandHandler
-         (shared/Interfold.Domain/Settings/) still consume IAlterRepository. IAlterRepository
-         itself stayed here to avoid a Domain <-> Alters.Domain cycle. Dissolves when Settings
-         (Phase 3 #7) migrates and IAlterRepository moves into Interfold.Alters.Domain. -->
-    <ProjectReference Include="..\..\shared\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
-    <!-- Temporary back-ref: Phase 2 moved AuthenticationConfiguration + ProviderIdentity into
-         Interfold.Auth.Contracts, but three call sites still live here (SetupEncryptionCommandHandler,
-         RecoverEncryptionCommandHandler, IAccountRepository). Phase 3 extracts Settings + splits
-         the account repo along feature lines; drop this ref then. -->
-    <ProjectReference Include="..\..\shared\Interfold.Auth.Contracts\Interfold.Auth.Contracts.csproj" />
-    <!-- Temporary back-ref: Phase 3 (Tags) moved TagCommands into Interfold.Tags.Contracts, but
-         ITagRepository (shared/Interfold.Domain/Abstractions/Repository/ITagRepository.cs) binds
-         CreateTagCommand + UpdateTagCommand on two of its methods. ITagRepository itself stayed
-         here to avoid a Domain <-> Tags.Domain cycle (two Settings-shape handlers in
-         shared/Interfold.Domain/Settings/ still depend on the interface). Dissolves when Settings
-         (Phase 3 #7) migrates and ITagRepository moves into Interfold.Tags.Domain. -->
-    <ProjectReference Include="..\..\shared\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
-    <!-- Temporary back-ref: Phase 3 (Polls) moved PollCommands + PollReadModel + PollId into
-         Interfold.Polls.Contracts, but IPollRepository (shared/Interfold.Domain/Abstractions/Repository/IPollRepository.cs)
-         binds CreatePollCommand + UpdatePollCommand + PollReadModel across its methods, and
-         DeleteAccountCommandHandler (shared/Interfold.Domain/Settings/) still consumes
-         IPollRepository. IPollRepository itself stayed here to avoid a Domain <-> Polls.Domain
-         cycle. Dissolves when Settings (Phase 3 #7) migrates and IPollRepository moves into
-         Interfold.Polls.Domain. -->
-    <ProjectReference Include="..\..\shared\Interfold.Polls.Contracts\Interfold.Polls.Contracts.csproj" />
-    <!-- Temporary back-ref: Phase 3 (Friendships) moved the 8 Friend*Event records into
-         Interfold.Friendships.Contracts.Events, but DeleteAccountCommandHandler
-         (shared/Interfold.Domain/Settings/) publishes FriendshipRemovedEvent during account
-         teardown. IFriendshipRepository itself stayed here to avoid a Domain <-> Friendships.Domain
-         cycle (same DeleteAccountCommandHandler consumer). Dissolves when Settings (Phase 3 #7)
-         migrates and both IFriendshipRepository and DeleteAccountCommandHandler move out. -->
-    <ProjectReference Include="..\..\shared\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
-    <!-- Temporary back-ref: Post-Alters cleanup moved FrontId + FrontActiveReadModel +
-         FrontHistoryReadModel into Interfold.Fronting.Contracts, but IFrontingRepository
-         (shared/Interfold.Domain/Abstractions/Repository/IFrontingRepository.cs) binds all
-         three across 9 method signatures, and DeleteAccountCommandHandler
-         (shared/Interfold.Domain/Settings/) still consumes IFrontingRepository during
-         account teardown. IFrontingRepository itself stayed here to avoid a Domain <->
-         Fronting.Domain cycle. Dissolves when Settings (Phase 3 #7) migrates and
-         IFrontingRepository moves into Interfold.Fronting.Domain. -->
-    <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
-    <!-- Temporary back-ref: Systems facade slice (Phase 3 #7 in landed order) moved
-         PublicSystemReadModel into Interfold.Systems.Contracts, but IAccountRepository
-         (shared/Interfold.Domain/Abstractions/Repository/IAccountRepository.cs) binds it on
-         GetPublicSystemAsync — the sole Systems-exclusive projection kept on the shared
-         interface (per that slice's deliberate deviation from the plan-doc's "provisional
-         call: read interfaces" note; introducing a one-method IPublicSystemProfileReader
-         was not worth the impl-side ceremony across the two persistence adapters).
-         Acyclic: Systems.Contracts fans out to Spine + Alters/Tags/Fronting/Friendships
-         Contracts, none of which reach Domain. Dissolves when Settings (#8) migrates
-         IAccountRepository into an Accounts/Settings-owned home and GetPublicSystemAsync
-         is either split into a narrow reader or hoisted alongside. -->
-    <ProjectReference Include="..\..\shared\Interfold.Systems.Contracts\Interfold.Systems.Contracts.csproj" />
-    <!-- Temporary back-ref: Phase 3 (Journals) moved JournalCommands + Journal read models +
-         EntryId + the 6 journal events + journal command results into Interfold.Journals.Contracts,
-         but IJournalRepository (shared/Interfold.Domain/Abstractions/Repository/IJournalRepository.cs)
-         binds those command + read-model types across its methods, and both
-         DeleteAccountCommandHandler + DeleteAlterCommandHandler (shared/Interfold.Domain/Settings/
-         + shared/Interfold.Domain/Alters/) still consume IJournalRepository. IJournalRepository
-         itself stayed here to avoid a Domain <-> Journals.Domain cycle. Dissolves when Settings
-         (Phase 3 #7) migrates and IJournalRepository moves into Interfold.Journals.Domain. -->
-    <ProjectReference Include="..\..\shared\Interfold.Journals.Contracts\Interfold.Journals.Contracts.csproj" />
+    <!-- All eight Phase-3 back-refs (Alters / Auth / Tags / Polls / Friendships / Fronting /
+         Systems / Journals Contracts) dissolved with Phase-3 Settings slice #8: the settings-
+         shape command handlers + four settings-owned repository interfaces (IAccountRepository,
+         INotificationTokenRepository, IEncryptionStateRepository, IImportOperationRepository)
+         moved into Interfold.Settings.Domain, and the six peer repository interfaces
+         (IAlterRepository / ITagRepository / IPollRepository / IJournalRepository /
+         IFrontingRepository / IFriendshipRepository) relocated to their feature.Domain
+         projects. Interfold.Domain is now a pure cross-cutting-abstractions module
+         (IIdempotencyStore, ICommandHandler, IdempotentCommandHandler, IClusterEventBus,
+         IRegionContext, INodeRoleContext, IFCMService, ISingletonTaskOwner,
+         IAuthTokenRevocationRepository, ISettingsFieldRepository, ISimplyPluralImportService,
+         marker types). ISettingsFieldRepository stays here as an in-slice deviation from the
+         Settings-slice plan: it binds only spine types, and hosting it here breaks the
+         Alters.Domain <-> Settings.Domain cycle that would otherwise form
+         (AlterFieldProjection reaches it, and Settings.Domain reaches Alters.Domain for
+         IAlterRepository). -->
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" />

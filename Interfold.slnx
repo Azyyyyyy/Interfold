@@ -20,6 +20,8 @@
     <Project Path="shared/Interfold.Journals.Domain/Interfold.Journals.Domain.csproj" />
     <Project Path="shared/Interfold.Polls.Contracts/Interfold.Polls.Contracts.csproj" />
     <Project Path="shared/Interfold.Polls.Domain/Interfold.Polls.Domain.csproj" />
+    <Project Path="shared/Interfold.Settings.Contracts/Interfold.Settings.Contracts.csproj" />
+    <Project Path="shared/Interfold.Settings.Domain/Interfold.Settings.Domain.csproj" />
     <Project Path="shared/Interfold.Systems.Contracts/Interfold.Systems.Contracts.csproj" />
     <Project Path="shared/Interfold.Tags.Contracts/Interfold.Tags.Contracts.csproj" />
     <Project Path="shared/Interfold.Tags.Domain/Interfold.Tags.Domain.csproj" />

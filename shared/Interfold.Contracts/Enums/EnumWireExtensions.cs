@@ -1,5 +1,3 @@
-using Interfold.Contracts.Models.ImportOperations;
-
 namespace Interfold.Contracts.Enums;
 
 // Parse-side helpers for env-driven enums: blank → compiled-in default, unknown → throw
@@ -12,18 +10,6 @@ public static class EnumWireExtensions
 
     public static bool TryParseWire<TEnum>(this string? raw, out TEnum value) where TEnum : struct, Enum
         => EnumWire<TEnum>.TryParse(raw, out value);
-
-    public static ImportOperationKind ParseWireValue(string value)
-    {
-        if (value.TryParseWire<ImportOperationKind>(out var kind))
-        {
-            return kind;
-        }
-
-        throw new ArgumentException(
-            $"'{value}' is not a valid ImportOperationKind wire value. Expected 'sp' or 'pk'.",
-            nameof(value));
-    }
 
     // Blank → default, unknown-non-empty → throw. Shared shape for env-parsers below.
     public static T ParseWithDefault<T>(string? raw, T defaultValue, Func<string, string> errorProvider) where T : struct, Enum

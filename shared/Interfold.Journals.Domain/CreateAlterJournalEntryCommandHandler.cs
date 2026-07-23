@@ -12,17 +12,17 @@ namespace Interfold.Domain.Journals;
 public sealed class CreateAlterJournalEntryCommandHandler : IdempotentCommandHandler<CreateAlterJournalEntryCommand, AlterJournalCommandResult>
 {
     private readonly IJournalRepository _journalRepository;
-    private readonly IAlterRepository _alterRepository;
+    private readonly IAlterExistenceCheck _alterExistence;
     private readonly IClusterEventBus _eventBus;
 
     public CreateAlterJournalEntryCommandHandler(
         IJournalRepository journalRepository,
-        IAlterRepository alterRepository,
+        IAlterExistenceCheck alterExistence,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
 :base(idempotencyStore)    {
         _journalRepository = journalRepository;
-        _alterRepository = alterRepository;
+        _alterExistence = alterExistence;
         _eventBus = eventBus;
     }
 
@@ -42,7 +42,7 @@ protected override async Task<CommandExecutionResult<AlterJournalCommandResult>>
         if (await AlterJournalCommandFlow.RejectIfInvalidOrMissingAlterAsync<CreateAlterJournalEntryCommand, AlterJournalCommandResult>(
                 command,
                 command.Payload.AlterId,
-                _alterRepository,
+                _alterExistence,
                 EntityRefs.AlterId,
                 EntityRefs.JournalAlterNotFound,
                 cancellationToken) is { } alterReject)

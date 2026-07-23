@@ -9,9 +9,5 @@ namespace Interfold.Api.Models;
 /// </summary>
 public sealed record NodeRoleResponse(NodeGroup Role, bool OwnsSingletons);
 
-/// <summary>
-/// 503 body for <c>GET /settings/link_token</c> on non-primary nodes. Intentionally
-/// non-standard (carries <c>hint</c> instead of <c>code</c>) — the Kotlin client and the
-/// legacy Elixir server both use this exact shape, so it is frozen.
-/// </summary>
-public sealed record LinkTokenUnavailableResponse(string Error, string Hint);
+// LinkTokenUnavailableResponse migrated to Interfold.Settings.Contracts/Models/Wire/
+// (Phase-3 Settings slice; namespace Interfold.Api.Models preserved for wire-compat).

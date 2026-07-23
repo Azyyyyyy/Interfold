@@ -16,6 +16,16 @@
          Phase-3 Fronting migration. Dissolves when FrontNotifier migrates into
          Interfold.Fronting.Api. -->
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
+    <!-- Phase-3 Settings slice #8: FirebaseFCMService injects FcmConfiguration (moved to
+         Interfold.Settings.Contracts), IAccountRepository + INotificationTokenRepository
+         (moved to Interfold.Settings.Domain), and IAlterRepository (moved to
+         Interfold.Alters.Domain). InProcessImportJobQueue implements IImportJobQueue (moved
+         to Interfold.Settings.Domain). Settings.Contracts reachable transitively through
+         Settings.Domain, but kept explicit so a shift in either doesn't cascade compile
+         errors here. -->
+    <ProjectReference Include="..\..\shared\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CassandraCSharpDriver" />

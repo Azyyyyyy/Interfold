@@ -25,17 +25,22 @@
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Systems.Contracts\Interfold.Systems.Contracts.csproj" />
-    <!-- Facade module reaches Interfold.Domain directly for the five repository interfaces
-         PublicSystemsController + SystemMustExistAttribute consume (IAccountRepository,
-         IAlterRepository, ITagRepository, IFrontingRepository, IFriendshipRepository) — the
-         module has no .Domain project of its own (no owned handlers, no owned abstractions).
-         Ops (#11) will follow this same shape. -->
-    <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
+    <!-- Facade module reaches five feature.Domain projects for the repository interfaces
+         PublicSystemsController + SystemMustExistAttribute consume (IAccountRepository via
+         Settings.Domain, IAlterRepository via Alters.Domain, ITagRepository via Tags.Domain,
+         IFrontingRepository via Fronting.Domain, IFriendshipRepository via Friendships.Domain).
+         Interfold.Domain ref dropped in Phase-3 Settings slice #8 — the five interfaces
+         relocated out of the spine Domain project. Ops (#9) will follow this same shape. -->
+    <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Friendships.Domain\Interfold.Friendships.Domain.csproj" />
     <!-- Feature Contracts the controller binds directly: BareAlter (Alters), TagId +
          TagPublicReadModel (Tags), FrontActiveReadModel (Fronting), FriendshipReadModel
-         (Friendships). All reachable transitively via Systems.Contracts too — but explicit
-         refs keep the compile-error surface local to the consuming project when a feature
-         Contracts shifts. -->
+         (Friendships). All reachable transitively via Systems.Contracts + the feature.Domain
+         refs above — but explicit refs keep the compile-error surface local to the consuming
+         project when a feature Contracts shifts. -->
     <ProjectReference Include="..\..\shared\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />

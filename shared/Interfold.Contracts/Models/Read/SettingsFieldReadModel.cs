@@ -1,9 +1,17 @@
 ﻿using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models;
 
 namespace Interfold.Contracts.Models.Read;
 
+// SettingsFieldReadModel stays on spine — pinned by Interfold.Alters.Domain.AlterFieldProjection.
+// Eight settings-scoped wire request records migrated to
+// Interfold.Settings.Contracts/Models/Read/SettingsWireRequests.cs (Phase-3 Settings slice).
+// AvatarUrlUploadRequest + AvatarUploadPayload stay on spine (in-slice deviation from the
+// plan): the first is bound by both AltersController and SettingsController, the second
+// is constructed inside InterfoldControllerBase.ResolveMultipartUploadAsync
+// (Interfold.Api.Shared) — moving either would introduce Api.Shared → Settings.Contracts
+// or Alters.Api → Settings.Contracts arrows that the "pinned by cross-feature binding"
+// rule in the plan's section 1b already tells us to avoid.
 public sealed record SettingsFieldReadModel(
     FieldId Id,
     string Name,
@@ -12,47 +20,9 @@ public sealed record SettingsFieldReadModel(
     bool Locked,
     int Index,
     DateTime? InsertedAt);
-    
-public sealed record SettingsUsernameRequest(
-    Username Username
-);
-
-public sealed record SettingsDescriptionRequest(
-    string Description
-);
-
-public sealed record SettingsPushTokenRequest(
-    PushToken? Token = null
-);
-
-public sealed record SettingsEncryptionRequest(
-    RecoveryCode RecoveryCode
-);
-
-public sealed record SettingsImportRequest(
-    ImportToken Token,
-    RecoveryCode? RecoveryCode = null
-);
 
 public sealed record AvatarUrlUploadRequest(
     AvatarUrl Url
-);
-
-public sealed record SettingsCreateFieldRequest(
-    string Name,
-    FieldType? Type,
-    VisibilityLevel? SecurityLevel,
-    bool? Locked
-);
-
-public sealed record SettingsUpdateFieldRequest(
-    string? Name,
-    VisibilityLevel? SecurityLevel,
-    bool? Locked
-);
-
-public sealed record SettingsRelocateFieldRequest(
-    int Index
 );
 
 public sealed record AvatarUploadPayload(Stream? Stream, bool EmptyFilePart = false);

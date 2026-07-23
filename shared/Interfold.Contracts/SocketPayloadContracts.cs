@@ -66,21 +66,10 @@ public sealed record SocketSelfReadModel(
 // PollSocketPayload + PollDeletedSocketPayload live in Interfold.Polls.Contracts (Phase-3 migration).
 // FrontSocketPayload + FrontsSocketPayload + FrontIdSocketPayload live in Interfold.Fronting.Contracts (Phase-3 migration).
 // GlobalJournalSocketPayload + AlterJournalSocketPayload + EntryDeletedSocketPayload live in Interfold.Journals.Contracts (Phase-3 migration).
-
-public sealed record SettingsFieldsUpdatedPayload(IReadOnlyList<SettingsFieldReadModel> Fields) : ISocketPayload;
-
-public sealed record SettingsUsernameUpdatedPayload(Username Username) : ISocketPayload;
-
-public sealed record SettingsSelfUpdatedPayload(SocketSelfReadModel Data) : ISocketPayload;
-
-public sealed record DiscordAccountLinkedPayload(DiscordId DiscordId) : ISocketPayload;
-
-public sealed record GoogleAccountLinkedPayload(Email Email) : ISocketPayload;
-
-public sealed record AppleAccountLinkedPayload(AppleId AppleId) : ISocketPayload;
+// SettingsFieldsUpdatedPayload + SettingsUsernameUpdatedPayload + SettingsSelfUpdatedPayload +
+// DiscordAccountLinkedPayload + GoogleAccountLinkedPayload + AppleAccountLinkedPayload +
+// ImportCompletedSocketPayload live in Interfold.Settings.Contracts (Phase-3 Settings migration).
 
 // FriendRequestSocketPayload + FriendIdSocketPayload live in Interfold.Friendships.Contracts (Phase-3 migration).
 
 public sealed record SystemIdSocketPayload(SystemId SystemId) : ISocketPayload;
-
-public sealed record ImportCompletedSocketPayload(int AlterCount) : ISocketPayload;

@@ -5,7 +5,6 @@ using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Domain.Tags;
 
@@ -31,10 +30,10 @@ internal static class TagCommandFlow
     public static async Task<CommandExecutionResult<TagCommandResult>?> RejectIfAlterNotFoundAsync<TCommand>(
         CommandEnvelope<TCommand> command,
         AlterId alterId,
-        IAlterRepository alterRepository,
+        IAlterExistenceCheck alterExistence,
         CancellationToken cancellationToken = default)
     {
-        var alterExists = await alterRepository.ExistsAsync(command.PrincipalId, alterId, cancellationToken);
+        var alterExists = await alterExistence.ExistsAsync(command.PrincipalId, alterId, cancellationToken);
         return alterExists
             ? null
             : CommandHandler.RejectInvariant<TagCommandResult>(command.OperationId, EntityRefs.TagAlterNotFound);
