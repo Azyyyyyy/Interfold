@@ -1,7 +1,7 @@
 # `PersistenceMode.Sqlite` — full-stack SQLite mode for small self-hosts
 
-Last updated: 2026-08-13
-Status: **Scaffolding landed on 2026-08-13 — follow-on PRs enumerated below.**
+Last updated: 2026-08-16
+Status: **Scaffolding + domain repos + AppHost Sqlite path landed — Bootstrapper / KMP follow-ons remain.**
 
 Adds a third `PersistenceMode` alongside `ScyllaPostgres` and `InMemory` that
 runs the entire persistence surface — domain repositories, idempotency store,
@@ -127,18 +127,18 @@ The following are all small, targeted changes rather than restructures:
   switch inside `ServiceCollectionExtensions`).
 - **`hosts/Interfold.Api.Host/Program.cs` health-check block** — new branch
   registering `AddReadyAndStartup<SqliteHealthChecker>("sqlite")` when `Sqlite`
-  mode is active (follow-on).
+  mode is active (landed).
 - **`hosts/Interfold.Api.Host/Services/Secrets/SecretsPreBuildLoader.cs`** —
   three-way switch: `InMemory` / `Postgres (ScyllaPostgres)` / `Sqlite`
-  (follow-on).
+  (landed).
 - **`hosts/Interfold.AppHost/InterfoldAppHost.cs`** — Sqlite-mode bootstrap
   path that skips CQL and Postgres compose resources; bind-mounted `.db`
-  volume (follow-on).
+  volume (landed — `Parameters:persistence=sqlite`).
 - **`tools/Interfold.Bootstrapper`** — Sqlite bootstrap variant: skip
   Cassandra/Postgres phases; create data dir, run migrations, seed; wire
   `backup` / `restore` to SQLite online-backup API (follow-on).
 - **Integration tests** — `SqliteWebFactoryFixture`; suite runs against
-  InMemory + Sqlite by default (follow-on).
+  InMemory + Sqlite by default (fixture landed; suite default matrix follow-on).
 
 ---
 
@@ -160,7 +160,11 @@ Each item is its own PR:
    `SecretsPreBuildLoader.cs`.
 4. **AppHost** — Sqlite bootstrap path in `InterfoldAppHost.cs` that skips
    Scylla/Postgres compose resources and bind-mounts the `.db` volume onto the
-   API resource.
+   API resource. **Done (2026-08-16):** set `Parameters:persistence=sqlite`
+   (or `aspire run --parameter persistence=sqlite`). Forces Postgres/Scylla/
+   Cassandra off, stamps `OCTOCON_PERSISTENCE` + `OCTOCON_SQLITE_CONNECTION`,
+   runs `SqliteDevSeed` (migrate + secrets) before the API starts, and stores
+   the host-side file under `hosts/Interfold.AppHost/.data/sqlite/interfold.db`.
 5. **Bootstrapper** — Sqlite variant in `tools/Interfold.Bootstrapper/Phases/`:
    skips `CassandraImagePhase` + Postgres phases; new phase creates data dir +
    runs schema migrations + seeds. `backup` / `restore` wired to SQLite
@@ -340,3 +344,7 @@ Domain repository status:
 - 2026-08-13 — Domain repositories (11) ported from InMemory behavioural contracts onto
   SQLite tables + `ISqliteConnectionFactory`. NotImplemented stubs removed. Integration
   ClassDataSource legs remain the progress tracker for behavioural parity.
+- 2026-08-16 — AppHost Sqlite path: `Parameters:persistence=sqlite` skips msg-db/CQL,
+  mounts / seeds `hosts/Interfold.AppHost/.data/sqlite/interfold.db`, and wires
+  `OCTOCON_PERSISTENCE` + `OCTOCON_SQLITE_CONNECTION` for both AddProject and
+  container API resources.

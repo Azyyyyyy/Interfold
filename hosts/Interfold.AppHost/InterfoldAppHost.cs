@@ -193,11 +193,31 @@ public static class InterfoldAppHost
         // instead of spinning up a redundant second Postgres).
         var includePostgres = BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludePostgres], fallback: true);
 
-        if (includeApi && !includePostgres)
+        // Blank → ScyllaPostgres. Sqlite forces CQL + Postgres off so a single parameter is enough.
+        var persistenceMode = EnumWireExtensions.ParsePersistenceMode(
+            builder.Configuration[AppHostParameterKeys.Persistence]);
+        var useSqlite = persistenceMode == PersistenceMode.Sqlite;
+        if (useSqlite)
+        {
+            includePostgres = false;
+            includeScylla = false;
+            includeCassandra = false;
+        }
+
+        if (includeApi && !includePostgres && !useSqlite)
         {
             throw new InvalidOperationException(
-                "Parameters:include-api=true requires Parameters:include-postgres=true (the API depends on msg-db).");
+                "Parameters:include-api=true requires Parameters:include-postgres=true (the API depends on msg-db), " +
+                "or Parameters:persistence=sqlite.");
         }
+
+        // Host-side SQLite file used by DevSeed + AddProject; container path bind-mounts the
+        // same directory so secrets preload sees the seeded rows.
+        var sqliteHostDir = Path.Combine(builder.AppHostDirectory, ".data", "sqlite");
+        var sqliteHostDbPath = Path.Combine(sqliteHostDir, ContainerMountPaths.InterfoldSqliteDbFileName);
+        var sqliteHostConnectionString = $"Data Source={sqliteHostDbPath}";
+        var sqliteContainerConnectionString =
+            $"Data Source={ContainerMountPaths.InterfoldSqliteData}/{ContainerMountPaths.InterfoldSqliteDbFileName}";
 
         if (includePostgres)
         {
@@ -219,6 +239,11 @@ public static class InterfoldAppHost
                         await DockerExecCqlProbe.RunAsync(ComposeServices.Cassandra, ct).ConfigureAwait(false));
                 }
             }
+        }
+        else if (includeApi && (includeScylla || includeCassandra))
+        {
+            builder.Services.AddHealthChecks()
+                .AddCheck(ScyllaHealthCheckName, HostPortTcpProbe.CreateCheck(scyllaPort));
         }
 
         // Per-node CQL readiness gates (always on). Each node's WithHealthCheck below flips
@@ -617,10 +642,8 @@ public static class InterfoldAppHost
         // Seed ownership by mode:
         //  - Publish: DatabaseInitPhase in the bootstrapper (docker compose exec).
         //  - Tests (include-api=false): SharedDbFixture drives DbInitHelper directly.
-        //  - RunMode dev (include-api=true): DevSeedHostedService, wired below.
-        // First cqlEndpointOwners entry is scylla node 0 in the default flow, cassandra when
-        // the user picked the cassandra launch profile; mixed scylla+cassandra is test-only
-        // so we only ever seed one backend.
+        //  - RunMode + scylla-postgres: DevSeedHostedService (Postgres + CQL).
+        //  - RunMode + sqlite: SqliteDevSeedHostedService (migrate + secrets only).
         IResourceBuilder<DevSeedResource>? devSeedResource = null;
         if (!builder.ExecutionContext.IsPublishMode && includeApi && includePostgres)
         {
@@ -634,6 +657,11 @@ public static class InterfoldAppHost
                 postgresInitPassword, postgresPassword, scyllaPassword,
                 googleOAuthClientSecret!, discordOAuthClientSecret!, appleOAuthClientSecret!);
         }
+        else if (!builder.ExecutionContext.IsPublishMode && includeApi && useSqlite)
+        {
+            Directory.CreateDirectory(sqliteHostDir);
+            devSeedResource = builder.AddSqliteDevSeedPipeline(sqliteHostDbPath);
+        }
 
         // Interfold API: pre-built image for self-hosting (Parameters:api-image), csproj build
         // for dev (`aspire run`).
@@ -641,17 +669,9 @@ public static class InterfoldAppHost
         var apiIsContainer = false;
         if (includeApi)
         {
-            // Guaranteed non-null by the includeApi && !includePostgres guard above.
-            var msgDbResource = msgDb!;
-            var pgEndpoint = msgDbResource.GetEndpoint(PostgresEndpointName);
-
-            void ConfigureApiCommon(IResourceBuilder<IResourceWithEnvironment> api)
+            void ConfigureApiCommon(IResourceBuilder<IResourceWithEnvironment> api, bool containerPath)
             {
-                api.WithEnvironment(OctoconEnvKeys.Persistence, PersistenceMode.ScyllaPostgres.ToWire())
-                   .WithEnvironment(OctoconEnvKeys.SingleScyllaInstance, BoolWire.ToWireValue(!isMultiScylla))
-                   .WithEnvironment(OctoconEnvKeys.PostgresConnection,
-                       ReferenceExpression.Create($"Host={pgEndpoint.Property(EndpointProperty.Host)};Port={pgEndpoint.Property(EndpointProperty.Port)};Database={postgresDb};Username={postgresUser};Password={postgresPassword}"))
-                   .WithEnvironment(ContainerEnvNames.EncryptionPrivateKey, encryptionPrivateKey)
+                api.WithEnvironment(ContainerEnvNames.EncryptionPrivateKey, encryptionPrivateKey)
                    .WithEnvironment(OctoconEnvKeys.GoogleOAuthClientId, googleOAuthClientId)
                    .WithEnvironment(OctoconEnvKeys.DiscordOAuthClientId, discordOAuthClientId)
                    .WithEnvironment(OctoconEnvKeys.AppleOAuthClientId, appleOAuthClientId);
@@ -663,6 +683,47 @@ public static class InterfoldAppHost
                        .WithEnvironment(OctoconEnvKeys.DiscordOAuthClientSecret, discordOAuthClientSecret!)
                        .WithEnvironment(OctoconEnvKeys.AppleOAuthClientSecret, appleOAuthClientSecret!);
                 }
+
+                if (useSqlite)
+                {
+                    var sqliteCs = containerPath ? sqliteContainerConnectionString : sqliteHostConnectionString;
+                    api.WithEnvironment(OctoconEnvKeys.Persistence, PersistenceMode.Sqlite.ToWire())
+                       .WithEnvironment(OctoconEnvKeys.SqliteConnection, sqliteCs);
+                    return;
+                }
+
+                // Guaranteed non-null by the includeApi && !includePostgres guard above.
+                var msgDbResource = msgDb!;
+                var pgEndpoint = msgDbResource.GetEndpoint(PostgresEndpointName);
+                api.WithEnvironment(OctoconEnvKeys.Persistence, PersistenceMode.ScyllaPostgres.ToWire())
+                   .WithEnvironment(OctoconEnvKeys.SingleScyllaInstance, BoolWire.ToWireValue(!isMultiScylla))
+                   .WithEnvironment(OctoconEnvKeys.PostgresConnection,
+                       ReferenceExpression.Create($"Host={pgEndpoint.Property(EndpointProperty.Host)};Port={pgEndpoint.Property(EndpointProperty.Port)};Database={postgresDb};Username={postgresUser};Password={postgresPassword}"));
+            }
+
+            void AttachSqliteDataMount(IResourceBuilder<ContainerResource> api)
+            {
+                // Bind the host .data/sqlite dir so DevSeed (AppHost process) and the API
+                // container share one file. Publish + persistent uses a named volume (no
+                // DevSeed in that path — bootstrapper owns seeding).
+                if (builder.ExecutionContext.IsPublishMode && persistentContainers)
+                {
+                    api.WithVolume(ComposeVolumes.InterfoldSqliteData, ContainerMountPaths.InterfoldSqliteData);
+                }
+                else
+                {
+                    api.WithBindMount(sqliteHostDir, ContainerMountPaths.InterfoldSqliteData);
+                }
+            }
+
+            void WaitForApiDependencies<T>(IResourceBuilder<T> api) where T : IResourceWithWaitSupport
+            {
+                if (msgDb is not null)
+                    api.WaitFor(msgDb);
+                foreach (var owner in cqlEndpointOwners)
+                    api.WaitFor(owner);
+                if (devSeedResource is not null)
+                    api.WaitFor(devSeedResource);
             }
 
             // Dev-project path only. ConfigureApiSelfHostEnv covers the container path via the
@@ -730,7 +791,6 @@ public static class InterfoldAppHost
                 var apiImage = ImageRef.Parse(apiImageRef);
                 var apiContainer = builder.AddContainer(ComposeServices.InterfoldApi, apiImage.Image, apiImage.Tag)
                     .PullAlwaysInRunMode(apiImage)
-                    .WaitFor(msgDbResource)
                     .WithContainerNetworkAlias(ComposeServices.InterfoldApi)
                     .WithHttpEndpoint(targetPort: apiContainerHttpPort, name: HttpEndpointName)
                     .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
@@ -739,28 +799,23 @@ public static class InterfoldAppHost
                 apiResource = apiContainer;
                 apiIsContainer = true;
                 apiContainer.WithUrl(publicApiBase, "edge");
-                ConfigureApiCommon(apiContainer);
+                ConfigureApiCommon(apiContainer, containerPath: true);
                 ConfigureApiSelfHostEnv(apiContainer);
-                foreach (var owner in cqlEndpointOwners)
-                    apiContainer.WaitFor(owner);
-                if (devSeedResource is not null)
-                    apiContainer.WaitFor(devSeedResource);
+                if (useSqlite)
+                    AttachSqliteDataMount(apiContainer);
+                WaitForApiDependencies(apiContainer);
             }
             else
             {
                 var apiProject = builder.AddProject<Projects.Interfold_Api_Host>(ComposeServices.InterfoldApi)
                     .WithHttpEndpoint(targetPort: apiContainerHttpPort, name: HttpEndpointName)
                     .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
-                    .WaitFor(msgDbResource)
                     .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort));
                 apiResource = apiProject;
                 apiProject.WithUrl(publicApiBase, "edge");
-                ConfigureApiCommon(apiProject);
+                ConfigureApiCommon(apiProject, containerPath: false);
                 ConfigureApiDevEnv(apiProject);
-                foreach (var owner in cqlEndpointOwners)
-                    apiProject.WaitFor(owner);
-                if (devSeedResource is not null)
-                    apiProject.WaitFor(devSeedResource);
+                WaitForApiDependencies(apiProject);
             }
         }
 
