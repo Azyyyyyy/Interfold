@@ -5,6 +5,7 @@ using Interfold.Auth.Domain;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Infrastructure.Postgres;
 using Interfold.Infrastructure.Scylla;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
@@ -152,13 +153,14 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
             x.Replace(ServiceDescriptor.Singleton<IClusterEventBus>(EventBus));
             x.Replace(ServiceDescriptor.Singleton(EventBus));
 
-            // DB-backed runs bootstrap once via SharedDbFixture.WaitForResourcesAsync; strip
-            // the migration hosted services so heavy DDL doesn't replay on every rebuild.
+            // DB-backed runs bootstrap once via SharedDbFixture / SqliteWebFactoryFixture;
+            // strip migration hosted services so heavy DDL doesn't replay on every rebuild.
             // In-memory has no migrations to strip and seeds via IConfiguration directly.
             if (PersistenceMode != PersistenceMode.InMemory)
             {
                 RemoveHostedService<PostgresMigrationService>(x);
                 RemoveHostedService<ScyllaMigrationService>(x);
+                RemoveHostedService<SqliteMigrationService>(x);
             }
         });
         

@@ -29,6 +29,7 @@
 
     <!-- Data / persistence drivers -->
     <PackageVersion Include="CassandraCSharpDriver" Version="3.*" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.*" />
     <PackageVersion Include="Npgsql" Version="8.*" />
 
     <!-- Firebase -->

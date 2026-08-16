@@ -15,6 +15,7 @@ namespace Interfold.IntegrationTests.Shared;
 /// Gated on <c>OCTOCON_RUN_API_INTEGRATION=true</c>.
 /// </summary>
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
+[ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpointTest
