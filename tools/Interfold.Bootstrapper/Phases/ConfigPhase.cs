@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Configuration.Validation;
 using Interfold.Shared.Contracts.Enums;
@@ -271,21 +272,47 @@ internal static class ConfigPhase
                                                     () => c.Edge.Ports.Https = PromptInt("Edge HTTPS port (ignored when tlsMode=none)", c.Edge.Ports.Https, 1, 65535))),
 
             Group("Datastores",
-                ("CQL backend",                     () => c.Datastores.Cql.Backend.ToWire(),
-                                                    () => c.Datastores.Cql.Backend = CqlBackendMapping.ParseWire(console.Prompt(
-                                                        new TextPrompt<string>("CQL backend:")
-                                                            .DefaultValue(c.Datastores.Cql.Backend.ToWire())
-                                                            .AddChoices(ValidCqlBackends)))),
-                ("Postgres application DB name",    () => c.Datastores.Postgres.Database,
-                                                    () => c.Datastores.Postgres.Database = PromptStr("Postgres application DB name", c.Datastores.Postgres.Database)),
-                ("Cluster name",                    () => c.Datastores.Cql.ClusterName,
-                                                    () => c.Datastores.Cql.ClusterName = PromptStr("Cluster name (Scylla/Cassandra)", c.Datastores.Cql.ClusterName)),
-                // AddChoices enforces the seven valid keyspaces (Validate mirrors this non-interactively).
-                ("Scylla keyspace (region)",        () => c.Datastores.Cql.Keyspace.ToWire(),
-                                                    () => c.Datastores.Cql.Keyspace = EnumWireExtensions.ParseScyllaKeyspace(console.Prompt(
-                                                        new TextPrompt<string>("Scylla keyspace (region):")
-                                                            .DefaultValue(c.Datastores.Cql.Keyspace.ToWire())
-                                                            .AddChoices(ValidScyllaKeyspaces))))),
+                ("Persistence",                     () => c.Datastores.Persistence == PersistenceMode.Sqlite
+                                                        ? PersistenceMode.Sqlite.ToWire()
+                                                        : PersistenceMode.ScyllaPostgres.ToWire(),
+                                                    () => c.Datastores.Persistence = EnumWireExtensions.ParseWithDefault(
+                                                        console.Prompt(new TextPrompt<string>("Persistence:")
+                                                            .DefaultValue(c.UsesSqlite
+                                                                ? PersistenceMode.Sqlite.ToWire()
+                                                                : PersistenceMode.ScyllaPostgres.ToWire())
+                                                            .AddChoices(ValidBootstrapPersistenceModes)),
+                                                        PersistenceMode.ScyllaPostgres,
+                                                        trimmed => $"Unrecognised persistence '{trimmed}'. Valid values: scylla-postgres, sqlite.")),
+                ("CQL backend",                     () => c.UsesSqlite ? "(n/a)" : c.Datastores.Cql.Backend.ToWire(),
+                                                    () =>
+                                                    {
+                                                        if (c.UsesSqlite) return;
+                                                        c.Datastores.Cql.Backend = CqlBackendMapping.ParseWire(console.Prompt(
+                                                            new TextPrompt<string>("CQL backend:")
+                                                                .DefaultValue(c.Datastores.Cql.Backend.ToWire())
+                                                                .AddChoices(ValidCqlBackends)));
+                                                    }),
+                ("Postgres application DB name",    () => c.UsesSqlite ? "(n/a)" : c.Datastores.Postgres.Database,
+                                                    () =>
+                                                    {
+                                                        if (c.UsesSqlite) return;
+                                                        c.Datastores.Postgres.Database = PromptStr("Postgres application DB name", c.Datastores.Postgres.Database);
+                                                    }),
+                ("Cluster name",                    () => c.UsesSqlite ? "(n/a)" : c.Datastores.Cql.ClusterName,
+                                                    () =>
+                                                    {
+                                                        if (c.UsesSqlite) return;
+                                                        c.Datastores.Cql.ClusterName = PromptStr("Cluster name (Scylla/Cassandra)", c.Datastores.Cql.ClusterName);
+                                                    }),
+                ("Scylla keyspace (region)",        () => c.UsesSqlite ? "(n/a)" : c.Datastores.Cql.Keyspace.ToWire(),
+                                                    () =>
+                                                    {
+                                                        if (c.UsesSqlite) return;
+                                                        c.Datastores.Cql.Keyspace = EnumWireExtensions.ParseScyllaKeyspace(console.Prompt(
+                                                            new TextPrompt<string>("Scylla keyspace (region):")
+                                                                .DefaultValue(c.Datastores.Cql.Keyspace.ToWire())
+                                                                .AddChoices(ValidScyllaKeyspaces)));
+                                                    })),
 
             // Derivable rows snapshot into ResolveDerivedDefaults so the menu paints the
             // computed default before Enter.
@@ -825,6 +852,12 @@ internal static class ConfigPhase
         .Select(b => b.ToWire())
         .ToArray();
 
+    internal static readonly string[] ValidBootstrapPersistenceModes =
+    [
+        PersistenceMode.ScyllaPostgres.ToWire(),
+        PersistenceMode.Sqlite.ToWire(),
+    ];
+
     internal static readonly string[] ValidEdgeTlsModes = Enum
         .GetValues<EdgeTlsMode>()
         .Select(m => m.ToWire())
@@ -1021,6 +1054,14 @@ internal static class ConfigPhase
 
         ValidatePort(config.Edge.Ports.Http, nameof(config.Edge.Ports.Http));
         ValidatePort(config.Edge.Ports.Https, nameof(config.Edge.Ports.Https));
+
+        if (config.Datastores.Persistence is not PersistenceMode.ScyllaPostgres
+            and not PersistenceMode.Sqlite)
+        {
+            throw new InvalidOperationException(
+                $"config.datastores.persistence='{config.Datastores.Persistence.ToWire()}' is not a deployable mode. " +
+                "Expected: scylla-postgres | sqlite.");
+        }
 
         var portFields = new List<(string Name, int Port)>(2)
         {

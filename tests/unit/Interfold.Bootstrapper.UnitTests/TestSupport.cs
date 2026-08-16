@@ -126,6 +126,11 @@ internal static class TestSupport
     /// an optional <see cref="CqlBackend"/> override and an optional post-construction
     /// tweak for the handful of fields a specific test cares about.
     /// </summary>
+    /// <remarks>
+    /// Default <see cref="DatastoresSection.Persistence"/> is
+    /// <see cref="Interfold.Shared.Contracts.PersistenceMode.ScyllaPostgres"/>; SQLite is
+    /// <see cref="Interfold.Shared.Contracts.PersistenceMode.Sqlite"/>.
+    /// </remarks>
     public static BootstrapConfig MakeConfig(
         CqlBackend backend = CqlBackend.ScyllaSingle,
         Action<BootstrapConfig>? tweak = null)

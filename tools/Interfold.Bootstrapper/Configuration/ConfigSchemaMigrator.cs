@@ -162,7 +162,7 @@ internal static class ConfigSchemaMigrator
         }
 
         MoveBackupUpdate(root, deployment);
-        HoistDatastoreFields(root, postgres, cql);
+        HoistDatastoreFields(root, datastores, postgres, cql);
         HoistApiFields(root, api);
 
         root["deployment"] = deployment;
@@ -361,7 +361,7 @@ internal static class ConfigSchemaMigrator
         }
     }
 
-    private static void HoistDatastoreFields(JsonObject root, JsonObject postgres, JsonObject cql)
+    private static void HoistDatastoreFields(JsonObject root, JsonObject datastores, JsonObject postgres, JsonObject cql)
     {
         if (root.TryGetPropertyValue("postgresDatabase", out var db))
         {
@@ -370,7 +370,15 @@ internal static class ConfigSchemaMigrator
 
         if (root.TryGetPropertyValue("databaseMode", out var mode))
         {
-            cql["backend"] = MapDatabaseModeToBackend(mode);
+            var wire = mode?.GetValue<string>() ?? "single";
+            if (wire.Trim().Equals("sqlite", StringComparison.OrdinalIgnoreCase))
+            {
+                datastores["persistence"] = "sqlite";
+            }
+            else
+            {
+                cql["backend"] = MapDatabaseModeToBackend(mode);
+            }
         }
         else if (root.TryGetPropertyValue("scyllaMode", out var scyllaMode))
         {

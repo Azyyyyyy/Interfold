@@ -1,7 +1,7 @@
 # `PersistenceMode.Sqlite` — full-stack SQLite mode for small self-hosts
 
 Last updated: 2026-08-16
-Status: **Scaffolding + domain repos + AppHost Sqlite path landed — Bootstrapper / KMP follow-ons remain.**
+Status: **Scaffolding + domain repos + AppHost + Bootstrapper Sqlite path landed — KMP follow-on remains.**
 
 Adds a third `PersistenceMode` alongside `ScyllaPostgres` and `InMemory` that
 runs the entire persistence surface — domain repositories, idempotency store,
@@ -136,7 +136,7 @@ The following are all small, targeted changes rather than restructures:
   volume (landed — `Parameters:persistence=sqlite`).
 - **`tools/Interfold.Bootstrapper`** — Sqlite bootstrap variant: skip
   Cassandra/Postgres phases; create data dir, run migrations, seed; wire
-  `backup` / `restore` to SQLite online-backup API (follow-on).
+  `backup` / `restore` to SQLite online-backup API (landed — `databaseMode: sqlite`).
 - **Integration tests** — `SqliteWebFactoryFixture`; suite runs against
   InMemory + Sqlite by default (fixture landed; suite default matrix follow-on).
 
@@ -168,7 +168,11 @@ Each item is its own PR:
 5. **Bootstrapper** — Sqlite variant in `tools/Interfold.Bootstrapper/Phases/`:
    skips `CassandraImagePhase` + Postgres phases; new phase creates data dir +
    runs schema migrations + seeds. `backup` / `restore` wired to SQLite
-   online-backup API.
+   online-backup API. **Done (2026-08-16):** set `databaseMode: sqlite` in
+   `interfold.bootstrap.json`. Publish injects `Parameters:persistence=sqlite`
+   and bind-mounts `{outputDir}/data/sqlite` onto the API; `SqliteDatabaseInitPhase`
+   migrates + seeds secrets; `backup --component sqlite|all` uses the online
+   backup API; `restore --restore-sqlite` / `--restore-latest` replaces the host `.db`.
 6. **Tests** — `SqliteWebFactoryFixture` alongside `InMemoryWebFactoryFixture`
    under `tests/integration/Interfold.IntegrationTests.Shared/`; integration
    suite runs against InMemory + Sqlite by default.
@@ -348,3 +352,6 @@ Domain repository status:
   mounts / seeds `hosts/Interfold.AppHost/.data/sqlite/interfold.db`, and wires
   `OCTOCON_PERSISTENCE` + `OCTOCON_SQLITE_CONNECTION` for both AddProject and
   container API resources.
+- 2026-08-16 — Bootstrapper Sqlite path: `databaseMode: sqlite` injects persistence +
+  host data bind path, `SqliteDatabaseInitPhase` migrate/seed, online
+  `backup`/`restore` for the host `.db`.

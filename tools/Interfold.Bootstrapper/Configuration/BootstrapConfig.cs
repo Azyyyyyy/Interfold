@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Interfold.Bootstrapper.Util;
 using Interfold.Settings.Contracts.Configuration;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 
@@ -28,6 +29,8 @@ public sealed class BootstrapConfig
 
     [JsonPropertyName("observability")]
     public ObservabilitySection Observability { get; set; } = new();
+
+    internal bool UsesSqlite => Datastores.Persistence == PersistenceMode.Sqlite;
 }
 
 public sealed class DeploymentSection
@@ -134,6 +137,9 @@ public sealed class EdgeCloudflareAccessSection
 
 public sealed class DatastoresSection
 {
+    [JsonPropertyName("persistence")]
+    public PersistenceMode Persistence { get; set; } = PersistenceMode.ScyllaPostgres;
+
     [JsonPropertyName("postgres")]
     public PostgresDatastoreSection Postgres { get; set; } = new();
 
