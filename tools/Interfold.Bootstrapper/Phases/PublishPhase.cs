@@ -2,6 +2,7 @@ using Aspire.Hosting;
 using Interfold.AppHost;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Microsoft.Extensions.Configuration;
 using Interfold.Shared.Contracts.Configuration;
@@ -97,9 +98,14 @@ internal static class PublishPhase
             DatabaseMode.Single => (true, false, ScyllaTopology.Single),
             DatabaseMode.Multi => (true, false, ScyllaTopology.Multi),
             DatabaseMode.Cassandra => (false, true, ScyllaTopology.Single),
+            DatabaseMode.Sqlite => (false, false, ScyllaTopology.Single),
             _ => throw new InvalidOperationException(
-                $"Unhandled databaseMode '{databaseMode}'. Expected: single | multi | cassandra."),
+                $"Unhandled databaseMode '{databaseMode}'. Expected: single | multi | cassandra | sqlite."),
         };
+
+    /// <summary>Host directory for the SQLite database file under the bootstrapper output tree.</summary>
+    internal static string ResolveSqliteDataHostDir(string outputDir)
+        => Path.GetFullPath(Path.Combine(outputDir, "data", "sqlite"));
 
     /// <summary>Single source of truth for every operator-tunable Aspire parameter that must
     /// appear in BOTH the <c>.env</c> replacement dictionary (<see cref="BuildEnvReplacements"/>)
@@ -197,15 +203,25 @@ internal static class PublishPhase
         }
 
         // Region-keyed rackdc mount; single mode → one "scylla" node in "nam", multi mode → one
-        // node per region. Derived from ScyllaKeyspace so the list can't drift.
-        string[] scyllaRegions = config.DatabaseMode == DatabaseMode.Multi
-            ? Enum.GetValues<ScyllaKeyspace>().Select(k => k.ToWire()).ToArray()
-            : [ScyllaKeyspace.Nam.ToWire()];
-        foreach (var region in scyllaRegions)
+        // node per region. Derived from ScyllaKeyspace so the list can't drift. Sqlite has no CQL.
+        if (config.DatabaseMode != DatabaseMode.Sqlite)
         {
-            var nodeName = ComposeServices.ToScyllaNodeName(region, multiNode: scyllaRegions.Length > 1);
-            bindMountLookup[$"{nodeName}:/etc/scylla/cassandra-rackdc.properties"] =
-                Path.Combine(baseDir, "db", "scylla", $"cassandra-rackdc.{region}.properties");
+            string[] scyllaRegions = config.DatabaseMode == DatabaseMode.Multi
+                ? Enum.GetValues<ScyllaKeyspace>().Select(k => k.ToWire()).ToArray()
+                : [ScyllaKeyspace.Nam.ToWire()];
+            foreach (var region in scyllaRegions)
+            {
+                var nodeName = ComposeServices.ToScyllaNodeName(region, multiNode: scyllaRegions.Length > 1);
+                bindMountLookup[$"{nodeName}:/etc/scylla/cassandra-rackdc.properties"] =
+                    Path.Combine(baseDir, "db", "scylla", $"cassandra-rackdc.{region}.properties");
+            }
+        }
+
+        if (config.DatabaseMode == DatabaseMode.Sqlite)
+        {
+            var sqliteHostDir = ResolveSqliteDataHostDir(outputDir);
+            bindMountLookup[$"{ComposeServices.InterfoldApi}:{ContainerMountPaths.InterfoldSqliteData}"] =
+                sqliteHostDir;
         }
 
         return new EnvReplacements(parameters, bindMountLookup);
@@ -364,6 +380,7 @@ internal static class PublishPhase
         });
 
         var (includeScylla, includeCassandra, scyllaTopology) = TranslateDatabaseMode(config.DatabaseMode);
+        var useSqlite = config.DatabaseMode == DatabaseMode.Sqlite;
 
         // Parameters:* injected via IConfiguration; Aspire writes secret parameter values into
         // the .env file rather than the compose YAML at publish time. Seeded from the shared
@@ -379,6 +396,13 @@ internal static class PublishPhase
         injected[AppHostParameterKeys.IncludeScylla] = BoolWire.ToWireValue(includeScylla);
         injected[AppHostParameterKeys.IncludeCassandra] = BoolWire.ToWireValue(includeCassandra);
         injected[AppHostParameterKeys.ScyllaTopology] = scyllaTopology.ToWireValue();
+        injected[AppHostParameterKeys.Persistence] = useSqlite
+            ? PersistenceMode.Sqlite.ToWire()
+            : PersistenceMode.ScyllaPostgres.ToWire();
+        if (useSqlite)
+        {
+            injected[AppHostParameterKeys.SqliteDataHostPath] = ResolveSqliteDataHostDir(options.OutputDir);
+        }
         // Bootstrapper always uses a pre-built API image; this switches off the AddProject<> path.
         injected[AppHostParameterKeys.ApiImage] = config.ApiImage;
         // Aspire dev dashboard would pull an MCR-nightly image at compose-up — unwanted in prod.

@@ -13,7 +13,7 @@ namespace Interfold.Bootstrapper.Cli;
 /// <param name="NonInteractive">If true, missing config values are an error rather than a prompt.</param>
 /// <param name="FaultInject">Hidden testability hook: exits 1 immediately after the named phase (e.g. <c>after-secrets</c>).</param>
 /// <param name="PrintPhaseStatus">Hidden testability hook: emit <c>phase=name status=skipped reason=...</c> lines on stderr.</param>
-/// <param name="BackupComponent">For <see cref="BootstrapCommand.Backup"/>: which DB to snapshot. One of <c>postgres</c>, <c>scylla</c>, <c>all</c>. Defaults to <c>all</c>.</param>
+/// <param name="BackupComponent">For <see cref="BootstrapCommand.Backup"/>: which DB to snapshot. One of <c>postgres</c>, <c>scylla</c>, <c>sqlite</c>, <c>all</c>. Defaults to <c>all</c>.</param>
 /// <param name="BackupRetainOverride">For <see cref="BootstrapCommand.Backup"/>: optional CLI override for <c>config.backup.retainCount</c>. Null means "use the config value".</param>
 /// <param name="BackupDirOverride">For <see cref="BootstrapCommand.Backup"/>: optional CLI override for <c>config.backup.directory</c>. Null means "use the config value (or default)".</param>
 /// <param name="EnableAutostart">For <see cref="BootstrapCommand.InstallService"/>: when true, the installer runs <c>systemctl enable --now interfold.service</c> after writing the unit. Defaults to <see cref="BackupSection.AutostartServer"/> on the config.</param>
@@ -26,6 +26,7 @@ namespace Interfold.Bootstrapper.Cli;
 /// <param name="HealthCheckTimeoutOverride">For <see cref="BootstrapCommand.UpdateImages"/>: CLI override for <see cref="UpdateSection.HealthCheckTimeoutSeconds"/>. Null means "use the config value".</param>
 /// <param name="RestorePostgresArchive">For <see cref="BootstrapCommand.Restore"/>: path to a specific pg_dump archive to restore. Mutually exclusive with <see cref="RestoreLatest"/> for the postgres component.</param>
 /// <param name="RestoreScyllaArchive">For <see cref="BootstrapCommand.Restore"/>: path to a specific scylla .tar.gz archive to restore. Mutually exclusive with <see cref="RestoreLatest"/> for the scylla component.</param>
+/// <param name="RestoreSqliteArchive">For <see cref="BootstrapCommand.Restore"/>: path to a specific SQLite <c>.db</c> archive to restore.</param>
 /// <param name="RestoreLatest">For <see cref="BootstrapCommand.Restore"/>: pick the newest archive by mtime under <c>{backupRoot}/{component}/</c> for every component that wasn't explicitly named on the CLI. Only meaningful when at least one archive exists.</param>
 /// <param name="RestoreForce">For <see cref="BootstrapCommand.Restore"/>: skip the interactive "this will wipe your data volumes" confirmation. Required in non-interactive mode; equivalent to typing "y" at the confirmation prompt in interactive mode.</param>
 public sealed record BootstrapOptions(
@@ -51,6 +52,7 @@ public sealed record BootstrapOptions(
     int? HealthCheckTimeoutOverride = null,
     string? RestorePostgresArchive = null,
     string? RestoreScyllaArchive = null,
+    string? RestoreSqliteArchive = null,
     bool RestoreLatest = false,
     bool RestoreForce = false);
 

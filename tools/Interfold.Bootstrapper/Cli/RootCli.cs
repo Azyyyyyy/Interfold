@@ -48,7 +48,7 @@ public static class RootCli
         // sees rather than System.CommandLine's generic parse failure.
         var backupComponentOpt = new Option<string>("--component")
         {
-            Description = "Which database to back up: 'postgres', 'scylla', or 'all'. Defaults to 'all'.",
+            Description = "Which database to back up: 'postgres', 'scylla', 'sqlite', or 'all'. Defaults to 'all'.",
             DefaultValueFactory = _ => "all"
         };
         var backupRetainOpt = new Option<int?>("--retain")
@@ -115,6 +115,10 @@ public static class RootCli
         var restoreScyllaOpt = new Option<string?>("--restore-scylla")
         {
             Description = "Path to a specific scylla .tar.gz archive to restore. Mutually exclusive with --restore-latest for the scylla component."
+        };
+        var restoreSqliteOpt = new Option<string?>("--restore-sqlite")
+        {
+            Description = "Path to a specific SQLite .db archive to restore (databaseMode=sqlite)."
         };
         var restoreLatestOpt = new Option<bool>("--restore-latest")
         {
@@ -241,6 +245,7 @@ public static class RootCli
         AddSharedOptions(restoreCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         restoreCmd.Options.Add(restorePostgresOpt);
         restoreCmd.Options.Add(restoreScyllaOpt);
+        restoreCmd.Options.Add(restoreSqliteOpt);
         restoreCmd.Options.Add(restoreLatestOpt);
         restoreCmd.Options.Add(restoreForceOpt);
         restoreCmd.Options.Add(backupDirOpt);
@@ -250,6 +255,7 @@ public static class RootCli
             backupDirOpt: backupDirOpt,
             restorePostgresOpt: restorePostgresOpt,
             restoreScyllaOpt: restoreScyllaOpt,
+            restoreSqliteOpt: restoreSqliteOpt,
             restoreLatestOpt: restoreLatestOpt,
             restoreForceOpt: restoreForceOpt));
         root.Subcommands.Add(restoreCmd);
@@ -305,6 +311,7 @@ public static class RootCli
         Option<int?>? healthCheckTimeoutOpt = null,
         Option<string?>? restorePostgresOpt = null,
         Option<string?>? restoreScyllaOpt = null,
+        Option<string?>? restoreSqliteOpt = null,
         Option<bool>? restoreLatestOpt = null,
         Option<bool>? restoreForceOpt = null)
     {
@@ -331,6 +338,7 @@ public static class RootCli
             HealthCheckTimeoutOverride: healthCheckTimeoutOpt is null ? null : parse.GetValue(healthCheckTimeoutOpt),
             RestorePostgresArchive: restorePostgresOpt is null ? null : parse.GetValue(restorePostgresOpt),
             RestoreScyllaArchive: restoreScyllaOpt is null ? null : parse.GetValue(restoreScyllaOpt),
+            RestoreSqliteArchive: restoreSqliteOpt is null ? null : parse.GetValue(restoreSqliteOpt),
             RestoreLatest: restoreLatestOpt is not null && parse.GetValue(restoreLatestOpt),
             RestoreForce: restoreForceOpt is not null && parse.GetValue(restoreForceOpt));
 

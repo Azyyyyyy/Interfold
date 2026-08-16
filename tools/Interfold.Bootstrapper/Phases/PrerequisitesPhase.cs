@@ -28,6 +28,7 @@ internal static partial class PrerequisitesPhase
     {
         DatabaseMode.Multi => 7,
         DatabaseMode.Cassandra => 0,
+        DatabaseMode.Sqlite => 0,
         _ => 1,
     };
 
@@ -54,18 +55,25 @@ internal static partial class PrerequisitesPhase
         await EnsureOpenSslAsync(distro, logger, ct).ConfigureAwait(false);
 
         // Tolerant peek — defaults to single-node baseline on missing/malformed/unrecognised.
-        // ConfigPhase still owns full schema validation.
-        var scyllaNodes = await PeekScyllaNodeCountAsync(options, logger, ct).ConfigureAwait(false);
-        await EnsureAioLimitAsync(scyllaNodes, logger, ct).ConfigureAwait(false);
+        // ConfigPhase still owns full schema validation. Sqlite skips Seastar AIO entirely.
+        var peekedMode = await PeekDatabaseModeAsync(options, logger, ct).ConfigureAwait(false);
+        if (peekedMode != DatabaseMode.Sqlite)
+        {
+            await EnsureAioLimitAsync(ResolveScyllaNodeCount(peekedMode), logger, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            logger.Info("    databaseMode=sqlite; skipping fs.aio-max-nr Seastar tuning");
+        }
 
         logger.PhaseDone(Phase);
     }
 
-    private static async Task<int> PeekScyllaNodeCountAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
+    private static async Task<DatabaseMode> PeekDatabaseModeAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(options.ConfigPath) || !File.Exists(options.ConfigPath))
         {
-            return ResolveScyllaNodeCount(null);
+            return DatabaseMode.Single;
         }
 
         try
@@ -73,9 +81,10 @@ internal static partial class PrerequisitesPhase
             await using var stream = File.OpenRead(options.ConfigPath);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
             if (doc.RootElement.TryGetProperty("databaseMode", out var modeElement) &&
-                modeElement.ValueKind == JsonValueKind.String)
+                modeElement.ValueKind == JsonValueKind.String &&
+                modeElement.GetString().TryParseWire<DatabaseMode>(out var mode))
             {
-                return ResolveScyllaNodeCount(modeElement.GetString());
+                return mode;
             }
         }
         catch (Exception ex)
@@ -84,7 +93,7 @@ internal static partial class PrerequisitesPhase
             logger.Warn($"could not pre-read databaseMode from {options.ConfigPath} for AIO sizing ({ex.GetType().Name}); defaulting to single-node baseline.");
         }
 
-        return ResolveScyllaNodeCount(null);
+        return DatabaseMode.Single;
     }
 
     private static void EnsureLinux(PhaseLogger logger)

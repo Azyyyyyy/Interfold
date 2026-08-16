@@ -3,6 +3,7 @@ using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
 using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -48,7 +49,7 @@ internal static class UpdateImagesPhase
         var preDigests = await SnapshotImageDigestsAsync(composeFile, logger, ct).ConfigureAwait(false);
 
         // `all` is the only sensible choice — a partial snapshot couldn't feed an auto-restore.
-        (string PostgresArchive, string ScyllaArchive)? backupArtifacts = null;
+        PreUpdateBackupArtifacts? backupArtifacts = null;
         if (!options.SkipPreUpdateBackup)
         {
             logger.Info("    pre-update backup: forcing component=all");
@@ -66,7 +67,10 @@ internal static class UpdateImagesPhase
             backupArtifacts = ResolveLatestBackupArtifacts(backupOptions, config);
             if (backupArtifacts is { } bs)
             {
-                logger.Info($"    backup complete: postgres={Path.GetFileName(bs.PostgresArchive)} scylla={Path.GetFileName(bs.ScyllaArchive)}");
+                if (bs.Sqlite is not null)
+                    logger.Info($"    backup complete: sqlite={Path.GetFileName(bs.Sqlite)}");
+                else
+                    logger.Info($"    backup complete: postgres={Path.GetFileName(bs.Postgres)} scylla={Path.GetFileName(bs.Scylla)}");
             }
         }
         else
@@ -138,12 +142,21 @@ internal static class UpdateImagesPhase
         {
             var backupRoot = BackupPhase.ResolveBackupRoot(options, config);
             var retainCount = options.BackupRetainOverride ?? config.Backup.RetainCount;
-            BackupPhase.PruneComponent(
-                Path.Combine(backupRoot, BackupStoragePaths.PostgresDir),
-                BackupDatabaseComponent.Postgres, retainCount, logger);
-            BackupPhase.PruneComponent(
-                Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir),
-                BackupDatabaseComponent.Scylla, retainCount, logger);
+            if (config.DatabaseMode == DatabaseMode.Sqlite)
+            {
+                BackupPhase.PruneComponent(
+                    Path.Combine(backupRoot, BackupStoragePaths.SqliteDir),
+                    BackupDatabaseComponent.Sqlite, retainCount, logger);
+            }
+            else
+            {
+                BackupPhase.PruneComponent(
+                    Path.Combine(backupRoot, BackupStoragePaths.PostgresDir),
+                    BackupDatabaseComponent.Postgres, retainCount, logger);
+                BackupPhase.PruneComponent(
+                    Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir),
+                    BackupDatabaseComponent.Scylla, retainCount, logger);
+            }
         }
 
         logger.PhaseDone(Phase);
@@ -337,7 +350,7 @@ internal static class UpdateImagesPhase
 
     private static async Task OnHealthCheckFailedAsync(
         BootstrapOptions options, BootstrapConfig config, string composeFile,
-        string healthErr, (string PostgresArchive, string ScyllaArchive)? backupArtifacts,
+        string healthErr, PreUpdateBackupArtifacts? backupArtifacts,
         bool autoRestore, PhaseLogger logger, CancellationToken ct)
     {
         logger.Error($"health check failed: {healthErr}");
@@ -365,8 +378,9 @@ internal static class UpdateImagesPhase
             var restoreOptions = options with
             {
                 Command = BootstrapCommand.Restore,
-                RestorePostgresArchive = archives.PostgresArchive,
-                RestoreScyllaArchive = archives.ScyllaArchive,
+                RestorePostgresArchive = archives.Postgres,
+                RestoreScyllaArchive = archives.Scylla,
+                RestoreSqliteArchive = archives.Sqlite,
                 RestoreForce = true,
             };
             var restoreExit = await RestorePhase.RunAsync(restoreOptions, logger, ct).ConfigureAwait(false);
@@ -381,7 +395,10 @@ internal static class UpdateImagesPhase
         if (backupArtifacts is { } bs)
         {
             logger.Warn("update failed; the pre-update backup is on disk. To roll back manually:");
-            var cmd = $"interfold-bootstrap restore --config \"{Path.GetFullPath(BootstrapArtifactPaths.ResolveConfigPath(options))}\" --output-dir \"{options.OutputDir}\" --restore-postgres \"{bs.PostgresArchive}\" --restore-scylla \"{bs.ScyllaArchive}\" --force";
+            var configPath = Path.GetFullPath(BootstrapArtifactPaths.ResolveConfigPath(options));
+            var cmd = bs.Sqlite is not null
+                ? $"interfold-bootstrap restore --config \"{configPath}\" --output-dir \"{options.OutputDir}\" --restore-sqlite \"{bs.Sqlite}\" --force"
+                : $"interfold-bootstrap restore --config \"{configPath}\" --output-dir \"{options.OutputDir}\" --restore-postgres \"{bs.Postgres}\" --restore-scylla \"{bs.Scylla}\" --force";
             Console.Error.WriteLine();
             Console.Error.WriteLine(cmd);
             Console.Error.WriteLine();
@@ -392,17 +409,26 @@ internal static class UpdateImagesPhase
         }
     }
 
-    /// <summary>Newest postgres + scylla archive by mtime — called immediately after the
-    /// pre-update backup, so "newest" is this run's output. Null when either is missing
-    /// (auto-restore downgrades to a warning).</summary>
-    internal static (string PostgresArchive, string ScyllaArchive)? ResolveLatestBackupArtifacts(
+    internal sealed record PreUpdateBackupArtifacts(string? Postgres, string? Scylla, string? Sqlite);
+
+    /// <summary>Newest archives by mtime — called immediately after the pre-update backup.
+    /// Null when required archives are missing (auto-restore downgrades to a warning).</summary>
+    internal static PreUpdateBackupArtifacts? ResolveLatestBackupArtifacts(
         BootstrapOptions options, BootstrapConfig config)
     {
         var backupRoot = BackupPhase.ResolveBackupRoot(options, config);
+        if (config.DatabaseMode == DatabaseMode.Sqlite)
+        {
+            var sqlite = BackupStoragePaths.LatestFile(
+                Path.Combine(backupRoot, BackupStoragePaths.SqliteDir),
+                BackupStoragePaths.SqliteArchivePattern);
+            return sqlite is null ? null : new PreUpdateBackupArtifacts(null, null, sqlite.FullName);
+        }
+
         var pg = BackupStoragePaths.LatestFile(Path.Combine(backupRoot, BackupStoragePaths.PostgresDir), BackupStoragePaths.PostgresArchivePattern);
         var sc = BackupStoragePaths.LatestFile(Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir), BackupStoragePaths.ScyllaArchivePattern);
         if (pg is null || sc is null) return null;
-        return (pg.FullName, sc.FullName);
+        return new PreUpdateBackupArtifacts(pg.FullName, sc.FullName, null);
     }
 
     }

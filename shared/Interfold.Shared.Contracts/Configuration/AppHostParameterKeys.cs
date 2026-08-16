@@ -37,6 +37,8 @@ public static class AppHostParameterKeys
     public const string PersistentContainers = "Parameters:persistent-containers";
     /// <summary>Wire values: <c>scylla-postgres</c> | <c>sqlite</c>. Blank → scylla-postgres.</summary>
     public const string Persistence = "Parameters:persistence";
+    /// <summary>Absolute host directory bind-mounted at <see cref="ContainerMountPaths.InterfoldSqliteData"/> when set (bootstrapper publish).</summary>
+    public const string SqliteDataHostPath = "Parameters:sqlite-data-host-path";
     public const string ScyllaTopology = "Parameters:scylla-topology";
     public const string ClusterName = "Parameters:cluster-name";
     public const string WebTls = "Parameters:web-tls";

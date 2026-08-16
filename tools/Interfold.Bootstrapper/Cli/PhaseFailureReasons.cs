@@ -37,6 +37,8 @@ internal static class PhaseFailureReasons
     public const string NodetoolSnapshot = "nodetool-snapshot";
     public const string ResolveScyllaContainer = "resolve-scylla-container";
     public const string EmptyScyllaArchive = "empty-scylla-archive";
+    public const string MissingSqliteDatabase = "missing-sqlite-database";
+    public const string EmptySqliteArchive = "empty-sqlite-archive";
     public const string NoArchives = "no-archives";
     public const string ConfirmationRequired = "confirmation-required";
     public const string StopScylla = "stop-scylla";

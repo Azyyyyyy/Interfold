@@ -1,6 +1,7 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -117,7 +118,14 @@ internal static class Orchestrator
             or BootstrapCommand.RotateSecrets
             or BootstrapCommand.RotateCerts)
         {
-            await DatabaseInitPhase.RunAsync(options, config!, secrets!, firebase, logger, ct).ConfigureAwait(false);
+            if (config!.DatabaseMode == DatabaseMode.Sqlite)
+            {
+                await SqliteDatabaseInitPhase.RunAsync(options, config, secrets!, firebase, logger, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                await DatabaseInitPhase.RunAsync(options, config, secrets!, firebase, logger, ct).ConfigureAwait(false);
+            }
             if (HaltAfter(options, BootstrapPhase.DbInit, logger)) return 0;
         }
 

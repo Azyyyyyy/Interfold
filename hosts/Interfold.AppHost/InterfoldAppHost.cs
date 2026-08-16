@@ -586,10 +586,16 @@ public static class InterfoldAppHost
 
             void AttachSqliteDataMount(IResourceBuilder<ContainerResource> api)
             {
-                // Bind the host .data/sqlite dir so DevSeed (AppHost process) and the API
-                // container share one file. Publish + persistent uses a named volume (no
-                // DevSeed in that path — bootstrapper owns seeding).
-                if (builder.ExecutionContext.IsPublishMode && persistentContainers)
+                // Bootstrapper injects an absolute host path so migrate/seed/backup share the
+                // same file the API container sees. Blank → named volume (publish) or AppHost
+                // .data/sqlite bind (aspire run).
+                var injectedHostPath = builder.Configuration[AppHostParameterKeys.SqliteDataHostPath];
+                if (!string.IsNullOrWhiteSpace(injectedHostPath))
+                {
+                    Directory.CreateDirectory(injectedHostPath);
+                    api.WithBindMount(injectedHostPath, ContainerMountPaths.InterfoldSqliteData);
+                }
+                else if (builder.ExecutionContext.IsPublishMode && persistentContainers)
                 {
                     api.WithVolume(ComposeVolumes.InterfoldSqliteData, ContainerMountPaths.InterfoldSqliteData);
                 }

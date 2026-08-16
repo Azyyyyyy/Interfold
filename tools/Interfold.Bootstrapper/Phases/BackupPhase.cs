@@ -54,6 +54,30 @@ internal static class BackupPhase
         // Shared timestamp so a postgres+scylla pair correlates by filename alone.
         var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
 
+        var useSqlite = config.DatabaseMode == DatabaseMode.Sqlite;
+        if (useSqlite)
+        {
+            if (component is BackupDatabaseComponent.Postgres or BackupDatabaseComponent.Scylla)
+            {
+                logger.PhaseFail(Phase, PhaseFailureReasons.UnknownComponent);
+                throw new InvalidOperationException(
+                    $"databaseMode=sqlite does not support --component={component.ToWireValue()}. " +
+                    "Use --component=sqlite or --component=all.");
+            }
+
+            await BackupSqliteAsync(options.OutputDir, backupRoot, timestamp, retainCount, logger, ct)
+                .ConfigureAwait(false);
+            logger.PhaseDone(Phase);
+            return 0;
+        }
+
+        if (component is BackupDatabaseComponent.Sqlite)
+        {
+            logger.PhaseFail(Phase, PhaseFailureReasons.UnknownComponent);
+            throw new InvalidOperationException(
+                "--component=sqlite requires databaseMode=sqlite in interfold.bootstrap.json.");
+        }
+
         if (component is BackupDatabaseComponent.Postgres or BackupDatabaseComponent.All)
         {
             await BackupPostgresAsync(composeFile, backupRoot, timestamp, config, secrets, retainCount, logger, ct)
@@ -93,6 +117,8 @@ internal static class BackupPhase
         {
             DatabaseMode.Cassandra => (ComposeServices.Cassandra, ContainerMountPaths.CassandraData),
             DatabaseMode.Multi => (ComposeServices.ScyllaNam, ContainerMountPaths.ScyllaData),
+            DatabaseMode.Sqlite => throw new InvalidOperationException(
+                "ResolveScyllaSeed is not valid for databaseMode=sqlite."),
             _ => (ComposeServices.ScyllaSingle, ContainerMountPaths.ScyllaData),
         };
     }
@@ -104,9 +130,14 @@ internal static class BackupPhase
         {
             BackupDatabaseComponent.Postgres => $"{timestamp}.dump",
             BackupDatabaseComponent.Scylla => $"{timestamp}.tar.gz",
-            _ => throw new InvalidOperationException($"Unknown component '{component}' (expected: postgres | scylla)."),
+            BackupDatabaseComponent.Sqlite => $"{timestamp}.db",
+            _ => throw new InvalidOperationException($"Unknown component '{component}' (expected: postgres | scylla | sqlite)."),
         };
     }
+
+    /// <summary>Absolute path to the live SQLite database under the bootstrapper output tree.</summary>
+    internal static string ResolveSqliteDbPath(string outputDir)
+        => Path.Combine(PublishPhase.ResolveSqliteDataHostDir(outputDir), ContainerMountPaths.InterfoldSqliteDbFileName);
 
     /// <summary>pg_dump docker-compose exec argv. PGPASSWORD flows via env, not argv,
     /// so it stays invisible to <c>ps</c>.</summary>
@@ -250,6 +281,7 @@ internal static class BackupPhase
         {
             BackupDatabaseComponent.Postgres => BackupStoragePaths.PostgresArchivePattern,
             BackupDatabaseComponent.Scylla => BackupStoragePaths.ScyllaArchivePattern,
+            BackupDatabaseComponent.Sqlite => BackupStoragePaths.SqliteArchivePattern,
             _ => throw new InvalidOperationException($"Unknown component '{component}'."),
         };
         var files = new DirectoryInfo(componentDir)
@@ -268,6 +300,36 @@ internal static class BackupPhase
                 logger.Warn($"failed to delete {stale.FullName}: {ex.Message}");
             }
         }
+    }
+
+    private static async Task BackupSqliteAsync(
+        string outputDir, string backupRoot, string timestamp, int retainCount,
+        PhaseLogger logger, CancellationToken ct)
+    {
+        var sourcePath = ResolveSqliteDbPath(outputDir);
+        if (!File.Exists(sourcePath))
+        {
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingSqliteDatabase);
+            throw new InvalidOperationException(
+                $"SQLite database not found at {sourcePath}. Run bootstrap (db-init) first.");
+        }
+
+        var componentDir = Path.Combine(backupRoot, BackupStoragePaths.SqliteDir);
+        Directory.CreateDirectory(componentDir);
+        var archivePath = Path.Combine(componentDir, BuildArchiveFileName(BackupDatabaseComponent.Sqlite, timestamp));
+
+        logger.Info($"    sqlite: online backup {sourcePath} -> {archivePath}");
+        await SqliteOnlineBackup.BackupAsync(sourcePath, archivePath, ct).ConfigureAwait(false);
+
+        var size = new FileInfo(archivePath).Length;
+        if (size == 0)
+        {
+            logger.PhaseFail(Phase, PhaseFailureReasons.EmptySqliteArchive);
+            File.Delete(archivePath);
+            throw new InvalidOperationException($"SQLite backup produced an empty file at {archivePath}.");
+        }
+        logger.Info($"    sqlite: wrote {FormatBytes(size)}");
+        PruneComponent(componentDir, BackupDatabaseComponent.Sqlite, retainCount, logger);
     }
 
     private static string FormatBytes(long bytes)
