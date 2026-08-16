@@ -313,25 +313,25 @@ the last year" style aggregations). Captured under Open questions.
 ## Integration scoreboard
 
 Suites with `[ClassDataSource<SqliteWebFactoryFixture>]` (additive to
-InMemory / Scylla / Cassandra):
+InMemory / Scylla / Cassandra). Sqlite legs verified green locally on
+2026-08-16 (Scylla/Cassandra still require Docker / DinD independently):
 
-| Suite | Notes |
+| Suite | Sqlite ClassDataSource |
 | --- | --- |
-| AltersControllerTests | ClassDataSource includes Sqlite |
-| AuthControllerTests / AuthLinkControllerTests | ClassDataSource includes Sqlite |
-| Friends* / SendFriendRequestPrefixTests | ClassDataSource includes Sqlite |
-| FrontingControllerTests | ClassDataSource includes Sqlite |
-| Journals* | ClassDataSource includes Sqlite |
-| PollsControllerTests | ClassDataSource includes Sqlite |
-| SettingsControllerTests / AvatarSourceTests | ClassDataSource includes Sqlite |
-| TagsControllerTests | ClassDataSource includes Sqlite |
-| PublicSystemsControllerTests | ClassDataSource includes Sqlite |
-| WebSocket* | ClassDataSource includes Sqlite |
-| NodeRoleControllerTests | ClassDataSource includes Sqlite |
-| ReplayParityTests | ClassDataSource includes Sqlite |
+| AltersControllerTests | green |
+| AuthControllerTests / AuthLinkControllerTests | green |
+| Friends* / SendFriendRequestPrefixTests | green |
+| FrontingControllerTests | green |
+| Journals* | green |
+| PollsControllerTests | green |
+| SettingsControllerTests / AvatarSourceTests | green |
+| TagsControllerTests | green |
+| PublicSystemsControllerTests | green (same intentional skip as InMemory) |
+| WebSocket* | green |
+| NodeRoleControllerTests | green |
+| ReplayParityTests | green |
 
-Integration ClassDataSource legs may still fail on behavioural parity gaps —
-they are the progress tracker, not a release gate yet.
+Parity tracker for these ClassDataSource suites is closed for Sqlite.
 
 Domain repository status:
 
@@ -359,3 +359,8 @@ Domain repository status:
 - 2026-08-16 — Bootstrapper Sqlite path: `databaseMode: sqlite` injects persistence +
   host data bind path, `SqliteDatabaseInitPhase` migrate/seed, online
   `backup`/`restore` for the host `.db`.
+- 2026-08-16 — Sqlite ClassDataSource integration legs green across the scoreboard
+  suites. AuthLink private Primary-node factory now uses
+  `IWebFactoryFixture.CreatePrivateFactory()` so Sqlite gets
+  `OCTOCON_SQLITE_CONNECTION` (previously only Scylla/Cassandra connection
+  details were copied).
