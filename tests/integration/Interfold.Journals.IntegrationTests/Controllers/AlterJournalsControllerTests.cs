@@ -7,6 +7,7 @@ namespace Interfold.Journals.IntegrationTests.Controllers;
 
 [Category("Alter Journals")]
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
+[ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class AlterJournalsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest

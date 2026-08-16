@@ -18,6 +18,7 @@ namespace Interfold.Socket.IntegrationTests.Endpoints;
 // need to account for Cassandra's slower performance with bootstrapping.
 [Timeout(1000 * 300)]
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
+[ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest

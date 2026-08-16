@@ -57,6 +57,7 @@ namespace Interfold.Socket.IntegrationTests.Endpoints;
 [NotInParallel]
 [Retry(2)]
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
+[ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class WebSocketThreadStarvationTests(IWebFactoryFixture fixture) : BaseEndpointTest

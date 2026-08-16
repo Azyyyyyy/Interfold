@@ -8,6 +8,7 @@ using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory;
 using Interfold.Infrastructure.Postgres;
 using Interfold.Infrastructure.Scylla;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Journals.Api.DependencyInjection;
 using Interfold.Ops.Api.DependencyInjection;
 using Interfold.Ops.Api.Helpers;
@@ -40,6 +41,7 @@ var secretsSnapshot = SecretsPreBuildLoader.Load(builder.Configuration);
 ScyllaServiceCollectionExtensions.Register();
 InMemoryServiceCollectionExtensions.Register();
 PostgresServiceCollectionExtensions.Register();
+SqliteServiceCollectionExtensions.Register();
 
 // Register typed options BEFORE the startup snapshots below so tests can override them
 // via the FactoryConfigurationProvider without a bespoke Bind*() helper.
@@ -159,6 +161,10 @@ if (persistenceConfig.Mode == PersistenceMode.ScyllaPostgres)
     healthChecks
         .AddReadyAndStartup<ScyllaHealthChecker>("scylla")
         .AddReadyAndStartup<PostgresHealthChecker>("postgres");
+}
+else if (persistenceConfig.Mode == PersistenceMode.Sqlite)
+{
+    healthChecks.AddReadyAndStartup<SqliteHealthChecker>("sqlite");
 }
 builder.Services.AddSingleton<IAvatarStorage, LocalAvatarStorage>();
 builder.Services.AddSingleton(TimeProvider.System);

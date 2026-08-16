@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -31,6 +31,7 @@
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Postgres\Interfold.Infrastructure.Postgres.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Scylla\Interfold.Infrastructure.Scylla.csproj" />
+    <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Sqlite\Interfold.Infrastructure.Sqlite.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- Placeholder so Docker volume-init sees a pre-created /app/data/avatars with app:app perms;
