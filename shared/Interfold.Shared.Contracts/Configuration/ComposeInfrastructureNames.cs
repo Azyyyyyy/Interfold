@@ -23,6 +23,7 @@ public static class ComposeVolumes
     public const string ScyllaData = "scylla_data";
     public const string CassandraData = "cassandra_data";
     public const string InterfoldAvatars = "interfold_avatars";
+    public const string InterfoldSqliteData = "interfold_sqlite_data";
 
     /// <summary>Per-region Scylla volume for multi-node topologies (<c>scylla_{region}_data</c>).</summary>
     public static string ScyllaRegionData(string regionWireValue) => $"scylla_{regionWireValue}_data";

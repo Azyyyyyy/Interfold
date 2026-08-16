@@ -35,6 +35,8 @@ public static class AppHostParameterKeys
     public const string IncludeDashboard = "Parameters:include-dashboard";
     public const string IncludeWeb = "Parameters:include-web";
     public const string PersistentContainers = "Parameters:persistent-containers";
+    /// <summary>Wire values: <c>scylla-postgres</c> | <c>sqlite</c>. Blank → scylla-postgres.</summary>
+    public const string Persistence = "Parameters:persistence";
     public const string ScyllaTopology = "Parameters:scylla-topology";
     public const string ClusterName = "Parameters:cluster-name";
     public const string WebTls = "Parameters:web-tls";

@@ -69,3 +69,6 @@ docs/archive/
 # Copilot chat instruction files — internal, keep local.
 /.github/instructions/
 
+
+# AppHost SQLite RunMode data dir (Parameters:persistence=sqlite).
+/hosts/Interfold.AppHost/.data/
