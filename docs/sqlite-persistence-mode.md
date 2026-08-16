@@ -137,8 +137,9 @@ The following are all small, targeted changes rather than restructures:
 - **`tools/Interfold.Bootstrapper`** — Sqlite bootstrap variant: skip
   Cassandra/Postgres phases; create data dir, run migrations, seed; wire
   `backup` / `restore` to SQLite online-backup API (landed — `databaseMode: sqlite`).
-- **Integration tests** — `SqliteWebFactoryFixture`; suite runs against
-  InMemory + Sqlite by default (fixture landed; suite default matrix follow-on).
+- **Integration tests** — `SqliteWebFactoryFixture` landed as an **additive**
+  ClassDataSource leg alongside InMemory / Scylla / Cassandra. The default
+  multi-backend matrix is not narrowed (see Open questions).
 
 ---
 
@@ -174,8 +175,10 @@ Each item is its own PR:
    migrates + seeds secrets; `backup --component sqlite|all` uses the online
    backup API; `restore --restore-sqlite` / `--restore-latest` replaces the host `.db`.
 6. **Tests** — `SqliteWebFactoryFixture` alongside `InMemoryWebFactoryFixture`
-   under `tests/integration/Interfold.IntegrationTests.Shared/`; integration
-   suite runs against InMemory + Sqlite by default.
+   under `tests/integration/Interfold.IntegrationTests.Shared/`. **Done
+   (additive):** ClassDataSource suites include Sqlite **in addition to**
+   existing InMemory / Scylla / Cassandra legs. Do **not** shrink the default
+   CI matrix to InMemory+Sqlite only — that would greenwash red CQL backends.
 7. **KMP client integration** — separate repo; publish the `Migrations/*.sql`
    bytes as an artefact the KMP client can consume via SQLDelight/Room-KMP
    against an identical schema.
@@ -281,10 +284,11 @@ the last year" style aggregations). Captured under Open questions.
   Provisional call: keep both. The InMemory fakes are trivial and fast;
   a `:memory:` SQLite pays real I/O overhead. Revisit when the fakes
   drift out of parity.
-- **Test-suite runtime cost.** Adding a third backend to the integration
-  suite (or a fourth counting Cassandra) grows CI. Provisional call: run
-  the full suite against InMemory + Sqlite by default; run against
-  Scylla + Cassandra nightly / on release branches.
+- **Test-suite runtime cost.** Adding Sqlite as a ClassDataSource leg grows
+  CI wall-clock. **Locked decision:** keep the full default matrix
+  (InMemory + Sqlite + Scylla + Cassandra). Do not demote Scylla/Cassandra
+  to nightly-only — PR CI must still fail where those backends diverge.
+  Accept longer runs; fix parity rather than hide it.
 
 ---
 
