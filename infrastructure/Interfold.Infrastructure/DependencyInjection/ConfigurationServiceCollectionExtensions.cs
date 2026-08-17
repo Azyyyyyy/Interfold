@@ -108,6 +108,7 @@ public static class ConfigurationServiceCollectionExtensions
         opts.ScyllaKeyspace = keyspace;
         opts.PostgresConnectionString = config[OctoconEnvKeys.PostgresConnection]
             ?? "Host=localhost;Port=5432;Database=interfold;Username=interfold;Password=interfold";
+        opts.SqliteConnectionString = config[OctoconEnvKeys.SqliteConnection] ?? "";
         opts.IsSingleScyllaInstance = bool.TryParse(config[OctoconEnvKeys.SingleScyllaInstance], out var singleKs) && singleKs;
         opts.DbRetryAttempts = TryParseInt(config[OctoconEnvKeys.DbRetryAttempts]) ?? 3;
         opts.DbRetryInitialDelay = TimeSpan.FromMilliseconds(

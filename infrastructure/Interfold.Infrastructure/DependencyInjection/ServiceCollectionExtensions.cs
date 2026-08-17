@@ -32,6 +32,7 @@ public static partial class ServiceCollectionExtensions
         cfg.Mode                     = configuration.Mode;
         cfg.ScyllaKeyspace           = configuration.ScyllaKeyspace;
         cfg.PostgresConnectionString = configuration.PostgresConnectionString;
+        cfg.SqliteConnectionString   = configuration.SqliteConnectionString;
         cfg.IsSingleScyllaInstance   = configuration.IsSingleScyllaInstance;
         cfg.DbRetryAttempts          = configuration.DbRetryAttempts;
         cfg.DbRetryInitialDelay      = configuration.DbRetryInitialDelay;

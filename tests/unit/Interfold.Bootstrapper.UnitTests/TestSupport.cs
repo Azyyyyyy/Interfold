@@ -132,7 +132,7 @@ internal static class TestSupport
     /// <remarks>
     /// Default <see cref="DatabaseMode"/> is <see cref="DatabaseMode.Single"/> to match
     /// <see cref="BootstrapConfig.DatabaseMode"/>'s own property initialiser; the enum
-    /// has no <c>Scylla</c> member (Single/Multi/Cassandra are the three shipped modes).
+    /// has no <c>Scylla</c> member (Single/Multi/Cassandra/Sqlite are the shipped modes).
     /// </remarks>
     public static BootstrapConfig MakeConfig(
         DatabaseMode mode = DatabaseMode.Single,

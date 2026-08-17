@@ -222,10 +222,18 @@ internal static class ConfigPhase
                                                     () => c.Ports.WebHttp = PromptInt("Web HTTP port", c.Ports.WebHttp, 1, 65535)),
                 ("Web HTTPS port",                  () => c.Ports.WebHttps.ToString(),
                                                     () => c.Ports.WebHttps = PromptInt("Web HTTPS port", c.Ports.WebHttps, 1, 65535)),
-                ("Postgres host port",              () => c.Ports.Postgres.ToString(),
-                                                    () => c.Ports.Postgres = PromptInt("Postgres host port", c.Ports.Postgres, 1, 65535)),
-                ("Scylla/Cassandra host port",      () => c.Ports.Scylla.ToString(),
-                                                    () => c.Ports.Scylla = PromptInt("Scylla/Cassandra host port", c.Ports.Scylla, 1, 65535))),
+                ("Postgres host port",              () => c.DatabaseMode == DatabaseMode.Sqlite ? "(n/a)" : c.Ports.Postgres.ToString(),
+                                                    () =>
+                                                    {
+                                                        if (c.DatabaseMode == DatabaseMode.Sqlite) return;
+                                                        c.Ports.Postgres = PromptInt("Postgres host port", c.Ports.Postgres, 1, 65535);
+                                                    }),
+                ("Scylla/Cassandra host port",      () => c.DatabaseMode == DatabaseMode.Sqlite ? "(n/a)" : c.Ports.Scylla.ToString(),
+                                                    () =>
+                                                    {
+                                                        if (c.DatabaseMode == DatabaseMode.Sqlite) return;
+                                                        c.Ports.Scylla = PromptInt("Scylla/Cassandra host port", c.Ports.Scylla, 1, 65535);
+                                                    })),
 
             Group("Database",
                 ("Database mode",                   () => c.DatabaseMode.ToWire(),
@@ -233,16 +241,28 @@ internal static class ConfigPhase
                                                         new TextPrompt<string>("Database mode:")
                                                             .DefaultValue(c.DatabaseMode.ToWire())
                                                             .AddChoices(ValidDatabaseModes)).TryParseWire<DatabaseMode>(out var mode) ? mode : c.DatabaseMode),
-                ("Postgres application DB name",    () => c.PostgresDatabase,
-                                                    () => c.PostgresDatabase = PromptStr("Postgres application DB name", c.PostgresDatabase)),
-                ("Cluster name",                    () => c.ClusterName,
-                                                    () => c.ClusterName = PromptStr("Cluster name (Scylla/Cassandra)", c.ClusterName)),
+                ("Postgres application DB name",    () => c.DatabaseMode == DatabaseMode.Sqlite ? "(n/a)" : c.PostgresDatabase,
+                                                    () =>
+                                                    {
+                                                        if (c.DatabaseMode == DatabaseMode.Sqlite) return;
+                                                        c.PostgresDatabase = PromptStr("Postgres application DB name", c.PostgresDatabase);
+                                                    }),
+                ("Cluster name",                    () => c.DatabaseMode == DatabaseMode.Sqlite ? "(n/a)" : c.ClusterName,
+                                                    () =>
+                                                    {
+                                                        if (c.DatabaseMode == DatabaseMode.Sqlite) return;
+                                                        c.ClusterName = PromptStr("Cluster name (Scylla/Cassandra)", c.ClusterName);
+                                                    }),
                 // AddChoices enforces the seven valid keyspaces (Validate mirrors this non-interactively).
-                ("Scylla keyspace (region)",        () => c.ScyllaKeyspace.ToWire(),
-                                                    () => c.ScyllaKeyspace = EnumWireExtensions.ParseScyllaKeyspace(console.Prompt(
-                                                        new TextPrompt<string>("Scylla keyspace (region):")
-                                                            .DefaultValue(c.ScyllaKeyspace.ToWire())
-                                                            .AddChoices(ValidScyllaKeyspaces))))),
+                ("Scylla keyspace (region)",        () => c.DatabaseMode == DatabaseMode.Sqlite ? "(n/a)" : c.ScyllaKeyspace.ToWire(),
+                                                    () =>
+                                                    {
+                                                        if (c.DatabaseMode == DatabaseMode.Sqlite) return;
+                                                        c.ScyllaKeyspace = EnumWireExtensions.ParseScyllaKeyspace(console.Prompt(
+                                                            new TextPrompt<string>("Scylla keyspace (region):")
+                                                                .DefaultValue(c.ScyllaKeyspace.ToWire())
+                                                                .AddChoices(ValidScyllaKeyspaces)));
+                                                    })),
 
             // Derivable rows snapshot into ResolveDerivedDefaults so the menu paints the
             // computed default before Enter.
