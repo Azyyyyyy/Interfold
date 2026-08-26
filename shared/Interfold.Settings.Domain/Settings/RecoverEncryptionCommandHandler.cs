@@ -1,0 +1,57 @@
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Settings.Contracts;
+using Interfold.Settings.Contracts.Models.Commands;
+using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
+using Interfold.Shared.Contracts.Operations;
+using Interfold.Shared.Domain.Abstractions;
+using Microsoft.Extensions.Options;
+
+namespace Interfold.Settings.Domain.Settings;
+
+public sealed class RecoverEncryptionCommandHandler : IdempotentCommandHandler<RecoverEncryptionCommand, EncryptionCommandResult>
+{
+    private readonly IEncryptionStateRepository _repository;
+    private readonly IOptionsMonitor<AuthenticationConfiguration> _authOptions;
+
+    public RecoverEncryptionCommandHandler(
+        IEncryptionStateRepository repository,
+        IIdempotencyStore idempotencyStore,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions)
+:base(idempotencyStore)    {
+        _repository = repository;
+        _authOptions = authOptions;
+    }
+
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsEncryptionRecover;
+
+protected override async Task<CommandExecutionResult<EncryptionCommandResult>> ExecuteCoreAsync (
+        CommandEnvelope<RecoverEncryptionCommand> command,
+        CancellationToken cancellationToken = default)
+    {
+        if (RejectIfBlank(command, command.Payload.RecoveryCode.Value, EntityRefs.SettingsRecoveryCodeInvalid) is { } blankReject)
+            return blankReject;
+
+        var state = await _repository.GetAsync(command.PrincipalId, cancellationToken);
+        if (state is not { Initialized: true, KeyChecksum: { } keyChecksum, Salt: { } salt }
+            || string.IsNullOrWhiteSpace(keyChecksum.Value) || string.IsNullOrWhiteSpace(salt.Value))
+            return RejectInvariant(command, EntityRefs.SettingsEncryptionNotInitialized);
+
+        var pepper = _authOptions.CurrentValue.EncryptionPepper;
+        // `checksum == keyChecksum` uses the record-struct value equality (ordinal string
+        // equality on the underlying .Value), matching `string.Equals(..., Ordinal)` exactly.
+        var key = EncryptionKey.DeriveKey(pepper, command.PrincipalId, command.Payload.RecoveryCode, salt);
+        var checksum = EncryptionKey.DeriveChecksum(key);
+
+        if (checksum != keyChecksum)
+            return RejectInvariant(command, EntityRefs.SettingsInvalidRecoveryCode);
+
+        var result = new EncryptionCommandResult(command.PrincipalId, EncryptionAction.EncryptionRecovered, key, Replay: false);
+
+        return CommandExecutionResult<EncryptionCommandResult>.Success(result);
+    }
+
+}

@@ -4,22 +4,88 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Folder Name="/csharp/">
-    <Project Path="csharp/Interfold.Api/Interfold.Api.csproj" />
-    <Project Path="csharp/Interfold.Api.UnitTests/Interfold.Api.UnitTests.csproj" />
-    <Project Path="csharp/Interfold.AppHost/Interfold.AppHost.csproj" />
-    <Project Path="csharp/Interfold.Bootstrapper.IntegrationTests/Interfold.Bootstrapper.IntegrationTests.csproj" />
-    <Project Path="csharp/Interfold.Bootstrapper.UnitTests/Interfold.Bootstrapper.UnitTests.csproj" />
-    <Project Path="csharp/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj" />
-    <Project Path="csharp/Interfold.Contracts/Interfold.Contracts.csproj" />
-    <Project Path="csharp/Interfold.DatabaseBootstrap/Interfold.DatabaseBootstrap.csproj" />
-    <Project Path="csharp/Interfold.Domain/Interfold.Domain.csproj" />
-    <Project Path="csharp/Interfold.Infrastructure.InMemory/Interfold.Infrastructure.InMemory.csproj" />
-    <Project Path="csharp/Interfold.Infrastructure.Postgres/Interfold.Infrastructure.Postgres.csproj" />
-    <Project Path="csharp/Interfold.Infrastructure.Scylla/Interfold.Infrastructure.Scylla.csproj" />
-    <Project Path="csharp/Interfold.Infrastructure/Interfold.Infrastructure.csproj" />
-    <Project Path="csharp/Interfold.IntegrationTests/Interfold.IntegrationTests.csproj" />
-    <Project Path="csharp/Interfold.ServiceDefaults/Interfold.ServiceDefaults.csproj" />
-    <Project Path="csharp/Interfold.SPDump/Interfold.SPDump.csproj" />
+  <Folder Name="/shared/">
+    <Project Path="shared/Interfold.Alters.Contracts/Interfold.Alters.Contracts.csproj" />
+    <Project Path="shared/Interfold.Alters.Domain/Interfold.Alters.Domain.csproj" />
+    <Project Path="shared/Interfold.Auth.Contracts/Interfold.Auth.Contracts.csproj" />
+    <Project Path="shared/Interfold.Auth.Domain/Interfold.Auth.Domain.csproj" />
+    <Project Path="shared/Interfold.DatabaseBootstrap/Interfold.DatabaseBootstrap.csproj" />
+    <Project Path="shared/Interfold.Shared.Contracts/Interfold.Shared.Contracts.csproj" />
+    <Project Path="shared/Interfold.Shared.Domain/Interfold.Shared.Domain.csproj" />
+    <Project Path="shared/Interfold.Friendships.Contracts/Interfold.Friendships.Contracts.csproj" />
+    <Project Path="shared/Interfold.Friendships.Domain/Interfold.Friendships.Domain.csproj" />
+    <Project Path="shared/Interfold.Fronting.Contracts/Interfold.Fronting.Contracts.csproj" />
+    <Project Path="shared/Interfold.Fronting.Domain/Interfold.Fronting.Domain.csproj" />
+    <Project Path="shared/Interfold.Journals.Contracts/Interfold.Journals.Contracts.csproj" />
+    <Project Path="shared/Interfold.Journals.Domain/Interfold.Journals.Domain.csproj" />
+    <Project Path="shared/Interfold.Polls.Contracts/Interfold.Polls.Contracts.csproj" />
+    <Project Path="shared/Interfold.Polls.Domain/Interfold.Polls.Domain.csproj" />
+    <Project Path="shared/Interfold.Settings.Contracts/Interfold.Settings.Contracts.csproj" />
+    <Project Path="shared/Interfold.Settings.Domain/Interfold.Settings.Domain.csproj" />
+    <Project Path="shared/Interfold.Socket.Contracts/Interfold.Socket.Contracts.csproj" />
+    <Project Path="shared/Interfold.Systems.Contracts/Interfold.Systems.Contracts.csproj" />
+    <Project Path="shared/Interfold.Tags.Contracts/Interfold.Tags.Contracts.csproj" />
+    <Project Path="shared/Interfold.Tags.Domain/Interfold.Tags.Domain.csproj" />
+  </Folder>
+  <Folder Name="/infrastructure/">
+    <Project Path="infrastructure/Interfold.Infrastructure/Interfold.Infrastructure.csproj" />
+    <Project Path="infrastructure/Interfold.Infrastructure.InMemory/Interfold.Infrastructure.InMemory.csproj" />
+    <Project Path="infrastructure/Interfold.Infrastructure.Postgres/Interfold.Infrastructure.Postgres.csproj" />
+    <Project Path="infrastructure/Interfold.Infrastructure.Scylla/Interfold.Infrastructure.Scylla.csproj" />
+  </Folder>
+  <Folder Name="/apis/">
+    <Project Path="apis/Interfold.Alters.Api/Interfold.Alters.Api.csproj" />
+    <Project Path="apis/Interfold.Auth.Api/Interfold.Auth.Api.csproj" />
+    <Project Path="apis/Interfold.Friendships.Api/Interfold.Friendships.Api.csproj" />
+    <Project Path="apis/Interfold.Fronting.Api/Interfold.Fronting.Api.csproj" />
+    <Project Path="apis/Interfold.Journals.Api/Interfold.Journals.Api.csproj" />
+    <Project Path="apis/Interfold.Ops.Api/Interfold.Ops.Api.csproj" />
+    <Project Path="apis/Interfold.Polls.Api/Interfold.Polls.Api.csproj" />
+    <Project Path="apis/Interfold.Settings.Api/Interfold.Settings.Api.csproj" />
+    <Project Path="apis/Interfold.Shared.Api/Interfold.Shared.Api.csproj" />
+    <Project Path="apis/Interfold.Socket.Api/Interfold.Socket.Api.csproj" />
+    <Project Path="apis/Interfold.Systems.Api/Interfold.Systems.Api.csproj" />
+    <Project Path="apis/Interfold.Tags.Api/Interfold.Tags.Api.csproj" />
+  </Folder>
+  <Folder Name="/hosts/">
+    <Project Path="hosts/Interfold.Api.Host/Interfold.Api.Host.csproj" />
+    <Project Path="hosts/Interfold.AppHost/Interfold.AppHost.csproj" />
+    <Project Path="hosts/Interfold.ServiceDefaults/Interfold.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj" />
+    <Project Path="tools/Interfold.SPDump/Interfold.SPDump.csproj" />
+  </Folder>
+  <Folder Name="/tests/integration/">
+    <Project Path="tests/integration/Interfold.Alters.IntegrationTests/Interfold.Alters.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Auth.IntegrationTests/Interfold.Auth.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Bootstrapper.IntegrationTests/Interfold.Bootstrapper.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Friendships.IntegrationTests/Interfold.Friendships.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Fronting.IntegrationTests/Interfold.Fronting.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Infrastructure.IntegrationTests/Interfold.Infrastructure.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.IntegrationTests.Shared/Interfold.IntegrationTests.Shared.csproj" />
+    <Project Path="tests/integration/Interfold.Journals.IntegrationTests/Interfold.Journals.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Ops.IntegrationTests/Interfold.Ops.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Polls.IntegrationTests/Interfold.Polls.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Settings.IntegrationTests/Interfold.Settings.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Socket.IntegrationTests/Interfold.Socket.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Systems.IntegrationTests/Interfold.Systems.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Tags.IntegrationTests/Interfold.Tags.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/unit/">
+    <Project Path="tests/unit/Interfold.Alters.UnitTests/Interfold.Alters.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Auth.UnitTests/Interfold.Auth.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Bootstrapper.UnitTests/Interfold.Bootstrapper.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Friendships.UnitTests/Interfold.Friendships.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Fronting.UnitTests/Interfold.Fronting.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.IntegrationTests.Shared.UnitTests/Interfold.IntegrationTests.Shared.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Journals.UnitTests/Interfold.Journals.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Ops.UnitTests/Interfold.Ops.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Polls.UnitTests/Interfold.Polls.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Settings.UnitTests/Interfold.Settings.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Shared.UnitTests/Interfold.Shared.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Socket.UnitTests/Interfold.Socket.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Systems.UnitTests/Interfold.Systems.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Tags.UnitTests/Interfold.Tags.UnitTests.csproj" />
   </Folder>
 </Solution>

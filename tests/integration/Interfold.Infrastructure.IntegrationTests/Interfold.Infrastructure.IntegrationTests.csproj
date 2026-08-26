@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Pure-infrastructure integration tests: pool reconnect, migration ledger, region-context
+       caching, multi-node Scylla topology + MultiNodeScyllaFixture (7-node Aspire cluster
+       boot confined to this project so CI can gate it as a single job). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!--
+      Opt out of the centralised auto-managed test bench (see TestBenchCoordinator /
+      tests/Directory.Build.targets). Two tests here are structurally incompatible with
+      the bench: MultiNodeScyllaTests boots the 7-regional-Scylla cluster and asserts
+      all 7 data centers are visible (bench has 1); MigrationLedgerTests asserts
+      re-running Scylla migrations is a no-op which requires exclusive ownership of
+      the CQL ledger (bench is shared across every leaf project so peer
+      SharedDbFixture.TryInitialiseBenchCqlAsync calls insert extra rows between the
+      before/after snapshots). Fall back to this project's own AspireFixture path.
+    -->
+    <InterfoldTestBenchOptOut>true</InterfoldTestBenchOptOut>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="TUnit.Aspire" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="CassandraCSharpDriver" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Interfold.IntegrationTests.Shared\Interfold.IntegrationTests.Shared.csproj" />
+    <ProjectReference Include="..\..\..\infrastructure\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\infrastructure\Interfold.Infrastructure.Scylla\Interfold.Infrastructure.Scylla.csproj" />
+    <ProjectReference Include="..\..\..\hosts\Interfold.AppHost\Interfold.AppHost.csproj">
+      <Aliases>AppHost</Aliases>
+    </ProjectReference>
+    <ProjectReference Include="..\..\..\shared\Interfold.DatabaseBootstrap\Interfold.DatabaseBootstrap.csproj" />
+  </ItemGroup>
+
+</Project>

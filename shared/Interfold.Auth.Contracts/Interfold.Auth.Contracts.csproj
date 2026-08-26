@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
+    <!-- Interfold.Auth.Contracts -> Interfold.Settings.Contracts back-ref:
+         LinkOAuthIdentityCommand.Token binds LinkToken (Settings.Domain mints + reads the
+         token; Auth consumes it during OAuth linking). -->
+    <ProjectReference Include="..\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
+  </ItemGroup>
+</Project>

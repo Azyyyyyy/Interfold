@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\shared\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
+    <!-- Pure cross-cutting-abstractions module: IIdempotencyStore, ICommandHandler,
+         IdempotentCommandHandler, IClusterEventBus, IRegionContext, INodeRoleContext,
+         ISingletonTaskOwner, ISimplyPluralImportService, marker types. Feature-owned
+         repositories and adapters live in their feature.Domain / feature.Contracts projects. -->
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+  </ItemGroup>
+</Project>

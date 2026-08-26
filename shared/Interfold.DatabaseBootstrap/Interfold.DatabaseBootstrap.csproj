@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Shared seed orchestration + in-process driver executors for Interfold.Bootstrapper,
+    Interfold.IntegrationTests, and the dev-mode seed hosted service in Interfold.AppHost.
+    Npgsql / CassandraCSharpDriver are pulled in for NpgsqlPostgresExecutor +
+    DataStaxScyllaExecutor; the bootstrapper's own compose-exec executors don't touch
+    them. Binary-size regression guarded by
+    Interfold.Bootstrapper.UnitTests.BinarySizeGuardrailTests — the current pair adds
+    a few MiB well under the 75 MiB ceiling.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Interfold.DatabaseBootstrap</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- INTERFOLD_DBBOOT_LINKED makes the linked SecretsStoreKeys.cs internal here,
+         avoiding CS0433 with Interfold.Shared.Contracts' public copy when a consumer references both. -->
+    <DefineConstants>$(DefineConstants);INTERFOLD_DBBOOT_LINKED</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Linked (not project-referenced) to keep this project dependency-free
+         while sharing one source of truth for internal.secrets row keys. -->
+    <Compile Include="..\Interfold.Shared.Contracts\Secrets\SecretsStoreKeys.cs"
+             Link="SecretsStoreKeys.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="CassandraCSharpDriver" />
+  </ItemGroup>
+
+</Project>

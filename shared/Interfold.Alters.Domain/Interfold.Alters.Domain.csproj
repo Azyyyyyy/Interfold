@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
+    <!-- AlterFieldProjection reaches only spine types (SettingsFieldReadModel etc.) plus
+         GuardedMetrics / GuardedInstrumentation on Interfold.Shared.Domain. The
+         visibility-filtered definition load flows through the IAlterFieldDefinitions seam
+         (Interfold.Alters.Contracts.Abstractions), so Interfold.Alters.Domain never sees
+         ISettingsFieldRepository. -->
+    <ProjectReference Include="..\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
+    <!-- Interfold.Alters.Domain -> Interfold.Journals.Contracts back-ref:
+         DeleteAlterCommandHandler depends on IJournalAlterCascade. -->
+    <ProjectReference Include="..\Interfold.Journals.Contracts\Interfold.Journals.Contracts.csproj" />
+  </ItemGroup>
+</Project>

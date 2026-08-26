@@ -1,0 +1,156 @@
+using System.Collections.Concurrent;
+using System.Text.Json;
+using Interfold.Polls.Contracts.Ids;
+using Interfold.Polls.Contracts.Models;
+using Interfold.Polls.Contracts.Models.Commands;
+using Interfold.Polls.Contracts.Models.Read;
+using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Domain.Abstractions;
+
+namespace Interfold.Infrastructure.InMemory.Repository;
+
+public sealed class InMemoryPollRepository : IPollRepository
+{
+    private sealed class PollState
+    {
+        public required PollId PollId { get; init; }
+        public required SystemId UserId { get; init; }
+        public required string Title { get; set; }
+        public string? Description { get; set; }
+        public required PollType Type { get; set; }
+        public JsonElement Data { get; set; } = JsonElement.Parse("{}");
+        public DateTime? TimeEnd { get; set; }
+        public DateTime InsertedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+    }
+
+    private readonly IRegionContext _regionContext;
+    private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<PollId, PollState>> _bySystem = new();
+
+    public InMemoryPollRepository(IRegionContext regionContext)
+    {
+        _regionContext = regionContext;
+    }
+
+    public Task<IReadOnlyList<PollReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetStore(systemId, out var store))
+            return Task.FromResult<IReadOnlyList<PollReadModel>>(Array.Empty<PollReadModel>());
+
+        // Sort by wire form (lowercase "N" hex) — Guid.CompareTo reorders differently.
+        var list = store.Values
+            .Select(ToReadModel)
+            .OrderBy(p => p.Id.Value.ToString("N"), StringComparer.Ordinal)
+            .ToList();
+
+        return Task.FromResult<IReadOnlyList<PollReadModel>>(list);
+    }
+
+    public Task<PollReadModel?> GetAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetPoll(systemId, pollId, out var poll))
+            return Task.FromResult<PollReadModel?>(null);
+
+        return Task.FromResult<PollReadModel?>(ToReadModel(poll));
+    }
+
+    public Task<PollId?> CreateAsync(SystemId systemId, CreatePollCommand command, CancellationToken cancellationToken = default)
+    {
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+        var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<PollId, PollState>());
+        PollId id = new(Guid.NewGuid());
+
+        store[id] = new PollState
+        {
+            PollId = id,
+            UserId = systemId,
+            Title = command.Title,
+            Description = command.Description,
+            Type = command.Type,
+            TimeEnd = command.TimeEnd,
+            InsertedAt = command.InsertedAtUtc,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        return Task.FromResult<PollId?>(id);
+    }
+
+    public Task<bool> ExistsAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
+    {
+        var exists = TryGetStore(systemId, out var store) && store.ContainsKey(pollId);
+        return Task.FromResult(exists);
+    }
+
+    public Task<bool> UpdateAsync(SystemId systemId, UpdatePollCommand command, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetPoll(systemId, command.Id, out var poll))
+            return Task.FromResult(false);
+
+        if (command.Title is not null) poll.Title = command.Title;
+        if (command.Description is not null) poll.Description = command.Description;
+        if (command.HasTimeEnd) poll.TimeEnd = command.TimeEnd;
+        if (command.Data is not null) poll.Data = command.Data.Value;
+        poll.UpdatedAt = DateTime.UtcNow;
+
+        return Task.FromResult(true);
+    }
+
+    public Task<bool> DeleteAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetStore(systemId, out var store))
+            return Task.FromResult(false);
+
+        return Task.FromResult(store.TryRemove(pollId, out _));
+    }
+
+    // See PollDataJson for the blob shape (top-level "responses" array of alter votes).
+    public Task RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetStore(systemId, out var store))
+            return Task.CompletedTask;
+
+        foreach (var poll in store.Values)
+        {
+            if (PollDataJson.TryRemoveAlterResponses(poll.Data, alterId, out var newData))
+            {
+                poll.Data = newData;
+                poll.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private bool TryGetStore(SystemId systemId, out ConcurrentDictionary<PollId, PollState> store)
+    {
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+        return _bySystem.TryGetValue(systemKey, out store!);
+    }
+
+    private bool TryGetPoll(SystemId systemId, PollId pollId, out PollState poll)
+    {
+        if (TryGetStore(systemId, out var store) && store.TryGetValue(pollId, out poll!))
+        {
+            return true;
+        }
+
+        poll = null!;
+        return false;
+    }
+
+    private static PollReadModel ToReadModel(PollState state)
+        => new(
+            state.PollId,
+            state.UserId,
+            state.Title,
+            state.Description,
+            state.Type,
+            state.Data,
+            state.TimeEnd,
+            state.InsertedAt,
+            state.UpdatedAt
+        );
+}
+

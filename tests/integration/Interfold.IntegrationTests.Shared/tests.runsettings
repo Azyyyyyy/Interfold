@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <!--
+    Kept as documentation only. Microsoft.Testing.Platform + TUnit ignore <EnvironmentVariables>
+    blocks here (no VSTestBridge on the MTP `dotnet test` path), so the historical
+    <TUNIT_OTEL_MAX_EXTERNAL_SPANS> and <INTERFOLD_TEST_BENCH> entries never reached the test
+    host. The bench opt-in now lives in tests/Directory.Build.props as an AssemblyMetadata
+    attribute — see TestBenchCoordinator.OptInAssemblyMetadataKey. If TUnit's external-span
+    cap ever needs raising, set TUNIT_OTEL_MAX_EXTERNAL_SPANS at the parent shell / CI env
+    or add an <AssemblyMetadata> equivalent here.
+  -->
+  <RunConfiguration />
+</RunSettings>

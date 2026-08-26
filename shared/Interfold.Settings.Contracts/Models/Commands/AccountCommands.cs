@@ -1,0 +1,21 @@
+using Interfold.Shared.Contracts.Ids;
+
+namespace Interfold.Settings.Contracts.Models.Commands;
+
+// Persisted + idempotency-hashed payload; Username's raw-string converter keeps stored
+// hashes valid.
+public sealed record UpdateUsernameCommand(Username Username);
+
+public sealed record UnlinkDiscordCommand();
+
+public sealed record UnlinkEmailCommand();
+
+public sealed record UnlinkAppleCommand();
+
+public sealed record DeleteAccountCommand();
+
+public sealed record WipeAltersCommand();
+
+public sealed record WipeTagsCommand();
+
+public sealed record CreateLinkTokenCommand();
