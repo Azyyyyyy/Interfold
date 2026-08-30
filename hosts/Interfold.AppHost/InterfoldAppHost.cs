@@ -50,13 +50,6 @@ public static class InterfoldAppHost
     /// <summary>CQL cluster-name fallback for dev `aspire run`; the bootstrapper always overrides.</summary>
     private const string DefaultClusterName = "InterfoldCluster";
 
-    // Bench-mode container names. Stable across AppHost restarts so a second launcher
-    // process (a subsequent test-host cold-attach) reuses the running containers instead
-    // of colliding on host ports 14200/19042/19043.
-    private const string TestBenchPostgresContainerName = "interfold-test-bench-pg";
-    private const string TestBenchScyllaContainerName = "interfold-test-bench-scylla";
-    private const string TestBenchCassandraContainerName = "interfold-test-bench-cassandra";
-
     /// <summary>Registers the full Interfold resource graph. Does not call
     /// <c>Build()</c> or <c>Run()</c>.</summary>
     public static void Configure(IDistributedApplicationBuilder builder)
@@ -213,19 +206,7 @@ public static class InterfoldAppHost
         // knobs (avatars, OTLP, socket threshold) — ApplyStorage / ApplyObservability
         // normalise empty → null.
         var nodeGroup = builder.AddParameter(ParamName(AppHostParameterKeys.NodeGroup), "auxiliary", publishValueAsDefault: true);
-        var avatarStorageRoot = builder.AddParameter(ParamName(AppHostParameterKeys.AvatarStorageRoot), "", publishValueAsDefault: true);
         var avatarPublicBase = builder.AddParameter(ParamName(AppHostParameterKeys.AvatarPublicBase), "", publishValueAsDefault: true);
-
-        // Resolved at AppHost-build time so the OCTOCON_AVATAR_STORAGE_ROOT env var and the
-        // WithVolume mount below share one path. Blank → the image's pre-created /app/data/avatars
-        // (app:app ownership baked in via Interfold.Api.Host/data/avatars/.gitkeep so Docker's
-        // named-volume init inherits it and the app user, UID 1654, can write without chown).
-        // Operators overriding the path opt out of the managed volume.
-        var rawAvatarStorageRoot = builder.Configuration[AppHostParameterKeys.AvatarStorageRoot];
-        var effectiveAvatarStorageRoot = string.IsNullOrWhiteSpace(rawAvatarStorageRoot)
-            ? ContainerMountPaths.InterfoldAvatars
-            : rawAvatarStorageRoot;
-        var useDefaultAvatarStorageRoot = string.IsNullOrWhiteSpace(rawAvatarStorageRoot);
         var otlpEndpoint = builder.AddParameter(ParamName(AppHostParameterKeys.OtlpEndpoint), "", publishValueAsDefault: true);
         var socketBatchBytesThreshold = builder.AddParameter(ParamName(AppHostParameterKeys.SocketBatchBytesThreshold), "", publishValueAsDefault: true);
         var dbRetryAttempts = builder.AddParameter(ParamName(AppHostParameterKeys.DbRetryAttempts), "3", publishValueAsDefault: true);
@@ -343,10 +324,9 @@ public static class InterfoldAppHost
                 msgDb.WithEndpoint(PostgresEndpointName, e => e.IsProxied = false);
                 // Legacy per-project fixtures shard tests across their own Postgres, so the
                 // image default max_connections=100 was safe. Bench mode collapses every leaf
-                // integration project onto ONE Postgres: SecretsPreBuildLoader alone pools 10
+                // integration project onto ONE Postgres: SecretsPreBuildLoader pools up to 10
                 // conns per test-host process, the app pool adds 5 more, and a solution-wide
-                // `dotnet test` spawns ~15 test-host processes concurrently — ~225 potential
-                // conns before a single test opens its own handle. That trips PostgresErrorCode
+                // `dotnet test` spawns many hosts concurrently. That trips PostgresErrorCode
                 // 53300 ("too many clients already") during factory build. 500 buys headroom
                 // with tiny shared-memory overhead (~50MB extra) and doesn't require touching
                 // shared_buffers. Passed via `postgres -c`; docker-entrypoint.sh forwards CMD
@@ -360,7 +340,7 @@ public static class InterfoldAppHost
             // Pin the docker container name in bench mode so subsequent AppHost launcher
             // processes reuse the same container instead of colliding on host port 14200.
             if (testBenchMode)
-                msgDb.WithContainerName(TestBenchPostgresContainerName);
+                msgDb.WithContainerName(TestBenchContainerNames.Postgres);
         }
 
         // API waits on each included CQL backend before starting.
@@ -431,7 +411,7 @@ public static class InterfoldAppHost
                 // container name so cross-process reuse works on the fixed 19042 port.
                 if (testBenchMode && !isMultiScyllaNode)
                 {
-                    node.WithContainerName(TestBenchScyllaContainerName);
+                    node.WithContainerName(TestBenchContainerNames.Scylla);
                     // Proxyless — see the Postgres branch above.
                     node.WithEndpoint(CqlEndpointName, e => e.IsProxied = false);
                 }
@@ -503,7 +483,7 @@ public static class InterfoldAppHost
             }
             if (testBenchMode)
             {
-                cassandra.WithContainerName(TestBenchCassandraContainerName);
+                cassandra.WithContainerName(TestBenchContainerNames.Cassandra);
                 // Proxyless — see the Postgres branch above.
                 cassandra.WithEndpoint(CqlEndpointName, e => e.IsProxied = false);
             }
@@ -572,6 +552,8 @@ public static class InterfoldAppHost
             void ConfigureApiSelfHostEnv(IResourceBuilder<ContainerResource> api)
             {
                 api.WithBindMount(CertsPaths.HostDir, CertsPaths.ContainerDir, isReadOnly: true)
+                   // Host path filled by PublishPhase from BootstrapConfig.storage.avatarStorageRoot.
+                   .WithBindMount(AvatarsPaths.HostDir, AvatarsPaths.ContainerDir, isReadOnly: false)
                    // Override the SDK's HTTP 8080 default so ASPNETCORE_*_PORTS matches
                    // targetPort — HTTPS terminates inside the container using the leaf PFX.
                    .WithEnvironment(ContainerEnvNames.AspNetCoreHttpPorts, apiContainerHttpPort.ToString())
@@ -603,9 +585,7 @@ public static class InterfoldAppHost
                    // Empty for the nullable knobs (avatars, OTLP, socket threshold);
                    // ApplyStorage / ApplyObservability normalise empty → null.
                    .WithEnvironment(OctoconEnvKeys.NodeGroup, nodeGroup)
-                   // OCTOCON_AVATAR_STORAGE_ROOT carries the RESOLVED literal path so the env
-                   // var and the WithVolume mount below share it.
-                   .WithEnvironment(OctoconEnvKeys.AvatarStorageRoot, effectiveAvatarStorageRoot)
+                   .WithEnvironment(OctoconEnvKeys.AvatarStorageRoot, ContainerMountPaths.InterfoldAvatars)
                    .WithEnvironment(OctoconEnvKeys.AvatarPublicBase, avatarPublicBase)
                    .WithEnvironment(OctoconEnvKeys.OtlpEndpoint, otlpEndpoint)
                    .WithEnvironment(OctoconEnvKeys.SocketBatchBytesThreshold, socketBatchBytesThreshold)
@@ -613,16 +593,6 @@ public static class InterfoldAppHost
                    .WithEnvironment(OctoconEnvKeys.DbRetryInitialDelayMs, dbRetryInitialDelayMs)
                    .WithEnvironment(OctoconEnvKeys.DbRetryMaxDelayMs, dbRetryMaxDelayMs)
                    .WithEnvironment(OctoconEnvKeys.HydrationMaxConcurrency, hydrationMaxConcurrency);
-
-                // Managed avatar volume only when persistent AND path is the image's default —
-                // Docker's volume-init inherits app:app ownership from the pre-created dir
-                // (Interfold.Api.Host/data/avatars/.gitkeep) so the app user (UID 1654) can
-                // write without chown. Operator-supplied paths opt out (no matching in-image
-                // dir means EACCES); they own their own bind mount + permissions.
-                if (persistentContainers && useDefaultAvatarStorageRoot)
-                {
-                    api.WithVolume(ComposeVolumes.InterfoldAvatars, ContainerMountPaths.InterfoldAvatars);
-                }
             }
 
             var apiImageRef = builder.Configuration[AppHostParameterKeys.ApiImage];
