@@ -111,9 +111,12 @@ internal static partial class PrerequisitesPhase
             "for local development on this OS use `aspire run` from hosts/Interfold.AppHost instead.");
     }
 
+    internal static bool IsRunningAsRoot()
+        => OperatingSystem.IsLinux() && NativeMethods.geteuid() == 0;
+
     private static void EnsureRoot(PhaseLogger logger)
     {
-        if (NativeMethods.geteuid() == 0) return;
+        if (IsRunningAsRoot()) return;
 
         logger.PhaseFail(BootstrapPhase.Prereqs.ToWireName(), PhaseFailureReasons.NonRoot);
         throw new InvalidOperationException(

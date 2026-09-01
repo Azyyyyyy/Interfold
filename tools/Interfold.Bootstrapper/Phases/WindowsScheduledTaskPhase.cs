@@ -3,6 +3,7 @@ using System.Security;
 using System.Security.Principal;
 using System.Text;
 using Interfold.Bootstrapper.Cli;
+using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.Phases;
@@ -28,6 +29,8 @@ internal static class WindowsScheduledTaskPhase
         string CalendarTrigger,
         bool AutostartEnabled,
         bool IncludeUpdateAction,
+        bool IncludeBootstrapperSelfUpdate,
+        string BootstrapperChannel,
         string UserId);
 
     public static async Task<int> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
@@ -70,6 +73,8 @@ internal static class WindowsScheduledTaskPhase
             CalendarTrigger: calendarTrigger,
             AutostartEnabled: enableAutostart,
             IncludeUpdateAction: config.Deployment.Update.Enabled,
+            IncludeBootstrapperSelfUpdate: config.Deployment.Update.Bootstrapper.Enabled,
+            BootstrapperChannel: config.Deployment.Update.Bootstrapper.Channel.ToWireValue(),
             // InteractiveToken requires an explicit principal; omit → Access Denied on /Create.
             UserId: WindowsIdentity.GetCurrent().Name);
 
@@ -123,15 +128,7 @@ internal static class WindowsScheduledTaskPhase
         using var reader = new StreamReader(stream, Encoding.UTF8);
         var template = reader.ReadToEnd();
 
-        var updateAction = input.IncludeUpdateAction
-            ? """
-                  <Exec>
-                    <Command>{{BINARY_PATH}}</Command>
-                    <Arguments>update-images --config "{{CONFIG_PATH}}" --output-dir "{{OUTPUT_DIR}}"</Arguments>
-                    <WorkingDirectory>{{OUTPUT_DIR}}</WorkingDirectory>
-                  </Exec>
-              """
-            : string.Empty;
+        var updateAction = BuildUpdateActionXml(input);
 
         var sb = new StringBuilder(template);
         sb.Replace("{{UPDATE_ACTION}}", updateAction);
@@ -158,6 +155,43 @@ internal static class WindowsScheduledTaskPhase
         }
 
         return rendered;
+    }
+
+    /// <summary>Mirrors <see cref="SystemdInstallPhase.BuildUpdateExecStart"/>: optional
+    /// <c>update-self</c> Exec before <c>update-images</c> (Task Scheduler runs Actions in order).</summary>
+    internal static string BuildUpdateActionXml(WindowsTaskRenderInput input)
+    {
+        if (!input.IncludeUpdateAction)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        if (input.IncludeBootstrapperSelfUpdate)
+        {
+            var channel = string.IsNullOrWhiteSpace(input.BootstrapperChannel)
+                ? BootstrapperReleaseChannel.Stable.ToWireValue()
+                : input.BootstrapperChannel;
+            sb.Append(
+                $"""
+                      <Exec>
+                        <Command>{{{{BINARY_PATH}}}}</Command>
+                        <Arguments>update-self --non-interactive --channel {XmlEscape(channel)}</Arguments>
+                        <WorkingDirectory>{{{{OUTPUT_DIR}}}}</WorkingDirectory>
+                      </Exec>
+
+                """);
+        }
+
+        sb.Append(
+            """
+                  <Exec>
+                    <Command>{{BINARY_PATH}}</Command>
+                    <Arguments>update-images --config "{{CONFIG_PATH}}" --output-dir "{{OUTPUT_DIR}}"</Arguments>
+                    <WorkingDirectory>{{OUTPUT_DIR}}</WorkingDirectory>
+                  </Exec>
+            """);
+        return sb.ToString();
     }
 
     private static string XmlEscape(string value) => SecurityElement.Escape(value)!;

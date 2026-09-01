@@ -6,6 +6,8 @@ public sealed class WindowsTaskRenderingTests
 {
     private static WindowsScheduledTaskPhase.WindowsTaskRenderInput MakeInput(
         bool includeUpdate = false,
+        bool includeSelfUpdate = false,
+        string channel = "stable",
         bool autostart = true) => new(
         OutputDir: @"C:\srv\interfold\deploy",
         ComposeFile: @"C:\srv\interfold\deploy\docker-compose.yaml",
@@ -17,6 +19,8 @@ public sealed class WindowsTaskRenderingTests
             : throw new InvalidOperationException("daily must translate"),
         AutostartEnabled: autostart,
         IncludeUpdateAction: includeUpdate,
+        IncludeBootstrapperSelfUpdate: includeSelfUpdate,
+        BootstrapperChannel: channel,
         UserId: @"DESKTOP-TEST\operator");
 
     [Test]
@@ -70,6 +74,20 @@ public sealed class WindowsTaskRenderingTests
 
         await Assert.That(rendered).Contains("update-images --config");
         await Assert.That(rendered.IndexOf("backup --config", StringComparison.Ordinal))
+            .IsLessThan(rendered.IndexOf("update-images --config", StringComparison.Ordinal));
+        await Assert.That(rendered).DoesNotContain("update-self");
+    }
+
+    [Test]
+    public async Task UpdateActionChainsSelfUpdateWhenEnabled()
+    {
+        var rendered = WindowsScheduledTaskPhase.RenderTask(
+            WindowsScheduledTaskPhase.BackupTemplate,
+            MakeInput(includeUpdate: true, includeSelfUpdate: true, channel: "bleeding-edge"));
+
+        await Assert.That(rendered).Contains("update-self --non-interactive --channel bleeding-edge");
+        await Assert.That(rendered).Contains("update-images --config");
+        await Assert.That(rendered.IndexOf("update-self", StringComparison.Ordinal))
             .IsLessThan(rendered.IndexOf("update-images --config", StringComparison.Ordinal));
     }
 

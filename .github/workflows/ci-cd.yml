@@ -100,6 +100,7 @@ jobs:
           rids: ${{ env.FULL_BOOTSTRAPPER_BUILD == 'true' && env.BOOTSTRAPPER_RIDS || 'linux-x64' }}
           dockerfile: ${{ env.BOOTSTRAPPER_DOCKERFILE_PATH }}
           artifact-suffix: ${{ github.sha }}
+          bootstrapper-version: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0+sha.{0}', github.sha) }}
 
       # tar.gz preserves +x that upload-artifact@v4's zip strips. Ships test-
       # project bins (direct-DLL launch) and `tools/*/bin` because
@@ -295,14 +296,17 @@ jobs:
           $rids = @('win-x64', 'win-arm64')
           $base = Join-Path $env:RUNNER_TEMP 'interfold-bootstrap-win'
           $maxBytes = 75L * 1024 * 1024
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "0.0.0+sha.$($env:GITHUB_SHA)" }
           New-Item -ItemType Directory -Force -Path $base | Out-Null
 
           foreach ($rid in $rids) {
             $out = Join-Path $base $rid
             New-Item -ItemType Directory -Force -Path $out | Out-Null
-            Write-Host "Publishing $rid -> $out"
+            Write-Host "Publishing $rid -> $out (InformationalVersion=$version)"
             dotnet publish tools/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj `
               /p:PublishProfile=$rid `
+              /p:Version=$version `
+              /p:InformationalVersion=$version `
               -o $out
             $exe = Join-Path $out 'interfold-bootstrap.exe'
             if (-not (Test-Path $exe)) {
@@ -530,5 +534,106 @@ jobs:
           sbom: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=interfold-dotnet
+          cache-to: type=gha,mode=max,scope=interfold-dotnet
+
+  # publish-bootstrapper: GitHub Releases tarballs + ghcr.io image for the bootstrapper CLI.
+  publish-bootstrapper:
+    runs-on: ubuntu-latest
+    needs: [ test-unit, test-int, build ]
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+       github.ref == 'refs/heads/develop')
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download bootstrapper tarballs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: interfold-bootstrap-linux-*-${{ github.sha }}
+          merge-multiple: true
+          path: bootstrap-release
+
+      - name: Download bootstrapper Windows zips
+        uses: actions/download-artifact@v4
+        with:
+          pattern: interfold-bootstrap-win-*-${{ github.sha }}
+          merge-multiple: true
+          path: bootstrap-release
+
+      - name: Download bootstrapper release metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: interfold-bootstrap-release-meta-${{ github.sha }}
+          path: bootstrap-release
+
+      - name: Append Windows zip checksums to SHA256SUMS
+        shell: bash
+        working-directory: bootstrap-release
+        run: |
+          set -euo pipefail
+          for zip in interfold-bootstrap-win-*.zip; do
+            [[ -f "$zip" ]] || continue
+            sha256sum "$zip" >> SHA256SUMS
+          done
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+
+      - name: Publish rolling GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref == 'refs/heads/develop' && 'bleeding-edge' || 'latest' }}
+          name: ${{ github.ref == 'refs/heads/develop' && 'bleeding-edge' || 'latest' }}
+          prerelease: ${{ github.ref == 'refs/heads/develop' }}
+          files: |
+            bootstrap-release/interfold-bootstrap-linux-x64.tar.gz
+            bootstrap-release/interfold-bootstrap-linux-arm.tar.gz
+            bootstrap-release/interfold-bootstrap-linux-arm64.tar.gz
+            bootstrap-release/interfold-bootstrap-win-x64.zip
+            bootstrap-release/interfold-bootstrap-win-arm64.zip
+            bootstrap-release/SHA256SUMS
+            bootstrap-release/version.txt
+          make_latest: ${{ github.ref != 'refs/heads/develop' }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata (bootstrapper image)
+        id: bootstrapper_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/interfold-bootstrap
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=raw,value=bleeding-edge,enable=${{ github.ref == 'refs/heads/develop' }}
+
+      - name: Build and push bootstrapper container image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ env.BOOTSTRAPPER_DOCKERFILE_PATH }}
+          target: runtime
+          push: true
+          platforms: ${{ env.BUILD_PLATFORMS }}
+          provenance: false
+          sbom: false
+          tags: ${{ steps.bootstrapper_meta.outputs.tags }}
+          labels: ${{ steps.bootstrapper_meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0+sha.{0}', github.sha) }}
           cache-from: type=gha,scope=interfold-dotnet
           cache-to: type=gha,mode=max,scope=interfold-dotnet

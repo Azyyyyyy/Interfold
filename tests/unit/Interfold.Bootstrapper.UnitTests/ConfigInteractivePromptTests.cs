@@ -12,8 +12,8 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// rows across 10 sections + trailing "Confirm and save". Headers are inert; cursor resets
 /// to field 0 after each edit, so tests use absolute Navigate distances.
 /// <para>Field order: 0..2 Deployment · 3..18 Edge · 19..22 Datastores · 23..29 API ·
-/// 30..31 Storage · 32..36 Performance · 37..42 OAuth · 43..46 Backup · 47..51 Updates ·
-/// 52 Firebase. Navigate(53) = Confirm and save.</para>
+/// 30..31 Storage · 32..36 Performance · 37..42 OAuth · 43..46 Backup · 47..55 Updates ·
+/// 56 Firebase. Navigate(57) = Confirm and save.</para>
 /// <para><c>[NotInParallel("bootstrapper-console")]</c>: Spectre TestConsole + MTP's
 /// NamedPipeServer race under Linux thread pressure (dotnet/runtime#58045). ~10s serialised.
 /// <c>[Retry(2)]</c> absorbs the residual native abort (exit 134/SIGABRT) that still slips
@@ -23,7 +23,7 @@ namespace Interfold.Bootstrapper.UnitTests;
 [Retry(2)]
 public sealed class ConfigInteractivePromptTests
 {
-    private const int FieldCount = 53;
+    private const int FieldCount = 57;
 
     /// <summary>Sized to fit the whole 60-row form so Spectre never paginates.</summary>
     private static TestConsole NewConsole()
@@ -830,18 +830,24 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task EditingUpdateSectionCapturesValues()
     {
-        // Happy-path edit of every row in the five-row update section (44..48).
+        // Happy-path edit of every row in the nine-row update section (47..55).
         var console = NewConsole();
-        EditField(console, fieldIndex: 47, "y");                                    // Enabled := true
-        EditField(console, fieldIndex: 48, "300");                                  // HealthCheckTimeoutSeconds
-        EditField(console, fieldIndex: 49, "y");                                    // AutoRestoreOnFailure := true
-        EditField(console, fieldIndex: 50, "n");                                    // RecreateOnUpdate := false
-        EditField(console, fieldIndex: 51, "interfold-api,octocon-web");            // Services
+        EditField(console, fieldIndex: 47, "y");                                    // Chain updates
+        EditField(console, fieldIndex: 48, "n");                                    // Bootstrapper self-update before images
+        Navigate(console, 49);
+        console.Input.PushKey(ConsoleKey.Enter);                                  // Channel (SelectionPrompt; default stable)
+        EditField(console, fieldIndex: 50, "n");                                    // Self-update on bootstrap
+        EditField(console, fieldIndex: 51, "n");                                    // Rollback bootstrapper on failure
+        EditField(console, fieldIndex: 52, "300");                                  // HealthCheckTimeoutSeconds
+        EditField(console, fieldIndex: 53, "y");                                    // AutoRestoreOnFailure := true
+        EditField(console, fieldIndex: 54, "n");                                    // RecreateOnUpdate := false
+        EditField(console, fieldIndex: 55, "interfold-api,octocon-web");            // Services
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
         await Assert.That(config.Deployment.Update.Enabled).IsTrue();
+        await Assert.That(config.Deployment.Update.Bootstrapper.Enabled).IsFalse();
         await Assert.That(config.Deployment.Update.HealthCheckTimeoutSeconds).IsEqualTo(300);
         await Assert.That(config.Deployment.Update.AutoRestoreOnFailure).IsTrue();
         await Assert.That(config.Deployment.Update.RecreateOnUpdate).IsFalse();
@@ -855,7 +861,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // 9999 breaches the [1..3600] bound; second answer sticks.
         var console = NewConsole();
-        EditField(console, fieldIndex: 48, "9999", "60");
+        EditField(console, fieldIndex: 52, "9999", "60");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -869,7 +875,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Unknown entry re-prompts against ValidUpdateServices; second answer sticks.
         var console = NewConsole();
-        EditField(console, fieldIndex: 51,
+        EditField(console, fieldIndex: 55,
             "msg-db,not-a-real-service",
             "msg-db,scylla");
         ConfirmForm(console);
@@ -887,7 +893,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Blank = "every service" (stored as empty array) — the un-scope path in the UI.
         var console = NewConsole();
-        EditField(console, fieldIndex: 51, string.Empty);
+        EditField(console, fieldIndex: 55, string.Empty);
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
