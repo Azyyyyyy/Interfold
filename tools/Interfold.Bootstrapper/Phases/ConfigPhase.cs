@@ -352,6 +352,14 @@ internal static class ConfigPhase
             Group("Updates",
                 ("Chain updates after backup",      () => c.Deployment.Update.Enabled.ToString(),
                                                     () => c.Deployment.Update.Enabled = PromptBool("Chain interfold-update.service after each successful backup", c.Deployment.Update.Enabled)),
+                ("Self-update bootstrapper before images", () => c.Deployment.Update.Bootstrapper.Enabled.ToString(),
+                                                    () => c.Deployment.Update.Bootstrapper.Enabled = PromptBool("Run update-self before update-images in the chained update service", c.Deployment.Update.Bootstrapper.Enabled)),
+                ("Bootstrapper release channel",  () => c.Deployment.Update.Bootstrapper.Channel.ToWireValue(),
+                                                    () => c.Deployment.Update.Bootstrapper.Channel = PromptBootstrapperChannel(console, c.Deployment.Update.Bootstrapper.Channel)),
+                ("Self-update on bootstrap",      () => c.Deployment.Update.Bootstrapper.ResolveUpdateOnBootstrap().ToString(),
+                                                    () => c.Deployment.Update.Bootstrapper.UpdateOnBootstrap = PromptBool("Check for a newer bootstrapper at the start of bootstrap", c.Deployment.Update.Bootstrapper.ResolveUpdateOnBootstrap())),
+                ("Rollback bootstrapper on image-update failure", () => c.Deployment.Update.Bootstrapper.AutoRollbackOnFailure.ToString(),
+                                                    () => c.Deployment.Update.Bootstrapper.AutoRollbackOnFailure = PromptBool("Restore interfold-bootstrap.old when update-images health-check fails", c.Deployment.Update.Bootstrapper.AutoRollbackOnFailure)),
                 ("Health-check timeout (seconds)",  () => c.Deployment.Update.HealthCheckTimeoutSeconds.ToString(),
                                                     () => c.Deployment.Update.HealthCheckTimeoutSeconds = PromptInt("Health-check timeout after pull+recreate (seconds)", c.Deployment.Update.HealthCheckTimeoutSeconds, 1, 3600)),
                 ("Auto-restore on failure",         () => c.Deployment.Update.AutoRestoreOnFailure.ToString(),
@@ -526,6 +534,20 @@ internal static class ConfigPhase
 
         if (string.IsNullOrWhiteSpace(raw)) return [];
         return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToArray();
+    }
+
+    private static BootstrapperReleaseChannel PromptBootstrapperChannel(
+        IAnsiConsole console,
+        BootstrapperReleaseChannel fallback)
+    {
+        var choice = console.Prompt(
+            new SelectionPrompt<string>()
+                .Title("Bootstrapper release channel:")
+                .AddChoices("stable", "bleeding-edge")
+                .HighlightStyle(new Style(Color.Cyan1))
+                .UseConverter(s => s)
+                .DefaultValue(fallback.ToWireValue()));
+        return BootstrapperReleaseChannelExtensions.ParseWire(choice);
     }
 
     /// <summary>Menu-row summary: <c>off</c> or <c>N/4 configured (...)</c>.</summary>

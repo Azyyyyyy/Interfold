@@ -1,5 +1,7 @@
 using System.CommandLine;
+using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.Cli;
 
@@ -7,12 +9,18 @@ namespace Interfold.Bootstrapper.Cli;
 /// Entry point and command tree for the bootstrapper CLI.
 /// Commands: <c>bootstrap</c> (default), <c>publish</c>, <c>up</c>, <c>rotate-secrets</c>,
 /// <c>rotate-certs</c>, <c>show-trust</c>, <c>backup</c>, <c>install-service</c>,
-/// <c>update-images</c>, <c>restore</c>.
+/// <c>update-images</c>, <c>update-self</c>, <c>restore</c>.
 /// </summary>
 public static class RootCli
 {
     public static async Task<int> RunAsync(string[] args)
     {
+        if (args is ["--version"] or ["-V"] or ["version"])
+        {
+            PrintVersion();
+            return 0;
+        }
+
         var root = BuildRoot();
         var parseResult = root.Parse(args);
         return await parseResult.InvokeAsync().ConfigureAwait(false);
@@ -45,6 +53,29 @@ public static class RootCli
         // Hidden testability flags - not surfaced in help but accepted by the parser.
         var faultInjectOpt = new Option<string?>("--fault-inject") { Hidden = true };
         var printPhaseStatusOpt = new Option<bool>("--print-phase-status") { Hidden = true };
+
+        var skipSelfUpdateOpt = new Option<bool>("--skip-self-update")
+        {
+            Description = "Skip bootstrapper self-update at the start of `bootstrap` when config.deployment.update.bootstrapper.updateOnBootstrap is enabled."
+        };
+
+        // --- update-self-specific options ---
+        var selfUpdateChannelOpt = new Option<string?>("--channel")
+        {
+            Description = "Release channel for `update-self`: stable or bleeding-edge. Overrides config.deployment.update.bootstrapper.channel."
+        };
+        var selfUpdateCheckOpt = new Option<bool>("--check")
+        {
+            Description = "For `update-self`: exit 0 when up to date, exit 2 when a newer release is available (no download)."
+        };
+        var selfUpdateForceOpt = new Option<bool>("--force")
+        {
+            Description = "For `update-self`: re-download even when the running version matches the remote release."
+        };
+        var selfUpdateRollbackOpt = new Option<bool>("--rollback")
+        {
+            Description = "For `update-self`: restore the previous bootstrapper binary from interfold-bootstrap.old."
+        };
 
         // --- backup-specific options ---
         // Component selector: postgres = pg_dump only; scylla = nodetool snapshot only;
@@ -138,10 +169,12 @@ public static class RootCli
             "Run all phases: prereqs -> config -> secrets -> certs -> publish -> launch.");
         AddSharedOptions(bootstrapCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         bootstrapCmd.Options.Add(reconfigureOpt);
+        bootstrapCmd.Options.Add(skipSelfUpdateOpt);
         bootstrapCmd.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Bootstrap, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
             rotateSecrets: false, rotateCerts: false, ct,
-            reconfigureOpt: reconfigureOpt));
+            reconfigureOpt: reconfigureOpt,
+            skipSelfUpdateOpt: skipSelfUpdateOpt));
         root.Subcommands.Add(bootstrapCmd);
 
         // ---------- publish (compose-only, no docker compose up) ----------
@@ -242,6 +275,23 @@ public static class RootCli
             healthCheckTimeoutOpt: healthCheckTimeoutOpt));
         root.Subcommands.Add(updateImagesCmd);
 
+        // ---------- update-self ----------
+        var updateSelfCmd = new Command("update-self",
+            "Download and install a newer bootstrapper release from GitHub Releases for this Linux RID.");
+        AddSharedOptions(updateSelfCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
+        updateSelfCmd.Options.Add(selfUpdateChannelOpt);
+        updateSelfCmd.Options.Add(selfUpdateCheckOpt);
+        updateSelfCmd.Options.Add(selfUpdateForceOpt);
+        updateSelfCmd.Options.Add(selfUpdateRollbackOpt);
+        updateSelfCmd.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.UpdateSelf, parse,
+            configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
+            rotateSecrets: false, rotateCerts: false, ct,
+            selfUpdateChannelOpt: selfUpdateChannelOpt,
+            selfUpdateCheckOpt: selfUpdateCheckOpt,
+            selfUpdateForceOpt: selfUpdateForceOpt,
+            selfUpdateRollbackOpt: selfUpdateRollbackOpt));
+        root.Subcommands.Add(updateSelfCmd);
+
         // ---------- restore ----------
         var restoreCmd = new Command("restore",
             "Restore DB state from backup archives. Destructive — requires --force in non-interactive mode.");
@@ -264,10 +314,12 @@ public static class RootCli
         // No subcommand -> default to `bootstrap`.
         AddSharedOptions(root, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         root.Options.Add(reconfigureOpt);
+        root.Options.Add(skipSelfUpdateOpt);
         root.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Bootstrap, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
             rotateSecrets: false, rotateCerts: false, ct,
-            reconfigureOpt: reconfigureOpt));
+            reconfigureOpt: reconfigureOpt,
+            skipSelfUpdateOpt: skipSelfUpdateOpt));
 
         return root;
     }
@@ -316,8 +368,23 @@ public static class RootCli
         Option<string?>? restoreScyllaOpt = null,
         Option<bool>? restoreLatestOpt = null,
         Option<bool>? restoreForceOpt = null,
-        Option<bool>? reconfigureOpt = null)
+        Option<bool>? reconfigureOpt = null,
+        Option<bool>? skipSelfUpdateOpt = null,
+        Option<string?>? selfUpdateChannelOpt = null,
+        Option<bool>? selfUpdateCheckOpt = null,
+        Option<bool>? selfUpdateForceOpt = null,
+        Option<bool>? selfUpdateRollbackOpt = null)
     {
+        BootstrapperReleaseChannel? channelOverride = null;
+        if (selfUpdateChannelOpt is not null)
+        {
+            var wire = parse.GetValue(selfUpdateChannelOpt);
+            if (!string.IsNullOrWhiteSpace(wire))
+            {
+                channelOverride = BootstrapperReleaseChannelExtensions.ParseWire(wire);
+            }
+        }
+
         var options = new BootstrapOptions(
             Command: command,
             ConfigPath: parse.GetValue(configOpt),
@@ -343,7 +410,12 @@ public static class RootCli
             RestoreScyllaArchive: restoreScyllaOpt is null ? null : parse.GetValue(restoreScyllaOpt),
             RestoreLatest: restoreLatestOpt is not null && parse.GetValue(restoreLatestOpt),
             RestoreForce: restoreForceOpt is not null && parse.GetValue(restoreForceOpt),
-            Reconfigure: reconfigureOpt is not null && parse.GetValue(reconfigureOpt));
+            Reconfigure: reconfigureOpt is not null && parse.GetValue(reconfigureOpt),
+            SkipSelfUpdate: skipSelfUpdateOpt is not null && parse.GetValue(skipSelfUpdateOpt),
+            SelfUpdateChannelOverride: channelOverride,
+            SelfUpdateCheckOnly: selfUpdateCheckOpt is not null && parse.GetValue(selfUpdateCheckOpt),
+            SelfUpdateForce: selfUpdateForceOpt is not null && parse.GetValue(selfUpdateForceOpt),
+            SelfUpdateRollback: selfUpdateRollbackOpt is not null && parse.GetValue(selfUpdateRollbackOpt));
 
         var logger = new PhaseLogger(options);
 
@@ -361,5 +433,13 @@ public static class RootCli
             logger.Error(ex.Message);
             return 1;
         }
+    }
+
+    private static void PrintVersion()
+    {
+        var rid = OperatingSystem.IsLinux()
+            ? BootstrapperRid.DetectLinuxRid()
+            : "unsupported";
+        Console.WriteLine($"{BootstrapperVersion.InformationalVersion} ({rid})");
     }
 }

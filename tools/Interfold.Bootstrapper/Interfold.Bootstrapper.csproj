@@ -17,6 +17,8 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- LibraryImportAttribute (geteuid P/Invoke in PrerequisitesPhase) requires unsafe blocks. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>0.0.0-dev</Version>
+    <InformationalVersion>0.0.0-dev</InformationalVersion>
     <!-- Bootstrapper never calls the AppHost's own Main, so the NETSDK1150 self-contained-mismatch guard doesn't apply. -->
     <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
     <!-- PublishTrimmed already disables reflection STJ; set explicitly so Debug/`dotnet run`

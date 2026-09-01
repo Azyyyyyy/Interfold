@@ -81,6 +81,12 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
     },
     "update": {
       "enabled": false,
+      "bootstrapper": {
+        "enabled": false,
+        "channel": "stable",
+        "updateOnBootstrap": true,
+        "autoRollbackOnFailure": false
+      },
       "healthCheckTimeoutSeconds": 180,
       "autoRestoreOnFailure": false,
       "recreateOnUpdate": true,
@@ -159,6 +165,19 @@ via `InterfoldAppHost.ConfigureApiSelfHostEnv`. The matching client **secrets** 
 `internal.secrets` (seeded by `DatabaseInitPhase`) and are patched onto
 `AuthenticationConfiguration` by `SecretsBootstrapService` at API startup — they never
 appear in `.env`.
+
+#### `deployment.update.bootstrapper` (bootstrapper self-update)
+
+| Field | Default | Notes |
+| ----- | ------- | ----- |
+| `enabled` | `false` | When `true`, `interfold-update.service` runs `update-self` before `update-images`. Opt-in — manual `update-self` works regardless. |
+| `channel` | `stable` | `stable` (GitHub release `latest`) or `bleeding-edge` (release tag `bleeding-edge`). |
+| `updateOnBootstrap` | `true` when `enabled`, else `false` | At the start of `bootstrap`, check GitHub Releases and apply a newer bootstrapper before prerequisites. Skip with `--skip-self-update`. |
+| `autoRollbackOnFailure` | `false` | When `update-images` health-check fails after a chained update, run `update-self --rollback` to restore `interfold-bootstrap.old`. Image rollback uses the existing `autoRestoreOnFailure` path separately. |
+
+Downloads are verified against `SHA256SUMS` on the release. The live binary is replaced via
+`interfold-bootstrap.new` → atomic rename; the previous binary is kept as
+`interfold-bootstrap.old` until the next successful update or an explicit `--rollback`.
 
 First-time operators don't need to hand-author this file — running `interfold-bootstrap` on
 a real TTY without an existing `interfold.bootstrap.json` drops into a Spectre.Console
@@ -353,7 +372,7 @@ All four are rendered from templates embedded in the bootstrapper binary; see
 | `interfold.service`        | `oneshot` `RemainAfterExit=yes` | Brings the compose stack up via `/usr/bin/docker compose -f {outputDir}/docker-compose.yaml up -d` after `docker.service` on boot. Deliberately does NOT shell out to `interfold-bootstrap up` — that would re-run the 5-minute `/health/ready` wait inside systemd's boot critical path. Compose's own restart policy + the API container's healthcheck handle steady-state recovery. |
 | `interfold-backup.service` | `oneshot`                  | Runs `interfold-bootstrap backup --config {configPath} --output-dir {outputDir} --component all`. Inherits the bootstrapper's `phase=...` log line format. Operators add drop-in overrides via `/etc/systemd/system/interfold-backup.service.d/*.conf`; the bootstrapper never edits drop-ins on rerun. |
 | `interfold-backup.timer`   | `timer`                    | Fires `interfold-backup.service` on `OnCalendar={config.backup.schedule}` with `Persistent=true` so a missed run (host powered off at the scheduled time) fires on next boot. |
-| `interfold-update.service` | `oneshot`                  | Runs `interfold-bootstrap update-images --config {configPath} --output-dir {outputDir}`. Always rendered so manual invocations always have a target service; only the `OnSuccess=` drop-in that fires it from the backup schedule is conditional on `config.update.enabled`. Never enabled independently — the drop-in is what schedules it. |
+| `interfold-update.service` | `oneshot`                  | Runs `interfold-bootstrap update-images --config {configPath} --output-dir {outputDir}` by default. When `deployment.update.bootstrapper.enabled=true`, `ExecStart` chains `update-self --non-interactive --channel {channel}` before `exec … update-images` so the post-swap binary performs the image pull. Always rendered so manual invocations always have a target service; only the `OnSuccess=` drop-in that fires it from the backup schedule is conditional on `config.update.enabled`. Never enabled independently — the drop-in is what schedules it. |
 
 Conditional drop-in — written only when `config.update.enabled=true`:
 
