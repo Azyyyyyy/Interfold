@@ -36,16 +36,13 @@ public static class InterfoldAppHost
     /// <summary>Aspire's default dashboard service name (<c>{environment}-dashboard</c>).</summary>
     private const string DashboardComposeServiceName = ComposeEnvironmentName + "-dashboard";
 
-    // Canonical port-slot defaults (mirrored by appsettings.json's Ports block).
+    // Test-bench host port defaults (CLI overrides via Ports:postgres/scylla/cassandra).
     private const int DefaultPostgresPort = 4200;
     private const int DefaultScyllaPort = 9042;
     private const int DefaultCassandraPort = 9043;
-    private const int DefaultApiHttpPort = 5000;
-    private const int DefaultApiHttpsPort = 5001;
     private const int DefaultApiContainerHttpPort = 5100;
-    private const int DefaultApiContainerHttpsPort = 5101;
-    private const int DefaultWebHttpPort = 8080;
-    private const int DefaultWebHttpsPort = 8081;
+    private const int DefaultEdgeHttpPort = 80;
+    private const int DefaultEdgeHttpsPort = 443;
 
     /// <summary>CQL cluster-name fallback for dev `aspire run`; the bootstrapper always overrides.</summary>
     private const string DefaultClusterName = "InterfoldCluster";
@@ -63,15 +60,11 @@ public static class InterfoldAppHost
         // Cassandra owns its own port so SharedDbFixture can publish both CQL backends
         // side-by-side; legacy Cassandra-only mode falls back to scyllaPort further down.
         var cassandraPort = Port(AppHostParameterKeys.PortsCassandra, DefaultCassandraPort);
-        var apiHttpPort = Port(AppHostParameterKeys.PortsApiHttp, DefaultApiHttpPort);
-        var apiHttpsPort = Port(AppHostParameterKeys.PortsApiHttps, DefaultApiHttpsPort);
-        // Must match the API image's EXPOSE/ARG defaults (5100/5101, see /Dockerfile);
-        // rebuilding the image with different ports means updating both Ports:api-container-*
-        // entries so targetPort, ASPNETCORE_*_PORTS, and the compose healthcheck URL all align.
+        // Must match the API image's internal Kestrel listen port (5100). Override via
+        // --Ports:api-container-http= when rebuilding the image with a different EXPOSE.
         var apiContainerHttpPort = Port(AppHostParameterKeys.PortsApiContainerHttp, DefaultApiContainerHttpPort);
-        var apiContainerHttpsPort = Port(AppHostParameterKeys.PortsApiContainerHttps, DefaultApiContainerHttpsPort);
-        var webHttpPort = Port(AppHostParameterKeys.PortsWebHttp, DefaultWebHttpPort);
-        var webHttpsPort = Port(AppHostParameterKeys.PortsWebHttps, DefaultWebHttpsPort);
+        var edgeHttpPort = Port(AppHostParameterKeys.PortsEdgeHttp, DefaultEdgeHttpPort);
+        var edgeHttpsPort = Port(AppHostParameterKeys.PortsEdgeHttps, DefaultEdgeHttpsPort);
 
         // Bench mode is the auto-managed cross-project DB fixture (see
         // TestBenchCoordinator + BenchSharedDb). When on it forces api/web/dashboard off,
@@ -79,6 +72,13 @@ public static class InterfoldAppHost
         // resources, and — via TestBenchReadyEmitter — writes a machine-readable readiness
         // line to stdout after WaitForResourcesAsync so the launcher can exit cleanly.
         var testBenchMode = BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.TestBenchMode], fallback: false);
+
+        var includeEdge = !testBenchMode;
+        var edgeTlsMode = builder.Configuration[AppHostParameterKeys.EdgeTlsMode] ?? "privateCa";
+        var edgeUsesPlainHttp = string.Equals(edgeTlsMode, "none", StringComparison.OrdinalIgnoreCase);
+        var edgeUsesLetsEncrypt = includeEdge
+            && string.Equals(edgeTlsMode, "letsEncrypt", StringComparison.OrdinalIgnoreCase);
+        var hostPublishDbPorts = testBenchMode;
 
         var includeApi = testBenchMode
             ? false
@@ -114,15 +114,26 @@ public static class InterfoldAppHost
                 "Parameters:include-api=true requires Parameters:include-postgres=true (the API depends on msg-db).");
         }
 
-        // Skip host-port TCP probes in test mode where Aspire randomises host ports —
-        // WaitFor() then falls back to Running state.
         if (includeApi)
         {
-            builder.Services.AddHealthChecks()
-                .AddCheck(MsgDbHealthCheckName, HostPortTcpProbe.CreateCheck(postgresPort))
-                // scylla-health only matters when Cassandra owns Ports:scylla alone; when
-                // include-scylla=true, the per-node {name}-cql checks below take over.
-                .AddCheck(ScyllaHealthCheckName, HostPortTcpProbe.CreateCheck(scyllaPort));
+            var hcBuilder = builder.Services.AddHealthChecks();
+            if (hostPublishDbPorts)
+            {
+                hcBuilder.AddCheck(MsgDbHealthCheckName, HostPortTcpProbe.CreateCheck(postgresPort));
+                // scylla-health only when Cassandra is the sole CQL backend; per-node {name}-cql
+                // checks below cover include-scylla=true.
+                hcBuilder.AddCheck(ScyllaHealthCheckName, HostPortTcpProbe.CreateCheck(scyllaPort));
+            }
+            else
+            {
+                hcBuilder.AddAsyncCheck(MsgDbHealthCheckName, async ct =>
+                    await DockerExecPgIsReadyProbe.RunAsync(ComposeServices.Postgres, ct).ConfigureAwait(false));
+                if (!includeScylla)
+                {
+                    hcBuilder.AddAsyncCheck(ScyllaHealthCheckName, async ct =>
+                        await DockerExecCqlProbe.RunAsync(ComposeServices.Cassandra, ct).ConfigureAwait(false));
+                }
+            }
         }
 
         // Per-node CQL readiness gates (always on). Each node's WithHealthCheck below flips
@@ -155,12 +166,12 @@ public static class InterfoldAppHost
             {
                 compose.AddNetwork(new Network { Name = ComposeNetworks.Scylla, Driver = "bridge" });
                 compose.AddNetwork(new Network { Name = ComposeNetworks.Postgres, Driver = "bridge" });
-                compose.AddNetwork(new Network { Name = ComposeNetworks.Api, Driver = "bridge" });
+                compose.AddNetwork(new Network { Name = ComposeNetworks.EdgeApi, Driver = "bridge" });
+                compose.AddNetwork(new Network { Name = ComposeNetworks.EdgeWeb, Driver = "bridge" });
 
-                // Dashboard must reach the API for OTLP.
                 if (compose.Services.TryGetValue(DashboardComposeServiceName, out var dashboard))
                 {
-                    dashboard.Networks.Add(ComposeNetworks.Api);
+                    dashboard.Networks.Add(ComposeNetworks.EdgeApi);
                 }
             });
 
@@ -295,8 +306,17 @@ public static class InterfoldAppHost
                 // the init script). Conservative defaults; operators can override via
                 // docker-compose.override.yaml.
                 .WithEnvironment(ContainerEnvNames.TsTuneMemory, "1GB")
-                .WithEnvironment(ContainerEnvNames.TsTuneNumCpus, "2")
-                .WithEndpoint(port: postgresPort, targetPort: 5432, name: PostgresEndpointName, scheme: TcpScheme)
+                .WithEnvironment(ContainerEnvNames.TsTuneNumCpus, "2");
+            if (!hostPublishDbPorts)
+            {
+                msgDb = msgDb.WithEndpoint(targetPort: 5432, name: PostgresEndpointName, scheme: TcpScheme);
+            }
+            else
+            {
+                msgDb = msgDb.WithEndpoint(port: postgresPort, targetPort: 5432, name: PostgresEndpointName, scheme: TcpScheme);
+            }
+
+            msgDb = msgDb
                 .PublishAsDockerComposeService((_, service) =>
                 {
                     service.Networks = [ComposeNetworks.Postgres];
@@ -422,7 +442,14 @@ public static class InterfoldAppHost
 
                 if (previousNode is null)
                 {
-                    node.WithEndpoint(port: scyllaPort, targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
+                    if (!hostPublishDbPorts)
+                    {
+                        node = node.WithEndpoint(targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
+                    }
+                    else
+                    {
+                        node = node.WithEndpoint(port: scyllaPort, targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
+                    }
                     cqlEndpointOwners.Add(node);
                 }
                 else
@@ -457,8 +484,17 @@ public static class InterfoldAppHost
                 .WithEnvironment(ContainerEnvNames.MaxHeapSize, "512M")
                 .WithEnvironment(ContainerEnvNames.HeapNewSize, "256M")
                 .WithEnvironment(ContainerEnvNames.CqlshUser, scyllaUser)
-                .WithEnvironment(ContainerEnvNames.CqlshPassword, scyllaPassword)
-                .WithEndpoint(port: cassandraEndpointPort, targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme)
+                .WithEnvironment(ContainerEnvNames.CqlshPassword, scyllaPassword);
+            if (!hostPublishDbPorts)
+            {
+                cassandra = cassandra.WithEndpoint(targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
+            }
+            else
+            {
+                cassandra = cassandra.WithEndpoint(port: cassandraEndpointPort, targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
+            }
+
+            cassandra = cassandra
                 .PublishAsDockerComposeService((_, service) =>
                 {
                     service.Networks = [ComposeNetworks.Scylla];
@@ -535,55 +571,39 @@ public static class InterfoldAppHost
             // functional; we still narrow it here so socket + fetch calls behave the same as prod.
             void ConfigureApiDevEnv(IResourceBuilder<IResourceWithEnvironment> api)
             {
-                var apiHttpsUrl = $"https://localhost:{apiHttpsPort}";
-                var webOrigins =
-                    $"https://localhost:{webHttpsPort},http://localhost:{webHttpPort}";
-                api.WithEnvironment(OctoconEnvKeys.JwtAuthority, apiHttpsUrl)
+                string publicOrigin;
+                if (edgeUsesPlainHttp)
+                {
+                    var suffix = edgeHttpPort == DefaultEdgeHttpPort ? string.Empty : $":{edgeHttpPort}";
+                    publicOrigin = $"http://localhost{suffix}";
+                }
+                else
+                {
+                    var suffix = edgeHttpsPort == DefaultEdgeHttpsPort ? string.Empty : $":{edgeHttpsPort}";
+                    publicOrigin = $"https://localhost{suffix}";
+                }
+
+                api.WithEnvironment(OctoconEnvKeys.JwtAuthority, publicOrigin)
                    .WithEnvironment(OctoconEnvKeys.JwtAudience, "octocon")
-                   .WithEnvironment(OctoconEnvKeys.AuthCallbackBaseUrl, apiHttpsUrl)
-                   .WithEnvironment(OctoconEnvKeys.CorsAllowedOrigins, webOrigins)
+                   .WithEnvironment(OctoconEnvKeys.AuthCallbackBaseUrl, publicOrigin)
+                   .WithEnvironment(OctoconEnvKeys.CorsAllowedOrigins, publicOrigin)
                    .WithEnvironment(OctoconEnvKeys.ScyllaKeyspace, ScyllaKeyspace.Nam.ToWire());
             }
 
-            // Self-hosting only. Bind-mounts /certs (root CA + leaf PFX from CertificatePhase)
-            // read-only; everything else (JWT keys, pepper, OAuth secrets, leaf PFX password)
-            // lives in internal.secrets and is loaded by SecretsBootstrapService / Program.cs.
-            // Captures apiContainerHttpPort/apiContainerHttpsPort so it can't be static.
+            // Self-hosting only. Avatars always bind-mounted; /certs when private CA material
+            // exists for TrustController.
             void ConfigureApiSelfHostEnv(IResourceBuilder<ContainerResource> api)
             {
-                api.WithBindMount(CertsPaths.HostDir, CertsPaths.ContainerDir, isReadOnly: true)
-                   // Host path filled by PublishPhase from BootstrapConfig.storage.avatarStorageRoot.
-                   .WithBindMount(AvatarsPaths.HostDir, AvatarsPaths.ContainerDir, isReadOnly: false)
-                   // Override the SDK's HTTP 8080 default so ASPNETCORE_*_PORTS matches
-                   // targetPort — HTTPS terminates inside the container using the leaf PFX.
+                api.WithBindMount(AvatarsPaths.HostDir, AvatarsPaths.ContainerDir, isReadOnly: false)
                    .WithEnvironment(ContainerEnvNames.AspNetCoreHttpPorts, apiContainerHttpPort.ToString())
-                   .WithEnvironment(ContainerEnvNames.AspNetCoreHttpsPorts, apiContainerHttpsPort.ToString())
-                   // Kestrel default-endpoint cert (docs: aspnetcore/fundamentals/servers/kestrel/endpoints#configure-https).
-                   // Password moved to internal.secrets:certs:leaf_pfx_password (loaded by Program.cs).
-                   .WithEnvironment(ContainerEnvNames.AspNetCoreKestrelDefaultCertPath, CertsPaths.LeafPfx)
-                   // TrustController serves /.well-known/interfold-root-ca.{crt,pem,sha256}
-                   // from these paths (inside the /certs bind mount). Blank → 404. The sha256
-                   // file also drives the HTTP ETag so --rotate-certs invalidates caches.
-                   .WithEnvironment(OctoconEnvKeys.TrustRootCaPath, CertsPaths.RootCaCrt)
-                   .WithEnvironment(OctoconEnvKeys.TrustRootCaFingerprintPath, CertsPaths.RootCaFingerprint)
-                   // Container path only — dev project path still reads launchSettings/user-secrets.
-                   // Empty per-provider ID disables that provider (see OAuthChallenge extensions).
                    .WithEnvironment(OctoconEnvKeys.GoogleOAuthClientId, googleOAuthClientId)
                    .WithEnvironment(OctoconEnvKeys.DiscordOAuthClientId, discordOAuthClientId)
                    .WithEnvironment(OctoconEnvKeys.AppleOAuthClientId, appleOAuthClientId)
-                   // API runtime config from BootstrapConfig (ConfigPhase). See
-                   // docs/configuration.md gotcha #1 — OCTOCON_SCYLLA_KEYSPACE default 'nam'
-                   // is wrong for any non-NAM regional stack. Empty CORS falls back to
-                   // "any origin" in Program.cs (production foot-gun; bootstrapper derives
-                   // a default from Hosts).
                    .WithEnvironment(OctoconEnvKeys.ScyllaKeyspace, scyllaKeyspace)
                    .WithEnvironment(OctoconEnvKeys.AuthCallbackBaseUrl, oauthCallbackBaseUrl)
                    .WithEnvironment(OctoconEnvKeys.JwtAuthority, jwtAuthority)
                    .WithEnvironment(OctoconEnvKeys.JwtAudience, jwtAudience)
                    .WithEnvironment(OctoconEnvKeys.CorsAllowedOrigins, corsAllowedOrigins)
-                   // Operator tuning — every default matches the API's compile-time fallback.
-                   // Empty for the nullable knobs (avatars, OTLP, socket threshold);
-                   // ApplyStorage / ApplyObservability normalise empty → null.
                    .WithEnvironment(OctoconEnvKeys.NodeGroup, nodeGroup)
                    .WithEnvironment(OctoconEnvKeys.AvatarStorageRoot, ContainerMountPaths.InterfoldAvatars)
                    .WithEnvironment(OctoconEnvKeys.AvatarPublicBase, avatarPublicBase)
@@ -593,6 +613,14 @@ public static class InterfoldAppHost
                    .WithEnvironment(OctoconEnvKeys.DbRetryInitialDelayMs, dbRetryInitialDelayMs)
                    .WithEnvironment(OctoconEnvKeys.DbRetryMaxDelayMs, dbRetryMaxDelayMs)
                    .WithEnvironment(OctoconEnvKeys.HydrationMaxConcurrency, hydrationMaxConcurrency);
+
+                // Mount root CA for TrustController whenever edge uses private CA material.
+                if (!edgeUsesLetsEncrypt && !edgeUsesPlainHttp)
+                {
+                    api.WithBindMount(CertsPaths.HostDir, CertsPaths.ContainerDir, isReadOnly: true)
+                       .WithEnvironment(OctoconEnvKeys.TrustRootCaPath, CertsPaths.RootCaCrt)
+                       .WithEnvironment(OctoconEnvKeys.TrustRootCaFingerprintPath, CertsPaths.RootCaFingerprint);
+                }
             }
 
             var apiImageRef = builder.Configuration[AppHostParameterKeys.ApiImage];
@@ -600,28 +628,23 @@ public static class InterfoldAppHost
             {
                 var apiImage = ImageRef.Parse(apiImageRef);
                 var apiContainer = builder.AddContainer(ComposeServices.InterfoldApi, apiImage.Image, apiImage.Tag)
-                    .WithHttpEndpoint(port: apiHttpPort, targetPort: apiContainerHttpPort, name: HttpEndpointName)
-                    .WithHttpsEndpoint(port: apiHttpsPort, targetPort: apiContainerHttpsPort, name: HttpsEndpointName)
-                    .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
-                    .WithExternalHttpEndpoints()
                     .WaitFor(msgDbResource)
+                    .WithHttpEndpoint(targetPort: apiContainerHttpPort, name: HttpEndpointName)
+                    .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
                     .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort));
+
                 ConfigureApiCommon(apiContainer);
                 ConfigureApiSelfHostEnv(apiContainer);
                 foreach (var owner in cqlEndpointOwners)
                     apiContainer.WaitFor(owner);
-                // Symmetry with the AddProject branch — bootstrapper's publish never sees
-                // devSeedResource so this is a no-op in publish mode.
                 if (devSeedResource is not null)
                     apiContainer.WaitFor(devSeedResource);
             }
             else
             {
                 var apiProject = builder.AddProject<Projects.Interfold_Api_Host>(ComposeServices.InterfoldApi)
-                    .WithHttpEndpoint(port: apiHttpPort, targetPort: apiContainerHttpPort, name: HttpEndpointName)
-                    .WithHttpsEndpoint(port: apiHttpsPort, targetPort: apiContainerHttpsPort, name: HttpsEndpointName)
+                    .WithHttpEndpoint(targetPort: apiContainerHttpPort, name: HttpEndpointName)
                     .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
-                    .WithExternalHttpEndpoints()
                     .WaitFor(msgDbResource)
                     .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort));
                 ConfigureApiCommon(apiProject);
@@ -636,73 +659,97 @@ public static class InterfoldAppHost
         var includeWeb = testBenchMode
             ? false
             : BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludeWeb], fallback: true);
-        // Opt-in HTTPS termination via nginx's envsubst-on-templates entrypoint — bootstrapper
-        // bind-mounts the leaf cert/key + a generated template. Dev leaves this off.
-        var webTls = BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.WebTls], fallback: false);
         if (includeWeb)
         {
             var web = builder.AddContainer(ComposeServices.OctoconWeb, "ghcr.io/azyyyyyy/octocon-wasm", "latest")
-                .WithContainerNetworkAlias(ComposeServices.OctoconWeb);
+                .WithContainerNetworkAlias(ComposeServices.OctoconWeb)
+                .WithHttpEndpoint(targetPort: 8080, name: HttpEndpointName)
+                .WithHttpHealthCheck("/", endpointName: HttpEndpointName);
 
-            if (webTls)
+            web.PublishAsDockerComposeService((_, service) =>
             {
-                // PublishPhase feeds server_name in via config (picked from Deployment.Hosts).
-                // `_` is the nginx catch-all for dev callers who flip the toggle without it.
-                var serverName = builder.Configuration[AppHostParameterKeys.WebServerName];
-                if (string.IsNullOrWhiteSpace(serverName)) serverName = "_";
+                service.Networks = [ComposeNetworks.EdgeWeb];
+                service.Healthcheck = ComposeHealthcheck.Cmd(
+                    interval: "15s", timeout: "5s", retries: 5, startPeriod: "10s",
+                    command: ["curl", "-f", "http://localhost:8080/"]);
+            });
+        }
 
-                web = web
-                    .WithHttpEndpoint(port: webHttpPort, targetPort: 80, name: HttpEndpointName)
-                    .WithHttpsEndpoint(port: webHttpsPort, targetPort: 443, name: HttpsEndpointName)
-                    .WithBindMount(CertsPaths.HostDir, CertsPaths.ContainerDir, isReadOnly: true)
-                    .WithBindMount(
-                        "../../web/nginx/default.conf.template",
-                        "/etc/nginx/templates/default.conf.template",
-                        isReadOnly: true)
-                    .WithEnvironment(ContainerEnvNames.NginxServerName, serverName)
-                    .WithEnvironment(ContainerEnvNames.NginxSslCertFile, CertsPaths.LeafCrt)
-                    .WithEnvironment(ContainerEnvNames.NginxSslKeyFile, CertsPaths.LeafKey)
-                    // Precomputed `:<port>` (or empty for 443) so the :80 → :443 redirect
-                    // lands on the bound host port (webHttpsPort, default 8081) instead of
-                    // an unbound 443 the browser would infer.
+        if (includeEdge)
+        {
+            var edgeServerName = builder.Configuration[AppHostParameterKeys.EdgeServerName];
+            if (string.IsNullOrWhiteSpace(edgeServerName)) edgeServerName = "_";
+            var edgeApiHost = builder.Configuration[AppHostParameterKeys.EdgeApiHost] ?? edgeServerName;
+            var edgeWebHost = builder.Configuration[AppHostParameterKeys.EdgeWebHost] ?? edgeServerName;
+            var includeWebUpstream = BoolWire.ParseToggle(
+                builder.Configuration[AppHostParameterKeys.EdgeIncludeWebUpstream], fallback: includeWeb);
+
+            var sslCert = edgeUsesLetsEncrypt
+                ? $"{EdgePaths.LetsEncryptLiveRoot}/{edgeServerName}/fullchain.pem"
+                : EdgePaths.LeafCrt;
+            var sslKey = edgeUsesLetsEncrypt
+                ? $"{EdgePaths.LetsEncryptLiveRoot}/{edgeServerName}/privkey.pem"
+                : EdgePaths.LeafKey;
+
+            var edge = builder.AddContainer(ComposeServices.EdgeNginx, "nginx", "1.27-alpine")
+                .WithHttpEndpoint(port: edgeHttpPort, targetPort: 80, name: HttpEndpointName)
+                .WithBindMount(
+                    $"{EdgePaths.HostSupportDir}/default.conf.template",
+                    EdgePaths.ContainerNginxTemplate,
+                    isReadOnly: true)
+                .WithBindMount(
+                    $"{EdgePaths.HostSupportDir}/proxy_params.conf",
+                    EdgePaths.ContainerProxyParams,
+                    isReadOnly: true)
+                .WithBindMount(
+                    $"{EdgePaths.HostSupportDir}/cloudflare-ips.conf",
+                    EdgePaths.ContainerCloudflareIps,
+                    isReadOnly: true);
+
+            if (!edgeUsesPlainHttp)
+            {
+                edge = edge
+                    .WithHttpsEndpoint(port: edgeHttpsPort, targetPort: 443, name: HttpsEndpointName)
+                    .WithBindMount(EdgePaths.HostCertsDir, EdgePaths.ContainerCertsDir, isReadOnly: true)
+                    .WithEnvironment(ContainerEnvNames.NginxSslCertFile, sslCert)
+                    .WithEnvironment(ContainerEnvNames.NginxSslKeyFile, sslKey)
                     .WithEnvironment(
                         ContainerEnvNames.NginxHttpsPortSuffix,
-                        webHttpsPort == 443 ? string.Empty : $":{webHttpsPort}")
-                    // Restrict envsubst to NGINX_* so upstream $host/$uri stay untouched.
-                    .WithEnvironment(ContainerEnvNames.NginxEnvsubstFilter, "^NGINX_")
-                    .WithHttpHealthCheck("/", endpointName: HttpEndpointName)
-                    // Must be AFTER the endpoint registrations — Aspire's external-endpoint
-                    // pass walks the current endpoint set, so calling this earlier produces
-                    // `expose:` with no `ports:` in the emitted compose.
-                    .WithExternalHttpEndpoints()
-                    .PublishAsDockerComposeService((_, service) =>
-                    {
-                        service.Networks = [ComposeNetworks.Api];
-                        // -k: leaf is signed by the private root CA the container doesn't trust.
-                        service.Healthcheck = ComposeHealthcheck.Cmd(
-                            interval: "15s", timeout: "5s", retries: 5, startPeriod: "10s",
-                            command: ["curl", "-kf", "https://localhost:443/"]);
-                    });
+                        edgeHttpsPort == 443 ? string.Empty : $":{edgeHttpsPort}");
+
+                if (edgeUsesLetsEncrypt)
+                {
+                    edge = edge.WithBindMount(
+                        EdgePaths.HostAcmeWebroot, EdgePaths.ContainerAcmeWebroot, isReadOnly: false);
+                }
             }
-            else
-            {
-                // Upstream octocon-wasm image only listens on :8080 (Dockerfile.wasm bakes it
-                // into /etc/nginx/conf.d/default.conf). Publishing web-https here would shadow
-                // web-http with a second port serving plaintext, so Ports:web-https is unused
-                // in this branch.
-                web = web
-                    .WithHttpEndpoint(port: webHttpPort, targetPort: 8080, name: HttpEndpointName)
-                    .WithHttpHealthCheck("/", endpointName: HttpEndpointName)
-                    .WithExternalHttpEndpoints()
-                    .PublishAsDockerComposeService((_, service) =>
-                    {
-                        service.Networks = [ComposeNetworks.Api];
-                        service.Healthcheck = ComposeHealthcheck.Cmd(
-                            interval: "15s", timeout: "5s", retries: 5, startPeriod: "10s",
-                            command: ["curl", "-f", "http://localhost:8080/"]);
-                    });
-            }
-            _ = web;
+
+            edge = edge
+                .WithEnvironment(ContainerEnvNames.NginxServerName, edgeServerName)
+                .WithEnvironment(ContainerEnvNames.NginxApiServerName, edgeApiHost)
+                .WithEnvironment(ContainerEnvNames.NginxWebServerName, edgeWebHost)
+                .WithEnvironment(
+                    ContainerEnvNames.NginxApiUpstream,
+                    ComposeServices.InterfoldApi + ":" + apiContainerHttpPort.ToString())
+                .WithEnvironment(
+                    ContainerEnvNames.NginxWebUpstream,
+                    ComposeServices.OctoconWeb + ":8080")
+                .WithEnvironment(
+                    ContainerEnvNames.NginxIncludeWeb,
+                    includeWebUpstream ? "1" : string.Empty)
+                .WithEnvironment(ContainerEnvNames.NginxEnvsubstFilter, "^NGINX_")
+                .WithHttpHealthCheck("/nginx-health", endpointName: HttpEndpointName)
+                .WithExternalHttpEndpoints()
+                .PublishAsDockerComposeService((_, service) =>
+                {
+                    service.Networks = includeWebUpstream
+                        ? [ComposeNetworks.EdgeApi, ComposeNetworks.EdgeWeb]
+                        : [ComposeNetworks.EdgeApi];
+                    service.Healthcheck = ComposeHealthcheck.Cmd(
+                        interval: "15s", timeout: "5s", retries: 5, startPeriod: "10s",
+                        command: ["wget", "-qO-", "http://127.0.0.1/nginx-health"]);
+                });
+            _ = edge;
         }
 
         // Bench mode: register a hosted service that waits for every DB resource to reach
@@ -737,7 +784,7 @@ public static class InterfoldAppHost
     {
         return (_, service) =>
         {
-            service.Networks = [ComposeNetworks.Scylla, ComposeNetworks.Postgres, ComposeNetworks.Api];
+            service.Networks = [ComposeNetworks.Scylla, ComposeNetworks.Postgres, ComposeNetworks.EdgeApi];
             service.Healthcheck = ComposeHealthcheck.Cmd(
                 interval: "15s", timeout: "5s", retries: 10, startPeriod: "20s",
                 command: ["curl", "-f", $"http://localhost:{apiContainerHttpPort}{HealthEndpoints.Ready}"]);

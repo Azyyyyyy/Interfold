@@ -63,7 +63,7 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
 
     // Each compose-up test now binds a private host-port window inside the shared DinD via
     // CreateScratchAsync's port allocator, so concurrent `compose up` calls no longer collide on
-    // 5000/5432/9042/etc. The previous `ubuntu-compose-up` NotInParallel serialiser is therefore
+    // 5432/9042/etc. The previous `ubuntu-compose-up` NotInParallel serialiser is therefore
     // gone — the DinD's inner dockerd throughput is the new (much higher) ceiling.
     [Test]
     public async Task StackComesUpHealthy()

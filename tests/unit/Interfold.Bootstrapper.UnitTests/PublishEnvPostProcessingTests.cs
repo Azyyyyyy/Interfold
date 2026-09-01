@@ -11,20 +11,20 @@ public sealed class PublishEnvPostProcessingTests
 {
     private static (BootstrapConfig Config, GeneratedSecrets Secrets) MakeInputs(
         string? apiImage = null,
-        DatabaseMode databaseMode = DatabaseMode.Single)
+        CqlBackend backend = CqlBackend.ScyllaSingle)
     {
         var config = new BootstrapConfig
         {
-            DatabaseMode = databaseMode,
-            ApiImage = apiImage ?? "ghcr.io/azyyyyyy/interfold-api:latest",
+            Api = { Image = apiImage ?? "ghcr.io/azyyyyyy/interfold-api:latest" },
+            Datastores = { Cql = { Backend = backend } },
         };
-        // Deployment.Hosts has no placeholder; without a seed ResolveDerivedDefaults has
+        // Edge.Hosts has no placeholder; without a seed ResolveDerivedDefaults has
         // nothing to feed CallbackBaseUrl / JwtAuthority / CorsAllowedOrigins from.
-        config.Deployment.Hosts = ["api.example.com"];
+        config.Edge.Hosts = ["api.example.com"];
         // OAuth client secrets flow into internal.secrets, not env; setting exercises the
         // irrelevant path.
-        config.OAuth.GoogleClientSecret = "google-secret-from-config";
-        config.OAuth.DiscordClientSecret = "discord-secret-from-config";
+        config.Api.OAuth.GoogleClientSecret = "google-secret-from-config";
+        config.Api.OAuth.DiscordClientSecret = "discord-secret-from-config";
 
         // Mirror ConfigPhase.Validate's post-derivation snapshot without invoking the full
         // Validate (publish tests deliberately allow shapes Validate would reject).
@@ -38,16 +38,16 @@ public sealed class PublishEnvPostProcessingTests
         var (config, secrets) = MakeInputs();
         // Pin all three OAuth IDs so IsNotEmpty is meaningful; empty-still-emits behaviour
         // has its own test below.
-        config.OAuth.GoogleClientId = "google-client-id";
-        config.OAuth.DiscordClientId = "discord-client-id";
-        config.OAuth.AppleClientId = "apple-client-id";
+        config.Api.OAuth.GoogleClientId = "google-client-id";
+        config.Api.OAuth.DiscordClientId = "discord-client-id";
+        config.Api.OAuth.AppleClientId = "apple-client-id";
         // Pin the three nullable tuning fields that still flow as Aspire parameters.
         // AvatarStorageRoot is a host bind-mount path (not an env parameter); see
         // BindMountPathsResolveToAbsoluteUnderOutputDir / ResolveAvatarHostRoot.
-        config.Storage.AvatarStorageRoot = "/var/lib/interfold/avatars";
-        config.Storage.AvatarPublicBase = "https://cdn.example.com/avatars/";
+        config.Api.Storage.AvatarStorageRoot = "/var/lib/interfold/avatars";
+        config.Api.Storage.AvatarPublicBase = "https://cdn.example.com/avatars/";
         config.Observability.OtlpEndpoint = "http://localhost:4317";
-        config.Socket.BatchBytesThreshold = 65536;
+        config.Api.BatchBytesThreshold = 65536;
         const string baseDir = "/var/lib/interfold";
         const string outputDir = "/srv/interfold/deploy";
 
@@ -107,9 +107,9 @@ public sealed class PublishEnvPostProcessingTests
         // Contract: OAuth client IDs copy verbatim into the env dict; a rename either side
         // shows up as a missing key or value mismatch here.
         var (config, secrets) = MakeInputs();
-        config.OAuth.GoogleClientId = "google-client-from-config.apps.googleusercontent.com";
-        config.OAuth.DiscordClientId = "1234567890";
-        config.OAuth.AppleClientId = "com.example.interfold.signin";
+        config.Api.OAuth.GoogleClientId = "google-client-from-config.apps.googleusercontent.com";
+        config.Api.OAuth.DiscordClientId = "1234567890";
+        config.Api.OAuth.AppleClientId = "com.example.interfold.signin";
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
@@ -143,7 +143,7 @@ public sealed class PublishEnvPostProcessingTests
         // POSTGRES_DB must round-trip verbatim so the API connection string lines up with
         // the database DatabaseInitPhase actually creates.
         var (config, secrets) = MakeInputs();
-        config.PostgresDatabase = "my_custom_db";
+        config.Datastores.Postgres.Database = "my_custom_db";
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
@@ -152,17 +152,18 @@ public sealed class PublishEnvPostProcessingTests
     }
 
     [Test]
-    public async Task BuildEnvReplacementsProducesAllTwentySixKeysInSingleMode()
+    public async Task BuildEnvReplacementsProducesExpectedKeysInSingleMode()
     {
-        var (config, secrets) = MakeInputs(databaseMode: DatabaseMode.Single);
+        var (config, secrets) = MakeInputs(backend: CqlBackend.ScyllaSingle);
         const string baseDir = "/var/lib/interfold";
         const string outputDir = "/srv/interfold/deploy";
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, baseDir, outputDir);
 
         var total = replacements.Parameters.Count + replacements.BindMounts.Count;
-        // Single mode: 24 param keys + 2 bind mounts (/certs, scylla rackdc) = 26.
-        await Assert.That(total).IsEqualTo(26);
+        // Single mode: 23 shared env parameters + 7 bind mounts (avatar, API certs, edge
+        // nginx support ×3, edge certs, scylla rackdc) = 30.
+        await Assert.That(total).IsEqualTo(30);
     }
 
     [Test]
@@ -171,11 +172,11 @@ public sealed class PublishEnvPostProcessingTests
         // ScyllaKeyspace + every ApiRuntime field must round-trip verbatim; a typo either
         // side surfaces here as a missing key or value mismatch.
         var (config, secrets) = MakeInputs();
-        config.ScyllaKeyspace = ScyllaKeyspace.Eur;
-        config.ApiRuntime.CallbackBaseUrl = "https://callback.example.com";
-        config.ApiRuntime.JwtAuthority = "https://issuer.example.com";
-        config.ApiRuntime.JwtAudience = "custom-aud";
-        config.ApiRuntime.CorsAllowedOrigins = ["https://app.example.com", "https://admin.example.com"];
+        config.Datastores.Cql.Keyspace = ScyllaKeyspace.Eur;
+        config.Api.OAuth.CallbackBaseUrl = "https://callback.example.com";
+        config.Api.OAuth.JwtAuthority = "https://issuer.example.com";
+        config.Api.OAuth.JwtAudience = "custom-aud";
+        config.Api.CorsAllowedOrigins = ["https://app.example.com", "https://admin.example.com"];
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
@@ -192,34 +193,27 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task BuildEnvReplacementsDerivesApiRuntimeFromDeploymentWhenUnset()
     {
-        // Blank apiRuntime.* is derived from deployment.hosts + deployment.webHttps via
-        // ResolveDerivedDefaults; the derivation must round-trip through publish unchanged.
         var config = new BootstrapConfig
         {
-            Deployment =
+            Edge =
             {
                 Hosts = ["api.example.com", "admin.example.com"],
-                WebHttps = true,
+                TlsMode = EdgeTlsMode.PrivateCa,
             },
         };
-        // Run derivation explicitly (MakeInputs would inject non-blank defaults) to exercise
-        // the empty-apiRuntime path.
+        config.Edge.Ports.Https = 443;
         ConfigPhase.ResolveDerivedDefaults(config);
         var secrets = SecretsPhase.Generate();
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
-        // API URL is always https + Ports.ApiHttps (5001) — Kestrel binds the leaf PFX
-        // regardless of Deployment.WebHttps, which only governs the web container.
         await Assert.That(replacements.Parameters["OAUTH_CALLBACK_BASE_URL"])
-            .IsEqualTo("https://api.example.com:5001");
+            .IsEqualTo("https://api.example.com");
         await Assert.That(replacements.Parameters["JWT_AUTHORITY"])
-            .IsEqualTo("https://api.example.com:5001");
-        // JwtAudience is a property-initialiser default, not derived.
+            .IsEqualTo("https://api.example.com");
         await Assert.That(replacements.Parameters["JWT_AUDIENCE"]).IsEqualTo("octocon");
-        // CORS: scheme=WebHttps, port=Ports.WebHttps (8081), one entry per non-CIDR host.
         await Assert.That(replacements.Parameters["CORS_ALLOWED_ORIGINS"])
-            .IsEqualTo("https://api.example.com:8081,https://admin.example.com:8081");
+            .IsEqualTo("https://api.example.com,https://admin.example.com");
         await Assert.That(replacements.Parameters["SCYLLA_KEYSPACE"]).IsEqualTo("nam");
     }
 
@@ -228,15 +222,15 @@ public sealed class PublishEnvPostProcessingTests
     {
         // Every operator tuning field must round-trip verbatim.
         var (config, secrets) = MakeInputs();
-        config.Cluster.NodeGroup = NodeGroup.Primary;
-        config.Storage.AvatarStorageRoot = "/srv/avatars";
-        config.Storage.AvatarPublicBase = "https://cdn.example.com/a/";
+        config.Api.NodeGroup = NodeGroup.Primary;
+        config.Api.Storage.AvatarStorageRoot = "/srv/avatars";
+        config.Api.Storage.AvatarPublicBase = "https://cdn.example.com/a/";
         config.Observability.OtlpEndpoint = "http://otel-collector:4317";
-        config.Socket.BatchBytesThreshold = 131_072;
-        config.Persistence.DbRetryAttempts = 5;
-        config.Persistence.DbRetryInitialDelayMs = 250;
-        config.Persistence.DbRetryMaxDelayMs = 3_000;
-        config.Persistence.HydrationMaxConcurrency = 16;
+        config.Api.BatchBytesThreshold = 131_072;
+        config.Api.Resilience.DbRetryAttempts = 5;
+        config.Api.Resilience.DbRetryInitialDelayMs = 250;
+        config.Api.Resilience.DbRetryMaxDelayMs = 3_000;
+        config.Api.Resilience.HydrationMaxConcurrency = 16;
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
@@ -261,7 +255,7 @@ public sealed class PublishEnvPostProcessingTests
     {
         // Blank avatarStorageRoot → {outputDir}/data/avatars bind-mounted at /app/data/avatars.
         var (config, secrets) = MakeInputs();
-        await Assert.That(config.Storage.AvatarStorageRoot).IsEqualTo(string.Empty)
+        await Assert.That(config.Api.Storage.AvatarStorageRoot).IsEqualTo(string.Empty)
             .Because("Pre-condition: this test only makes sense when the config-side default is blank.");
 
         var outputDir = Path.Combine(Path.GetTempPath(), "interfold-avatar-default");
@@ -328,7 +322,7 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task MultiModeAddsOneBindMountPerScyllaRegion()
     {
-        var (config, secrets) = MakeInputs(databaseMode: DatabaseMode.Multi);
+        var (config, secrets) = MakeInputs(backend: CqlBackend.ScyllaMulti);
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets,
             baseDir: "/base", outputDir: "/out");
 
@@ -381,7 +375,7 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task CassandraModeFillsCassandraImageEnvKey()
     {
-        var (config, secrets) = MakeInputs(databaseMode: DatabaseMode.Cassandra);
+        var (config, secrets) = MakeInputs(backend: CqlBackend.Cassandra);
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
         await Assert.That(replacements.Parameters.ContainsKey("CASSANDRA_IMAGE")).IsTrue()
@@ -393,7 +387,7 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task NonCassandraModesOmitCassandraImageEnvKey()
     {
-        var (config, secrets) = MakeInputs(databaseMode: DatabaseMode.Single);
+        var (config, secrets) = MakeInputs(backend: CqlBackend.ScyllaSingle);
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
         await Assert.That(replacements.Parameters.ContainsKey("CASSANDRA_IMAGE")).IsFalse()
@@ -410,81 +404,36 @@ public sealed class PublishEnvPostProcessingTests
     }
 
     [Test]
-    public async Task WebHttpsOffDoesNotAddOctoconWebBindMounts()
+    public async Task AlwaysOnEdgeAddsEdgeNginxBindMounts()
     {
-        var (config, secrets) = MakeInputs();
-        config.Deployment.IncludeWeb = false;
-        config.Deployment.WebHttps = false;
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
-
-        await Assert.That(replacements.BindMounts.ContainsKey("octocon-web:/certs")).IsFalse()
-            .Because("octocon-web:/certs must only appear when deployment.webHttps=true");
-        await Assert.That(replacements.BindMounts.ContainsKey(
-            "octocon-web:/etc/nginx/templates/default.conf.template")).IsFalse()
-            .Because("nginx template bind mount must only appear when deployment.webHttps=true");
-    }
-
-    [Test]
-    public async Task IncludeWebOnlyDoesNotAddOctoconWebBindMounts()
-    {
-        // HTTP-only debug variant: nginx never reads a leaf cert, so neither cert nor
-        // template mounts belong in .env. Include-vs-TLS-mount decoupling is intentional.
         var (config, secrets) = MakeInputs();
         config.Deployment.IncludeWeb = true;
-        config.Deployment.WebHttps = false;
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
+        var outputDir = Path.Combine(Path.GetTempPath(), "interfold-edge-outdir-" + Guid.NewGuid().ToString("N"));
 
-        await Assert.That(replacements.BindMounts.ContainsKey("octocon-web:/certs")).IsFalse()
-            .Because("HTTP-only web container does not read leaf certs — /certs bind mount must stay off");
+        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", outputDir);
+
         await Assert.That(replacements.BindMounts.ContainsKey(
-            "octocon-web:/etc/nginx/templates/default.conf.template")).IsFalse()
-            .Because("HTTP-only web container does not render the TLS template — nginx mount must stay off");
+            "edge-nginx:/etc/nginx/templates/default.conf.template")).IsTrue();
+        await Assert.That(replacements.BindMounts.ContainsKey(
+            "edge-nginx:/etc/nginx/proxy_params_interfold.conf")).IsTrue();
+        await Assert.That(replacements.BindMounts.ContainsKey(
+            "edge-nginx:/etc/nginx/cloudflare-ips.conf")).IsTrue();
+        await Assert.That(replacements.BindMounts.ContainsKey("edge-nginx:/certs")).IsTrue();
+        await Assert.That(replacements.BindMounts.ContainsKey("interfold-api:/certs")).IsTrue()
+            .Because("privateCa edge still mounts certs on the API for TrustController");
     }
 
     [Test]
-    public async Task IncludeWebAndWebHttpsBothOnAddsCertsAndNginxTemplateBindMounts()
-    {
-        // Locks the "both flags on" shape so a future OR-gated refactor can't silently drop
-        // the mounts in either input form.
-        var (config, secrets) = MakeInputs();
-        config.Deployment.IncludeWeb = true;
-        config.Deployment.WebHttps = true;
-        var baseDir = Path.Combine(Path.GetTempPath(), "interfold-basedir");
-        var outputDir = Path.Combine(Path.GetTempPath(), "interfold-outdir");
-
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, baseDir, outputDir);
-
-        await Assert.That(replacements.BindMounts.ContainsKey("octocon-web:/certs")).IsTrue();
-        await Assert.That(replacements.BindMounts.ContainsKey(
-            "octocon-web:/etc/nginx/templates/default.conf.template")).IsTrue();
-    }
-
-    [Test]
-    public async Task WebHttpsOnAddsCertsAndNginxTemplateBindMounts()
+    public async Task PlaintextEdgeOmitsCertBindMounts()
     {
         var (config, secrets) = MakeInputs();
-        config.Deployment.WebHttps = true;
-        var baseDir = Path.Combine(Path.GetTempPath(), "interfold-basedir");
-        var outputDir = Path.Combine(Path.GetTempPath(), "interfold-outdir");
+        config.Edge.TlsMode = EdgeTlsMode.None;
+        var outputDir = Path.Combine(Path.GetTempPath(), "interfold-edge-plain-" + Guid.NewGuid().ToString("N"));
 
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, baseDir, outputDir);
+        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", outputDir);
 
-        // API + web share {outputDir}/certs so Kestrel's PFX and nginx's CRT/KEY come from
-        // the same CertificatePhase output.
-        await Assert.That(replacements.BindMounts.ContainsKey("octocon-web:/certs")).IsTrue();
-        var webCerts = replacements.BindMounts["octocon-web:/certs"];
-        await Assert.That(Path.IsPathFullyQualified(webCerts)).IsTrue();
-        await Assert.That(webCerts).StartsWith(outputDir);
-        await Assert.That(replacements.BindMounts["interfold-api:/certs"]).IsEqualTo(webCerts)
-            .Because("API and web tiers must read from the same on-disk certs directory");
-
-        // nginx template lives under {outputDir}/support (staged at publish from embeds).
-        const string nginxKey = "octocon-web:/etc/nginx/templates/default.conf.template";
-        await Assert.That(replacements.BindMounts.ContainsKey(nginxKey)).IsTrue();
-        var nginxTemplate = replacements.BindMounts[nginxKey];
-        await Assert.That(Path.IsPathFullyQualified(nginxTemplate)).IsTrue();
-        await Assert.That(nginxTemplate).StartsWith(Path.GetFullPath(Path.Combine(outputDir, "support")));
-        await Assert.That(nginxTemplate).EndsWith("default.conf.template");
+        await Assert.That(replacements.BindMounts.ContainsKey("edge-nginx:/certs")).IsFalse();
+        await Assert.That(replacements.BindMounts.ContainsKey("interfold-api:/certs")).IsFalse();
     }
 
     [Test]

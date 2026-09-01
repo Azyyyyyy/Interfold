@@ -64,11 +64,6 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             $"{AppHostParameterKeys.IncludePostgres}=true",
             $"{AppHostParameterKeys.IncludeScylla}={BoolWire.ToWireValue(RequiredFixtures.NeedScylla)}",
             $"{AppHostParameterKeys.IncludeCassandra}={BoolWire.ToWireValue(RequiredFixtures.NeedCassandra)}",
-            // Isolated from the shared test-bench defaults (14200/19042/19043) so the
-            // Infrastructure opt-out host can run beside the bench without Docker binds colliding.
-            $"{AppHostParameterKeys.PortsPostgres}={AspireProcessEndpoints.LegacyPostgresPort}",
-            $"{AppHostParameterKeys.PortsScylla}={AspireProcessEndpoints.LegacyScyllaPort}",
-            $"{AppHostParameterKeys.PortsCassandra}={AspireProcessEndpoints.LegacyCassandraPort}",
             $"{AppHostParameterKeys.PostgresUser}={TestDbCredentials.PostgresAppUser}",
             $"{AppHostParameterKeys.PostgresPassword}={TestDbCredentials.PostgresAppPassword}",
             // Pinned so the AppHost's GenerateParameterDefault output can't drift from DbInitHelper.

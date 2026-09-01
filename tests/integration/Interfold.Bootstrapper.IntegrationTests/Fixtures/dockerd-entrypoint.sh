@@ -17,23 +17,38 @@ if [ -w /proc/sys/fs/aio-max-nr ]; then
     fi
 fi
 
-mkdir -p /var/lib/docker
+mkdir -p /var/lib/docker /etc/docker
+
+# Bootstrapper stacks emit four compose networks each (postgres, scylla, edge-api,
+# edge-web). A full explicit-test session inside one session-shared DinD exhausts
+# Docker Desktop's default pool without extra /16 allocations.
+DEFAULT_ADDRESS_POOLS='[
+  {"base":"172.17.0.0/16","size":24},
+  {"base":"172.18.0.0/16","size":24},
+  {"base":"172.19.0.0/16","size":24},
+  {"base":"172.20.0.0/16","size":24},
+  {"base":"172.21.0.0/16","size":24},
+  {"base":"172.22.0.0/16","size":24},
+  {"base":"172.23.0.0/16","size":24},
+  {"base":"172.24.0.0/16","size":24}
+]'
 
 # Default: vfs — portable across hosts whose overlay2 setup fights nested mounts.
 # Opt-in containerd image store (DIND_CONTAINERD_SNAPSHOTTER=1) reproduces the
 # "compose images → No such image after local tag rebuild" failure surface that
 # UpdateImagesPhase must tolerate (compose#14014). Cassandra-mode DinD enables this.
-DOCKERD_EXTRA_ARGS=(--storage-driver=vfs)
 if [ "${DIND_CONTAINERD_SNAPSHOTTER:-0}" = "1" ]; then
-    mkdir -p /etc/docker
-    printf '%s\n' '{"features":{"containerd-snapshotter":true}}' > /etc/docker/daemon.json
-    DOCKERD_EXTRA_ARGS=()
+    printf '%s\n' "{\"features\":{\"containerd-snapshotter\":true},\"default-address-pools\":${DEFAULT_ADDRESS_POOLS}}" \
+        > /etc/docker/daemon.json
+else
+    printf '%s\n' "{\"storage-driver\":\"vfs\",\"default-address-pools\":${DEFAULT_ADDRESS_POOLS}}" \
+        > /etc/docker/daemon.json
 fi
 
 dockerd \
     --host=unix:///var/run/docker.sock \
     --host=tcp://0.0.0.0:2375 \
-    "${DOCKERD_EXTRA_ARGS[@]}" \
+    --config-file=/etc/docker/daemon.json \
     --iptables=true &
 DOCKERD_PID=$!
 

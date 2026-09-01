@@ -15,9 +15,9 @@ namespace Interfold.Bootstrapper.Phases;
 /// compose YAML.</summary>
 internal static class PublishPhase
 {
-    // Anchors relative bind-mount paths from InterfoldAppHost.Configure. The graph uses
-    // "../../scripts/..." that resolves against CWD; setting CWD to {appDir}/_aspire_anchor/inner
-    // makes those match the dev layout (hosts/Interfold.AppHost/../../scripts).
+    // Aspire resolves some graph bind-mount placeholders against CWD during publish. Per-scratch
+    // anchor under {outputDir} avoids parallel bootstraps racing on a shared {appDir}/_aspire_anchor
+    // when several DinD sessions bind-mount the same published bootstrapper directory.
     private static readonly string[] AnchorSegments = ["_aspire_anchor", "inner"];
 
     public static async Task RunAsync(
@@ -32,7 +32,7 @@ internal static class PublishPhase
 
         Directory.CreateDirectory(options.OutputDir);
 
-        var anchor = SetupAnchor();
+        var anchor = SetupAnchor(options.OutputDir);
         var previousCwd = Directory.GetCurrentDirectory();
 
         try
@@ -90,7 +90,7 @@ internal static class PublishPhase
         IReadOnlyDictionary<string, string> Parameters,
         IReadOnlyDictionary<string, string> BindMounts);
 
-    /// <summary>Translates the operator-facing <see cref="BootstrapConfig.DatabaseMode"/> enum
+    /// <summary>Translates the operator-facing <see cref="CqlBackend"/> value
     /// into the orthogonal AppHost toggles <c>InterfoldAppHost</c> reads. The throw guards
     /// internal callers (unit tests) that bypass <see cref="ConfigPhase.Validate"/>.</summary>
     internal static (bool IncludeScylla, bool IncludeCassandra, ScyllaTopology ScyllaTopology) TranslateDatabaseMode(
@@ -120,7 +120,7 @@ internal static class PublishPhase
         // pgdata can rerun the bootstrap; DatabaseInitPhase scrambles it again in-cluster.
         yield return (AppHostParameterKeys.PostgresUser, "POSTGRES_USER", secrets.PostgresUser);
         yield return (AppHostParameterKeys.PostgresPassword, "POSTGRES_PASSWORD", secrets.PostgresPassword);
-        yield return (AppHostParameterKeys.PostgresDb, "POSTGRES_DB", config.PostgresDatabase);
+        yield return (AppHostParameterKeys.PostgresDb, "POSTGRES_DB", config.Datastores.Postgres.Database);
         yield return (AppHostParameterKeys.PostgresInitPassword, "POSTGRES_INIT_PASSWORD", secrets.PostgresInitPassword);
 
         // Scylla admin password is intentionally absent — that role is created by
@@ -135,31 +135,31 @@ internal static class PublishPhase
 
         // OAuth client IDs are public identifiers (not secrets); empty is a valid
         // "provider disabled" signal — the API's scheme registrar skips empty IDs.
-        yield return (AppHostParameterKeys.GoogleOAuthClientId, "GOOGLE_OAUTH_CLIENT_ID", config.OAuth.GoogleClientId ?? string.Empty);
-        yield return (AppHostParameterKeys.DiscordOAuthClientId, "DISCORD_OAUTH_CLIENT_ID", config.OAuth.DiscordClientId ?? string.Empty);
-        yield return (AppHostParameterKeys.AppleOAuthClientId, "APPLE_OAUTH_CLIENT_ID", config.OAuth.AppleClientId ?? string.Empty);
+        yield return (AppHostParameterKeys.GoogleOAuthClientId, "GOOGLE_OAUTH_CLIENT_ID", config.Api.OAuth.GoogleClientId ?? string.Empty);
+        yield return (AppHostParameterKeys.DiscordOAuthClientId, "DISCORD_OAUTH_CLIENT_ID", config.Api.OAuth.DiscordClientId ?? string.Empty);
+        yield return (AppHostParameterKeys.AppleOAuthClientId, "APPLE_OAUTH_CLIENT_ID", config.Api.OAuth.AppleClientId ?? string.Empty);
 
         // API runtime config → OCTOCON_* env vars. ConfigPhase.ResolveDerivedDefaults fills
         // empties before Validate; CORS list joined with commas to match the wire format.
-        yield return (AppHostParameterKeys.ScyllaKeyspace, "SCYLLA_KEYSPACE", config.ScyllaKeyspace.ToWire());
-        yield return (AppHostParameterKeys.OAuthCallbackBaseUrl, "OAUTH_CALLBACK_BASE_URL", config.ApiRuntime.CallbackBaseUrl);
-        yield return (AppHostParameterKeys.JwtAuthority, "JWT_AUTHORITY", config.ApiRuntime.JwtAuthority);
-        yield return (AppHostParameterKeys.JwtAudience, "JWT_AUDIENCE", config.ApiRuntime.JwtAudience);
-        yield return (AppHostParameterKeys.CorsAllowedOrigins, "CORS_ALLOWED_ORIGINS", string.Join(",", config.ApiRuntime.CorsAllowedOrigins));
+        yield return (AppHostParameterKeys.ScyllaKeyspace, "SCYLLA_KEYSPACE", config.Datastores.Cql.Keyspace.ToWire());
+        yield return (AppHostParameterKeys.OAuthCallbackBaseUrl, "OAUTH_CALLBACK_BASE_URL", config.Api.OAuth.CallbackBaseUrl);
+        yield return (AppHostParameterKeys.JwtAuthority, "JWT_AUTHORITY", config.Api.OAuth.JwtAuthority);
+        yield return (AppHostParameterKeys.JwtAudience, "JWT_AUDIENCE", config.Api.OAuth.JwtAudience);
+        yield return (AppHostParameterKeys.CorsAllowedOrigins, "CORS_ALLOWED_ORIGINS", string.Join(",", config.Api.CorsAllowedOrigins));
 
         // Non-secret operator tuning knobs. Nullable/disabled-when-empty fields serialise as
         // "" — the API's binders normalise empty → null, matching the "env var unset" branch.
         // AvatarStorageRoot is intentionally absent: the container always sees
         // /app/data/avatars (baked via WithEnvironment); the host path is a bind-mount
         // source filled by BuildEnvReplacements, not an Aspire parameter.
-        yield return (AppHostParameterKeys.NodeGroup, "NODE_GROUP", config.Cluster.NodeGroup.ToWire());
-        yield return (AppHostParameterKeys.AvatarPublicBase, "AVATAR_PUBLIC_BASE", config.Storage.AvatarPublicBase ?? string.Empty);
+        yield return (AppHostParameterKeys.NodeGroup, "NODE_GROUP", config.Api.NodeGroup.ToWire());
+        yield return (AppHostParameterKeys.AvatarPublicBase, "AVATAR_PUBLIC_BASE", config.Api.Storage.AvatarPublicBase ?? string.Empty);
         yield return (AppHostParameterKeys.OtlpEndpoint, "OTLP_ENDPOINT", config.Observability.OtlpEndpoint ?? string.Empty);
-        yield return (AppHostParameterKeys.SocketBatchBytesThreshold, "SOCKET_BATCH_BYTES_THRESHOLD", config.Socket.BatchBytesThreshold?.ToString() ?? string.Empty);
-        yield return (AppHostParameterKeys.DbRetryAttempts, "DB_RETRY_ATTEMPTS", config.Persistence.DbRetryAttempts.ToString());
-        yield return (AppHostParameterKeys.DbRetryInitialDelayMs, "DB_RETRY_INITIAL_DELAY_MS", config.Persistence.DbRetryInitialDelayMs.ToString());
-        yield return (AppHostParameterKeys.DbRetryMaxDelayMs, "DB_RETRY_MAX_DELAY_MS", config.Persistence.DbRetryMaxDelayMs.ToString());
-        yield return (AppHostParameterKeys.HydrationMaxConcurrency, "HYDRATION_MAX_CONCURRENCY", config.Persistence.HydrationMaxConcurrency.ToString());
+        yield return (AppHostParameterKeys.SocketBatchBytesThreshold, "SOCKET_BATCH_BYTES_THRESHOLD", config.Api.BatchBytesThreshold?.ToString() ?? string.Empty);
+        yield return (AppHostParameterKeys.DbRetryAttempts, "DB_RETRY_ATTEMPTS", config.Api.Resilience.DbRetryAttempts.ToString());
+        yield return (AppHostParameterKeys.DbRetryInitialDelayMs, "DB_RETRY_INITIAL_DELAY_MS", config.Api.Resilience.DbRetryInitialDelayMs.ToString());
+        yield return (AppHostParameterKeys.DbRetryMaxDelayMs, "DB_RETRY_MAX_DELAY_MS", config.Api.Resilience.DbRetryMaxDelayMs.ToString());
+        yield return (AppHostParameterKeys.HydrationMaxConcurrency, "HYDRATION_MAX_CONCURRENCY", config.Api.Resilience.HydrationMaxConcurrency.ToString());
     }
 
     internal static EnvReplacements BuildEnvReplacements(
@@ -185,31 +185,42 @@ internal static class PublishPhase
         // in a future Aspire release surfaces via the unit tests.
         var bindMountLookup = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            // TLS material lives under {outputDir}/certs/; Kestrel reads leaf.pfx via
-            // ConfigureApiSelfHostEnv. JWT signing PEMs are in internal.secrets, no mount needed.
-            [$"{ComposeServices.InterfoldApi}:/certs"] = Path.Combine(outputDir, "certs"),
-            // Host path from BootstrapConfig.storage.avatarStorageRoot (blank → {outputDir}/data/avatars).
-            // Container target is always /app/data/avatars (see AvatarsPaths / ContainerMountPaths).
             [$"{ComposeServices.InterfoldApi}:{ContainerMountPaths.InterfoldAvatars}"] =
                 ResolveAvatarHostRoot(config, outputDir),
         };
 
-        // Web-TLS opt-in mounts: cert dir (reused from the API) + envsubst template staged
-        // under {outputDir}/support by StagePublishSupportFiles.
-        if (config.Deployment.WebHttps)
+        if (config.Edge.TlsMode != EdgeTlsMode.LetsEncrypt
+            && config.Edge.TlsMode != EdgeTlsMode.None)
         {
-            bindMountLookup[$"{ComposeServices.OctoconWeb}:/certs"] = Path.Combine(outputDir, "certs");
-            bindMountLookup[$"{ComposeServices.OctoconWeb}:/etc/nginx/templates/default.conf.template"] =
-                EmbeddedSupportFiles.SupportFilePath(outputDir, EmbeddedSupportFiles.NginxTemplateRelative);
+            bindMountLookup[$"{ComposeServices.InterfoldApi}:/certs"] = Path.Combine(outputDir, "certs");
+        }
+
+        var edgeSupport = Path.Combine(EmbeddedSupportFiles.SupportRoot(outputDir), "edge", "nginx");
+        bindMountLookup[$"{ComposeServices.EdgeNginx}:{EdgePaths.ContainerNginxTemplate}"] =
+            Path.Combine(edgeSupport, "default.conf.template");
+        bindMountLookup[$"{ComposeServices.EdgeNginx}:{EdgePaths.ContainerProxyParams}"] =
+            Path.Combine(edgeSupport, "proxy_params.conf");
+        bindMountLookup[$"{ComposeServices.EdgeNginx}:{EdgePaths.ContainerCloudflareIps}"] =
+            Path.Combine(edgeSupport, "cloudflare-ips.conf");
+        if (config.Edge.TlsMode != EdgeTlsMode.None)
+        {
+            bindMountLookup[$"{ComposeServices.EdgeNginx}:{EdgePaths.ContainerCertsDir}"] =
+                Path.Combine(outputDir, "certs");
+            if (config.Edge.TlsMode == EdgeTlsMode.LetsEncrypt)
+            {
+                bindMountLookup[$"{ComposeServices.EdgeNginx}:{EdgePaths.ContainerAcmeWebroot}"] =
+                    Path.Combine(outputDir, "certs", "certbot-www");
+            }
         }
 
         // Region-keyed rackdc mount; single mode → one "scylla" node in "nam", multi mode → one
         // node per region. Derived from ScyllaKeyspace so the list can't drift.
-        if (config.DatabaseMode != DatabaseMode.Cassandra)
+        var databaseMode = CqlBackendMapping.ToDatabaseMode(config.Datastores.Cql.Backend);
+        if (databaseMode != DatabaseMode.Cassandra)
         {
             foreach (var region in ResolveScyllaRegions(config))
             {
-                var nodeName = ComposeServices.ToScyllaNodeName(region, multiNode: config.DatabaseMode == DatabaseMode.Multi);
+                var nodeName = ComposeServices.ToScyllaNodeName(region, multiNode: databaseMode == DatabaseMode.Multi);
                 bindMountLookup[$"{nodeName}:/etc/scylla/cassandra-rackdc.properties"] =
                     EmbeddedSupportFiles.SupportFilePath(outputDir, EmbeddedSupportFiles.RackDcRelative(region));
             }
@@ -219,7 +230,7 @@ internal static class PublishPhase
     }
 
     internal static string[] ResolveScyllaRegions(BootstrapConfig config) =>
-        config.DatabaseMode == DatabaseMode.Multi
+        CqlBackendMapping.ToDatabaseMode(config.Datastores.Cql.Backend) == DatabaseMode.Multi
             ? Enum.GetValues<ScyllaKeyspace>().Select(k => k.ToWire()).ToArray()
             : [ScyllaKeyspace.Nam.ToWire()];
 
@@ -228,7 +239,7 @@ internal static class PublishPhase
     {
         var materialized = 0;
 
-        if (config.DatabaseMode != DatabaseMode.Cassandra)
+        if (CqlBackendMapping.ToDatabaseMode(config.Datastores.Cql.Backend) != DatabaseMode.Cassandra)
         {
             foreach (var region in ResolveScyllaRegions(config))
             {
@@ -239,13 +250,7 @@ internal static class PublishPhase
             }
         }
 
-        if (config.Deployment.WebHttps)
-        {
-            var relative = EmbeddedSupportFiles.NginxTemplateRelative;
-            var target = EmbeddedSupportFiles.SupportFilePath(outputDir, relative);
-            if (EmbeddedSupportFiles.Materialize(relative, target, logger))
-                materialized++;
-        }
+        StageEdgeSupportFiles(config, outputDir, logger, ref materialized);
 
         if (materialized > 0)
         {
@@ -254,12 +259,52 @@ internal static class PublishPhase
         }
     }
 
+    internal static void StageEdgeSupportFiles(
+        BootstrapConfig config, string outputDir, PhaseLogger logger, ref int materialized)
+    {
+        var edgeDir = Path.Combine(EmbeddedSupportFiles.SupportRoot(outputDir), "edge", "nginx");
+        Directory.CreateDirectory(edgeDir);
+
+        var templateRelative = EmbeddedSupportFiles.EdgeTemplateRelative(
+            config.Edge.Routing.Mode == EdgeRoutingMode.Subdomain,
+            config.Edge.TlsMode == EdgeTlsMode.None);
+        var templateTarget = Path.Combine(edgeDir, "default.conf.template");
+        if (!File.Exists(templateTarget))
+        {
+            EmbeddedSupportFiles.Materialize(templateRelative, templateTarget, logger);
+            materialized++;
+        }
+
+        var proxyTarget = Path.Combine(edgeDir, "proxy_params.conf");
+        if (EmbeddedSupportFiles.Materialize(EmbeddedSupportFiles.EdgeProxyParamsRelative, proxyTarget, logger))
+            materialized++;
+
+        var cfTarget = Path.Combine(edgeDir, "cloudflare-ips.conf");
+        // Always refresh Cloudflare ranges when allowlist is on; otherwise write a no-op stub.
+        // Synchronous wait keeps StagePublishSupportFiles sync for existing callers.
+        if (config.Edge.Cloudflare.IpAllowlist)
+        {
+            CloudflareIpAllowlist.WriteAllowlistAsync(cfTarget, logger).GetAwaiter().GetResult();
+        }
+        else
+        {
+            CloudflareIpAllowlist.WriteDisabled(cfTarget);
+        }
+
+        Directory.CreateDirectory(Path.Combine(outputDir, "certs", "certbot-www"));
+
+        if (config.Edge.TlsMode == EdgeTlsMode.LetsEncrypt)
+        {
+            LetsEncryptStaging.EnsureCredentialsAndPlaceholderCerts(config, outputDir, logger);
+        }
+    }
+
     /// <summary>Host directory bind-mounted at <see cref="ContainerMountPaths.InterfoldAvatars"/>.
     /// Blank config → <c>{outputDir}/data/avatars</c> (same layout as certs under outputDir).</summary>
     internal static string ResolveAvatarHostRoot(BootstrapConfig config, string outputDir)
     {
-        if (!string.IsNullOrWhiteSpace(config.Storage.AvatarStorageRoot))
-            return Path.GetFullPath(config.Storage.AvatarStorageRoot);
+        if (!string.IsNullOrWhiteSpace(config.Api.Storage.AvatarStorageRoot))
+            return Path.GetFullPath(config.Api.Storage.AvatarStorageRoot);
 
         return Path.GetFullPath(Path.Combine(outputDir, "data", "avatars"));
     }
@@ -392,11 +437,9 @@ internal static class PublishPhase
         logger?.Warn("compose: no ${CASSANDRA_IMAGE} anchor found; pull_policy stamp skipped");
     }
 
-    private static string SetupAnchor()
+    private static string SetupAnchor(string outputDir)
     {
-        // Aspire relative bind-mount placeholders resolve against CWD; anchor mimics dev layout.
-        var baseDir = AppContext.BaseDirectory;
-        var anchor = Path.Combine(baseDir, Path.Combine(AnchorSegments));
+        var anchor = Path.Combine(outputDir, Path.Combine(AnchorSegments));
         Directory.CreateDirectory(anchor);
         return anchor;
     }
@@ -425,7 +468,8 @@ internal static class PublishPhase
             DisableDashboard = true,
         });
 
-        var (includeScylla, includeCassandra, scyllaTopology) = TranslateDatabaseMode(config.DatabaseMode);
+        var (includeScylla, includeCassandra, scyllaTopology) =
+            TranslateDatabaseMode(CqlBackendMapping.ToDatabaseMode(config.Datastores.Cql.Backend));
 
         // Parameters:* injected via IConfiguration; Aspire writes secret parameter values into
         // the .env file rather than the compose YAML at publish time. Seeded from the shared
@@ -437,28 +481,26 @@ internal static class PublishPhase
         // ClusterName is IConfiguration-read (like include-scylla / scylla-topology) rather than
         // an Aspire Parameter — it also feeds Scylla's WithArgs list and that overload takes
         // plain strings. Baked into compose as both CASSANDRA_CLUSTER_NAME and --cluster-name.
-        injected[AppHostParameterKeys.ClusterName] = config.ClusterName;
+        injected[AppHostParameterKeys.ClusterName] = config.Datastores.Cql.ClusterName;
         injected[AppHostParameterKeys.IncludeScylla] = BoolWire.ToWireValue(includeScylla);
         injected[AppHostParameterKeys.IncludeCassandra] = BoolWire.ToWireValue(includeCassandra);
         injected[AppHostParameterKeys.ScyllaTopology] = scyllaTopology.ToWireValue();
         // Bootstrapper always uses a pre-built API image; this switches off the AddProject<> path.
-        injected[AppHostParameterKeys.ApiImage] = config.ApiImage;
+        injected[AppHostParameterKeys.ApiImage] = config.Api.Image;
         // Aspire dev dashboard would pull an MCR-nightly image at compose-up — unwanted in prod.
         injected[AppHostParameterKeys.IncludeDashboard] = BoolWire.FalseValue;
-        // WebHttps implies IncludeWeb (cert wiring is useless without the container). WebTls stays
-        // driven by webHttps alone so includeWeb-only stacks get HTTP-only for external-proxy setups.
-        injected[AppHostParameterKeys.IncludeWeb] = BoolWire.ToWireValue(config.Deployment.IncludeWeb || config.Deployment.WebHttps);
-        injected[AppHostParameterKeys.WebTls] = BoolWire.ToWireValue(config.Deployment.WebHttps);
-        // nginx server_name accepts DNS/IP literals but not CIDR → same "primary host" rule as
-        // ConfigPhase.ResolveDerivedDefaults. The `_` fallback in PickServerName covers only the
-        // bypass-validation dev path that skips ConfigPhase entirely.
-        injected[AppHostParameterKeys.WebServerName] = PickServerName(config.Deployment.Hosts);
-        injected[AppHostParameterKeys.PortsPostgres] = config.Ports.Postgres.ToString();
-        injected[AppHostParameterKeys.PortsScylla] = config.Ports.Scylla.ToString();
-        injected[AppHostParameterKeys.PortsApiHttp] = config.Ports.ApiHttp.ToString();
-        injected[AppHostParameterKeys.PortsApiHttps] = config.Ports.ApiHttps.ToString();
-        injected[AppHostParameterKeys.PortsWebHttp] = config.Ports.WebHttp.ToString();
-        injected[AppHostParameterKeys.PortsWebHttps] = config.Ports.WebHttps.ToString();
+        injected[AppHostParameterKeys.IncludeWeb] = BoolWire.ToWireValue(config.Deployment.IncludeWeb);
+        injected[AppHostParameterKeys.EdgeTlsMode] = config.Edge.TlsMode.ToWire();
+        injected[AppHostParameterKeys.EdgeRouting] = config.Edge.Routing.Mode.ToWire();
+        injected[AppHostParameterKeys.EdgeApiHost] = config.Edge.Routing.ApiHost;
+        injected[AppHostParameterKeys.EdgeWebHost] = config.Edge.Routing.WebHost;
+        injected[AppHostParameterKeys.EdgeCloudflareAllowlist] =
+            BoolWire.ToWireValue(config.Edge.Cloudflare.IpAllowlist);
+        injected[AppHostParameterKeys.EdgeIncludeWebUpstream] =
+            BoolWire.ToWireValue(config.Deployment.IncludeWeb);
+        injected[AppHostParameterKeys.EdgeServerName] = PickServerName(config.Edge.Hosts);
+        injected[AppHostParameterKeys.PortsEdgeHttp] = config.Edge.Ports.Http.ToString();
+        injected[AppHostParameterKeys.PortsEdgeHttps] = config.Edge.Ports.Https.ToString();
 
         builder.Configuration.AddInMemoryCollection(injected);
 

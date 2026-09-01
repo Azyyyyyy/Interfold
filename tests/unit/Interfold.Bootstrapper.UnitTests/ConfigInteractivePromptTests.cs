@@ -8,12 +8,12 @@ using Spectre.Console.Testing;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
-/// <summary>Drives Spectre <c>SelectionPrompt&lt;int&gt;</c> for the config form: 48 field
-/// rows across 11 sections + trailing "Confirm and save". Headers are inert; cursor resets
+/// <summary>Drives Spectre <c>SelectionPrompt&lt;int&gt;</c> for the config form: 49 field
+/// rows across 10 sections + trailing "Confirm and save". Headers are inert; cursor resets
 /// to field 0 after each edit, so tests use absolute Navigate distances.
-/// <para>Field order: 0..6 Deployment · 7..12 Ports · 13..16 Database · 17..21 API ·
-/// 22..23 Cluster/telemetry · 24..25 Storage · 26..30 Performance · 31..36 OAuth ·
-/// 37..41 Backup · 42..46 Updates · 47 Firebase. Navigate(48) = Confirm and save.</para>
+/// <para>Field order: 0..2 Deployment · 3..14 Edge · 15..18 Datastores · 19..25 API ·
+/// 26..27 Storage · 28..32 Performance · 33..38 OAuth · 39..42 Backup · 43..47 Updates ·
+/// 48 Firebase. Navigate(49) = Confirm and save.</para>
 /// <para><c>[NotInParallel("bootstrapper-console")]</c>: Spectre TestConsole + MTP's
 /// NamedPipeServer race under Linux thread pressure (dotnet/runtime#58045). ~10s serialised.
 /// <c>[Retry(2)]</c> absorbs the residual native abort (exit 134/SIGABRT) that still slips
@@ -23,7 +23,7 @@ namespace Interfold.Bootstrapper.UnitTests;
 [Retry(2)]
 public sealed class ConfigInteractivePromptTests
 {
-    private const int FieldCount = 48;
+    private const int FieldCount = 49;
 
     /// <summary>Sized to fit the whole 60-row form so Spectre never paginates.</summary>
     private static TestConsole NewConsole()
@@ -76,91 +76,84 @@ public sealed class ConfigInteractivePromptTests
 
         // Deployment defaults
         await Assert.That(config.Deployment.OutputDir).IsEqualTo("./deploy");
-        await Assert.That(config.Deployment.RootCaName).IsEqualTo("Interfold Root CA");
-        await Assert.That(config.Deployment.CertYears).IsEqualTo(5);
-        await Assert.That(config.Deployment.TrustStoreInstall).IsTrue();
+        await Assert.That(config.Edge.Certificates.RootCaName).IsEqualTo("Interfold Root CA");
+        await Assert.That(config.Edge.Certificates.CertYears).IsEqualTo(5);
+        await Assert.That(config.Edge.Certificates.TrustStoreInstall).IsTrue();
         await Assert.That(config.Deployment.IncludeWeb).IsFalse();
-        await Assert.That(config.Deployment.WebHttps).IsFalse();
-        // No default; the auto-fill is suppressed via PromptWithoutDetection. Validate
-        // fails fast on this state downstream (see DeploymentSection.Hosts).
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(0);
+        await Assert.That(config.Edge.TlsMode).IsEqualTo(EdgeTlsMode.PrivateCa);
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(0);
 
-        // Ports defaults
-        await Assert.That(config.Ports.ApiHttp).IsEqualTo(5000);
-        await Assert.That(config.Ports.ApiHttps).IsEqualTo(5001);
-        await Assert.That(config.Ports.WebHttp).IsEqualTo(8080);
-        await Assert.That(config.Ports.WebHttps).IsEqualTo(8081);
-        await Assert.That(config.Ports.Postgres).IsEqualTo(4200);
-        await Assert.That(config.Ports.Scylla).IsEqualTo(9042);
+        await Assert.That(config.Edge.Ports.Http).IsEqualTo(80);
+        await Assert.That(config.Edge.Ports.Https).IsEqualTo(443);
 
-        // Database / API defaults
-        await Assert.That(config.DatabaseMode).IsEqualTo(DatabaseMode.Single);
-        await Assert.That(config.PostgresDatabase).IsEqualTo("interfold");
-        await Assert.That(config.ClusterName).IsEqualTo("InterfoldCluster");
-        await Assert.That(config.ScyllaKeyspace).IsEqualTo(ScyllaKeyspace.Nam);
-        await Assert.That(config.ApiImage).IsEqualTo("ghcr.io/azyyyyyy/interfold-api:latest");
+        // Datastores / API defaults
+        await Assert.That(config.Datastores.Cql.Backend).IsEqualTo(CqlBackend.ScyllaSingle);
+        await Assert.That(config.Datastores.Postgres.Database).IsEqualTo("interfold");
+        await Assert.That(config.Datastores.Cql.ClusterName).IsEqualTo("InterfoldCluster");
+        await Assert.That(config.Datastores.Cql.Keyspace).IsEqualTo(ScyllaKeyspace.Nam);
+        await Assert.That(config.Api.Image).IsEqualTo("ghcr.io/azyyyyyy/interfold-api:latest");
 
         // ApiRuntime: derivation happens in RunAsync / Validate, not PromptForConfig, so
         // the stored fields stay empty here (the menu's Show callbacks derive for display only).
-        await Assert.That(config.ApiRuntime.CallbackBaseUrl).IsEqualTo(string.Empty);
-        await Assert.That(config.ApiRuntime.JwtAuthority).IsEqualTo(string.Empty);
-        await Assert.That(config.ApiRuntime.JwtAudience).IsEqualTo("octocon");
-        await Assert.That(config.ApiRuntime.CorsAllowedOrigins.Count).IsEqualTo(0);
+        await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo(string.Empty);
+        await Assert.That(config.Api.OAuth.JwtAuthority).IsEqualTo(string.Empty);
+        await Assert.That(config.Api.OAuth.JwtAudience).IsEqualTo("octocon");
+        await Assert.That(config.Api.CorsAllowedOrigins.Count).IsEqualTo(0);
 
         // Blank string/null fields reproduce the pre-bootstrapper "env var unset" behaviour.
-        await Assert.That(config.Cluster.NodeGroup).IsEqualTo(NodeGroup.Auxiliary);
+        await Assert.That(config.Api.NodeGroup).IsEqualTo(NodeGroup.Auxiliary);
         await Assert.That(config.Observability.OtlpEndpoint).IsEqualTo(string.Empty);
-        await Assert.That(config.Storage.AvatarStorageRoot).IsEqualTo(string.Empty);
-        await Assert.That(config.Storage.AvatarPublicBase).IsEqualTo(string.Empty);
-        await Assert.That(config.Socket.BatchBytesThreshold).IsNull();
-        await Assert.That(config.Persistence.DbRetryAttempts).IsEqualTo(3);
-        await Assert.That(config.Persistence.DbRetryInitialDelayMs).IsEqualTo(100);
-        await Assert.That(config.Persistence.DbRetryMaxDelayMs).IsEqualTo(1500);
-        await Assert.That(config.Persistence.HydrationMaxConcurrency).IsEqualTo(8);
+        await Assert.That(config.Api.Storage.AvatarStorageRoot).IsEqualTo(string.Empty);
+        await Assert.That(config.Api.Storage.AvatarPublicBase).IsEqualTo(string.Empty);
+        await Assert.That(config.Api.BatchBytesThreshold).IsNull();
+        await Assert.That(config.Api.Resilience.DbRetryAttempts).IsEqualTo(3);
+        await Assert.That(config.Api.Resilience.DbRetryInitialDelayMs).IsEqualTo(100);
+        await Assert.That(config.Api.Resilience.DbRetryMaxDelayMs).IsEqualTo(1500);
+        await Assert.That(config.Api.Resilience.HydrationMaxConcurrency).IsEqualTo(8);
 
         // OAuth credentials default to empty (paired per provider: ID then secret).
-        await Assert.That(config.OAuth.GoogleClientId).IsEqualTo(string.Empty);
-        await Assert.That(config.OAuth.GoogleClientSecret).IsEqualTo(string.Empty);
-        await Assert.That(config.OAuth.DiscordClientId).IsEqualTo(string.Empty);
-        await Assert.That(config.OAuth.DiscordClientSecret).IsEqualTo(string.Empty);
-        await Assert.That(config.OAuth.AppleClientId).IsEqualTo(string.Empty);
-        await Assert.That(config.OAuth.AppleClientSecret).IsEqualTo(string.Empty);
+        await Assert.That(config.Api.OAuth.GoogleClientId).IsEqualTo(string.Empty);
+        await Assert.That(config.Api.OAuth.GoogleClientSecret).IsEqualTo(string.Empty);
+        await Assert.That(config.Api.OAuth.DiscordClientId).IsEqualTo(string.Empty);
+        await Assert.That(config.Api.OAuth.DiscordClientSecret).IsEqualTo(string.Empty);
+        await Assert.That(config.Api.OAuth.AppleClientId).IsEqualTo(string.Empty);
+        await Assert.That(config.Api.OAuth.AppleClientSecret).IsEqualTo(string.Empty);
 
         // Update section defaults to "manual only" — stock bootstrap matches pre-feature deployments.
-        await Assert.That(config.Update.Enabled).IsFalse();
-        await Assert.That(config.Update.HealthCheckTimeoutSeconds).IsEqualTo(180);
-        await Assert.That(config.Update.AutoRestoreOnFailure).IsFalse();
-        await Assert.That(config.Update.RecreateOnUpdate).IsTrue();
-        await Assert.That(config.Update.Services.Length).IsEqualTo(0);
+        await Assert.That(config.Deployment.Update.Enabled).IsFalse();
+        await Assert.That(config.Deployment.Update.HealthCheckTimeoutSeconds).IsEqualTo(180);
+        await Assert.That(config.Deployment.Update.AutoRestoreOnFailure).IsFalse();
+        await Assert.That(config.Deployment.Update.RecreateOnUpdate).IsTrue();
+        await Assert.That(config.Deployment.Update.Services.Length).IsEqualTo(0);
     }
 
     [Test]
     public async Task EditingHostsParsesCommaSeparated()
     {
         var console = NewConsole();
-        EditField(console, fieldIndex: 1, "api.example.com,admin.example.com,www.example.com");
+        EditField(console, fieldIndex: 3, "api.example.com,admin.example.com,www.example.com");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(3);
-        await Assert.That(config.Deployment.Hosts).Contains("api.example.com");
-        await Assert.That(config.Deployment.Hosts).Contains("admin.example.com");
-        await Assert.That(config.Deployment.Hosts).Contains("www.example.com");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(3);
+        await Assert.That(config.Edge.Hosts).Contains("api.example.com");
+        await Assert.That(config.Edge.Hosts).Contains("admin.example.com");
+        await Assert.That(config.Edge.Hosts).Contains("www.example.com");
     }
 
     [Test]
     public async Task EditingHostsTrimsWhitespace()
     {
         var console = NewConsole();
-        EditField(console, fieldIndex: 1, "  foo.example.com  ,  bar.example.com  ");
+        EditField(console, fieldIndex: 3, "  foo.example.com  ,  bar.example.com  ");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(2);
-        await Assert.That(config.Deployment.Hosts).Contains("foo.example.com");
-        await Assert.That(config.Deployment.Hosts).Contains("bar.example.com");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(2);
+        await Assert.That(config.Edge.Hosts).Contains("foo.example.com");
+        await Assert.That(config.Edge.Hosts).Contains("bar.example.com");
     }
 
     [Test]
@@ -168,14 +161,14 @@ public sealed class ConfigInteractivePromptTests
     {
         // IPv4 literal + IPv6 CIDR must reach the stored list verbatim.
         var console = NewConsole();
-        EditField(console, fieldIndex: 1, "192.168.1.42,fe80::/64");
+        EditField(console, fieldIndex: 3, "192.168.1.42,fe80::/64");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(2);
-        await Assert.That(config.Deployment.Hosts[0]).IsEqualTo("192.168.1.42");
-        await Assert.That(config.Deployment.Hosts[1]).IsEqualTo("fe80::/64");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(2);
+        await Assert.That(config.Edge.Hosts[0]).IsEqualTo("192.168.1.42");
+        await Assert.That(config.Edge.Hosts[1]).IsEqualTo("fe80::/64");
     }
 
     [Test]
@@ -190,8 +183,8 @@ public sealed class ConfigInteractivePromptTests
             maskSecrets: false,
             localAddressProbe: () => IPAddress.Parse("192.168.1.42"));
 
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(1);
-        await Assert.That(config.Deployment.Hosts[0]).IsEqualTo("192.168.1.42");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(1);
+        await Assert.That(config.Edge.Hosts[0]).IsEqualTo("192.168.1.42");
     }
 
     [Test]
@@ -207,8 +200,8 @@ public sealed class ConfigInteractivePromptTests
             maskSecrets: false,
             localAddressProbe: () => IPAddress.Parse("2001:db8::1"));
 
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(1);
-        await Assert.That(config.Deployment.Hosts[0]).IsEqualTo("2001:db8::1");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(1);
+        await Assert.That(config.Edge.Hosts[0]).IsEqualTo("2001:db8::1");
     }
 
     [Test]
@@ -216,7 +209,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Auto-default is just a pre-fill — a typed value must win.
         var console = NewConsole();
-        EditField(console, fieldIndex: 1, "api.example.com");
+        EditField(console, fieldIndex: 3, "api.example.com");
         ConfirmForm(console);
 
         var config = ConfigPhase.PromptForConfig(
@@ -224,8 +217,8 @@ public sealed class ConfigInteractivePromptTests
             maskSecrets: false,
             localAddressProbe: () => IPAddress.Parse("192.168.1.42"));
 
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(1);
-        await Assert.That(config.Deployment.Hosts[0]).IsEqualTo("api.example.com");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(1);
+        await Assert.That(config.Edge.Hosts[0]).IsEqualTo("api.example.com");
     }
 
     [Test]
@@ -241,7 +234,7 @@ public sealed class ConfigInteractivePromptTests
             maskSecrets: false,
             localAddressProbe: () => null);
 
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(0);
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(0);
     }
 
     [Test]
@@ -273,9 +266,9 @@ public sealed class ConfigInteractivePromptTests
             localAddressProbe: () => IPAddress.Parse("192.168.1.42"),
             hostnameProbe: () => "workstation.local");
 
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(2);
-        await Assert.That(config.Deployment.Hosts[0]).IsEqualTo("workstation.local");
-        await Assert.That(config.Deployment.Hosts[1]).IsEqualTo("192.168.1.42");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(2);
+        await Assert.That(config.Edge.Hosts[0]).IsEqualTo("workstation.local");
+        await Assert.That(config.Edge.Hosts[1]).IsEqualTo("192.168.1.42");
         // Menu row = comma-joined; pin the exact display so a "print only Hosts[0]" regression gets caught.
         await Assert.That(Regex.IsMatch(console.Output, @"Public host\(s\)\s+workstation\.local,192\.168\.1\.42")).IsTrue();
     }
@@ -294,43 +287,43 @@ public sealed class ConfigInteractivePromptTests
             localAddressProbe: () => IPAddress.Parse("192.168.1.42"),
             hostnameProbe: () => null);
 
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(1);
-        await Assert.That(config.Deployment.Hosts[0]).IsEqualTo("192.168.1.42");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(1);
+        await Assert.That(config.Edge.Hosts[0]).IsEqualTo("192.168.1.42");
     }
 
     [Test]
     public async Task EditingOAuthSecretsCapturesValues()
     {
-        // Paired per provider (ID then secret): secrets sit at 32 / 34 / 36.
+        // Paired per provider (ID then secret): secrets sit at 34 / 36 / 38.
         var console = NewConsole();
-        EditField(console, fieldIndex: 32, "google-secret-xyz");
-        EditField(console, fieldIndex: 34, "discord-secret-abc");
-        EditField(console, fieldIndex: 36, "apple-secret-jwt");
+        EditField(console, fieldIndex: 34, "google-secret-xyz");
+        EditField(console, fieldIndex: 36, "discord-secret-abc");
+        EditField(console, fieldIndex: 38, "apple-secret-jwt");
         ConfirmForm(console);
 
         // maskSecrets:false keeps the prompt off the ReadKey path so PushTextWithEnter suffices.
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.OAuth.GoogleClientSecret).IsEqualTo("google-secret-xyz");
-        await Assert.That(config.OAuth.DiscordClientSecret).IsEqualTo("discord-secret-abc");
-        await Assert.That(config.OAuth.AppleClientSecret).IsEqualTo("apple-secret-jwt");
+        await Assert.That(config.Api.OAuth.GoogleClientSecret).IsEqualTo("google-secret-xyz");
+        await Assert.That(config.Api.OAuth.DiscordClientSecret).IsEqualTo("discord-secret-abc");
+        await Assert.That(config.Api.OAuth.AppleClientSecret).IsEqualTo("apple-secret-jwt");
     }
 
     [Test]
     public async Task EditingOAuthClientIdsCapturesValues()
     {
-        // Public IDs → plain PromptStr (no masking). ID rows sit at 31 / 33 / 35.
+        // Public IDs → plain PromptStr (no masking). ID rows sit at 33 / 35 / 37.
         var console = NewConsole();
-        EditField(console, fieldIndex: 31, "1234.apps.googleusercontent.com");
-        EditField(console, fieldIndex: 33, "9876543210");
-        EditField(console, fieldIndex: 35, "com.example.interfold.signin");
+        EditField(console, fieldIndex: 33, "1234.apps.googleusercontent.com");
+        EditField(console, fieldIndex: 35, "9876543210");
+        EditField(console, fieldIndex: 37, "com.example.interfold.signin");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.OAuth.GoogleClientId).IsEqualTo("1234.apps.googleusercontent.com");
-        await Assert.That(config.OAuth.DiscordClientId).IsEqualTo("9876543210");
-        await Assert.That(config.OAuth.AppleClientId).IsEqualTo("com.example.interfold.signin");
+        await Assert.That(config.Api.OAuth.GoogleClientId).IsEqualTo("1234.apps.googleusercontent.com");
+        await Assert.That(config.Api.OAuth.DiscordClientId).IsEqualTo("9876543210");
+        await Assert.That(config.Api.OAuth.AppleClientId).IsEqualTo("com.example.interfold.signin");
     }
 
     [Test]
@@ -355,7 +348,7 @@ public sealed class ConfigInteractivePromptTests
         // IDs are public → the menu row echoes the value verbatim, not <set>/<empty>.
         const string googleId = "1234.apps.googleusercontent.com";
         var console = NewConsole();
-        EditField(console, fieldIndex: 31, googleId);
+        EditField(console, fieldIndex: 33, googleId);
         ConfirmForm(console);
 
         PromptWithoutDetection(console);
@@ -367,51 +360,39 @@ public sealed class ConfigInteractivePromptTests
     public async Task EditingPortsCapturesOverrides()
     {
         var console = NewConsole();
-        EditField(console, fieldIndex: 7,  "5100");   // ApiHttp
-        EditField(console, fieldIndex: 8,  "5101");   // ApiHttps
-        EditField(console, fieldIndex: 9,  "8090");   // WebHttp
-        EditField(console, fieldIndex: 10,  "8091");   // WebHttps
-        EditField(console, fieldIndex: 11, "4300");   // Postgres
-        EditField(console, fieldIndex: 12, "9043");   // Scylla
+        EditField(console, fieldIndex: 13, "8088");   // EdgeHttp
+        EditField(console, fieldIndex: 14, "8443");   // EdgeHttps
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Ports.ApiHttp).IsEqualTo(5100);
-        await Assert.That(config.Ports.ApiHttps).IsEqualTo(5101);
-        await Assert.That(config.Ports.WebHttp).IsEqualTo(8090);
-        await Assert.That(config.Ports.WebHttps).IsEqualTo(8091);
-        await Assert.That(config.Ports.Postgres).IsEqualTo(4300);
-        await Assert.That(config.Ports.Scylla).IsEqualTo(9043);
+        await Assert.That(config.Edge.Ports.Http).IsEqualTo(8088);
+        await Assert.That(config.Edge.Ports.Https).IsEqualTo(8443);
     }
 
     [Test]
     public async Task EditingBoolsCapturesOverrides()
     {
         var console = NewConsole();
-        EditField(console, fieldIndex: 4, "n");   // TrustStoreInstall := false
-        EditField(console, fieldIndex: 6, "y");   // WebHttps := true
+        EditField(console, fieldIndex: 6, "n");   // TrustStoreInstall := false
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Deployment.TrustStoreInstall).IsFalse();
-        await Assert.That(config.Deployment.WebHttps).IsTrue();
+        await Assert.That(config.Edge.Certificates.TrustStoreInstall).IsFalse();
     }
 
     [Test]
     public async Task EditingIncludeWebCapturesOverride()
     {
-        // IncludeWeb (row 5) is independent from WebHttps (row 6) — toggling one must not
-        // silently promote the other.
+        // IncludeWeb (row 1) toggles independently from edge TLS settings.
         var console = NewConsole();
-        EditField(console, fieldIndex: 5, "y");   // IncludeWeb := true
+        EditField(console, fieldIndex: 1, "y");   // IncludeWeb := true
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
         await Assert.That(config.Deployment.IncludeWeb).IsTrue();
-        await Assert.That(config.Deployment.WebHttps).IsFalse();
     }
 
     [Test]
@@ -419,12 +400,12 @@ public sealed class ConfigInteractivePromptTests
     {
         // "bad" triggers the re-prompt; the second answer (5005) is what should stick.
         var console = NewConsole();
-        EditField(console, fieldIndex: 7, "bad", "5005");
+        EditField(console, fieldIndex: 13, "bad", "5005");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Ports.ApiHttp).IsEqualTo(5005);
+        await Assert.That(config.Edge.Ports.Http).IsEqualTo(5005);
         await Assert.That(console.Output).Contains("must be an integer");
     }
 
@@ -432,24 +413,24 @@ public sealed class ConfigInteractivePromptTests
     public async Task BoolPromptRePromptsOnInvalidAnswer()
     {
         var console = NewConsole();
-        EditField(console, fieldIndex: 4, "maybe", "n");
+        EditField(console, fieldIndex: 6, "maybe", "n");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Deployment.TrustStoreInstall).IsFalse();
+        await Assert.That(config.Edge.Certificates.TrustStoreInstall).IsFalse();
     }
 
     [Test]
-    public async Task DatabaseModePromptEnforcesChoices()
+    public async Task CqlBackendPromptEnforcesChoices()
     {
         var console = NewConsole();
-        EditField(console, fieldIndex: 13, "invalid", "multi");
+        EditField(console, fieldIndex: 15, "invalid", "scylla-multi");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.DatabaseMode).IsEqualTo(DatabaseMode.Multi);
+        await Assert.That(config.Datastores.Cql.Backend).IsEqualTo(CqlBackend.ScyllaMulti);
     }
 
     [Test]
@@ -457,12 +438,12 @@ public sealed class ConfigInteractivePromptTests
     {
         // Happy-path edit; AddChoices enforcement is covered by the rejection test below.
         var console = NewConsole();
-        EditField(console, fieldIndex: 16, "eur");
+        EditField(console, fieldIndex: 18, "eur");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.ScyllaKeyspace).IsEqualTo(ScyllaKeyspace.Eur);
+        await Assert.That(config.Datastores.Cql.Keyspace).IsEqualTo(ScyllaKeyspace.Eur);
     }
 
     [Test]
@@ -470,51 +451,49 @@ public sealed class ConfigInteractivePromptTests
     {
         // AddChoices re-prompts on non-listed values; the eventually-accepted value sticks.
         var console = NewConsole();
-        EditField(console, fieldIndex: 16, "ant", "gdpr");
+        EditField(console, fieldIndex: 18, "ant", "gdpr");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.ScyllaKeyspace).IsEqualTo(ScyllaKeyspace.Gdpr);
+        await Assert.That(config.Datastores.Cql.Keyspace).IsEqualTo(ScyllaKeyspace.Gdpr);
     }
 
     [Test]
     public async Task EditingApiRuntimeCapturesValues()
     {
-        // Rows 17-20: CallbackBaseUrl / JwtAuthority / JwtAudience / CORS. Verbatim round-trip.
+        // Rows 19-22: CallbackBaseUrl / JwtAuthority / JwtAudience / CORS. Verbatim round-trip.
         var console = NewConsole();
-        EditField(console, fieldIndex: 17, "https://api.custom.example.com");
-        EditField(console, fieldIndex: 18, "https://issuer.custom.example.com");
-        EditField(console, fieldIndex: 19, "custom-aud");
-        EditField(console, fieldIndex: 20, "https://app.example.com,https://admin.example.com");
+        EditField(console, fieldIndex: 19, "https://api.custom.example.com");
+        EditField(console, fieldIndex: 20, "https://issuer.custom.example.com");
+        EditField(console, fieldIndex: 21, "custom-aud");
+        EditField(console, fieldIndex: 22, "https://app.example.com,https://admin.example.com");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.ApiRuntime.CallbackBaseUrl).IsEqualTo("https://api.custom.example.com");
-        await Assert.That(config.ApiRuntime.JwtAuthority).IsEqualTo("https://issuer.custom.example.com");
-        await Assert.That(config.ApiRuntime.JwtAudience).IsEqualTo("custom-aud");
-        await Assert.That(config.ApiRuntime.CorsAllowedOrigins.Count).IsEqualTo(2);
-        await Assert.That(config.ApiRuntime.CorsAllowedOrigins).Contains("https://app.example.com");
-        await Assert.That(config.ApiRuntime.CorsAllowedOrigins).Contains("https://admin.example.com");
+        await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://api.custom.example.com");
+        await Assert.That(config.Api.OAuth.JwtAuthority).IsEqualTo("https://issuer.custom.example.com");
+        await Assert.That(config.Api.OAuth.JwtAudience).IsEqualTo("custom-aud");
+        await Assert.That(config.Api.CorsAllowedOrigins.Count).IsEqualTo(2);
+        await Assert.That(config.Api.CorsAllowedOrigins).Contains("https://app.example.com");
+        await Assert.That(config.Api.CorsAllowedOrigins).Contains("https://admin.example.com");
     }
 
     [Test]
     public async Task FormShowsDerivedCallbackBaseUrlInMenuRow()
     {
         // ApiRuntime Show callbacks paint the derived default when the stored field is empty.
-        // With WebHttps=false and shipped port defaults: callback is https://host:5001 (API
-        // always https in self-host), CORS is http://host:8080 (web tier).
         var console = NewConsole();
-        EditField(console, fieldIndex: 1, "api.example.com");
+        EditField(console, fieldIndex: 3, "api.example.com");
         ConfirmForm(console);
 
         PromptWithoutDetection(console);
 
         var output = console.Output;
-        await Assert.That(Regex.IsMatch(output, @"OAuth callback base URL\s+https://api\.example\.com:5001")).IsTrue();
-        await Assert.That(Regex.IsMatch(output, @"JWT authority \(iss claim\)\s+https://api\.example\.com:5001")).IsTrue();
-        await Assert.That(Regex.IsMatch(output, @"CORS allowed origins\s+http://api\.example\.com:8080")).IsTrue();
+        await Assert.That(Regex.IsMatch(output, @"OAuth callback base URL\s+https://api\.example\.com")).IsTrue();
+        await Assert.That(Regex.IsMatch(output, @"JWT authority \(iss claim\)\s+https://api\.example\.com")).IsTrue();
+        await Assert.That(Regex.IsMatch(output, @"CORS allowed origins\s+https://api\.example\.com")).IsTrue();
     }
 
     [Test]
@@ -522,15 +501,15 @@ public sealed class ConfigInteractivePromptTests
     {
         // Bare hostnames aren't absolute http(s) URIs — re-prompt; second answer sticks.
         var console = NewConsole();
-        EditField(console, fieldIndex: 20,
+        EditField(console, fieldIndex: 22,
             "not-a-url,still-not-a-url",
             "https://app.example.com,https://admin.example.com");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.ApiRuntime.CorsAllowedOrigins.Count).IsEqualTo(2);
-        await Assert.That(config.ApiRuntime.CorsAllowedOrigins).Contains("https://app.example.com");
+        await Assert.That(config.Api.CorsAllowedOrigins.Count).IsEqualTo(2);
+        await Assert.That(config.Api.CorsAllowedOrigins).Contains("https://app.example.com");
         await Assert.That(console.Output).Contains("not a valid http(s) origin");
     }
 
@@ -551,15 +530,13 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(output).Contains("Leaf cert validity");
         await Assert.That(output).Contains("Install root CA");
         await Assert.That(output).Contains("octocon-web");
-        // Ports
-        await Assert.That(output).Contains("API HTTP port");
-        await Assert.That(output).Contains("API HTTPS port");
-        await Assert.That(output).Contains("Web HTTP port");
-        await Assert.That(output).Contains("Web HTTPS port");
-        await Assert.That(output).Contains("Postgres host port");
-        await Assert.That(output).Contains("Scylla");
-        // Database
-        await Assert.That(output).Contains("Database mode");
+        await Assert.That(output).Contains("Edge TLS mode");
+        await Assert.That(output).Contains("Edge routing");
+        await Assert.That(output).Contains("Cloudflare IP allowlist");
+        await Assert.That(output).Contains("Edge HTTP port");
+        await Assert.That(output).Contains("Edge HTTPS port");
+        // Datastores
+        await Assert.That(output).Contains("CQL backend");
         await Assert.That(output).Contains("Postgres application DB name");
         await Assert.That(output).Contains("Cluster name");
         await Assert.That(output).Contains("Scylla keyspace (region)");
@@ -569,7 +546,6 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(output).Contains("JWT audience (aud claim)");
         await Assert.That(output).Contains("CORS allowed origins");
         await Assert.That(output).Contains("API image");
-        // Cluster & telemetry
         await Assert.That(output).Contains("Cluster node group");
         await Assert.That(output).Contains("OTLP endpoint");
         // Storage
@@ -599,17 +575,17 @@ public sealed class ConfigInteractivePromptTests
         PromptWithoutDetection(console);
 
         var output = console.Output;
-        await Assert.That(output).Contains("Deployment");
-        await Assert.That(output).Contains("Ports");
-        await Assert.That(output).Contains("Database");
+        await Assert.That(Regex.IsMatch(output, @"---\s+Deployment\s+---")).IsTrue();
+        await Assert.That(Regex.IsMatch(output, @"---\s+Edge\s+---")).IsTrue();
+        await Assert.That(Regex.IsMatch(output, @"---\s+Datastores\s+---")).IsTrue();
         // "---" framing distinguishes ambiguous tokens (e.g. "API" also appears in field labels).
         await Assert.That(Regex.IsMatch(output, @"---\s+API\s+---")).IsTrue();
-        await Assert.That(output).Contains("Cluster & telemetry");
         await Assert.That(Regex.IsMatch(output, @"---\s+Storage\s+---")).IsTrue();
         await Assert.That(output).Contains("Performance tuning");
         await Assert.That(output).Contains("OAuth credentials");
-        await Assert.That(output).Contains("Backup & autostart");
+        await Assert.That(Regex.IsMatch(output, @"---\s+Backup\s+---")).IsTrue();
         await Assert.That(Regex.IsMatch(output, @"---\s+Updates\s+---")).IsTrue();
+        await Assert.That(output).Contains("Firebase");
         await Assert.That(output).Contains("Configure interfold.bootstrap.json");
         await Assert.That(output).Contains("Confirm and save");
     }
@@ -630,16 +606,15 @@ public sealed class ConfigInteractivePromptTests
         // (previous section's last field label, header text, section's first field label)
         var boundaries = new (string PrevField, string Header, string FirstField)[]
         {
-            ("Terminate HTTPS at octocon-web",           "--- Ports ---",              "API HTTP port"),
-            ("Scylla/Cassandra host port",               "--- Database ---",           "Database mode"),
+            ("Autostart server on boot",                 "--- Edge ---",               "Public host(s)"),
+            ("Edge HTTPS port",                          "--- Datastores ---",         "CQL backend"),
             ("Scylla keyspace (region)",                 "--- API ---",                "OAuth callback base URL"),
-            ("Pre-built Interfold API image",            "--- Cluster & telemetry ---", "Cluster node group"),
             ("OTLP endpoint",                            "--- Storage ---",            "Avatar storage root"),
             ("Avatar public base URL",                   "--- Performance tuning ---", "Socket batch flush threshold"),
             ("Hydration max concurrency",                "--- OAuth credentials ---",  "Google OAuth client ID"),
-            ("Apple OAuth client secret",                "--- Backup & autostart ---", "Scheduled backups enabled"),
-            ("Autostart server on boot",                 "--- Updates ---",            "Chain updates after backup"),
-            ("Update service whitelist",                 "--- Firebase ---",           "Firebase push notifications"),
+            ("Apple OAuth client secret",                "--- Backup ---",             "Scheduled backups enabled"),
+            ("Backup directory (absolute, blank=default)", "--- Updates ---",          "Chain updates after backup"),
+            ("Update service whitelist (blank=all)",     "--- Firebase ---",           "Firebase push notifications"),
         };
         foreach (var (prevField, header, firstField) in boundaries)
         {
@@ -657,22 +632,20 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task EditingBackupTogglesAndSchedule()
     {
-        // Happy-path edit of every row in the five-row backup section (37..41).
+        // Happy-path edit of every row in the four-row backup section (39..42).
         var console = NewConsole();
-        EditField(console, fieldIndex: 37, "y");                           // Enabled := true
-        EditField(console, fieldIndex: 38, "Mon..Fri 03:30");              // Schedule
-        EditField(console, fieldIndex: 39, "30");                          // RetainCount
-        EditField(console, fieldIndex: 40, "/srv/backups/interfold");     // Directory
-        EditField(console, fieldIndex: 41, "y");                           // AutostartServer := true
+        EditField(console, fieldIndex: 39, "y");                           // Enabled := true
+        EditField(console, fieldIndex: 40, "Mon..Fri 03:30");              // Schedule
+        EditField(console, fieldIndex: 41, "30");                          // RetainCount
+        EditField(console, fieldIndex: 42, "/srv/backups/interfold");     // Directory
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Backup.Enabled).IsTrue();
-        await Assert.That(config.Backup.Schedule).IsEqualTo("Mon..Fri 03:30");
-        await Assert.That(config.Backup.RetainCount).IsEqualTo(30);
-        await Assert.That(config.Backup.Directory).IsEqualTo("/srv/backups/interfold");
-        await Assert.That(config.Backup.AutostartServer).IsTrue();
+        await Assert.That(config.Deployment.Backup.Enabled).IsTrue();
+        await Assert.That(config.Deployment.Backup.Schedule).IsEqualTo("Mon..Fri 03:30");
+        await Assert.That(config.Deployment.Backup.RetainCount).IsEqualTo(30);
+        await Assert.That(config.Deployment.Backup.Directory).IsEqualTo("/srv/backups/interfold");
     }
 
     [Test]
@@ -680,12 +653,12 @@ public sealed class ConfigInteractivePromptTests
     {
         // 0 is outside [1..1000]; PromptInt re-prompts and the second answer sticks.
         var console = NewConsole();
-        EditField(console, fieldIndex: 39, "0", "7");
+        EditField(console, fieldIndex: 41, "0", "7");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Backup.RetainCount).IsEqualTo(7);
+        await Assert.That(config.Deployment.Backup.RetainCount).IsEqualTo(7);
     }
 
     [Test]
@@ -698,9 +671,9 @@ public sealed class ConfigInteractivePromptTests
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Backup.Directory).IsEqualTo(string.Empty);
-        await Assert.That(config.Backup.Enabled).IsFalse();
-        await Assert.That(config.Backup.AutostartServer).IsFalse();
+        await Assert.That(config.Deployment.Backup.Directory).IsEqualTo(string.Empty);
+        await Assert.That(config.Deployment.Backup.Enabled).IsFalse();
+        await Assert.That(config.Deployment.AutostartServer).IsFalse();
     }
 
     [Test]
@@ -708,12 +681,12 @@ public sealed class ConfigInteractivePromptTests
     {
         // Happy-path edit; rejection covered by NodeGroupPromptEnforcesChoices below.
         var console = NewConsole();
-        EditField(console, fieldIndex: 22, "primary");
+        EditField(console, fieldIndex: 24, "primary");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Cluster.NodeGroup).IsEqualTo(NodeGroup.Primary);
+        await Assert.That(config.Api.NodeGroup).IsEqualTo(NodeGroup.Primary);
     }
 
     [Test]
@@ -721,12 +694,12 @@ public sealed class ConfigInteractivePromptTests
     {
         // AddChoices re-prompts on non-listed values (same shape as ScyllaKeyspace).
         var console = NewConsole();
-        EditField(console, fieldIndex: 22, "guardian", "sidecar");
+        EditField(console, fieldIndex: 24, "guardian", "sidecar");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Cluster.NodeGroup).IsEqualTo(NodeGroup.Sidecar);
+        await Assert.That(config.Api.NodeGroup).IsEqualTo(NodeGroup.Sidecar);
     }
 
     [Test]
@@ -734,64 +707,64 @@ public sealed class ConfigInteractivePromptTests
     {
         // Non-empty round-trip; blank-state pinned by ConfirmingFormImmediatelyUsesDefaults.
         var console = NewConsole();
-        EditField(console, fieldIndex: 23, "http://otel-collector:4317");
-        EditField(console, fieldIndex: 24, "/var/lib/interfold/avatars");
-        EditField(console, fieldIndex: 25, "https://cdn.example.com/avatars/");
+        EditField(console, fieldIndex: 25, "http://otel-collector:4317");
+        EditField(console, fieldIndex: 26, "/var/lib/interfold/avatars");
+        EditField(console, fieldIndex: 27, "https://cdn.example.com/avatars/");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
         await Assert.That(config.Observability.OtlpEndpoint).IsEqualTo("http://otel-collector:4317");
-        await Assert.That(config.Storage.AvatarStorageRoot).IsEqualTo("/var/lib/interfold/avatars");
-        await Assert.That(config.Storage.AvatarPublicBase).IsEqualTo("https://cdn.example.com/avatars/");
+        await Assert.That(config.Api.Storage.AvatarStorageRoot).IsEqualTo("/var/lib/interfold/avatars");
+        await Assert.That(config.Api.Storage.AvatarPublicBase).IsEqualTo("https://cdn.example.com/avatars/");
     }
 
     [Test]
     public async Task EditingTuningIntsCapturesValues()
     {
-        // Row 26 uses PromptNullableInt; the other four use PromptInt. All five round-trip.
+        // Row 28 uses PromptNullableInt; the other four use PromptInt. All five round-trip.
         var console = NewConsole();
-        EditField(console, fieldIndex: 26, "131072");
-        EditField(console, fieldIndex: 27, "5");
-        EditField(console, fieldIndex: 28, "250");
-        EditField(console, fieldIndex: 29, "3000");
-        EditField(console, fieldIndex: 30, "16");
+        EditField(console, fieldIndex: 28, "131072");
+        EditField(console, fieldIndex: 29, "5");
+        EditField(console, fieldIndex: 30, "250");
+        EditField(console, fieldIndex: 31, "3000");
+        EditField(console, fieldIndex: 32, "16");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Socket.BatchBytesThreshold).IsEqualTo(131072);
-        await Assert.That(config.Persistence.DbRetryAttempts).IsEqualTo(5);
-        await Assert.That(config.Persistence.DbRetryInitialDelayMs).IsEqualTo(250);
-        await Assert.That(config.Persistence.DbRetryMaxDelayMs).IsEqualTo(3000);
-        await Assert.That(config.Persistence.HydrationMaxConcurrency).IsEqualTo(16);
+        await Assert.That(config.Api.BatchBytesThreshold).IsEqualTo(131072);
+        await Assert.That(config.Api.Resilience.DbRetryAttempts).IsEqualTo(5);
+        await Assert.That(config.Api.Resilience.DbRetryInitialDelayMs).IsEqualTo(250);
+        await Assert.That(config.Api.Resilience.DbRetryMaxDelayMs).IsEqualTo(3000);
+        await Assert.That(config.Api.Resilience.HydrationMaxConcurrency).IsEqualTo(16);
     }
 
     [Test]
     public async Task BatchBytesThresholdAcceptsBlankAsNull()
     {
-        // Blank on row 26 must clear to null (PromptNullableInt contract), not fall back to the existing value.
+        // Blank on row 28 must clear to null (PromptNullableInt contract), not fall back to the existing value.
         var console = NewConsole();
-        EditField(console, fieldIndex: 26, string.Empty);
+        EditField(console, fieldIndex: 28, string.Empty);
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Socket.BatchBytesThreshold).IsNull();
+        await Assert.That(config.Api.BatchBytesThreshold).IsNull();
     }
 
     [Test]
     public async Task DbRetryAttemptsRePromptsOnOutOfRangeInt()
     {
-        // 9999 breaches the [1..100] bound on row 27; second answer sticks. Pins that the
+        // 9999 breaches the [1..100] bound on row 29; second answer sticks. Pins that the
         // tuning fields share PromptInt's validator with the port rows.
         var console = NewConsole();
-        EditField(console, fieldIndex: 27, "9999", "5");
+        EditField(console, fieldIndex: 29, "9999", "5");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Persistence.DbRetryAttempts).IsEqualTo(5);
+        await Assert.That(config.Api.Resilience.DbRetryAttempts).IsEqualTo(5);
         await Assert.That(console.Output).Contains("must be an integer in");
     }
 
@@ -800,7 +773,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Post-edit re-render must echo the freshly-typed value on the row.
         var console = NewConsole();
-        EditField(console, fieldIndex: 7, "5005");
+        EditField(console, fieldIndex: 14, "5005");
         ConfirmForm(console);
 
         PromptWithoutDetection(console);
@@ -817,7 +790,7 @@ public sealed class ConfigInteractivePromptTests
         // TextPrompt echo; the guard is that it never appears NEXT TO the label.
         const string secret = "google-secret-xyz";
         var console = NewConsole();
-        EditField(console, fieldIndex: 32, secret);
+        EditField(console, fieldIndex: 34, secret);
         ConfirmForm(console);
 
         PromptWithoutDetection(console);
@@ -838,24 +811,24 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task EditingUpdateSectionCapturesValues()
     {
-        // Happy-path edit of every row in the five-row update section (42..46).
+        // Happy-path edit of every row in the five-row update section (43..47).
         var console = NewConsole();
-        EditField(console, fieldIndex: 42, "y");                                    // Enabled := true
-        EditField(console, fieldIndex: 43, "300");                                  // HealthCheckTimeoutSeconds
-        EditField(console, fieldIndex: 44, "y");                                    // AutoRestoreOnFailure := true
-        EditField(console, fieldIndex: 45, "n");                                    // RecreateOnUpdate := false
-        EditField(console, fieldIndex: 46, "interfold-api,octocon-web");            // Services
+        EditField(console, fieldIndex: 43, "y");                                    // Enabled := true
+        EditField(console, fieldIndex: 44, "300");                                  // HealthCheckTimeoutSeconds
+        EditField(console, fieldIndex: 45, "y");                                    // AutoRestoreOnFailure := true
+        EditField(console, fieldIndex: 46, "n");                                    // RecreateOnUpdate := false
+        EditField(console, fieldIndex: 47, "interfold-api,octocon-web");            // Services
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Update.Enabled).IsTrue();
-        await Assert.That(config.Update.HealthCheckTimeoutSeconds).IsEqualTo(300);
-        await Assert.That(config.Update.AutoRestoreOnFailure).IsTrue();
-        await Assert.That(config.Update.RecreateOnUpdate).IsFalse();
-        await Assert.That(config.Update.Services.Length).IsEqualTo(2);
-        await Assert.That(config.Update.Services).Contains("interfold-api");
-        await Assert.That(config.Update.Services).Contains("octocon-web");
+        await Assert.That(config.Deployment.Update.Enabled).IsTrue();
+        await Assert.That(config.Deployment.Update.HealthCheckTimeoutSeconds).IsEqualTo(300);
+        await Assert.That(config.Deployment.Update.AutoRestoreOnFailure).IsTrue();
+        await Assert.That(config.Deployment.Update.RecreateOnUpdate).IsFalse();
+        await Assert.That(config.Deployment.Update.Services.Length).IsEqualTo(2);
+        await Assert.That(config.Deployment.Update.Services).Contains("interfold-api");
+        await Assert.That(config.Deployment.Update.Services).Contains("octocon-web");
     }
 
     [Test]
@@ -863,12 +836,12 @@ public sealed class ConfigInteractivePromptTests
     {
         // 9999 breaches the [1..3600] bound; second answer sticks.
         var console = NewConsole();
-        EditField(console, fieldIndex: 43, "9999", "60");
+        EditField(console, fieldIndex: 44, "9999", "60");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Update.HealthCheckTimeoutSeconds).IsEqualTo(60);
+        await Assert.That(config.Deployment.Update.HealthCheckTimeoutSeconds).IsEqualTo(60);
         await Assert.That(console.Output).Contains("must be an integer in");
     }
 
@@ -877,16 +850,16 @@ public sealed class ConfigInteractivePromptTests
     {
         // Unknown entry re-prompts against ValidUpdateServices; second answer sticks.
         var console = NewConsole();
-        EditField(console, fieldIndex: 46,
+        EditField(console, fieldIndex: 47,
             "msg-db,not-a-real-service",
             "msg-db,scylla");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Update.Services.Length).IsEqualTo(2);
-        await Assert.That(config.Update.Services).Contains("msg-db");
-        await Assert.That(config.Update.Services).Contains("scylla");
+        await Assert.That(config.Deployment.Update.Services.Length).IsEqualTo(2);
+        await Assert.That(config.Deployment.Update.Services).Contains("msg-db");
+        await Assert.That(config.Deployment.Update.Services).Contains("scylla");
         await Assert.That(console.Output).Contains("not a known compose service");
     }
 
@@ -895,12 +868,12 @@ public sealed class ConfigInteractivePromptTests
     {
         // Blank = "every service" (stored as empty array) — the un-scope path in the UI.
         var console = NewConsole();
-        EditField(console, fieldIndex: 46, string.Empty);
+        EditField(console, fieldIndex: 47, string.Empty);
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Update.Services.Length).IsEqualTo(0);
+        await Assert.That(config.Deployment.Update.Services.Length).IsEqualTo(0);
     }
 
     [Test]
@@ -912,11 +885,11 @@ public sealed class ConfigInteractivePromptTests
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Update.Enabled).IsFalse();
-        await Assert.That(config.Update.HealthCheckTimeoutSeconds).IsEqualTo(180);
-        await Assert.That(config.Update.AutoRestoreOnFailure).IsFalse();
-        await Assert.That(config.Update.RecreateOnUpdate).IsTrue();
-        await Assert.That(config.Update.Services.Length).IsEqualTo(0);
+        await Assert.That(config.Deployment.Update.Enabled).IsFalse();
+        await Assert.That(config.Deployment.Update.HealthCheckTimeoutSeconds).IsEqualTo(180);
+        await Assert.That(config.Deployment.Update.AutoRestoreOnFailure).IsFalse();
+        await Assert.That(config.Deployment.Update.RecreateOnUpdate).IsTrue();
+        await Assert.That(config.Deployment.Update.Services.Length).IsEqualTo(0);
     }
 
     [Test]
@@ -924,12 +897,12 @@ public sealed class ConfigInteractivePromptTests
     {
         var existing = TestSupport.MakeConfig(tweak: c =>
         {
-            c.Deployment.Hosts = ["custom.example.com", "10.0.0.5"];
-            c.Deployment.RootCaName = "Custom Root CA";
-            c.Deployment.CertYears = 10;
-            c.Ports.ApiHttps = 5443;
-            c.Firebase.AndroidConfigPath = "/opt/firebase/google-services.json";
-            c.Firebase.WebConfigPath = "/opt/firebase/firebase-web-config.json";
+            c.Edge.Hosts = ["custom.example.com", "10.0.0.5"];
+            c.Edge.Certificates.RootCaName = "Custom Root CA";
+            c.Edge.Certificates.CertYears = 10;
+            c.Edge.Ports.Https = 5443;
+            c.Api.Firebase.AndroidConfigPath = "/opt/firebase/google-services.json";
+            c.Api.Firebase.WebConfigPath = "/opt/firebase/firebase-web-config.json";
         });
 
         var console = NewConsole();
@@ -942,13 +915,13 @@ public sealed class ConfigInteractivePromptTests
             hostnameProbe: () => null,
             existing: existing);
 
-        await Assert.That(config.Deployment.Hosts).IsEquivalentTo(["custom.example.com", "10.0.0.5"])
+        await Assert.That(config.Edge.Hosts).IsEquivalentTo(["custom.example.com", "10.0.0.5"])
             .Because("--reconfigure must open the form pre-filled; confirm-without-edits must keep Hosts.");
-        await Assert.That(config.Deployment.RootCaName).IsEqualTo("Custom Root CA");
-        await Assert.That(config.Deployment.CertYears).IsEqualTo(10);
-        await Assert.That(config.Ports.ApiHttps).IsEqualTo(5443);
-        await Assert.That(config.Firebase.AndroidConfigPath).IsEqualTo("/opt/firebase/google-services.json");
-        await Assert.That(config.Firebase.WebConfigPath).IsEqualTo("/opt/firebase/firebase-web-config.json");
+        await Assert.That(config.Edge.Certificates.RootCaName).IsEqualTo("Custom Root CA");
+        await Assert.That(config.Edge.Certificates.CertYears).IsEqualTo(10);
+        await Assert.That(config.Edge.Ports.Https).IsEqualTo(5443);
+        await Assert.That(config.Api.Firebase.AndroidConfigPath).IsEqualTo("/opt/firebase/google-services.json");
+        await Assert.That(config.Api.Firebase.WebConfigPath).IsEqualTo("/opt/firebase/firebase-web-config.json");
     }
 
     [Test]
@@ -958,13 +931,13 @@ public sealed class ConfigInteractivePromptTests
         // per-char + Enter sequence matches what ReadKey consumes.
         const string secret = "google-secret-xyz";
         var console = NewConsole();
-        EditField(console, fieldIndex: 32, secret);
+        EditField(console, fieldIndex: 34, secret);
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console, maskSecrets: true);
 
         // Value still lands on the config; masking is display-only.
-        await Assert.That(config.OAuth.GoogleClientSecret).IsEqualTo(secret);
+        await Assert.That(config.Api.OAuth.GoogleClientSecret).IsEqualTo(secret);
         await Assert.That(console.Output).DoesNotContain(secret);
     }
 
@@ -1003,7 +976,7 @@ public sealed class ConfigInteractivePromptTests
         File.WriteAllText(sa, FirebaseServiceAccountFixture);
 
         var console = NewConsole();
-        Navigate(console, downArrows: 47);
+        Navigate(console, downArrows: 48);
         // Auto-detect is the first choice — Enter without a DownArrow.
         console.Input.PushKey(ConsoleKey.Enter);
         console.Input.PushTextWithEnter(folder);
@@ -1011,10 +984,10 @@ public sealed class ConfigInteractivePromptTests
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Firebase.AndroidConfigPath).IsEqualTo(Path.GetFullPath(android));
-        await Assert.That(config.Firebase.IosConfigPath).IsEqualTo(Path.GetFullPath(ios));
-        await Assert.That(config.Firebase.WebConfigPath).IsEqualTo(Path.GetFullPath(web));
-        await Assert.That(config.Firebase.ServiceAccountPath).IsEqualTo(Path.GetFullPath(sa));
+        await Assert.That(config.Api.Firebase.AndroidConfigPath).IsEqualTo(Path.GetFullPath(android));
+        await Assert.That(config.Api.Firebase.IosConfigPath).IsEqualTo(Path.GetFullPath(ios));
+        await Assert.That(config.Api.Firebase.WebConfigPath).IsEqualTo(Path.GetFullPath(web));
+        await Assert.That(config.Api.Firebase.ServiceAccountPath).IsEqualTo(Path.GetFullPath(sa));
     }
 
     [Test]
@@ -1033,7 +1006,7 @@ public sealed class ConfigInteractivePromptTests
         File.WriteAllText(sa, FirebaseServiceAccountFixture);
 
         var console = NewConsole();
-        Navigate(console, downArrows: 47);
+        Navigate(console, downArrows: 48);
         // Per-file is the 2nd choice — one DownArrow before Enter.
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.Enter);
@@ -1045,10 +1018,10 @@ public sealed class ConfigInteractivePromptTests
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Firebase.AndroidConfigPath).IsEqualTo(android);
-        await Assert.That(config.Firebase.IosConfigPath).IsEqualTo(ios);
-        await Assert.That(config.Firebase.WebConfigPath).IsEqualTo(web);
-        await Assert.That(config.Firebase.ServiceAccountPath).IsEqualTo(sa);
+        await Assert.That(config.Api.Firebase.AndroidConfigPath).IsEqualTo(android);
+        await Assert.That(config.Api.Firebase.IosConfigPath).IsEqualTo(ios);
+        await Assert.That(config.Api.Firebase.WebConfigPath).IsEqualTo(web);
+        await Assert.That(config.Api.Firebase.ServiceAccountPath).IsEqualTo(sa);
     }
 
     [Test]
@@ -1056,7 +1029,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Cancel is the 4th choice — three DownArrows. Every *Path must stay empty.
         var console = NewConsole();
-        Navigate(console, downArrows: 47);
+        Navigate(console, downArrows: 48);
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.DownArrow);
@@ -1065,9 +1038,9 @@ public sealed class ConfigInteractivePromptTests
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Firebase.AndroidConfigPath).IsEmpty();
-        await Assert.That(config.Firebase.IosConfigPath).IsEmpty();
-        await Assert.That(config.Firebase.WebConfigPath).IsEmpty();
-        await Assert.That(config.Firebase.ServiceAccountPath).IsEmpty();
+        await Assert.That(config.Api.Firebase.AndroidConfigPath).IsEmpty();
+        await Assert.That(config.Api.Firebase.IosConfigPath).IsEmpty();
+        await Assert.That(config.Api.Firebase.WebConfigPath).IsEmpty();
+        await Assert.That(config.Api.Firebase.ServiceAccountPath).IsEmpty();
     }
 }

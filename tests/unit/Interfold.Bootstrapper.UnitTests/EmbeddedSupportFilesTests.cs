@@ -38,8 +38,8 @@ public sealed class EmbeddedSupportFilesTests
     public async Task OpensEveryEmbeddedSupportResource()
     {
         var resources = EnumerateSupportResources();
-        await Assert.That(resources.Count).IsGreaterThanOrEqualTo(10)
-            .Because("at least the 10 originally-embedded support files should still ship");
+        await Assert.That(resources.Count).IsGreaterThanOrEqualTo(9)
+            .Because("at least the embedded support files should still ship");
 
         foreach (var name in resources)
         {
@@ -88,7 +88,7 @@ public sealed class EmbeddedSupportFilesTests
     {
         using var scratch = TestSupport.NewScratchDir("interfold-embed");
         var path = EmbeddedSupportFiles.MaterializeUnderSupportRoot(
-            scratch.Path, EmbeddedSupportFiles.NginxTemplateRelative);
+            scratch.Path, EmbeddedSupportFiles.EdgeProxyParamsRelative);
 
         await Assert.That(path.StartsWith(EmbeddedSupportFiles.SupportRoot(scratch.Path))).IsTrue();
         await Assert.That(File.Exists(path)).IsTrue();
@@ -116,8 +116,9 @@ public sealed class EmbeddedSupportFilesTests
     public async Task StagePublishSupportFilesMaterializesRackdcUnderOutputSupport()
     {
         using var scratch = TestSupport.NewScratchDir("interfold-publish-support");
-        var config = new BootstrapConfig { DatabaseMode = DatabaseMode.Single };
-        config.Deployment.Hosts = ["api.example.com"];
+        var config = new BootstrapConfig();
+        config.Datastores.Cql.Backend = CqlBackend.ScyllaSingle;
+        config.Edge.Hosts = ["api.example.com"];
         ConfigPhase.ResolveDerivedDefaults(config);
         PublishPhase.StagePublishSupportFiles(config, scratch.Path, new PhaseLogger(OptionsFor()));
 

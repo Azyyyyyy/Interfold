@@ -1,4 +1,5 @@
 using Interfold.Bootstrapper.Cli;
+using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
 using Interfold.Shared.Contracts.Configuration;
 using static Interfold.Bootstrapper.Phases.CassandraImagePhase;
@@ -7,8 +8,9 @@ namespace Interfold.Bootstrapper.Phases;
 
 /// <summary>
 /// Phase 6 — runs <c>docker compose up -d</c> against the emitted compose file and waits for the
-/// API's <c>/health/ready</c> endpoint to return 200. Failure here is the most common operator-visible
-/// failure mode, so the implementation logs verbosely and surfaces compose logs on timeout.
+/// API's <c>/health/ready</c> endpoint to return 200 through edge-nginx. Failure here is the most
+/// common operator-visible failure mode, so the implementation logs verbosely and surfaces compose
+/// logs on timeout.
 /// </summary>
 internal static class LaunchPhase
 {
@@ -21,10 +23,10 @@ internal static class LaunchPhase
 
         var composeFile = PhaseArtifactLoader.RequireComposeFileOrFail(options, logger, Phase);
 
-        var config = await PhaseArtifactLoader.TryLoadConfigAsync(options, ct).ConfigureAwait(false);
-        var apiHttpPort = config?.Ports.ApiHttp ?? 5000;
+        var config = await PhaseArtifactLoader.TryLoadConfigAsync(options, logger, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Launch requires a loaded bootstrap config.");
 
-        if (config is not null && IsCassandraDeployment(config))
+        if (IsCassandraDeployment(config))
         {
             await EnsureBuiltAsync(logger, ct).ConfigureAwait(false);
         }
@@ -33,7 +35,7 @@ internal static class LaunchPhase
 
         try
         {
-            await WaitForApiHealthyAsync(apiHttpPort, logger, ct).ConfigureAwait(false);
+            await WaitForApiHealthyAsync(config, logger, ct).ConfigureAwait(false);
             logger.PhaseDone(Phase);
         }
         catch (TimeoutException)
@@ -44,16 +46,17 @@ internal static class LaunchPhase
         }
     }
 
-    private static async Task WaitForApiHealthyAsync(int apiHttpPort, PhaseLogger logger, CancellationToken ct)
+    private static async Task WaitForApiHealthyAsync(BootstrapConfig config, PhaseLogger logger, CancellationToken ct)
     {
-        logger.Info($"    polling http://localhost:{apiHttpPort}{HealthEndpoints.Ready} (up to {HealthTimeout.TotalMinutes:F0}m)");
+        var readyUrl = ApiReadinessProbe.ResolveReadyUrl(config);
+        logger.Info($"    polling {readyUrl} (up to {HealthTimeout.TotalMinutes:F0}m)");
 
         var deadline = DateTime.UtcNow + HealthTimeout;
-        var err = await ApiReadinessProbe.TryWaitUntilAsync(apiHttpPort, deadline, logger, ct).ConfigureAwait(false);
+        var err = await ApiReadinessProbe.TryWaitUntilAsync(config, deadline, logger, ct).ConfigureAwait(false);
         if (err is not null)
         {
             throw new TimeoutException(
-                $"interfold-api did not become healthy at http://localhost:{apiHttpPort}{HealthEndpoints.Ready} within {HealthTimeout.TotalMinutes:F0} minutes.");
+                $"interfold-api did not become healthy at {readyUrl} within {HealthTimeout.TotalMinutes:F0} minutes.");
         }
     }
 
@@ -63,4 +66,3 @@ internal static class LaunchPhase
         await ComposeLogDumper.DumpAsync(composeFile, services: null, tailLines: 200, logger, ct).ConfigureAwait(false);
     }
 }
-

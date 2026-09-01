@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
+using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
 using Interfold.Shared.Contracts.Enums;
 
@@ -20,9 +21,8 @@ internal static partial class PrerequisitesPhase
 
     /// <summary>Raw-string overload for the pre-validation peek in
     /// <see cref="PeekScyllaNodeCountAsync"/>.</summary>
-    internal static int ResolveScyllaNodeCount(string? databaseMode)
-        => ResolveScyllaNodeCount(
-            databaseMode.TryParseWire<DatabaseMode>(out var mode) ? mode : DatabaseMode.Single);
+    internal static int ResolveScyllaNodeCount(string? cqlBackendWire)
+        => ResolveScyllaNodeCount(CqlBackendMapping.ToDatabaseMode(CqlBackendMapping.ParseWire(cqlBackendWire)));
 
     internal static int ResolveScyllaNodeCount(DatabaseMode databaseMode) => databaseMode switch
     {
@@ -72,16 +72,18 @@ internal static partial class PrerequisitesPhase
         {
             await using var stream = File.OpenRead(options.ConfigPath);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
-            if (doc.RootElement.TryGetProperty("databaseMode", out var modeElement) &&
-                modeElement.ValueKind == JsonValueKind.String)
+            if (doc.RootElement.TryGetProperty("datastores", out var datastores)
+                && datastores.TryGetProperty("cql", out var cql)
+                && cql.TryGetProperty("backend", out var backendElement)
+                && backendElement.ValueKind == JsonValueKind.String)
             {
-                return ResolveScyllaNodeCount(modeElement.GetString());
+                return ResolveScyllaNodeCount(backendElement.GetString());
             }
         }
         catch (Exception ex)
         {
             // ConfigPhase will surface a useful error against the same file next.
-            logger.Warn($"could not pre-read databaseMode from {options.ConfigPath} for AIO sizing ({ex.GetType().Name}); defaulting to single-node baseline.");
+            logger.Warn($"could not pre-read datastores.cql.backend from {options.ConfigPath} for AIO sizing ({ex.GetType().Name}); defaulting to single-node baseline.");
         }
 
         return ResolveScyllaNodeCount(null);

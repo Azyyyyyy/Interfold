@@ -41,7 +41,7 @@ dev `aspire run` flow, with a Docker Compose publisher and a host-side prep wrap
        "certYears": 5,
        "trustStoreInstall": true
      },
-     "ports": { "apiHttp": 5000, "apiHttps": 5001, "webHttp": 8080, "webHttps": 8081 },
+     "ports": { "edgeHttp": 80, "edgeHttps": 443 },
      "databaseMode": "single",
      "apiImage": "ghcr.io/azyyyyyy/interfold-api:latest",
      "oauth": {
@@ -169,10 +169,10 @@ than editing `.env` by hand.
 - `OCTOCON_POSTGRES_CONNECTION`
 - `OCTOCON_PERSISTENCE`, `OCTOCON_SINGLE_SCYLLA_INSTANCE`
 - `OCTOCON_SCYLLA_KEYSPACE` — per-instance region identity (one of `nam`/`eur`/`sam`/`sas`/`eas`/`ocn`/`gdpr`). Sourced from `BootstrapConfig.scyllaKeyspace`; defaults to `nam`. The interactive form constrains the row to the seven valid values.
-- `OCTOCON_AUTH_CALLBACK_BASE_URL` — base URL the API's OAuth callbacks redirect to. Sourced from `BootstrapConfig.apiRuntime.callbackBaseUrl`; defaults derive to `{scheme}://{domains[0]}` when blank (scheme follows `deployment.webHttps`).
-- `OCTOCON_JWT_AUTHORITY` / `OCTOCON_JWT_AUDIENCE` — JWT `iss` / `aud` claims. Sourced from `BootstrapConfig.apiRuntime.jwtAuthority` / `apiRuntime.jwtAudience`; authority derives the same way as the callback URL; audience defaults to `octocon`.
-- `OCTOCON_CORS_ALLOWED_ORIGINS` — comma-separated CORS allow-list. Sourced from `BootstrapConfig.apiRuntime.corsAllowedOrigins`; defaults to one entry per `deployment.domains` so a fresh bootstrap never ships with the API's "allow any origin" fallback.
-- `OCTOCON_NODE_GROUP` — cluster node role (`primary` / `auxiliary` / `sidecar`). Sourced from `BootstrapConfig.cluster.nodeGroup`; defaults to `auxiliary`. Fly.io stacks override via `FLY_PROCESS_GROUP` at runtime.
+- `OCTOCON_AUTH_CALLBACK_BASE_URL` — base URL the API's OAuth callbacks redirect to. Sourced from `BootstrapConfig.api.oauth.callbackBaseUrl`; defaults derive from `edge.tlsMode` and `edge.ports.http` / `edge.ports.https` (subdomain routing may use `edge.routing.apiHost`).
+- `OCTOCON_JWT_AUTHORITY` / `OCTOCON_JWT_AUDIENCE` — JWT `iss` / `aud` claims. Sourced from `BootstrapConfig.api.oauth.jwtAuthority` / `api.oauth.jwtAudience`; authority derives the same way as the callback URL; audience defaults to `octocon`.
+- `OCTOCON_CORS_ALLOWED_ORIGINS` — comma-separated CORS allow-list. Sourced from `BootstrapConfig.api.corsAllowedOrigins`; defaults to one entry per `edge.hosts` so a fresh bootstrap never ships with the API's "allow any origin" fallback.
+- `OCTOCON_NODE_GROUP` — cluster node role (`primary` / `auxiliary` / `sidecar`). Sourced from `BootstrapConfig.api.nodeGroup`; defaults to `auxiliary`. Fly.io stacks override via `FLY_PROCESS_GROUP` at runtime.
 - `OCTOCON_AVATAR_STORAGE_ROOT` / `OCTOCON_AVATAR_PUBLIC_BASE` — local avatar storage. Self-host compose always sets the container root to `/app/data/avatars` and bind-mounts `BootstrapConfig.storage.avatarStorageRoot` (blank → `{outputDir}/data/avatars`). `avatarPublicBase` blank means the API serves `/avatars/*` itself; set an https URL to stamp CDN links.
 - `OCTOCON_OTLP_ENDPOINT` — gRPC OTLP endpoint for traces/metrics, e.g. `http://localhost:4317`. Sourced from `BootstrapConfig.observability.otlpEndpoint`; empty disables the exporter.
 - `OCTOCON_SOCKET_BATCH_BYTES_THRESHOLD` — WebSocket batched-payload flush threshold (bytes). Sourced from `BootstrapConfig.socket.batchBytesThreshold`; nullable — `null` means the API uses its compile-time default.

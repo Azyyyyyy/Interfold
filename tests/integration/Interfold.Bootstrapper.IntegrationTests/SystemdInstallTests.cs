@@ -192,8 +192,8 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
     }
 
     /// <summary>
-    /// Rewrites the in-DinD config file to set (or unset) <c>update.enabled</c>. Reads the
-    /// existing config, merges an <c>update</c> block via <c>jq</c> (baked into
+    /// Rewrites the in-DinD config file to set (or unset) <c>deployment.update.enabled</c>. Reads the
+    /// existing config, merges a <c>deployment.update</c> block via <c>jq</c> (baked into
     /// <c>Dockerfile.ubuntu-dind</c> alongside <c>systemd</c>), and writes it back atomically
     /// so a follow-up install-service run sees the flipped flag.
     /// </summary>
@@ -208,11 +208,11 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
     private async Task OverlayUpdateConfigAsync(string configPath, bool updateEnabled)
     {
         var enabledLiteral = updateEnabled ? "true" : "false";
-        // Merge (+ operator) so any pre-existing update block wins on collision except for
+        // Merge (+ operator) so any pre-existing deployment.update block wins on collision except for
         // enabled, which the outer setter forces. Writes to a sibling tempfile then moves
         // into place so partial writes don't leave the config half-parsed.
         var script =
-            $"jq '. + {{ update: ((.update // {{}}) + {{ enabled: {enabledLiteral} }}) }}' {configPath} " +
+            $"jq '.deployment.update = ((.deployment.update // {{}}) + {{ enabled: {enabledLiteral} }})' {configPath} " +
             $"> {configPath}.tmp && mv {configPath}.tmp {configPath}";
         var overlay = await dinD.ExecAsync(["sh", "-c", script]);
         await Assert.That(overlay.ExitCode).IsEqualTo(0L)

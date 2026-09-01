@@ -77,8 +77,8 @@ public class MdnsGateTests(UbuntuDinDFixture dinD)
         var persistedBytes = await dinD.CopyOutAsync(scratch.ConfigPath);
         var persistedJson = JsonNode.Parse(persistedBytes)
             ?? throw new InvalidOperationException("persisted bootstrap config parsed to null");
-        var hosts = persistedJson["deployment"]?["hosts"]?.AsArray()
-            ?? throw new InvalidOperationException("deployment.hosts missing from persisted config");
+        var hosts = persistedJson["edge"]?["hosts"]?.AsArray()
+            ?? throw new InvalidOperationException("edge.hosts missing from persisted config");
         var hostList = hosts.Select(h => h!.GetValue<string>()).ToList();
 
         await Assert.That(hostList).DoesNotContain("definitely-not-resolvable.local")

@@ -41,7 +41,7 @@ internal static class DockerExecCqlProbe
         return await RunExecProbeAsync(containerName, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<(string? ContainerName, string? Error)> ResolveContainerNameAsync(string resourceName, CancellationToken cancellationToken)
+    internal static async Task<(string? ContainerName, string? Error)> ResolveContainerNameAsync(string resourceName, CancellationToken cancellationToken)
     {
         // DCP stamps `aspire-resource-name=<logical>` on every container (stable across
         // Aspire 9.x / 13.x). Prefix match is the fallback for orchestrator builds that don't.
@@ -128,7 +128,7 @@ internal static class DockerExecCqlProbe
         return await RunDockerProcessAsync(psi, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<(int Exit, string Stdout, string Stderr)> RunDockerProcessAsync(
+    internal static async Task<(int Exit, string Stdout, string Stderr)> RunDockerProcessAsync(
         ProcessStartInfo psi, CancellationToken cancellationToken)
     {
         using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
