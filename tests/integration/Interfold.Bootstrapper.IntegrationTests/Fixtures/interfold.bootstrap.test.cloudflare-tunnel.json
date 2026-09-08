@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "deployment": {
+    "outputDir": "/opt/deploy",
+    "includeWeb": false
+  },
+  "edge": {
+    "hosts": ["api.example.com"],
+    "tlsMode": "none",
+    "routing": { "mode": "path" },
+    "cloudflare": {
+      "enabled": true,
+      "apiToken": "test-cf-api-token",
+      "tunnelName": "interfold-test"
+    },
+    "certificates": {
+      "rootCaName": "Interfold Test Root CA",
+      "certYears": 2,
+      "trustStoreInstall": false
+    }
+  },
+  "datastores": {
+    "cql": { "backend": "scylla-single" }
+  },
+  "api": {
+    "image": "interfold-api:test",
+    "oauth": {
+      "googleClientSecret": "",
+      "discordClientSecret": ""
+    }
+  }
+}

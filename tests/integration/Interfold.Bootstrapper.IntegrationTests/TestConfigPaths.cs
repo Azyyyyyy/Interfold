@@ -9,4 +9,5 @@ public static class TestConfigPaths
     public static string MdnsGateConfig => Path.Combine(AppContext.BaseDirectory, "Fixtures", "interfold.bootstrap.test.mdns-gate.json");
     public static string EdgeConfig => Path.Combine(AppContext.BaseDirectory, "Fixtures", "interfold.bootstrap.test.edge.json");
     public static string EdgeHttpConfig => Path.Combine(AppContext.BaseDirectory, "Fixtures", "interfold.bootstrap.test.edge-http.json");
+    public static string CloudflareTunnelConfig => Path.Combine(AppContext.BaseDirectory, "Fixtures", "interfold.bootstrap.test.cloudflare-tunnel.json");
 }

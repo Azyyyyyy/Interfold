@@ -32,14 +32,13 @@ internal static partial class CertificatePhase
         const string Phase = "certs";
         logger.PhaseStart(Phase);
 
-        // Edge + Let's Encrypt / plaintext: skip the private CA leaf.
-        if ((config.Edge.TlsMode == EdgeTlsMode.LetsEncrypt
-             || config.Edge.TlsMode == EdgeTlsMode.None)
+        // Cloudflare Tunnel / plaintext: skip the private CA leaf (origin TLS is unused).
+        if ((config.Edge.Cloudflare.Enabled || config.Edge.TlsMode == EdgeTlsMode.None)
             && !options.RotateCerts)
         {
-            logger.Info(config.Edge.TlsMode == EdgeTlsMode.None
-                ? "    skipping private CA (edge tlsMode=none)"
-                : "    skipping private CA (edge tlsMode=letsEncrypt); use certbot under certs/letsencrypt/");
+            logger.Info(config.Edge.Cloudflare.Enabled
+                ? "    skipping private CA (Cloudflare Tunnel enabled)"
+                : "    skipping private CA (edge tlsMode=none)");
             logger.PhaseDone(Phase);
             return;
         }

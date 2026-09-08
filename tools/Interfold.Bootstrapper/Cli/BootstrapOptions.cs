@@ -60,6 +60,7 @@ public sealed record BootstrapOptions(
     bool RestoreForce = false,
     bool Reconfigure = false,
     bool SkipSelfUpdate = false,
+    bool SkipCloudflareTunnel = false,
     BootstrapperReleaseChannel? SelfUpdateChannelOverride = null,
     bool SelfUpdateCheckOnly = false,
     bool SelfUpdateForce = false,

@@ -47,8 +47,8 @@ public static class ComposeServices
     /// <summary>Public edge reverse proxy for HTTP/HTTPS in front of API (+ web).</summary>
     public const string EdgeNginx = "edge-nginx";
 
-    /// <summary>Certbot companion for Let's Encrypt renewals when edge tlsMode is letsEncrypt.</summary>
-    public const string Certbot = "certbot";
+    /// <summary>Cloudflare Tunnel connector (<c>cloudflared</c>) when <c>edge.cloudflare.enabled</c>.</summary>
+    public const string Cloudflared = "cloudflared";
 
     /// <summary>Seven regional Scylla nodes in ScyllaKeyspace declaration order.</summary>
     public static readonly string[] ScyllaRegionalNodes =
@@ -68,7 +68,7 @@ public static class ComposeServices
         InterfoldApi,
         OctoconWeb,
         EdgeNginx,
-        Certbot,
+        Cloudflared,
     ];
 
     /// <summary>Single naming rule for Scylla node services: multi-node → <c>scylla-{region}</c>,

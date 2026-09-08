@@ -21,8 +21,6 @@ server {
     server_name ${NGINX_SERVER_NAME};
     resolver 127.0.0.11 valid=10s ipv6=off;
 
-    include /etc/nginx/cloudflare-ips.conf;
-
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
     }
@@ -92,8 +90,6 @@ server {
     http2 on;
     server_name ${NGINX_SERVER_NAME};
     resolver 127.0.0.11 valid=10s ipv6=off;
-
-    include /etc/nginx/cloudflare-ips.conf;
 
     ssl_certificate     ${NGINX_SSL_CERT_FILE};
     ssl_certificate_key ${NGINX_SSL_KEY_FILE};

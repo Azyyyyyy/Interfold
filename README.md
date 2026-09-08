@@ -213,7 +213,7 @@ than editing `.env` by hand.
 - `OCTOCON_POSTGRES_CONNECTION`
 - `OCTOCON_PERSISTENCE`, `OCTOCON_SINGLE_SCYLLA_INSTANCE`
 - `OCTOCON_SCYLLA_KEYSPACE` — per-instance region identity (one of `nam`/`eur`/`sam`/`sas`/`eas`/`ocn`/`gdpr`). Sourced from `BootstrapConfig.scyllaKeyspace`; defaults to `nam`. The interactive form constrains the row to the seven valid values.
-- `OCTOCON_AUTH_CALLBACK_BASE_URL` — base URL the API's OAuth callbacks redirect to. Sourced from `BootstrapConfig.api.oauth.callbackBaseUrl`; defaults derive from `edge.tlsMode` and `edge.ports.http` / `edge.ports.https` (subdomain routing may use `edge.routing.apiHost`).
+- `OCTOCON_AUTH_CALLBACK_BASE_URL` — base URL the API's OAuth callbacks redirect to. Sourced from `BootstrapConfig.api.oauth.callbackBaseUrl`; defaults derive from `edge.tlsMode` / `edge.ports` (or bare `https://{host}` when `edge.cloudflare.enabled`; subdomain routing may use `edge.routing.apiHost`).
 - `OCTOCON_JWT_AUTHORITY` / `OCTOCON_JWT_AUDIENCE` — JWT `iss` / `aud` claims. Sourced from `BootstrapConfig.api.oauth.jwtAuthority` / `api.oauth.jwtAudience`; authority derives the same way as the callback URL; audience defaults to `octocon`.
 - `OCTOCON_CORS_ALLOWED_ORIGINS` — comma-separated CORS allow-list. Sourced from `BootstrapConfig.api.corsAllowedOrigins`; defaults to one entry per `edge.hosts` so a fresh bootstrap never ships with the API's "allow any origin" fallback.
 - `OCTOCON_NODE_GROUP` — cluster node role (`primary` / `auxiliary` / `sidecar`). Sourced from `BootstrapConfig.api.nodeGroup`; defaults to `auxiliary`. Fly.io stacks override via `FLY_PROCESS_GROUP` at runtime.

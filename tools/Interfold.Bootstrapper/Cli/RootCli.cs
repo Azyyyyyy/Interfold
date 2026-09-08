@@ -58,6 +58,10 @@ public static class RootCli
         {
             Description = "Skip bootstrapper self-update at the start of `bootstrap` when config.deployment.update.bootstrapper.updateOnBootstrap is enabled."
         };
+        var skipCloudflareTunnelOpt = new Option<bool>("--skip-cloudflare-tunnel")
+        {
+            Description = "Skip Cloudflare Tunnel hostname/DNS registration after launch (air-gapped / tests)."
+        };
 
         // --- update-self-specific options ---
         var selfUpdateChannelOpt = new Option<string?>("--channel")
@@ -170,11 +174,13 @@ public static class RootCli
         AddSharedOptions(bootstrapCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         bootstrapCmd.Options.Add(reconfigureOpt);
         bootstrapCmd.Options.Add(skipSelfUpdateOpt);
+        bootstrapCmd.Options.Add(skipCloudflareTunnelOpt);
         bootstrapCmd.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Bootstrap, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
             rotateSecrets: false, rotateCerts: false, ct,
             reconfigureOpt: reconfigureOpt,
-            skipSelfUpdateOpt: skipSelfUpdateOpt));
+            skipSelfUpdateOpt: skipSelfUpdateOpt,
+            skipCloudflareTunnelOpt: skipCloudflareTunnelOpt));
         root.Subcommands.Add(bootstrapCmd);
 
         // ---------- publish (compose-only, no docker compose up) ----------
@@ -190,9 +196,11 @@ public static class RootCli
         var upCmd = new Command("up",
             "Launch an already-generated compose stack: docker compose up -d + health wait.");
         AddSharedOptions(upCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
+        upCmd.Options.Add(skipCloudflareTunnelOpt);
         upCmd.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Up, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
-            rotateSecrets: false, rotateCerts: false, ct));
+            rotateSecrets: false, rotateCerts: false, ct,
+            skipCloudflareTunnelOpt: skipCloudflareTunnelOpt));
         root.Subcommands.Add(upCmd);
 
         // ---------- rotate-secrets ----------
@@ -315,11 +323,13 @@ public static class RootCli
         AddSharedOptions(root, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         root.Options.Add(reconfigureOpt);
         root.Options.Add(skipSelfUpdateOpt);
+        root.Options.Add(skipCloudflareTunnelOpt);
         root.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Bootstrap, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
             rotateSecrets: false, rotateCerts: false, ct,
             reconfigureOpt: reconfigureOpt,
-            skipSelfUpdateOpt: skipSelfUpdateOpt));
+            skipSelfUpdateOpt: skipSelfUpdateOpt,
+            skipCloudflareTunnelOpt: skipCloudflareTunnelOpt));
 
         return root;
     }
@@ -370,6 +380,7 @@ public static class RootCli
         Option<bool>? restoreForceOpt = null,
         Option<bool>? reconfigureOpt = null,
         Option<bool>? skipSelfUpdateOpt = null,
+        Option<bool>? skipCloudflareTunnelOpt = null,
         Option<string?>? selfUpdateChannelOpt = null,
         Option<bool>? selfUpdateCheckOpt = null,
         Option<bool>? selfUpdateForceOpt = null,
@@ -412,6 +423,7 @@ public static class RootCli
             RestoreForce: restoreForceOpt is not null && parse.GetValue(restoreForceOpt),
             Reconfigure: reconfigureOpt is not null && parse.GetValue(reconfigureOpt),
             SkipSelfUpdate: skipSelfUpdateOpt is not null && parse.GetValue(skipSelfUpdateOpt),
+            SkipCloudflareTunnel: skipCloudflareTunnelOpt is not null && parse.GetValue(skipCloudflareTunnelOpt),
             SelfUpdateChannelOverride: channelOverride,
             SelfUpdateCheckOnly: selfUpdateCheckOpt is not null && parse.GetValue(selfUpdateCheckOpt),
             SelfUpdateForce: selfUpdateForceOpt is not null && parse.GetValue(selfUpdateForceOpt),

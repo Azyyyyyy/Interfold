@@ -32,9 +32,9 @@ public class EdgeNginxTests(UbuntuDinDFixture dinD)
         var edgeBindMounts = env
             .Where(kv => kv.Key.StartsWith("EDGE_NGINX_BINDMOUNT", StringComparison.OrdinalIgnoreCase))
             .ToList();
-        await Assert.That(edgeBindMounts.Count).IsGreaterThanOrEqualTo(4)
-            .Because("expected at least four edge-nginx bind mounts " +
-                     "(template, proxy_params, cloudflare-ips, certs) " +
+        await Assert.That(edgeBindMounts.Count).IsGreaterThanOrEqualTo(3)
+            .Because("expected at least three edge-nginx bind mounts " +
+                     "(template, proxy_params, certs) " +
                      $"in the .env; got keys: {string.Join(", ", env.Keys)}");
 
         foreach (var (key, value) in edgeBindMounts)
@@ -56,8 +56,8 @@ public class EdgeNginxTests(UbuntuDinDFixture dinD)
             .Because("edge-nginx must bind-mount the nginx envsubst template");
         await Assert.That(compose).Contains("/etc/nginx/proxy_params_interfold.conf")
             .Because("edge-nginx must bind-mount proxy_params");
-        await Assert.That(compose).Contains("/etc/nginx/cloudflare-ips.conf")
-            .Because("edge-nginx must bind-mount cloudflare-ips.conf");
+        await Assert.That(compose).DoesNotContain("/etc/nginx/cloudflare-ips.conf")
+            .Because("Cloudflare Tunnel replaced the orange-cloud IP allowlist mount");
         await Assert.That(compose).Contains("/certs")
             .Because("edge-nginx must bind-mount the certs directory at /certs");
         await Assert.That(compose).Contains("NGINX_SERVER_NAME")

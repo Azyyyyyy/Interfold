@@ -125,6 +125,13 @@ internal static class Orchestrator
         {
             await LaunchPhase.RunAsync(options, logger, ct).ConfigureAwait(false);
             if (HaltAfter(options, BootstrapPhase.Launch, logger)) return 0;
+
+            var launchConfig = config
+                ?? await PhaseArtifactLoader.TryLoadConfigAsync(options, logger, ct).ConfigureAwait(false);
+            if (launchConfig is not null)
+            {
+                await CloudflareTunnelPhase.RunAsync(options, launchConfig, logger, ct).ConfigureAwait(false);
+            }
         }
 
         return 0;
