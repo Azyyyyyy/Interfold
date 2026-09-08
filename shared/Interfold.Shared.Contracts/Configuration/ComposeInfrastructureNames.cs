@@ -10,7 +10,8 @@ public static class ComposeNetworks
 {
     public const string Scylla = "scylla";
     public const string Postgres = "postgres";
-    public const string Api = "api";
+    public const string EdgeApi = "edge-api";
+    public const string EdgeWeb = "edge-web";
 }
 
 /// <summary>

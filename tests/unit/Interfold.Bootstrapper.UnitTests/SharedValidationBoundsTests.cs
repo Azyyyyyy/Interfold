@@ -166,7 +166,7 @@ public sealed class SharedValidationBoundsTests
         var apiOpts = MakePersistenceValid();
         apiOpts.DbRetryAttempts = overMax;
         return AssertParityRejectionAsync(
-            bootstrapMutate: c => c.Persistence.DbRetryAttempts = overMax,
+            bootstrapMutate: c => c.Api.Resilience.DbRetryAttempts = overMax,
             bootstrapMessageContains: "dbRetryAttempts",
             apiOpts: apiOpts,
             apiMemberName: nameof(PersistenceConfiguration.DbRetryAttempts));
@@ -177,7 +177,7 @@ public sealed class SharedValidationBoundsTests
     {
         var overMax = ConfigurationBounds.SocketBatchBytesThresholdMax + 1;
         return AssertParityRejectionAsync(
-            bootstrapMutate: c => c.Socket.BatchBytesThreshold = overMax,
+            bootstrapMutate: c => c.Api.BatchBytesThreshold = overMax,
             bootstrapMessageContains: "batchBytesThreshold",
             apiOpts: new SocketConfiguration { BatchBytesThreshold = overMax });
     }
@@ -188,7 +188,7 @@ public sealed class SharedValidationBoundsTests
         // API side — StorageConfiguration.AvatarStorageRoot carries [AbsolutePath] which
         // trips on the same relative input.
         => AssertParityRejectionAsync(
-            bootstrapMutate: c => c.Storage.AvatarStorageRoot = "relative/avatars",
+            bootstrapMutate: c => c.Api.Storage.AvatarStorageRoot = "relative/avatars",
             bootstrapMessageContains: "avatarStorageRoot",
             apiOpts: new StorageConfiguration { AvatarStorageRoot = "relative/avatars" });
 
@@ -239,19 +239,26 @@ public sealed class SharedValidationBoundsTests
         Deployment =
         {
             OutputDir = "./deploy",
-            Hosts = ["api.example.com"],
-            RootCaName = "Interfold Root CA",
-            CertYears = 5,
-            TrustStoreInstall = true,
         },
-        Ports =
+        Edge =
         {
-            ApiHttp = 5000,
-            ApiHttps = 5001,
-            WebHttp = 8080,
-            WebHttps = 8081,
+            Hosts = ["api.example.com"],
+            Certificates =
+            {
+                RootCaName = "Interfold Root CA",
+                CertYears = 5,
+                TrustStoreInstall = true,
+            },
+            Ports =
+            {
+                Http = 80,
+                Https = 443,
+            },
         },
-        DatabaseMode = DatabaseMode.Single,
+        Datastores =
+        {
+            Cql = { Backend = CqlBackend.ScyllaSingle },
+        },
     };
 
     /// <summary>Default-construct a <see cref="PersistenceConfiguration"/> that satisfies every attribute.</summary>

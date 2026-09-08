@@ -1,0 +1,148 @@
+# Processed by the nginx image's /docker-entrypoint.d/20-envsubst-on-templates.sh.
+# NGINX_ENVSUBST_FILTER=^NGINX_ limits substitution so nginx $vars stay literal.
+#
+# Vars (InterfoldAppHost when edge is enabled, path routing):
+#   NGINX_SERVER_NAME         public DNS / IP
+#   NGINX_SSL_CERT_FILE       TLS cert path inside the container
+#   NGINX_SSL_KEY_FILE        TLS key path inside the container
+#   NGINX_HTTPS_PORT_SUFFIX   ":<port>" or empty when edgeHttps is 443
+#   NGINX_API_UPSTREAM        host:port for interfold-api (e.g. interfold-api:5100)
+#   NGINX_WEB_UPSTREAM        host:port for octocon-web (e.g. octocon-web:8080)
+#   NGINX_INCLUDE_WEB         "1" to proxy / to web; empty → 404 on /
+#   NGINX_ACME_ROOT           ACME webroot (HTTP-01); empty disables the location body
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    server_name ${NGINX_SERVER_NAME};
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    include /etc/nginx/cloudflare-ips.conf;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location = /nginx-health {
+        access_log off;
+        return 200 'ok';
+        add_header Content-Type text/plain;
+    }
+
+    set $https_port_suffix "${NGINX_HTTPS_PORT_SUFFIX}";
+    set $redirect_to_https 0;
+    if ($https_port_suffix != "") {
+        set $redirect_to_https 1;
+    }
+    if ($request_uri = /nginx-health) {
+        set $redirect_to_https 0;
+    }
+    if ($request_uri ~ ^/.well-known/acme-challenge/) {
+        set $redirect_to_https 0;
+    }
+    if ($redirect_to_https = 1) {
+        return 301 https://$host${NGINX_HTTPS_PORT_SUFFIX}$request_uri;
+    }
+
+    location /health/ {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    location /api/ {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    location /.well-known/interfold-root-ca.crt {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+    location /.well-known/interfold-root-ca.pem {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+    location /.well-known/interfold-root-ca.sha256 {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    location / {
+        set $include_web "${NGINX_INCLUDE_WEB}";
+        if ($include_web = "") {
+            return 404;
+        }
+        set $web_upstream http://${NGINX_WEB_UPSTREAM};
+        proxy_pass $web_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${NGINX_SERVER_NAME};
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    include /etc/nginx/cloudflare-ips.conf;
+
+    ssl_certificate     ${NGINX_SSL_CERT_FILE};
+    ssl_certificate_key ${NGINX_SSL_KEY_FILE};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    location = /nginx-health {
+        access_log off;
+        return 200 'ok';
+        add_header Content-Type text/plain;
+    }
+
+    location /health/ {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    location /api/ {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    location /.well-known/interfold-root-ca.crt {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+    location /.well-known/interfold-root-ca.pem {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+    location /.well-known/interfold-root-ca.sha256 {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    location / {
+        set $include_web "${NGINX_INCLUDE_WEB}";
+        if ($include_web = "") {
+            return 404;
+        }
+        set $web_upstream http://${NGINX_WEB_UPSTREAM};
+        proxy_pass $web_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+}

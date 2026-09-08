@@ -113,12 +113,15 @@ public sealed class FirebasePhaseTests
 
             var config = new BootstrapConfig
             {
-                Firebase = new FirebaseSection
+                Api =
                 {
-                    AndroidConfigPath = android,
-                    IosConfigPath = ios,
-                    WebConfigPath = web,
-                    ServiceAccountPath = sa,
+                    Firebase = new FirebaseSection
+                    {
+                        AndroidConfigPath = android,
+                        IosConfigPath = ios,
+                        WebConfigPath = web,
+                        ServiceAccountPath = sa,
+                    },
                 },
             };
 
@@ -143,7 +146,10 @@ public sealed class FirebasePhaseTests
 
             var config = new BootstrapConfig
             {
-                Firebase = new FirebaseSection { AndroidConfigPath = android },
+                Api =
+                {
+                    Firebase = new FirebaseSection { AndroidConfigPath = android },
+                },
             };
             var result = await FirebasePhase.RunAsync(TestOptions(dir), config, Logger(), CancellationToken.None);
 
@@ -172,7 +178,10 @@ public sealed class FirebasePhaseTests
 
             var config = new BootstrapConfig
             {
-                Firebase = new FirebaseSection { IosConfigPath = ios },
+                Api =
+                {
+                    Firebase = new FirebaseSection { IosConfigPath = ios },
+                },
             };
             var result = await FirebasePhase.RunAsync(TestOptions(dir), config, Logger(), CancellationToken.None);
 
@@ -202,7 +211,10 @@ public sealed class FirebasePhaseTests
 
             var config = new BootstrapConfig
             {
-                Firebase = new FirebaseSection { WebConfigPath = web },
+                Api =
+                {
+                    Firebase = new FirebaseSection { WebConfigPath = web },
+                },
             };
             var result = await FirebasePhase.RunAsync(TestOptions(dir), config, Logger(), CancellationToken.None);
 
@@ -233,7 +245,10 @@ public sealed class FirebasePhaseTests
 
             var config = new BootstrapConfig
             {
-                Firebase = new FirebaseSection { ServiceAccountPath = sa },
+                Api =
+                {
+                    Firebase = new FirebaseSection { ServiceAccountPath = sa },
+                },
             };
             var result = await FirebasePhase.RunAsync(TestOptions(dir), config, Logger(), CancellationToken.None);
 
@@ -251,7 +266,10 @@ public sealed class FirebasePhaseTests
         {
             var config = new BootstrapConfig
             {
-                Firebase = new FirebaseSection(), // all four defaults are ""
+                Api =
+                {
+                    Firebase = new FirebaseSection(),
+                },
             };
             var result = await FirebasePhase.RunAsync(TestOptions(dir), config, Logger(), CancellationToken.None);
 
@@ -271,9 +289,12 @@ public sealed class FirebasePhaseTests
         {
             var config = new BootstrapConfig
             {
-                Firebase = new FirebaseSection
+                Api =
                 {
-                    AndroidConfigPath = Path.Combine(dir, "does-not-exist.json"),
+                    Firebase = new FirebaseSection
+                    {
+                        AndroidConfigPath = Path.Combine(dir, "does-not-exist.json"),
+                    },
                 },
             };
             await Assert.That(async () =>
@@ -296,7 +317,10 @@ public sealed class FirebasePhaseTests
             File.WriteAllText(sa, "{\"foo\":\"bar\"}");
             var config = new BootstrapConfig
             {
-                Firebase = new FirebaseSection { ServiceAccountPath = sa },
+                Api =
+                {
+                    Firebase = new FirebaseSection { ServiceAccountPath = sa },
+                },
             };
             await Assert.That(async () =>
                 await FirebasePhase.RunAsync(TestOptions(dir), config, Logger(), CancellationToken.None))
@@ -318,10 +342,13 @@ public sealed class FirebasePhaseTests
 
             var config = new BootstrapConfig
             {
-                Firebase = new FirebaseSection
+                Api =
                 {
-                    // Relative path — must resolve under the phase's outputDir.
-                    AndroidConfigPath = Path.Combine("firebase", "gs.json"),
+                    Firebase = new FirebaseSection
+                    {
+                        // Relative path — must resolve under the phase's outputDir.
+                        AndroidConfigPath = Path.Combine("firebase", "gs.json"),
+                    },
                 },
             };
             var result = await FirebasePhase.RunAsync(TestOptions(dir), config, Logger(), CancellationToken.None);

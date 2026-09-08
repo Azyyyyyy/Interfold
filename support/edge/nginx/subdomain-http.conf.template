@@ -1,0 +1,56 @@
+# Plaintext edge (tlsMode=none), subdomain routing: :80 only per host block.
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    server_name ${NGINX_API_SERVER_NAME};
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    include /etc/nginx/cloudflare-ips.conf;
+
+    location = /nginx-health {
+        access_log off;
+        return 200 'ok';
+        add_header Content-Type text/plain;
+    }
+
+    location /health/ {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    location / {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+}
+
+server {
+    listen 80;
+    server_name ${NGINX_WEB_SERVER_NAME};
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    include /etc/nginx/cloudflare-ips.conf;
+
+    location = /nginx-health {
+        access_log off;
+        return 200 'ok';
+        add_header Content-Type text/plain;
+    }
+
+    location / {
+        set $include_web "${NGINX_INCLUDE_WEB}";
+        if ($include_web = "") {
+            return 404;
+        }
+        set $web_upstream http://${NGINX_WEB_UPSTREAM};
+        proxy_pass $web_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+}

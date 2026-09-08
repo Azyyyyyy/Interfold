@@ -25,9 +25,7 @@ internal static class ConfigPhase
         if (File.Exists(configPath))
         {
             logger.Info($"    loading config from {configPath}");
-            var json = await File.ReadAllTextAsync(configPath, ct).ConfigureAwait(false);
-            config = JsonSerializer.Deserialize(json, BootstrapJsonContext.Default.BootstrapConfig)
-                     ?? throw new InvalidOperationException($"Failed to parse {configPath} (returned null).");
+            config = await BootstrapConfigFile.LoadAsync(configPath, logger, ct).ConfigureAwait(false);
 
             if (options.Reconfigure)
             {
@@ -122,7 +120,7 @@ internal static class ConfigPhase
         var c = existing ?? new BootstrapConfig();
 
         // Hostname before IP so HostParser.PickPrimary latches the mDNS name.
-        if (c.Deployment.Hosts.Count == 0)
+        if (c.Edge.Hosts.Count == 0)
         {
             var seed = new List<string>();
             var hostname = (hostnameProbe ?? (() => null))();
@@ -138,7 +136,7 @@ internal static class ConfigPhase
             }
             if (seed.Count > 0)
             {
-                c.Deployment.Hosts = seed;
+                c.Edge.Hosts = seed;
             }
         }
 
@@ -199,76 +197,90 @@ internal static class ConfigPhase
             Group("Deployment",
                 ("Output directory",                () => c.Deployment.OutputDir,
                                                     () => c.Deployment.OutputDir = PromptStr("Output directory", c.Deployment.OutputDir)),
-                ("Public host(s)",                  () => string.Join(",", c.Deployment.Hosts),
-                                                    () => c.Deployment.Hosts = PromptHosts(console, c.Deployment.Hosts)),
-                ("Root CA subject",                 () => c.Deployment.RootCaName,
-                                                    () => c.Deployment.RootCaName = PromptStr("Root CA subject", c.Deployment.RootCaName)),
-                ("Leaf cert validity (years)",      () => c.Deployment.CertYears.ToString(),
-                                                    () => c.Deployment.CertYears = PromptInt("Leaf cert validity (years)", c.Deployment.CertYears, 1, 30)),
-                ("Install root CA in trust store",  () => c.Deployment.TrustStoreInstall.ToString(),
-                                                    () => c.Deployment.TrustStoreInstall = PromptBool("Install root CA into system trust store", c.Deployment.TrustStoreInstall)),
-                // Publish wiring auto-promotes IncludeWeb when WebHttps is true.
                 ("Include octocon-web container",   () => c.Deployment.IncludeWeb.ToString(),
                                                     () => c.Deployment.IncludeWeb = PromptBool("Include the octocon-web (Kotlin/Wasm UI) container", c.Deployment.IncludeWeb)),
-                ("Terminate HTTPS at octocon-web",  () => c.Deployment.WebHttps.ToString(),
-                                                    () => c.Deployment.WebHttps = PromptBool("Terminate HTTPS at octocon-web", c.Deployment.WebHttps))),
+                ("Autostart server on boot",        () => c.Deployment.AutostartServer.ToString(),
+                                                    () => c.Deployment.AutostartServer = PromptBool("Autostart the server on host boot (installs interfold.service)", c.Deployment.AutostartServer))),
 
-            Group("Ports",
-                ("API HTTP port",                   () => c.Ports.ApiHttp.ToString(),
-                                                    () => c.Ports.ApiHttp = PromptInt("API HTTP port", c.Ports.ApiHttp, 1, 65535)),
-                ("API HTTPS port",                  () => c.Ports.ApiHttps.ToString(),
-                                                    () => c.Ports.ApiHttps = PromptInt("API HTTPS port", c.Ports.ApiHttps, 1, 65535)),
-                ("Web HTTP port",                   () => c.Ports.WebHttp.ToString(),
-                                                    () => c.Ports.WebHttp = PromptInt("Web HTTP port", c.Ports.WebHttp, 1, 65535)),
-                ("Web HTTPS port",                  () => c.Ports.WebHttps.ToString(),
-                                                    () => c.Ports.WebHttps = PromptInt("Web HTTPS port", c.Ports.WebHttps, 1, 65535)),
-                ("Postgres host port",              () => c.Ports.Postgres.ToString(),
-                                                    () => c.Ports.Postgres = PromptInt("Postgres host port", c.Ports.Postgres, 1, 65535)),
-                ("Scylla/Cassandra host port",      () => c.Ports.Scylla.ToString(),
-                                                    () => c.Ports.Scylla = PromptInt("Scylla/Cassandra host port", c.Ports.Scylla, 1, 65535))),
+            Group("Edge",
+                ("Public host(s)",                  () => string.Join(",", c.Edge.Hosts),
+                                                    () => c.Edge.Hosts = PromptHosts(console, c.Edge.Hosts)),
+                ("Root CA subject",                 () => c.Edge.Certificates.RootCaName,
+                                                    () => c.Edge.Certificates.RootCaName = PromptStr("Root CA subject", c.Edge.Certificates.RootCaName)),
+                ("Leaf cert validity (years)",      () => c.Edge.Certificates.CertYears.ToString(),
+                                                    () => c.Edge.Certificates.CertYears = PromptInt("Leaf cert validity (years)", c.Edge.Certificates.CertYears, 1, 30)),
+                ("Install root CA in trust store",  () => c.Edge.Certificates.TrustStoreInstall.ToString(),
+                                                    () => c.Edge.Certificates.TrustStoreInstall = PromptBool("Install root CA into system trust store", c.Edge.Certificates.TrustStoreInstall)),
+                ("Edge TLS mode",                   () => c.Edge.TlsMode.ToWire(),
+                                                    () => c.Edge.TlsMode = EnumWireExtensions.ParseWithDefault(
+                                                        console.Prompt(new TextPrompt<string>("Edge TLS mode:")
+                                                            .DefaultValue(c.Edge.TlsMode.ToWire())
+                                                            .AddChoices(ValidEdgeTlsModes)),
+                                                        EdgeTlsMode.PrivateCa,
+                                                        trimmed => $"Unrecognised edge TLS mode '{trimmed}'. Valid values: none, privateCa, letsEncrypt.")),
+                ("Edge routing",                    () => c.Edge.Routing.Mode.ToWire(),
+                                                    () => c.Edge.Routing.Mode = EnumWireExtensions.ParseWithDefault(
+                                                        console.Prompt(new TextPrompt<string>("Edge routing:")
+                                                            .DefaultValue(c.Edge.Routing.Mode.ToWire())
+                                                            .AddChoices(ValidEdgeRoutingModes)),
+                                                        EdgeRoutingMode.Path,
+                                                        trimmed => $"Unrecognised edge routing '{trimmed}'. Valid values: path, subdomain.")),
+                ("Edge API host (subdomain)",       () => ShowOrEmpty(c.Edge.Routing.ApiHost),
+                                                    () => c.Edge.Routing.ApiHost = PromptStr("Edge API host (required for subdomain routing)", c.Edge.Routing.ApiHost)),
+                ("Edge web host (subdomain)",       () => ShowOrEmpty(c.Edge.Routing.WebHost),
+                                                    () => c.Edge.Routing.WebHost = PromptStr("Edge web host (required for subdomain routing)", c.Edge.Routing.WebHost)),
+                ("Cloudflare IP allowlist",         () => c.Edge.Cloudflare.IpAllowlist.ToString(),
+                                                    () => c.Edge.Cloudflare.IpAllowlist = PromptBool(
+                                                        "Restrict edge to Cloudflare IPs (orange-cloud / DNS-01)", c.Edge.Cloudflare.IpAllowlist)),
+                ("Cloudflare DNS API token",        () => Mask(c.Edge.Cloudflare.DnsApiToken),
+                                                    () => c.Edge.Cloudflare.DnsApiToken = PromptOAuth(
+                                                        "Cloudflare DNS API token (Zone:DNS:Edit; blank if unused)",
+                                                        c.Edge.Cloudflare.DnsApiToken)),
+                ("Edge HTTP port",                  () => c.Edge.Ports.Http.ToString(),
+                                                    () => c.Edge.Ports.Http = PromptInt("Edge HTTP port", c.Edge.Ports.Http, 1, 65535)),
+                ("Edge HTTPS port",                 () => c.Edge.Ports.Https.ToString(),
+                                                    () => c.Edge.Ports.Https = PromptInt("Edge HTTPS port (ignored when tlsMode=none)", c.Edge.Ports.Https, 1, 65535))),
 
-            Group("Database",
-                ("Database mode",                   () => c.DatabaseMode.ToWire(),
-                                                    () => c.DatabaseMode = console.Prompt(
-                                                        new TextPrompt<string>("Database mode:")
-                                                            .DefaultValue(c.DatabaseMode.ToWire())
-                                                            .AddChoices(ValidDatabaseModes)).TryParseWire<DatabaseMode>(out var mode) ? mode : c.DatabaseMode),
-                ("Postgres application DB name",    () => c.PostgresDatabase,
-                                                    () => c.PostgresDatabase = PromptStr("Postgres application DB name", c.PostgresDatabase)),
-                ("Cluster name",                    () => c.ClusterName,
-                                                    () => c.ClusterName = PromptStr("Cluster name (Scylla/Cassandra)", c.ClusterName)),
+            Group("Datastores",
+                ("CQL backend",                     () => c.Datastores.Cql.Backend.ToWire(),
+                                                    () => c.Datastores.Cql.Backend = CqlBackendMapping.ParseWire(console.Prompt(
+                                                        new TextPrompt<string>("CQL backend:")
+                                                            .DefaultValue(c.Datastores.Cql.Backend.ToWire())
+                                                            .AddChoices(ValidCqlBackends)))),
+                ("Postgres application DB name",    () => c.Datastores.Postgres.Database,
+                                                    () => c.Datastores.Postgres.Database = PromptStr("Postgres application DB name", c.Datastores.Postgres.Database)),
+                ("Cluster name",                    () => c.Datastores.Cql.ClusterName,
+                                                    () => c.Datastores.Cql.ClusterName = PromptStr("Cluster name (Scylla/Cassandra)", c.Datastores.Cql.ClusterName)),
                 // AddChoices enforces the seven valid keyspaces (Validate mirrors this non-interactively).
-                ("Scylla keyspace (region)",        () => c.ScyllaKeyspace.ToWire(),
-                                                    () => c.ScyllaKeyspace = EnumWireExtensions.ParseScyllaKeyspace(console.Prompt(
+                ("Scylla keyspace (region)",        () => c.Datastores.Cql.Keyspace.ToWire(),
+                                                    () => c.Datastores.Cql.Keyspace = EnumWireExtensions.ParseScyllaKeyspace(console.Prompt(
                                                         new TextPrompt<string>("Scylla keyspace (region):")
-                                                            .DefaultValue(c.ScyllaKeyspace.ToWire())
+                                                            .DefaultValue(c.Datastores.Cql.Keyspace.ToWire())
                                                             .AddChoices(ValidScyllaKeyspaces))))),
 
             // Derivable rows snapshot into ResolveDerivedDefaults so the menu paints the
             // computed default before Enter.
             Group("API",
-                ("OAuth callback base URL",         () => DerivedShow(c, ar => ar.CallbackBaseUrl),
-                                                    () => c.ApiRuntime.CallbackBaseUrl = PromptStr(
+                ("OAuth callback base URL",         () => DerivedShow(c, o => o.CallbackBaseUrl),
+                                                    () => c.Api.OAuth.CallbackBaseUrl = PromptStr(
                                                         "OAuth callback base URL",
-                                                        DerivedShow(c, ar => ar.CallbackBaseUrl))),
-                ("JWT authority (iss claim)",       () => DerivedShow(c, ar => ar.JwtAuthority),
-                                                    () => c.ApiRuntime.JwtAuthority = PromptStr(
+                                                        DerivedShow(c, o => o.CallbackBaseUrl))),
+                ("JWT authority (iss claim)",       () => DerivedShow(c, o => o.JwtAuthority),
+                                                    () => c.Api.OAuth.JwtAuthority = PromptStr(
                                                         "JWT authority (iss claim)",
-                                                        DerivedShow(c, ar => ar.JwtAuthority))),
-                ("JWT audience (aud claim)",        () => c.ApiRuntime.JwtAudience,
-                                                    () => c.ApiRuntime.JwtAudience = PromptStr(
-                                                        "JWT audience (aud claim)", c.ApiRuntime.JwtAudience)),
+                                                        DerivedShow(c, o => o.JwtAuthority))),
+                ("JWT audience (aud claim)",        () => c.Api.OAuth.JwtAudience,
+                                                    () => c.Api.OAuth.JwtAudience = PromptStr(
+                                                        "JWT audience (aud claim)", c.Api.OAuth.JwtAudience)),
                 ("CORS allowed origins",            () => string.Join(",", DerivedCorsShow(c)),
-                                                    () => c.ApiRuntime.CorsAllowedOrigins = PromptCorsAllowedOrigins(
+                                                    () => c.Api.CorsAllowedOrigins = PromptCorsAllowedOrigins(
                                                         console, DerivedCorsShow(c))),
-                ("Pre-built Interfold API image",   () => c.ApiImage,
-                                                    () => c.ApiImage = PromptStr("Pre-built Interfold API image reference", c.ApiImage))),
-
-            Group("Cluster & telemetry",
-                ("Cluster node group",              () => c.Cluster.NodeGroup.ToWire(),
-                                                    () => c.Cluster.NodeGroup = EnumWireExtensions.ParseNodeGroup(console.Prompt(
+                ("Pre-built Interfold API image",   () => c.Api.Image,
+                                                    () => c.Api.Image = PromptStr("Pre-built Interfold API image reference", c.Api.Image)),
+                ("Cluster node group",              () => c.Api.NodeGroup.ToWire(),
+                                                    () => c.Api.NodeGroup = EnumWireExtensions.ParseNodeGroup(console.Prompt(
                                                         new TextPrompt<string>("Cluster node group:")
-                                                            .DefaultValue(c.Cluster.NodeGroup.ToWire())
+                                                            .DefaultValue(c.Api.NodeGroup.ToWire())
                                                             .AddChoices(ValidNodeGroups)))),
                 ("OTLP endpoint",                   () => ShowOrEmpty(c.Observability.OtlpEndpoint),
                                                     () => c.Observability.OtlpEndpoint = PromptStr(
@@ -278,83 +290,81 @@ internal static class ConfigPhase
             // Storage: blank AvatarStorageRoot → {outputDir}/data/avatars bind-mounted at
             // /app/data/avatars. Blank AvatarPublicBase → API serves /avatars/* directly.
             Group("Storage",
-                ("Avatar storage root (host path)", () => ShowOrEmpty(c.Storage.AvatarStorageRoot),
-                                                    () => c.Storage.AvatarStorageRoot = PromptStr(
+                ("Avatar storage root (host path)", () => ShowOrEmpty(c.Api.Storage.AvatarStorageRoot),
+                                                    () => c.Api.Storage.AvatarStorageRoot = PromptStr(
                                                         "Avatar storage root (blank = {outputDir}/data/avatars, bind-mounted into the API; non-blank = absolute host path)",
-                                                        c.Storage.AvatarStorageRoot)),
-                ("Avatar public base URL",          () => ShowOrEmpty(c.Storage.AvatarPublicBase),
-                                                    () => c.Storage.AvatarPublicBase = PromptStr(
+                                                        c.Api.Storage.AvatarStorageRoot)),
+                ("Avatar public base URL",          () => ShowOrEmpty(c.Api.Storage.AvatarPublicBase),
+                                                    () => c.Api.Storage.AvatarPublicBase = PromptStr(
                                                         "Avatar public base URL (blank = API serves /avatars/* directly; set https URL to delegate to CDN)",
-                                                        c.Storage.AvatarPublicBase))),
+                                                        c.Api.Storage.AvatarPublicBase))),
 
             Group("Performance tuning",
                 // Blank → null (API compile-time default); Show renders "<default>" for null.
                 ("Socket batch flush threshold (bytes)",
-                                                    () => c.Socket.BatchBytesThreshold?.ToString() ?? "<default>",
-                                                    () => c.Socket.BatchBytesThreshold = PromptNullableInt(
+                                                    () => c.Api.BatchBytesThreshold?.ToString() ?? "<default>",
+                                                    () => c.Api.BatchBytesThreshold = PromptNullableInt(
                                                         "Socket batch flush threshold (bytes)",
-                                                        c.Socket.BatchBytesThreshold, 1, 16 * 1024 * 1024)),
-                ("DB retry attempts",               () => c.Persistence.DbRetryAttempts.ToString(),
-                                                    () => c.Persistence.DbRetryAttempts = PromptInt(
-                                                        "DB retry attempts", c.Persistence.DbRetryAttempts, 1, 100)),
-                ("DB retry initial delay (ms)",     () => c.Persistence.DbRetryInitialDelayMs.ToString(),
-                                                    () => c.Persistence.DbRetryInitialDelayMs = PromptInt(
+                                                        c.Api.BatchBytesThreshold, 1, 16 * 1024 * 1024)),
+                ("DB retry attempts",               () => c.Api.Resilience.DbRetryAttempts.ToString(),
+                                                    () => c.Api.Resilience.DbRetryAttempts = PromptInt(
+                                                        "DB retry attempts", c.Api.Resilience.DbRetryAttempts, 1, 100)),
+                ("DB retry initial delay (ms)",     () => c.Api.Resilience.DbRetryInitialDelayMs.ToString(),
+                                                    () => c.Api.Resilience.DbRetryInitialDelayMs = PromptInt(
                                                         "DB retry initial delay (ms)",
-                                                        c.Persistence.DbRetryInitialDelayMs, 1, 60_000)),
-                ("DB retry max delay (ms)",         () => c.Persistence.DbRetryMaxDelayMs.ToString(),
-                                                    () => c.Persistence.DbRetryMaxDelayMs = PromptInt(
+                                                        c.Api.Resilience.DbRetryInitialDelayMs, 1, 60_000)),
+                ("DB retry max delay (ms)",         () => c.Api.Resilience.DbRetryMaxDelayMs.ToString(),
+                                                    () => c.Api.Resilience.DbRetryMaxDelayMs = PromptInt(
                                                         "DB retry max delay (ms)",
-                                                        c.Persistence.DbRetryMaxDelayMs, 1, 600_000)),
-                ("Hydration max concurrency",       () => c.Persistence.HydrationMaxConcurrency.ToString(),
-                                                    () => c.Persistence.HydrationMaxConcurrency = PromptInt(
+                                                        c.Api.Resilience.DbRetryMaxDelayMs, 1, 600_000)),
+                ("Hydration max concurrency",       () => c.Api.Resilience.HydrationMaxConcurrency.ToString(),
+                                                    () => c.Api.Resilience.HydrationMaxConcurrency = PromptInt(
                                                         "Hydration max concurrency",
-                                                        c.Persistence.HydrationMaxConcurrency, 1, 1024))),
+                                                        c.Api.Resilience.HydrationMaxConcurrency, 1, 1024))),
 
             // ID (public → ShowOrEmpty) then secret (masked → <set>/<empty>) per provider.
             Group("OAuth credentials",
-                ("Google OAuth client ID",          () => ShowOrEmpty(c.OAuth.GoogleClientId),
-                                                    () => c.OAuth.GoogleClientId = PromptStr("Google OAuth client ID", c.OAuth.GoogleClientId)),
-                ("Google OAuth client secret",      () => Mask(c.OAuth.GoogleClientSecret),
-                                                    () => c.OAuth.GoogleClientSecret = PromptOAuth("Google OAuth client secret", c.OAuth.GoogleClientSecret)),
-                ("Discord OAuth client ID",         () => ShowOrEmpty(c.OAuth.DiscordClientId),
-                                                    () => c.OAuth.DiscordClientId = PromptStr("Discord OAuth client ID", c.OAuth.DiscordClientId)),
-                ("Discord OAuth client secret",     () => Mask(c.OAuth.DiscordClientSecret),
-                                                    () => c.OAuth.DiscordClientSecret = PromptOAuth("Discord OAuth client secret", c.OAuth.DiscordClientSecret)),
-                ("Apple OAuth client ID",           () => ShowOrEmpty(c.OAuth.AppleClientId),
-                                                    () => c.OAuth.AppleClientId = PromptStr("Apple OAuth client ID", c.OAuth.AppleClientId)),
-                ("Apple OAuth client secret",       () => Mask(c.OAuth.AppleClientSecret),
-                                                    () => c.OAuth.AppleClientSecret = PromptOAuth("Apple OAuth client secret", c.OAuth.AppleClientSecret))),
+                ("Google OAuth client ID",          () => ShowOrEmpty(c.Api.OAuth.GoogleClientId),
+                                                    () => c.Api.OAuth.GoogleClientId = PromptStr("Google OAuth client ID", c.Api.OAuth.GoogleClientId)),
+                ("Google OAuth client secret",      () => Mask(c.Api.OAuth.GoogleClientSecret),
+                                                    () => c.Api.OAuth.GoogleClientSecret = PromptOAuth("Google OAuth client secret", c.Api.OAuth.GoogleClientSecret)),
+                ("Discord OAuth client ID",         () => ShowOrEmpty(c.Api.OAuth.DiscordClientId),
+                                                    () => c.Api.OAuth.DiscordClientId = PromptStr("Discord OAuth client ID", c.Api.OAuth.DiscordClientId)),
+                ("Discord OAuth client secret",     () => Mask(c.Api.OAuth.DiscordClientSecret),
+                                                    () => c.Api.OAuth.DiscordClientSecret = PromptOAuth("Discord OAuth client secret", c.Api.OAuth.DiscordClientSecret)),
+                ("Apple OAuth client ID",           () => ShowOrEmpty(c.Api.OAuth.AppleClientId),
+                                                    () => c.Api.OAuth.AppleClientId = PromptStr("Apple OAuth client ID", c.Api.OAuth.AppleClientId)),
+                ("Apple OAuth client secret",       () => Mask(c.Api.OAuth.AppleClientSecret),
+                                                    () => c.Api.OAuth.AppleClientSecret = PromptOAuth("Apple OAuth client secret", c.Api.OAuth.AppleClientSecret))),
 
-            Group("Backup & autostart",
-                ("Scheduled backups enabled",       () => c.Backup.Enabled.ToString(),
-                                                    () => c.Backup.Enabled = PromptBool("Enable scheduled backups (systemd timer)", c.Backup.Enabled)),
-                ("Backup schedule (OnCalendar)",    () => c.Backup.Schedule,
-                                                    () => c.Backup.Schedule = PromptStr("Backup schedule (systemd OnCalendar, e.g. 'daily', 'weekly', 'Mon..Fri 03:30')", c.Backup.Schedule)),
-                ("Backup retention (count per component)", () => c.Backup.RetainCount.ToString(),
-                                                    () => c.Backup.RetainCount = PromptInt("Backup retention (number of archives to keep per component)", c.Backup.RetainCount, 1, 1000)),
+            Group("Backup",
+                ("Scheduled backups enabled",       () => c.Deployment.Backup.Enabled.ToString(),
+                                                    () => c.Deployment.Backup.Enabled = PromptBool("Enable scheduled backups (systemd timer)", c.Deployment.Backup.Enabled)),
+                ("Backup schedule (OnCalendar)",    () => c.Deployment.Backup.Schedule,
+                                                    () => c.Deployment.Backup.Schedule = PromptStr("Backup schedule (systemd OnCalendar, e.g. 'daily', 'weekly', 'Mon..Fri 03:30')", c.Deployment.Backup.Schedule)),
+                ("Backup retention (count per component)", () => c.Deployment.Backup.RetainCount.ToString(),
+                                                    () => c.Deployment.Backup.RetainCount = PromptInt("Backup retention (number of archives to keep per component)", c.Deployment.Backup.RetainCount, 1, 1000)),
                 // Blank = {outputDir}/backups; non-blank must be absolute (systemd CWD unpredictable).
-                ("Backup directory (absolute, blank=default)", () => ShowOrEmpty(c.Backup.Directory),
-                                                    () => c.Backup.Directory = PromptStr("Backup directory (absolute path; leave blank to default to {outputDir}/backups)", c.Backup.Directory)),
-                ("Autostart server on boot",        () => c.Backup.AutostartServer.ToString(),
-                                                    () => c.Backup.AutostartServer = PromptBool("Autostart the server on host boot (installs interfold.service)", c.Backup.AutostartServer))),
+                ("Backup directory (absolute, blank=default)", () => ShowOrEmpty(c.Deployment.Backup.Directory),
+                                                    () => c.Deployment.Backup.Directory = PromptStr("Backup directory (absolute path; leave blank to default to {outputDir}/backups)", c.Deployment.Backup.Directory))),
 
             // Chains via systemd OnSuccess= drop-in. Off by default; manual works regardless.
             Group("Updates",
-                ("Chain updates after backup",      () => c.Update.Enabled.ToString(),
-                                                    () => c.Update.Enabled = PromptBool("Chain interfold-update.service after each successful backup", c.Update.Enabled)),
-                ("Health-check timeout (seconds)",  () => c.Update.HealthCheckTimeoutSeconds.ToString(),
-                                                    () => c.Update.HealthCheckTimeoutSeconds = PromptInt("Health-check timeout after pull+recreate (seconds)", c.Update.HealthCheckTimeoutSeconds, 1, 3600)),
-                ("Auto-restore on failure",         () => c.Update.AutoRestoreOnFailure.ToString(),
-                                                    () => c.Update.AutoRestoreOnFailure = PromptBool("Auto-restore the pre-update backup on health-check failure (destructive)", c.Update.AutoRestoreOnFailure)),
-                ("Recreate containers on update",   () => c.Update.RecreateOnUpdate.ToString(),
-                                                    () => c.Update.RecreateOnUpdate = PromptBool("Recreate containers on update (uses 'up -d'; disable only for staged pulls)", c.Update.RecreateOnUpdate)),
-                ("Update service whitelist (blank=all)", () => c.Update.Services.Length == 0 ? "<all>" : string.Join(",", c.Update.Services),
-                                                    () => c.Update.Services = PromptUpdateServices(console, c.Update.Services))),
+                ("Chain updates after backup",      () => c.Deployment.Update.Enabled.ToString(),
+                                                    () => c.Deployment.Update.Enabled = PromptBool("Chain interfold-update.service after each successful backup", c.Deployment.Update.Enabled)),
+                ("Health-check timeout (seconds)",  () => c.Deployment.Update.HealthCheckTimeoutSeconds.ToString(),
+                                                    () => c.Deployment.Update.HealthCheckTimeoutSeconds = PromptInt("Health-check timeout after pull+recreate (seconds)", c.Deployment.Update.HealthCheckTimeoutSeconds, 1, 3600)),
+                ("Auto-restore on failure",         () => c.Deployment.Update.AutoRestoreOnFailure.ToString(),
+                                                    () => c.Deployment.Update.AutoRestoreOnFailure = PromptBool("Auto-restore the pre-update backup on health-check failure (destructive)", c.Deployment.Update.AutoRestoreOnFailure)),
+                ("Recreate containers on update",   () => c.Deployment.Update.RecreateOnUpdate.ToString(),
+                                                    () => c.Deployment.Update.RecreateOnUpdate = PromptBool("Recreate containers on update (uses 'up -d'; disable only for staged pulls)", c.Deployment.Update.RecreateOnUpdate)),
+                ("Update service whitelist (blank=all)", () => c.Deployment.Update.Services.Length == 0 ? "<all>" : string.Join(",", c.Deployment.Update.Services),
+                                                    () => c.Deployment.Update.Services = PromptUpdateServices(console, c.Deployment.Update.Services))),
 
             // One row → three-way wizard (auto-detect / per-file / clear). See PromptFirebase.
             Group("Firebase",
-                ("Firebase push notifications",     () => ShowFirebaseState(c.Firebase),
-                                                    () => PromptFirebase(console, c.Firebase))),
+                ("Firebase push notifications",     () => ShowFirebaseState(c.Api.Firebase),
+                                                    () => PromptFirebase(console, c.Api.Firebase))),
         };
 
         // Flatten groups; record each group's starting offset for AddChoiceGroup and header sentinels.
@@ -647,11 +657,11 @@ internal static class ConfigPhase
 
     /// <summary>Renders derived default when the field is empty; operator value wins otherwise.
     /// One helper for CallbackBaseUrl + JwtAuthority via the selector.</summary>
-    private static string DerivedShow(BootstrapConfig c, Func<ApiRuntimeSection, string> selector)
+    private static string DerivedShow(BootstrapConfig c, Func<ApiOAuthSection, string> selector)
     {
         var snapshot = CloneForDerivation(c);
         ResolveDerivedDefaults(snapshot);
-        return selector(snapshot.ApiRuntime);
+        return selector(snapshot.Api.OAuth);
     }
 
     /// <summary>List-shaped sibling of <see cref="DerivedShow"/> for the CORS field.</summary>
@@ -659,7 +669,7 @@ internal static class ConfigPhase
     {
         var snapshot = CloneForDerivation(c);
         ResolveDerivedDefaults(snapshot);
-        return snapshot.ApiRuntime.CorsAllowedOrigins;
+        return snapshot.Api.CorsAllowedOrigins;
     }
 
     /// <summary>Throwaway snapshot for Show callbacks so derivation doesn't mutate live config.</summary>
@@ -667,17 +677,31 @@ internal static class ConfigPhase
     {
         return new BootstrapConfig
         {
-            Deployment = new DeploymentSection
+            Edge = new EdgeSection
             {
-                Hosts = c.Deployment.Hosts,
-                WebHttps = c.Deployment.WebHttps,
+                Hosts = c.Edge.Hosts,
+                TlsMode = c.Edge.TlsMode,
+                Routing = new EdgeRoutingSection
+                {
+                    Mode = c.Edge.Routing.Mode,
+                    ApiHost = c.Edge.Routing.ApiHost,
+                    WebHost = c.Edge.Routing.WebHost,
+                },
+                Ports = new EdgePortsSection
+                {
+                    Http = c.Edge.Ports.Http,
+                    Https = c.Edge.Ports.Https,
+                },
             },
-            ApiRuntime = new ApiRuntimeSection
+            Api = new ApiSection
             {
-                CallbackBaseUrl = c.ApiRuntime.CallbackBaseUrl,
-                JwtAuthority = c.ApiRuntime.JwtAuthority,
-                JwtAudience = c.ApiRuntime.JwtAudience,
-                CorsAllowedOrigins = [.. c.ApiRuntime.CorsAllowedOrigins],
+                OAuth = new ApiOAuthSection
+                {
+                    CallbackBaseUrl = c.Api.OAuth.CallbackBaseUrl,
+                    JwtAuthority = c.Api.OAuth.JwtAuthority,
+                    JwtAudience = c.Api.OAuth.JwtAudience,
+                },
+                CorsAllowedOrigins = [.. c.Api.CorsAllowedOrigins],
             },
         };
     }
@@ -702,8 +726,18 @@ internal static class ConfigPhase
         .Select(g => g.ToWire())
         .ToArray();
 
-    internal static readonly string[] ValidDatabaseModes = Enum
-        .GetValues<DatabaseMode>()
+    internal static readonly string[] ValidCqlBackends = Enum
+        .GetValues<CqlBackend>()
+        .Select(b => b.ToWire())
+        .ToArray();
+
+    internal static readonly string[] ValidEdgeTlsModes = Enum
+        .GetValues<EdgeTlsMode>()
+        .Select(m => m.ToWire())
+        .ToArray();
+
+    internal static readonly string[] ValidEdgeRoutingModes = Enum
+        .GetValues<EdgeRoutingMode>()
         .Select(m => m.ToWire())
         .ToArray();
 
@@ -714,22 +748,20 @@ internal static class ConfigPhase
     private const int DefaultHttpPort = 80;
     private const int DefaultHttpsPort = 443;
 
-    /// <summary>Fills empty <see cref="ApiRuntimeSection"/> fields from
-    /// <see cref="DeploymentSection"/> + <see cref="PortsSection"/>. Non-empty values win;
-    /// idempotent; mutates in place. Callback/JWT-authority always https (the API's Kestrel
-    /// terminates TLS unconditionally). CORS uses the web tier's scheme + port. Called
-    /// from <see cref="Validate"/> so JSON-load configs derive identically to prompted ones.</summary>
+    /// <summary>Fills empty OAuth/CORS fields from <see cref="EdgeSection"/>. Non-empty values win;
+    /// idempotent; mutates in place. Called from <see cref="Validate"/> so JSON-load configs
+    /// derive identically to prompted ones.</summary>
     internal static void ResolveDerivedDefaults(BootstrapConfig config)
     {
-        if (config.Deployment.Hosts.Count == 0)
+        if (config.Edge.Hosts.Count == 0)
         {
             return;
         }
 
         // Silent on parse failure — this runs on every menu redraw (mid-edit is common);
         // Validate is the hard-fail path.
-        var parsed = new List<HostEntry>(config.Deployment.Hosts.Count);
-        foreach (var raw in config.Deployment.Hosts)
+        var parsed = new List<HostEntry>(config.Edge.Hosts.Count);
+        foreach (var raw in config.Edge.Hosts)
         {
             if (string.IsNullOrWhiteSpace(raw)) continue;
             try
@@ -748,34 +780,78 @@ internal static class ConfigPhase
             return;
         }
 
-        // Port suffix omitted at 443 so proxy-fronted stacks get clean URLs.
-        var apiPortSuffix = config.Ports.ApiHttps == DefaultHttpsPort
-            ? string.Empty
-            : $":{config.Ports.ApiHttps}";
-        var apiDerivedBaseUrl = $"https://{HostParser.ToUrlHost(primary)}{apiPortSuffix}";
+        string apiDerivedBaseUrl;
+        string corsScheme;
+        int corsPort;
+        int corsDefaultPort;
+        IEnumerable<string> corsHosts;
 
-        if (string.IsNullOrWhiteSpace(config.ApiRuntime.CallbackBaseUrl))
+        if (config.Edge.TlsMode == EdgeTlsMode.None)
         {
-            config.ApiRuntime.CallbackBaseUrl = apiDerivedBaseUrl;
+            var edgePortSuffix = config.Edge.Ports.Http == DefaultHttpPort
+                ? string.Empty
+                : $":{config.Edge.Ports.Http}";
+
+            if (config.Edge.Routing.Mode == EdgeRoutingMode.Subdomain
+                && !string.IsNullOrWhiteSpace(config.Edge.Routing.ApiHost)
+                && !string.IsNullOrWhiteSpace(config.Edge.Routing.WebHost))
+            {
+                apiDerivedBaseUrl = $"http://{config.Edge.Routing.ApiHost.Trim()}{edgePortSuffix}";
+                corsScheme = "http";
+                corsPort = config.Edge.Ports.Http;
+                corsDefaultPort = DefaultHttpPort;
+                corsHosts = [config.Edge.Routing.WebHost.Trim()];
+            }
+            else
+            {
+                apiDerivedBaseUrl = $"http://{HostParser.ToUrlHost(primary)}{edgePortSuffix}";
+                corsScheme = "http";
+                corsPort = config.Edge.Ports.Http;
+                corsDefaultPort = DefaultHttpPort;
+                corsHosts = parsed.Where(h => h.IsLeafEligible).Select(HostParser.ToUrlHost);
+            }
+        }
+        else
+        {
+            var edgePortSuffix = config.Edge.Ports.Https == DefaultHttpsPort
+                ? string.Empty
+                : $":{config.Edge.Ports.Https}";
+
+            if (config.Edge.Routing.Mode == EdgeRoutingMode.Subdomain
+                && !string.IsNullOrWhiteSpace(config.Edge.Routing.ApiHost)
+                && !string.IsNullOrWhiteSpace(config.Edge.Routing.WebHost))
+            {
+                apiDerivedBaseUrl = $"https://{config.Edge.Routing.ApiHost.Trim()}{edgePortSuffix}";
+                corsScheme = "https";
+                corsPort = config.Edge.Ports.Https;
+                corsDefaultPort = DefaultHttpsPort;
+                corsHosts = [config.Edge.Routing.WebHost.Trim()];
+            }
+            else
+            {
+                apiDerivedBaseUrl = $"https://{HostParser.ToUrlHost(primary)}{edgePortSuffix}";
+                corsScheme = "https";
+                corsPort = config.Edge.Ports.Https;
+                corsDefaultPort = DefaultHttpsPort;
+                corsHosts = parsed.Where(h => h.IsLeafEligible).Select(HostParser.ToUrlHost);
+            }
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiRuntime.JwtAuthority))
+        if (string.IsNullOrWhiteSpace(config.Api.OAuth.CallbackBaseUrl))
         {
-            config.ApiRuntime.JwtAuthority = apiDerivedBaseUrl;
+            config.Api.OAuth.CallbackBaseUrl = apiDerivedBaseUrl;
         }
 
-        if (config.ApiRuntime.CorsAllowedOrigins.Count == 0)
+        if (string.IsNullOrWhiteSpace(config.Api.OAuth.JwtAuthority))
         {
-            // CORS follows the web tier's scheme + port; suffix omitted at 80/443.
-            var webHttps = config.Deployment.WebHttps;
-            var webScheme = webHttps ? "https" : "http";
-            var webPort = webHttps ? config.Ports.WebHttps : config.Ports.WebHttp;
-            var webDefaultPort = webHttps ? DefaultHttpsPort : DefaultHttpPort;
-            var webPortSuffix = webPort == webDefaultPort ? string.Empty : $":{webPort}";
+            config.Api.OAuth.JwtAuthority = apiDerivedBaseUrl;
+        }
 
-            config.ApiRuntime.CorsAllowedOrigins = parsed
-                .Where(h => h.IsLeafEligible)
-                .Select(h => $"{webScheme}://{HostParser.ToUrlHost(h)}{webPortSuffix}")
+        if (config.Api.CorsAllowedOrigins.Count == 0)
+        {
+            var webPortSuffix = corsPort == corsDefaultPort ? string.Empty : $":{corsPort}";
+            config.Api.CorsAllowedOrigins = corsHosts
+                .Select(h => $"{corsScheme}://{h}{webPortSuffix}")
                 .ToList();
         }
     }
@@ -784,14 +860,14 @@ internal static class ConfigPhase
     /// Internal for direct test-driven failure paths.</summary>
     internal static void Validate(BootstrapConfig config)
     {
-        if (config.Deployment.Hosts.Count == 0)
+        if (config.Edge.Hosts.Count == 0)
         {
             throw new InvalidOperationException(
-                "config.deployment.hosts must contain at least one host (DNS name, IP literal, or CIDR).");
+                "config.edge.hosts must contain at least one host (DNS name, IP literal, or CIDR).");
         }
 
-        var parsedHosts = new List<HostEntry>(config.Deployment.Hosts.Count);
-        foreach (var raw in config.Deployment.Hosts)
+        var parsedHosts = new List<HostEntry>(config.Edge.Hosts.Count);
+        foreach (var raw in config.Edge.Hosts)
         {
             try
             {
@@ -800,78 +876,72 @@ internal static class ConfigPhase
             catch (FormatException ex)
             {
                 throw new InvalidOperationException(
-                    $"config.deployment.hosts: {ex.Message}", ex);
+                    $"config.edge.hosts: {ex.Message}", ex);
             }
         }
         if (!parsedHosts.Any(h => h.IsLeafEligible))
         {
             throw new InvalidOperationException(
-                "config.deployment.hosts must contain at least one non-CIDR entry to serve as the " +
+                "config.edge.hosts must contain at least one non-CIDR entry to serve as the " +
                 "primary host (leaf cert CN, nginx server_name, and derived URL defaults). " +
                 "CIDR blocks restrict the root CA's Name Constraints but cannot stand alone.");
         }
 
-        if (config.Deployment.CertYears is < 1 or > 30)
+        if (config.Edge.Certificates.CertYears is < 1 or > 30)
         {
             throw new InvalidOperationException(
-                $"config.deployment.certYears={config.Deployment.CertYears} is outside the allowed 1..30 range.");
+                $"config.edge.certificates.certYears={config.Edge.Certificates.CertYears} is outside the allowed 1..30 range.");
         }
 
-        ValidatePort(config.Ports.ApiHttp, nameof(config.Ports.ApiHttp));
-        ValidatePort(config.Ports.ApiHttps, nameof(config.Ports.ApiHttps));
-        ValidatePort(config.Ports.WebHttp, nameof(config.Ports.WebHttp));
-        ValidatePort(config.Ports.WebHttps, nameof(config.Ports.WebHttps));
-        ValidatePort(config.Ports.Postgres, nameof(config.Ports.Postgres));
-        ValidatePort(config.Ports.Scylla, nameof(config.Ports.Scylla));
+        ValidatePort(config.Edge.Ports.Http, nameof(config.Edge.Ports.Http));
+        ValidatePort(config.Edge.Ports.Https, nameof(config.Edge.Ports.Https));
 
-        // Compose binds each host port once; catch collisions here, not as
-        // "port already allocated" mid-launch.
-        var portFields = new (string Name, int Port)[]
+        var portFields = new List<(string Name, int Port)>(2)
         {
-            (nameof(config.Ports.ApiHttp), config.Ports.ApiHttp),
-            (nameof(config.Ports.ApiHttps), config.Ports.ApiHttps),
-            (nameof(config.Ports.WebHttp), config.Ports.WebHttp),
-            (nameof(config.Ports.WebHttps), config.Ports.WebHttps),
-            (nameof(config.Ports.Postgres), config.Ports.Postgres),
-            (nameof(config.Ports.Scylla), config.Ports.Scylla),
+            (nameof(config.Edge.Ports.Http), config.Edge.Ports.Http),
         };
-        var seen = new Dictionary<int, string>(portFields.Length);
+        if (config.Edge.TlsMode != EdgeTlsMode.None)
+            portFields.Add((nameof(config.Edge.Ports.Https), config.Edge.Ports.Https));
+
+        var seen = new Dictionary<int, string>(portFields.Count);
         foreach (var (name, port) in portFields)
         {
             if (seen.TryGetValue(port, out var other))
             {
                 throw new InvalidOperationException(
-                    $"config.ports.{char.ToLowerInvariant(name[0])}{name[1..]} ({port}) collides with " +
-                    $"config.ports.{char.ToLowerInvariant(other[0])}{other[1..]}; every bound host port must be unique.");
+                    $"config.edge.ports.{char.ToLowerInvariant(name[0])}{name[1..]} ({port}) collides with " +
+                    $"config.edge.ports.{char.ToLowerInvariant(other[0])}{other[1..]}; every bound host port must be unique.");
             }
             seen[port] = name;
         }
 
+        ValidateEdge(config, parsedHosts);
+
         // Postgres-safe identifier: quoting-free at both bind sites (connection string +
         // CREATE DATABASE) within the 63-byte NAMEDATALEN budget.
-        if (string.IsNullOrWhiteSpace(config.PostgresDatabase))
+        if (string.IsNullOrWhiteSpace(config.Datastores.Postgres.Database))
         {
             throw new InvalidOperationException(
-                "config.postgresDatabase must be a non-empty Postgres identifier (default: 'interfold').");
+                "config.datastores.postgres.database must be a non-empty Postgres identifier (default: 'interfold').");
         }
-        if (!PostgresIdentifierPattern.IsMatch(config.PostgresDatabase))
+        if (!PostgresIdentifierPattern.IsMatch(config.Datastores.Postgres.Database))
         {
             throw new InvalidOperationException(
-                $"config.postgresDatabase='{config.PostgresDatabase}' is not a safe Postgres identifier. " +
+                $"config.datastores.postgres.database='{config.Datastores.Postgres.Database}' is not a safe Postgres identifier. " +
                 "Allowed: 1..63 chars matching [A-Za-z_][A-Za-z0-9_]*.");
         }
 
         // Intersection of what Cassandra's cassandra.yaml rewrite and Scylla's argv accept
         // without quoting gymnastics; 1..64 matches Cassandra's documented limit.
-        if (string.IsNullOrWhiteSpace(config.ClusterName))
+        if (string.IsNullOrWhiteSpace(config.Datastores.Cql.ClusterName))
         {
             throw new InvalidOperationException(
-                "config.clusterName must be a non-empty cluster identifier (default: 'InterfoldCluster').");
+                "config.datastores.cql.clusterName must be a non-empty cluster identifier (default: 'InterfoldCluster').");
         }
-        if (!ClusterNamePattern.IsMatch(config.ClusterName))
+        if (!ClusterNamePattern.IsMatch(config.Datastores.Cql.ClusterName))
         {
             throw new InvalidOperationException(
-                $"config.clusterName='{config.ClusterName}' contains characters that would break " +
+                $"config.datastores.cql.clusterName='{config.Datastores.Cql.ClusterName}' contains characters that would break " +
                 "Cassandra's cassandra.yaml rewrite or Scylla's CLI argument parsing. " +
                 "Allowed: 1..64 chars matching [A-Za-z0-9 ._-].");
         }
@@ -879,34 +949,34 @@ internal static class ConfigPhase
         // Derive first so JSON-load callers see the same post-derivation values as the form.
         ResolveDerivedDefaults(config);
 
-        ValidateAbsoluteHttpUri(config.ApiRuntime.CallbackBaseUrl, "config.apiRuntime.callbackBaseUrl");
-        ValidateAbsoluteHttpUri(config.ApiRuntime.JwtAuthority, "config.apiRuntime.jwtAuthority");
+        ValidateAbsoluteHttpUri(config.Api.OAuth.CallbackBaseUrl, "config.api.oauth.callbackBaseUrl");
+        ValidateAbsoluteHttpUri(config.Api.OAuth.JwtAuthority, "config.api.oauth.jwtAuthority");
 
-        if (string.IsNullOrWhiteSpace(config.ApiRuntime.JwtAudience))
+        if (string.IsNullOrWhiteSpace(config.Api.OAuth.JwtAudience))
         {
             throw new InvalidOperationException(
-                "config.apiRuntime.jwtAudience must be a non-empty token-audience identifier (default: 'octocon').");
+                "config.api.oauth.jwtAudience must be a non-empty token-audience identifier (default: 'octocon').");
         }
 
         // WithOrigins() does exact string matching, so anything that doesn't round-trip
         // through Uri.TryCreate(http/https) can never match — reject upfront.
-        if (config.ApiRuntime.CorsAllowedOrigins.Count == 0)
+        if (config.Api.CorsAllowedOrigins.Count == 0)
         {
             throw new InvalidOperationException(
-                "config.apiRuntime.corsAllowedOrigins must contain at least one origin after derivation. " +
-                "Add at least one non-CIDR entry to deployment.hosts so derivation can produce a default, " +
+                "config.api.corsAllowedOrigins must contain at least one origin after derivation. " +
+                "Add at least one non-CIDR entry to edge.hosts so derivation can produce a default, " +
                 "or populate corsAllowedOrigins explicitly.");
         }
-        foreach (var origin in config.ApiRuntime.CorsAllowedOrigins)
+        foreach (var origin in config.Api.CorsAllowedOrigins)
         {
-            ValidateAbsoluteHttpUri(origin, "config.apiRuntime.corsAllowedOrigins entry");
+            ValidateAbsoluteHttpUri(origin, "config.api.corsAllowedOrigins entry");
         }
 
         // AvatarStorageRoot is a host path (bind-mount source); blank → {outputDir}/data/avatars.
-        ValidateOptionalAbsoluteHttpUri(config.Storage.AvatarPublicBase, "config.storage.avatarPublicBase");
+        ValidateOptionalAbsoluteHttpUri(config.Api.Storage.AvatarPublicBase, "config.api.storage.avatarPublicBase");
         ValidateOptionalAbsolutePath(
-            config.Storage.AvatarStorageRoot,
-            "config.storage.avatarStorageRoot",
+            config.Api.Storage.AvatarStorageRoot,
+            "config.api.storage.avatarStorageRoot",
             "must be an absolute host path (e.g. '/var/lib/interfold/avatars'). " +
             "Leave blank to default to '{outputDir}/data/avatars'.");
 
@@ -915,80 +985,138 @@ internal static class ConfigPhase
 
         // Numeric bounds come from ConfigurationBounds so the bootstrapper prompts and the
         // API's [Range] attributes on the matching options stay lockstep.
-        if (config.Socket.BatchBytesThreshold is { } socketThreshold)
+        if (config.Api.BatchBytesThreshold is { } socketThreshold)
         {
             ValidateIntRange(socketThreshold,
                 ConfigurationBounds.SocketBatchBytesThresholdMin,
                 ConfigurationBounds.SocketBatchBytesThresholdMax,
-                "config.socket.batchBytesThreshold");
+                "config.api.batchBytesThreshold");
         }
 
         // Persistence tuning: max-vs-initial cross-check catches the easy inverted-values mistake.
-        ValidateIntRange(config.Persistence.DbRetryAttempts,
+        ValidateIntRange(config.Api.Resilience.DbRetryAttempts,
             ConfigurationBounds.DbRetryAttemptsMin,
             ConfigurationBounds.DbRetryAttemptsMax,
-            "config.persistence.dbRetryAttempts");
-        ValidateIntRange(config.Persistence.DbRetryInitialDelayMs,
+            "config.api.resilience.dbRetryAttempts");
+        ValidateIntRange(config.Api.Resilience.DbRetryInitialDelayMs,
             ConfigurationBounds.DbRetryInitialDelayMsMin,
             ConfigurationBounds.DbRetryInitialDelayMsMax,
-            "config.persistence.dbRetryInitialDelayMs");
-        ValidateIntRange(config.Persistence.DbRetryMaxDelayMs,
+            "config.api.resilience.dbRetryInitialDelayMs");
+        ValidateIntRange(config.Api.Resilience.DbRetryMaxDelayMs,
             ConfigurationBounds.DbRetryMaxDelayMsMin,
             ConfigurationBounds.DbRetryMaxDelayMsMax,
-                "config.persistence.dbRetryMaxDelayMs");
+                "config.api.resilience.dbRetryMaxDelayMs");
         // Cross-check catches the easy inverted-values mistake.
-        if (config.Persistence.DbRetryMaxDelayMs < config.Persistence.DbRetryInitialDelayMs)
+        if (config.Api.Resilience.DbRetryMaxDelayMs < config.Api.Resilience.DbRetryInitialDelayMs)
         {
             throw new InvalidOperationException(
-                $"config.persistence.dbRetryMaxDelayMs ({config.Persistence.DbRetryMaxDelayMs}) " +
-                $"must be >= dbRetryInitialDelayMs ({config.Persistence.DbRetryInitialDelayMs}).");
+                $"config.api.resilience.dbRetryMaxDelayMs ({config.Api.Resilience.DbRetryMaxDelayMs}) " +
+                $"must be >= dbRetryInitialDelayMs ({config.Api.Resilience.DbRetryInitialDelayMs}).");
         }
-        ValidateIntRange(config.Persistence.HydrationMaxConcurrency,
+        ValidateIntRange(config.Api.Resilience.HydrationMaxConcurrency,
             ConfigurationBounds.HydrationMaxConcurrencyMin,
             ConfigurationBounds.HydrationMaxConcurrencyMax,
-            "config.persistence.hydrationMaxConcurrency");
+            "config.api.resilience.hydrationMaxConcurrency");
 
         // Real schedule grammar validation is `systemd-analyze calendar` at install time.
-        ValidateIntRange(config.Backup.RetainCount, 1, 1000, "config.backup.retainCount");
-        if (string.IsNullOrWhiteSpace(config.Backup.Schedule))
+        ValidateIntRange(config.Deployment.Backup.RetainCount, 1, 1000, "config.deployment.backup.retainCount");
+        if (string.IsNullOrWhiteSpace(config.Deployment.Backup.Schedule))
         {
             throw new InvalidOperationException(
-                "config.backup.schedule must be a non-empty systemd OnCalendar expression " +
+                "config.deployment.backup.schedule must be a non-empty systemd OnCalendar expression " +
                 "(e.g. 'daily', 'weekly', or 'Mon..Fri 03:30').");
         }
-        if (!BackupSchedulePattern.IsMatch(config.Backup.Schedule))
+        if (!BackupSchedulePattern.IsMatch(config.Deployment.Backup.Schedule))
         {
             throw new InvalidOperationException(
-                $"config.backup.schedule='{config.Backup.Schedule}' contains characters that are not " +
+                $"config.deployment.backup.schedule='{config.Deployment.Backup.Schedule}' contains characters that are not " +
                 "valid in a systemd OnCalendar expression. Allowed: letters, digits, spaces, and " +
                 "the punctuation '.-:,*/'.");
         }
         ValidateOptionalAbsolutePath(
-            config.Backup.Directory,
-            "config.backup.directory",
+            config.Deployment.Backup.Directory,
+            "config.deployment.backup.directory",
             "must be an absolute path (systemd-driven backup invocations have an unpredictable CWD; " +
             "relative paths would not resolve consistently). Leave blank to default to '{outputDir}/backups'.");
 
         // Range covers realistic cold-starts (Postgres+Scylla+API ~60-120s on modest hardware);
         // 3600s cap matches UpdateImagesPhase's "give up eventually" contract.
         ValidateIntRange(
-            config.Update.HealthCheckTimeoutSeconds, 1, 3600,
-            "config.update.healthCheckTimeoutSeconds");
+            config.Deployment.Update.HealthCheckTimeoutSeconds, 1, 3600,
+            "config.deployment.update.healthCheckTimeoutSeconds");
 
         // Empty = every service (valid default); only non-empty entries are checked.
-        foreach (var svc in config.Update.Services)
+        foreach (var svc in config.Deployment.Update.Services)
         {
             if (string.IsNullOrWhiteSpace(svc))
             {
                 throw new InvalidOperationException(
-                    "config.update.services contains a blank entry. Remove it or " +
+                    "config.deployment.update.services contains a blank entry. Remove it or " +
                     $"replace with one of: {string.Join(", ", ValidUpdateServices)}.");
             }
             if (!ValidUpdateServices.Contains(svc, StringComparer.Ordinal))
             {
                 throw new InvalidOperationException(
-                    $"config.update.services entry '{svc}' is not a known compose service. " +
+                    $"config.deployment.update.services entry '{svc}' is not a known compose service. " +
                     $"Expected one of: {string.Join(", ", ValidUpdateServices)}.");
+            }
+        }
+    }
+
+    /// <summary>Edge-specific invariants.</summary>
+    internal static void ValidateEdge(BootstrapConfig config, IReadOnlyList<HostEntry> parsedHosts)
+    {
+        var edge = config.Edge;
+
+        if (edge.Routing.Mode == EdgeRoutingMode.Subdomain)
+        {
+            if (string.IsNullOrWhiteSpace(edge.Routing.ApiHost) || string.IsNullOrWhiteSpace(edge.Routing.WebHost))
+            {
+                throw new InvalidOperationException(
+                    "config.edge.routing.mode=subdomain requires non-empty " +
+                    "edge.routing.apiHost and edge.routing.webHost.");
+            }
+
+            try
+            {
+                var api = HostParser.Parse(edge.Routing.ApiHost);
+                var web = HostParser.Parse(edge.Routing.WebHost);
+                if (!api.IsLeafEligible || api.Kind != HostKind.Dns)
+                {
+                    throw new InvalidOperationException(
+                        $"config.edge.routing.apiHost '{edge.Routing.ApiHost}' must be a DNS name.");
+                }
+                if (!web.IsLeafEligible || web.Kind != HostKind.Dns)
+                {
+                    throw new InvalidOperationException(
+                        $"config.edge.routing.webHost '{edge.Routing.WebHost}' must be a DNS name.");
+                }
+            }
+            catch (FormatException ex)
+            {
+                throw new InvalidOperationException(
+                    $"config.edge.routing apiHost/webHost: {ex.Message}", ex);
+            }
+        }
+
+        if (edge.TlsMode == EdgeTlsMode.LetsEncrypt)
+        {
+            var dnsCapable = edge.Routing.Mode == EdgeRoutingMode.Subdomain
+                || parsedHosts.Any(h => h.Kind == HostKind.Dns);
+            if (!dnsCapable)
+            {
+                throw new InvalidOperationException(
+                    "config.edge.tlsMode=letsEncrypt requires at least one DNS hostname " +
+                    "(edge.hosts, or edge.routing.apiHost/webHost for subdomain routing). " +
+                    "IP-only primaries cannot obtain a public certificate.");
+            }
+
+            if (edge.Cloudflare.IpAllowlist
+                && string.IsNullOrWhiteSpace(edge.Cloudflare.DnsApiToken))
+            {
+                throw new InvalidOperationException(
+                    "config.edge.cloudflare.dnsApiToken is required when " +
+                    "tlsMode=letsEncrypt and cloudflare.ipAllowlist=true (DNS-01 for orange-cloud).");
             }
         }
     }
@@ -1073,6 +1201,7 @@ internal static class ConfigPhase
 
     private static async Task PersistAsync(BootstrapConfig config, string path, CancellationToken ct)
     {
+        config.SchemaVersion = BootstrapConfig.CurrentSchemaVersion;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var json = JsonSerializer.Serialize(config, BootstrapJsonContext.Default.BootstrapConfig);
         await File.WriteAllTextAsync(path, json, ct).ConfigureAwait(false);
@@ -1198,7 +1327,7 @@ internal static class ConfigPhase
         CancellationToken ct,
         Func<string, CancellationToken, Task<bool?>>? probe = null)
     {
-        var localHosts = config.Deployment.Hosts
+        var localHosts = config.Edge.Hosts
             .Where(h => h.EndsWith(".local", StringComparison.OrdinalIgnoreCase))
             .ToList();
         if (localHosts.Count == 0)
@@ -1268,9 +1397,9 @@ internal static class ConfigPhase
 
         // Strip + warn + continue. Bootstrap doesn't halt; the install hint is recovery advice.
         var installHint = MdnsAvailability.ManualInstallHint(DistroInfo.Read().Family);
-        logger.Warn($"removing unresolvable .local host(s) from config.deployment.hosts: {string.Join(", ", broken)}");
+        logger.Warn($"removing unresolvable .local host(s) from config.edge.hosts: {string.Join(", ", broken)}");
         logger.Warn($"    bootstrap will continue with the remaining hosts. To restore these entries on a future run, set up mDNS first: {installHint}");
-        config.Deployment.Hosts = [.. config.Deployment.Hosts.Except(broken, StringComparer.OrdinalIgnoreCase)];
+        config.Edge.Hosts = [.. config.Edge.Hosts.Except(broken, StringComparer.OrdinalIgnoreCase)];
         return true;
     }
 }

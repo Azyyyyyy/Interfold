@@ -67,15 +67,15 @@ public static class RootCli
 
         // --- install-service-specific options ---
         // When the flag is omitted on the CLI the default falls back to the matching config
-        // value (BackupSection.AutostartServer / BackupSection.Enabled); we accept a tri-state
+        // value (DeploymentSection.AutostartServer / DeploymentSection.Backup.Enabled); we accept a tri-state
         // via the System.CommandLine bool option's "specified" check on the parse result.
         var enableAutostartOpt = new Option<bool>("--enable-autostart")
         {
-            Description = "After writing units, run `systemctl enable --now interfold.service`. Overrides config.backup.autostartServer."
+            Description = "After writing units, run `systemctl enable --now interfold.service`. Overrides config.deployment.autostartServer."
         };
         var enableBackupTimerOpt = new Option<bool>("--enable-backup-timer")
         {
-            Description = "After writing units, run `systemctl enable --now interfold-backup.timer`. Overrides config.backup.enabled."
+            Description = "After writing units, run `systemctl enable --now interfold-backup.timer`. Overrides config.deployment.backup.enabled."
         };
         var systemdUnitDirOpt = new Option<string?>("--systemd-unit-dir")
         {

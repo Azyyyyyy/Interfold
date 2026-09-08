@@ -5,7 +5,7 @@ using Interfold.Bootstrapper.Cli;
 namespace Interfold.Bootstrapper.Util;
 
 /// <summary>
-/// Embedded <c>support/</c> resources (Scylla rackdc, nginx template, Cassandra Dockerfile,
+/// Embedded <c>support/</c> resources (Scylla rackdc, edge nginx templates, Cassandra Dockerfile,
 /// ensure-host-aio.sh). Read via <see cref="Open"/>; materialize to disk only when Docker
 /// needs a host bind-mount path.
 /// </summary>
@@ -15,8 +15,19 @@ internal static class EmbeddedSupportFiles
 
     private static Assembly BootstrapperAssembly => typeof(EmbeddedSupportFiles).Assembly;
 
-    internal const string NginxTemplateRelative = "web/nginx/default.conf.template";
     internal const string CassandraDockerfileRelative = "db/cassandra/Dockerfile";
+
+    internal const string EdgePathTemplateRelative = "edge/nginx/path.conf.template";
+    internal const string EdgePathHttpTemplateRelative = "edge/nginx/path-http.conf.template";
+    internal const string EdgeSubdomainTemplateRelative = "edge/nginx/subdomain.conf.template";
+    internal const string EdgeSubdomainHttpTemplateRelative = "edge/nginx/subdomain-http.conf.template";
+    internal const string EdgeProxyParamsRelative = "edge/nginx/proxy_params.conf";
+    internal const string EdgeCloudflareIpsRelative = "edge/nginx/cloudflare-ips.conf";
+
+    internal static string EdgeTemplateRelative(bool subdomain, bool plaintext) =>
+        subdomain
+            ? (plaintext ? EdgeSubdomainHttpTemplateRelative : EdgeSubdomainTemplateRelative)
+            : (plaintext ? EdgePathHttpTemplateRelative : EdgePathTemplateRelative);
 
     internal static string RackDcRelative(string regionWire) =>
         $"db/scylla/cassandra-rackdc.{regionWire}.properties";

@@ -104,10 +104,10 @@ internal static class DatabaseInitPhase
             AppPassword: secrets.PostgresPassword,
             AdminUser: $"{secrets.PostgresUser}_admin",
             AdminPassword: secrets.PostgresAdminPassword,
-            DefaultDatabase: config.PostgresDatabase,
-            GoogleOAuthClientSecret: config.OAuth.GoogleClientSecret ?? string.Empty,
-            DiscordOAuthClientSecret: config.OAuth.DiscordClientSecret ?? string.Empty,
-            AppleOAuthClientSecret: config.OAuth.AppleClientSecret ?? string.Empty,
+            DefaultDatabase: config.Datastores.Postgres.Database,
+            GoogleOAuthClientSecret: config.Api.OAuth.GoogleClientSecret ?? string.Empty,
+            DiscordOAuthClientSecret: config.Api.OAuth.DiscordClientSecret ?? string.Empty,
+            AppleOAuthClientSecret: config.Api.OAuth.AppleClientSecret ?? string.Empty,
             EncryptionPepper: secrets.EncryptionPepper,
             // Self-hosted deployments reach scylla via the docker network using its container
             // alias. The matching DataStax driver inside the API resolves it inside the same
@@ -138,11 +138,7 @@ internal static class DatabaseInitPhase
 
     private static int ResolveScyllaPort()
     {
-        // CQL port the API uses to reach Scylla *over the compose docker network* (resolving the
-        // scylla service name via docker DNS). That target is always the container's listening
-        // port — 9042 — irrespective of whatever host port the operator (or test fixture) chose
-        // for external access via `config.ports.scylla`. The host-port choice flows into the
-        // compose YAML via PublishPhase; here we deliberately stay on the in-network port.
+        // CQL port the API uses over the compose docker network — always the container listen port.
         return 9042;
     }
 

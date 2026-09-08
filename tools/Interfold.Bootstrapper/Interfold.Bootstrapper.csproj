@@ -57,8 +57,8 @@
                       LogicalName="support/db/scylla/%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\..\scripts\docker\ensure-host-aio.sh"
                       LogicalName="support/scripts/docker/ensure-host-aio.sh" />
-    <EmbeddedResource Include="..\..\web\nginx\default.conf.template"
-                      LogicalName="support/web/nginx/default.conf.template" />
+    <EmbeddedResource Include="..\..\support\edge\nginx\*"
+                      LogicalName="support/edge/nginx/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

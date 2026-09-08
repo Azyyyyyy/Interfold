@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
 using Interfold.Shared.Contracts.Enums;
@@ -15,19 +16,26 @@ public sealed class ConfigValidationTests
         Deployment =
         {
             OutputDir = "./deploy",
-            Hosts = ["api.example.com"],
-            RootCaName = "Interfold Root CA",
-            CertYears = 5,
-            TrustStoreInstall = true,
         },
-        Ports =
+        Edge =
         {
-            ApiHttp = 5000,
-            ApiHttps = 5001,
-            WebHttp = 8080,
-            WebHttps = 8081,
+            Hosts = ["api.example.com"],
+            Certificates =
+            {
+                RootCaName = "Interfold Root CA",
+                CertYears = 5,
+                TrustStoreInstall = true,
+            },
+            Ports =
+            {
+                Http = 80,
+                Https = 443,
+            },
         },
-        DatabaseMode = DatabaseMode.Single,
+        Datastores =
+        {
+            Cql = { Backend = CqlBackend.ScyllaSingle },
+        },
     };
 
     /// <summary>Mutates a valid config, invokes Validate, asserts every fragment appears in
@@ -54,42 +62,41 @@ public sealed class ConfigValidationTests
 
     [Test]
     public Task EmptyHostsListFailsValidation()
-        => AssertInvalidAsync(c => c.Deployment.Hosts = [], "hosts");
+        => AssertInvalidAsync(c => c.Edge.Hosts = [], "hosts");
 
     [Test]
     public Task ZeroCertYearsFailsValidation()
-        => AssertInvalidAsync(c => c.Deployment.CertYears = 0, "certYears");
+        => AssertInvalidAsync(c => c.Edge.Certificates.CertYears = 0, "certYears");
 
     [Test]
     public Task NegativeCertYearsFailsValidation()
-        => AssertInvalidAsync(c => c.Deployment.CertYears = -1, "certYears");
+        => AssertInvalidAsync(c => c.Edge.Certificates.CertYears = -1, "certYears");
 
     [Test]
     public Task CertYearsOverThirtyFailsValidation()
-        => AssertInvalidAsync(c => c.Deployment.CertYears = 31, "certYears");
+        => AssertInvalidAsync(c => c.Edge.Certificates.CertYears = 31, "certYears");
 
     [Test]
-    public Task ApiHttpEqualsApiHttpsFailsValidation()
-        // Same host port can't bind two listeners; the validator must surface this before publish.
+    public Task EdgeHttpEqualsEdgeHttpsFailsValidation()
         => AssertInvalidAsync(c =>
         {
-            c.Ports.ApiHttp = 5000;
-            c.Ports.ApiHttps = 5000;
-        }, "apiHttp", "apiHttps");
+            c.Edge.Ports.Http = 443;
+            c.Edge.Ports.Https = 443;
+        }, "collides");
 
     [Test]
     public Task DomainWithSpaceFailsValidation()
-        => AssertInvalidAsync(c => c.Deployment.Hosts = ["api example.com"], "whitespace");
+        => AssertInvalidAsync(c => c.Edge.Hosts = ["api example.com"], "whitespace");
 
     [Test]
     public async Task Ipv4HostPassesValidation()
     {
-        // LAN-only self-host: IP-SAN'd leaf; derived URL is always https + :ApiHttps (5001).
+        // LAN-only self-host: IP-SAN'd leaf; derived URL uses edge HTTPS.
         var cfg = MakeValid();
-        cfg.Deployment.Hosts = ["192.168.1.42"];
+        cfg.Edge.Hosts = ["192.168.1.42"];
 
         ConfigPhase.Validate(cfg);
-        await Assert.That(cfg.ApiRuntime.CallbackBaseUrl).IsEqualTo("https://192.168.1.42:5001");
+        await Assert.That(cfg.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://192.168.1.42");
     }
 
     [Test]
@@ -97,10 +104,10 @@ public sealed class ConfigValidationTests
     {
         // Derived URL must bracket-wrap the address per RFC 3986 §3.2.2.
         var cfg = MakeValid();
-        cfg.Deployment.Hosts = ["fe80::1"];
+        cfg.Edge.Hosts = ["fe80::1"];
 
         ConfigPhase.Validate(cfg);
-        await Assert.That(cfg.ApiRuntime.CallbackBaseUrl).IsEqualTo("https://[fe80::1]:5001");
+        await Assert.That(cfg.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://[fe80::1]");
     }
 
     [Test]
@@ -108,39 +115,39 @@ public sealed class ConfigValidationTests
     {
         // DNS/IP acts as primary; CIDR widens root-CA Name Constraints scope.
         var cfg = MakeValid();
-        cfg.Deployment.Hosts = ["api.example.com", "10.0.0.0/8"];
+        cfg.Edge.Hosts = ["api.example.com", "10.0.0.0/8"];
 
         ConfigPhase.Validate(cfg);
-        await Assert.That(cfg.ApiRuntime.CallbackBaseUrl).IsEqualTo("https://api.example.com:5001");
+        await Assert.That(cfg.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://api.example.com");
     }
 
     [Test]
     public async Task Ipv6CidrPlusIpv4HostPassesValidation()
     {
         var cfg = MakeValid();
-        cfg.Deployment.Hosts = ["192.168.1.42", "fe80::/64"];
+        cfg.Edge.Hosts = ["192.168.1.42", "fe80::/64"];
 
         ConfigPhase.Validate(cfg);
-        await Assert.That(cfg.ApiRuntime.CallbackBaseUrl).IsEqualTo("https://192.168.1.42:5001");
+        await Assert.That(cfg.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://192.168.1.42");
     }
 
     [Test]
     // CIDR-only has no leaf-eligible primary.
     public Task AllCidrHostsFailValidation()
-        => AssertInvalidAsync(c => c.Deployment.Hosts = ["192.168.1.0/24", "fe80::/64"], "non-CIDR");
+        => AssertInvalidAsync(c => c.Edge.Hosts = ["192.168.1.0/24", "fe80::/64"], "non-CIDR");
 
     [Test]
     // Surface HostParser's fix-it rather than silently normalising.
     public Task CidrWithHostBitsSetFailsValidation()
-        => AssertInvalidAsync(c => c.Deployment.Hosts = ["192.168.1.42/24"],
+        => AssertInvalidAsync(c => c.Edge.Hosts = ["192.168.1.42/24"],
             "host bits", "192.168.1.0/24", "192.168.1.42/32");
 
     [Test]
     public async Task DefaultConstructedDeploymentHasNoHosts()
     {
-        // Pins the "no placeholder" contract on Deployment.Hosts.
-        var deployment = new DeploymentSection();
-        await Assert.That(deployment.Hosts.Count).IsEqualTo(0);
+        // Pins the "no placeholder" contract on Edge.Hosts.
+        var edge = new EdgeSection();
+        await Assert.That(edge.Hosts.Count).IsEqualTo(0);
     }
 
     [Test]
@@ -156,28 +163,27 @@ public sealed class ConfigValidationTests
 
     [Test]
     public Task PortAboveMaxFailsValidation()
-        => AssertInvalidAsync(c => c.Ports.ApiHttp = 70000, "ApiHttp");
+        => AssertInvalidAsync(c => c.Edge.Ports.Http = 70000, "Http");
 
     [Test]
-    public async Task InvalidDatabaseModeInJsonFailsDeserialization()
+    public async Task InvalidCqlBackendInJsonFailsDeserialization()
     {
-        // Rejection lives in the source-generated context, not Validate.
         const string badJson = """
         {
-            "databaseMode": "quadruple-redundant"
+            "datastores": { "cql": { "backend": "quadruple-redundant" } }
         }
         """;
         var ex = Assert.Throws<JsonException>(() =>
             JsonSerializer.Deserialize(badJson, BootstrapJsonContext.Default.BootstrapConfig));
-        await Assert.That(ex.Message).Contains("DatabaseMode");
-        await Assert.That(ex.Message).Contains("databaseMode");
+        await Assert.That(ex.Message).Contains("CqlBackend");
+        await Assert.That(ex.Message).Contains("backend");
     }
 
     [Test]
     public async Task DefaultPostgresDatabasePasses()
     {
         var cfg = MakeValid();
-        cfg.PostgresDatabase = "interfold";
+        cfg.Datastores.Postgres.Database = "interfold";
 
         ConfigPhase.Validate(cfg);
         await Task.CompletedTask;
@@ -188,7 +194,7 @@ public sealed class ConfigValidationTests
     {
         // Exercise underscores + digits (typical env-suffixed name).
         var cfg = MakeValid();
-        cfg.PostgresDatabase = "acme_prod_42";
+        cfg.Datastores.Postgres.Database = "acme_prod_42";
 
         ConfigPhase.Validate(cfg);
         await Task.CompletedTask;
@@ -196,27 +202,27 @@ public sealed class ConfigValidationTests
 
     [Test]
     public Task EmptyPostgresDatabaseFailsValidation()
-        => AssertInvalidAsync(c => c.PostgresDatabase = string.Empty, "postgresDatabase");
+        => AssertInvalidAsync(c => c.Datastores.Postgres.Database = string.Empty, "postgres.database");
 
     [Test]
     public Task WhitespacePostgresDatabaseFailsValidation()
-        => AssertInvalidAsync(c => c.PostgresDatabase = "   ", "postgresDatabase");
+        => AssertInvalidAsync(c => c.Datastores.Postgres.Database = "   ", "postgres.database");
 
     [Test]
     // Postgres tolerates a leading digit only inside quotes; forbid up front to avoid drift.
     public Task PostgresDatabaseStartingWithDigitFailsValidation()
-        => AssertInvalidAsync(c => c.PostgresDatabase = "1interfold", "postgresDatabase");
+        => AssertInvalidAsync(c => c.Datastores.Postgres.Database = "1interfold", "postgres.database");
 
     [Test]
     // Dashes need quoting; forbidding them keeps the name reusable as a role/schema prefix.
     public Task PostgresDatabaseWithDashFailsValidation()
-        => AssertInvalidAsync(c => c.PostgresDatabase = "inter-fold", "postgresDatabase");
+        => AssertInvalidAsync(c => c.Datastores.Postgres.Database = "inter-fold", "postgres.database");
 
     [Test]
     public async Task DefaultClusterNamePasses()
     {
         var cfg = MakeValid();
-        cfg.ClusterName = "InterfoldCluster";
+        cfg.Datastores.Cql.ClusterName = "InterfoldCluster";
 
         ConfigPhase.Validate(cfg);
         await Task.CompletedTask;
@@ -227,7 +233,7 @@ public sealed class ConfigValidationTests
     {
         // Spaces are legitimate here (advertised in gossip / DESCRIBE CLUSTER).
         var cfg = MakeValid();
-        cfg.ClusterName = "Acme Prod 1.0";
+        cfg.Datastores.Cql.ClusterName = "Acme Prod 1.0";
 
         ConfigPhase.Validate(cfg);
         await Task.CompletedTask;
@@ -235,21 +241,21 @@ public sealed class ConfigValidationTests
 
     [Test]
     public Task EmptyClusterNameFailsValidation()
-        => AssertInvalidAsync(c => c.ClusterName = string.Empty, "clusterName");
+        => AssertInvalidAsync(c => c.Datastores.Cql.ClusterName = string.Empty, "clusterName");
 
     [Test]
     // A raw quote would corrupt the Cassandra entrypoint's cassandra.yaml rewrite.
     public Task ClusterNameWithSingleQuoteFailsValidation()
-        => AssertInvalidAsync(c => c.ClusterName = "Acme'Prod", "clusterName");
+        => AssertInvalidAsync(c => c.Datastores.Cql.ClusterName = "Acme'Prod", "clusterName");
 
     [Test]
     public Task ClusterNameWithNewlineFailsValidation()
-        => AssertInvalidAsync(c => c.ClusterName = "Acme\nProd", "clusterName");
+        => AssertInvalidAsync(c => c.Datastores.Cql.ClusterName = "Acme\nProd", "clusterName");
 
     [Test]
     // 64 chars is the published Cassandra limit.
     public Task OverlyLongClusterNameFailsValidation()
-        => AssertInvalidAsync(c => c.ClusterName = new string('A', 65), "clusterName");
+        => AssertInvalidAsync(c => c.Datastores.Cql.ClusterName = new string('A', 65), "clusterName");
 
     [Test]
     public async Task InvalidScyllaKeyspaceInJsonFailsDeserialization()
@@ -257,13 +263,13 @@ public sealed class ConfigValidationTests
         // Rejection lives in the JSON converter, not Validate.
         const string badJson = """
         {
-            "scyllaKeyspace": "antarctica"
+            "datastores": { "cql": { "keyspace": "antarctica" } }
         }
         """;
         var ex = Assert.Throws<JsonException>(() =>
             JsonSerializer.Deserialize(badJson, BootstrapJsonContext.Default.BootstrapConfig));
         await Assert.That(ex.Message).Contains("ScyllaKeyspace");
-        await Assert.That(ex.Message).Contains("scyllaKeyspace");
+        await Assert.That(ex.Message).Contains("keyspace");
     }
 
     [Test]
@@ -273,7 +279,7 @@ public sealed class ConfigValidationTests
         foreach (var keyspace in Enum.GetValues<ScyllaKeyspace>())
         {
             var cfg = MakeValid();
-            cfg.ScyllaKeyspace = keyspace;
+            cfg.Datastores.Cql.Keyspace = keyspace;
             ConfigPhase.Validate(cfg);
         }
         await Task.CompletedTask;
@@ -281,16 +287,16 @@ public sealed class ConfigValidationTests
 
     [Test]
     public Task NonHttpCallbackBaseUrlFailsValidation()
-        => AssertInvalidAsync(c => c.ApiRuntime.CallbackBaseUrl = "ftp://api.example.com", "callbackBaseUrl");
+        => AssertInvalidAsync(c => c.Api.OAuth.CallbackBaseUrl = "ftp://api.example.com", "callbackBaseUrl");
 
     [Test]
     // Even with a property-initialiser default, `"": ""` from hand-edited JSON must reject.
     public Task EmptyJwtAudienceFailsValidation()
-        => AssertInvalidAsync(c => c.ApiRuntime.JwtAudience = "", "jwtAudience");
+        => AssertInvalidAsync(c => c.Api.OAuth.JwtAudience = "", "jwtAudience");
 
     [Test]
     public Task NonHttpCorsOriginFailsValidation()
-        => AssertInvalidAsync(c => c.ApiRuntime.CorsAllowedOrigins = ["https://app.example.com", "not-a-url"],
+        => AssertInvalidAsync(c => c.Api.CorsAllowedOrigins = ["https://app.example.com", "not-a-url"],
             "corsAllowedOrigins");
 
     [Test]
@@ -298,20 +304,81 @@ public sealed class ConfigValidationTests
     {
         // Validate is a mutating check — it materialises apiRuntime defaults for JSON callers.
         var cfg = MakeValid();
-        cfg.Deployment.Hosts = ["api.example.com", "admin.example.com"];
-        cfg.Deployment.WebHttps = true;
-        cfg.ApiRuntime.CallbackBaseUrl = string.Empty;
-        cfg.ApiRuntime.JwtAuthority = string.Empty;
-        cfg.ApiRuntime.CorsAllowedOrigins = [];
+        cfg.Edge.Hosts = ["api.example.com", "admin.example.com"];
+        cfg.Edge.Ports.Https = 443;
+        cfg.Api.OAuth.CallbackBaseUrl = string.Empty;
+        cfg.Api.OAuth.JwtAuthority = string.Empty;
+        cfg.Api.CorsAllowedOrigins = [];
 
         ConfigPhase.Validate(cfg);
 
-        // API URL is always https + ApiHttps (5001); CORS scheme follows WebHttps + WebHttps port.
-        await Assert.That(cfg.ApiRuntime.CallbackBaseUrl).IsEqualTo("https://api.example.com:5001");
-        await Assert.That(cfg.ApiRuntime.JwtAuthority).IsEqualTo("https://api.example.com:5001");
-        await Assert.That(cfg.ApiRuntime.CorsAllowedOrigins.Count).IsEqualTo(2);
-        await Assert.That(cfg.ApiRuntime.CorsAllowedOrigins).Contains("https://api.example.com:8081");
-        await Assert.That(cfg.ApiRuntime.CorsAllowedOrigins).Contains("https://admin.example.com:8081");
+        await Assert.That(cfg.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://api.example.com");
+        await Assert.That(cfg.Api.OAuth.JwtAuthority).IsEqualTo("https://api.example.com");
+        await Assert.That(cfg.Api.CorsAllowedOrigins.Count).IsEqualTo(2);
+        await Assert.That(cfg.Api.CorsAllowedOrigins).Contains("https://api.example.com");
+        await Assert.That(cfg.Api.CorsAllowedOrigins).Contains("https://admin.example.com");
+    }
+
+    [Test]
+    public Task EdgeLetsEncryptWithoutDnsHostFails()
+        => AssertInvalidAsync(c =>
+        {
+            c.Edge.Hosts = ["192.168.1.10"];
+            c.Edge.TlsMode = EdgeTlsMode.LetsEncrypt;
+        }, "letsEncrypt");
+
+    [Test]
+    public Task EdgeLetsEncryptWithCloudflareRequiresToken()
+        => AssertInvalidAsync(c =>
+        {
+            c.Edge.TlsMode = EdgeTlsMode.LetsEncrypt;
+            c.Edge.Cloudflare.IpAllowlist = true;
+            c.Edge.Cloudflare.DnsApiToken = "";
+        }, "dnsApiToken");
+
+    [Test]
+    public Task EdgeSubdomainRequiresHosts()
+        => AssertInvalidAsync(c =>
+        {
+            c.Edge.Routing.Mode = EdgeRoutingMode.Subdomain;
+            c.Edge.Routing.ApiHost = "";
+            c.Edge.Routing.WebHost = "";
+        }, "subdomain");
+
+    [Test]
+    public async Task V1JsonMigratesOnLoad()
+    {
+        const string json = """
+            {
+              "deployment": { "hosts": ["a.example.com"], "webHttps": true },
+              "ports": { "apiHttp": 5000, "apiHttps": 5001, "webHttps": 8081 }
+            }
+            """;
+        var result = ConfigSchemaMigrator.MigrateIfNeeded(json, "interfold.bootstrap.json", new PhaseLogger(
+            TestSupport.MakeOptions(outputDir: Path.GetTempPath())));
+        await Assert.That(result.DidMigrate).IsTrue();
+        using var doc = JsonDocument.Parse(result.Json);
+        await Assert.That(doc.RootElement.GetProperty("schemaVersion").GetInt32()).IsEqualTo(2);
+        await Assert.That(doc.RootElement.GetProperty("edge").GetProperty("ports").GetProperty("https").GetInt32()).IsEqualTo(5001);
+    }
+
+    [Test]
+    public async Task V2EdgeEnabledRejected()
+    {
+        const string json = """
+            {
+              "schemaVersion": 2,
+              "deployment": {
+                "hosts": ["a.example.com"],
+                "edge": { "tlsMode": "privateCa", "routing": "path", "enabled": true }
+              },
+              "ports": { "edgeHttp": 80, "edgeHttps": 443 }
+            }
+            """;
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigSchemaMigrator.MigrateIfNeeded(json, "interfold.bootstrap.json", new PhaseLogger(
+                TestSupport.MakeOptions(outputDir: Path.GetTempPath()))));
+        await Assert.That(ex.Message).Contains("edge.enabled");
     }
 
     // --- Cluster / Storage / Observability / Socket / Persistence tuning validation ---
@@ -322,7 +389,7 @@ public sealed class ConfigValidationTests
         // Rejection lives in the JSON converter, not Validate.
         const string badJson = """
         {
-            "cluster": { "nodeGroup": "guardian" }
+            "api": { "nodeGroup": "guardian" }
         }
         """;
         var ex = Assert.Throws<JsonException>(() =>
@@ -338,7 +405,7 @@ public sealed class ConfigValidationTests
         foreach (var nodeGroup in Enum.GetValues<NodeGroup>())
         {
             var cfg = MakeValid();
-            cfg.Cluster.NodeGroup = nodeGroup;
+            cfg.Api.NodeGroup = nodeGroup;
             ConfigPhase.Validate(cfg);
         }
         await Task.CompletedTask;
@@ -349,10 +416,10 @@ public sealed class ConfigValidationTests
     {
         // Empty Avatar* / OtlpEndpoint = "feature disabled"; must not fail validation.
         var cfg = MakeValid();
-        cfg.Storage.AvatarStorageRoot = string.Empty;
-        cfg.Storage.AvatarPublicBase = string.Empty;
+        cfg.Api.Storage.AvatarStorageRoot = string.Empty;
+        cfg.Api.Storage.AvatarPublicBase = string.Empty;
         cfg.Observability.OtlpEndpoint = string.Empty;
-        cfg.Socket.BatchBytesThreshold = null;
+        cfg.Api.BatchBytesThreshold = null;
 
         ConfigPhase.Validate(cfg);
         await Task.CompletedTask;
@@ -360,12 +427,12 @@ public sealed class ConfigValidationTests
 
     [Test]
     public Task NonHttpAvatarPublicBaseFailsValidation()
-        => AssertInvalidAsync(c => c.Storage.AvatarPublicBase = "ftp://cdn.example.com/avatars/", "avatarPublicBase");
+        => AssertInvalidAsync(c => c.Api.Storage.AvatarPublicBase = "ftp://cdn.example.com/avatars/", "avatarPublicBase");
 
     [Test]
     // Relative paths resolve against the API container CWD → silent breakage.
     public Task RelativeAvatarStorageRootFailsValidation()
-        => AssertInvalidAsync(c => c.Storage.AvatarStorageRoot = "avatars", "avatarStorageRoot");
+        => AssertInvalidAsync(c => c.Api.Storage.AvatarStorageRoot = "avatars", "avatarStorageRoot");
 
     [Test]
     public Task NonHttpOtlpEndpointFailsValidation()
@@ -373,37 +440,37 @@ public sealed class ConfigValidationTests
 
     [Test]
     public Task ZeroDbRetryAttemptsFailsValidation()
-        => AssertInvalidAsync(c => c.Persistence.DbRetryAttempts = 0, "dbRetryAttempts");
+        => AssertInvalidAsync(c => c.Api.Resilience.DbRetryAttempts = 0, "dbRetryAttempts");
 
     [Test]
     public Task DbRetryAttemptsAboveCapFailsValidation()
-        => AssertInvalidAsync(c => c.Persistence.DbRetryAttempts = 9999, "dbRetryAttempts");
+        => AssertInvalidAsync(c => c.Api.Resilience.DbRetryAttempts = 9999, "dbRetryAttempts");
 
     [Test]
     // Cross-check for the easy swap mistake (initial > max makes the cap below the start).
     public Task DbRetryMaxBelowInitialFailsValidation()
         => AssertInvalidAsync(c =>
         {
-            c.Persistence.DbRetryInitialDelayMs = 500;
-            c.Persistence.DbRetryMaxDelayMs = 100;
+            c.Api.Resilience.DbRetryInitialDelayMs = 500;
+            c.Api.Resilience.DbRetryMaxDelayMs = 100;
         }, "dbRetryMaxDelayMs", "dbRetryInitialDelayMs");
 
     [Test]
     public Task HydrationConcurrencyAboveCapFailsValidation()
-        => AssertInvalidAsync(c => c.Persistence.HydrationMaxConcurrency = 9999, "hydrationMaxConcurrency");
+        => AssertInvalidAsync(c => c.Api.Resilience.HydrationMaxConcurrency = 9999, "hydrationMaxConcurrency");
 
     [Test]
     // Nullable → null passes, but 1..16 MiB range enforced when supplied.
     public Task SocketBatchThresholdOutOfRangeFailsValidation()
-        => AssertInvalidAsync(c => c.Socket.BatchBytesThreshold = 0, "batchBytesThreshold");
+        => AssertInvalidAsync(c => c.Api.BatchBytesThreshold = 0, "batchBytesThreshold");
 
     [Test]
     public async Task DefaultBackupSectionPasses()
     {
         // Shipped defaults are the "no-op" stance and must pass day one.
         var cfg = MakeValid();
-        await Assert.That(cfg.Backup.RetainCount).IsEqualTo(14);
-        await Assert.That(cfg.Backup.Schedule).IsEqualTo("daily");
+        await Assert.That(cfg.Deployment.Backup.RetainCount).IsEqualTo(14);
+        await Assert.That(cfg.Deployment.Backup.Schedule).IsEqualTo("daily");
         ConfigPhase.Validate(cfg);
         await Task.CompletedTask;
     }
@@ -411,29 +478,29 @@ public sealed class ConfigValidationTests
     [Test]
     // 0 would delete every backup as it's written — likely a typo for `enabled=false`.
     public Task ZeroBackupRetainCountFailsValidation()
-        => AssertInvalidAsync(c => c.Backup.RetainCount = 0, "retainCount");
+        => AssertInvalidAsync(c => c.Deployment.Backup.RetainCount = 0, "retainCount");
 
     [Test]
     public Task NegativeBackupRetainCountFailsValidation()
-        => AssertInvalidAsync(c => c.Backup.RetainCount = -5, "retainCount");
+        => AssertInvalidAsync(c => c.Deployment.Backup.RetainCount = -5, "retainCount");
 
     [Test]
     // 1000 is the documented cap; larger values are almost always a units mistake.
     public Task BackupRetainCountAboveCapFailsValidation()
-        => AssertInvalidAsync(c => c.Backup.RetainCount = 5000, "retainCount");
+        => AssertInvalidAsync(c => c.Deployment.Backup.RetainCount = 5000, "retainCount");
 
     [Test]
     public Task EmptyBackupScheduleFailsValidation()
-        => AssertInvalidAsync(c => c.Backup.Schedule = string.Empty, "schedule");
+        => AssertInvalidAsync(c => c.Deployment.Backup.Schedule = string.Empty, "schedule");
 
     [Test]
     public Task WhitespaceBackupScheduleFailsValidation()
-        => AssertInvalidAsync(c => c.Backup.Schedule = "   ", "schedule");
+        => AssertInvalidAsync(c => c.Deployment.Backup.Schedule = "   ", "schedule");
 
     [Test]
     // Belt-and-braces: string lands on OnCalendar=, but reject shell chaining upfront.
     public Task BackupScheduleWithShellMetacharactersFailsValidation()
-        => AssertInvalidAsync(c => c.Backup.Schedule = "daily;rm -rf /", "schedule");
+        => AssertInvalidAsync(c => c.Deployment.Backup.Schedule = "daily;rm -rf /", "schedule");
 
     [Test]
     public async Task WellKnownBackupScheduleShortcutsPass()
@@ -441,7 +508,7 @@ public sealed class ConfigValidationTests
         foreach (var schedule in new[] { "hourly", "daily", "weekly", "monthly", "*-*-* 03:00", "Mon..Fri 03:30", "Sat *-*-* 04,16:00:00" })
         {
             var cfg = MakeValid();
-            cfg.Backup.Schedule = schedule;
+            cfg.Deployment.Backup.Schedule = schedule;
             ConfigPhase.Validate(cfg);
         }
         await Task.CompletedTask;
@@ -450,14 +517,14 @@ public sealed class ConfigValidationTests
     [Test]
     // Relative paths resolve against systemd's unpredictable CWD.
     public Task RelativeBackupDirectoryFailsValidation()
-        => AssertInvalidAsync(c => c.Backup.Directory = "backups/interfold", "directory");
+        => AssertInvalidAsync(c => c.Deployment.Backup.Directory = "backups/interfold", "directory");
 
     [Test]
     public async Task EmptyBackupDirectoryPasses()
     {
         // Empty = default ({outputDir}/backups).
         var cfg = MakeValid();
-        cfg.Backup.Directory = string.Empty;
+        cfg.Deployment.Backup.Directory = string.Empty;
 
         ConfigPhase.Validate(cfg);
         await Task.CompletedTask;
@@ -472,8 +539,8 @@ public sealed class ConfigValidationTests
             foreach (var autostart in new[] { true, false })
             {
                 var cfg = MakeValid();
-                cfg.Backup.Enabled = enabled;
-                cfg.Backup.AutostartServer = autostart;
+                cfg.Deployment.Backup.Enabled = enabled;
+                cfg.Deployment.AutostartServer = autostart;
                 ConfigPhase.Validate(cfg);
             }
         }
@@ -482,21 +549,21 @@ public sealed class ConfigValidationTests
 
     [Test]
     public Task UpdateHealthCheckTimeoutZeroFailsValidation()
-        => AssertInvalidAsync(c => c.Update.HealthCheckTimeoutSeconds = 0, "healthCheckTimeoutSeconds");
+        => AssertInvalidAsync(c => c.Deployment.Update.HealthCheckTimeoutSeconds = 0, "healthCheckTimeoutSeconds");
 
     [Test]
     public Task UpdateHealthCheckTimeoutAboveMaxFailsValidation()
-        => AssertInvalidAsync(c => c.Update.HealthCheckTimeoutSeconds = 3601, "healthCheckTimeoutSeconds");
+        => AssertInvalidAsync(c => c.Deployment.Update.HealthCheckTimeoutSeconds = 3601, "healthCheckTimeoutSeconds");
 
     [Test]
     public async Task UpdateHealthCheckTimeoutInRangePasses()
     {
         // 1s and 3600s are the inclusive bounds.
         var cfg = MakeValid();
-        cfg.Update.HealthCheckTimeoutSeconds = 1;
+        cfg.Deployment.Update.HealthCheckTimeoutSeconds = 1;
         ConfigPhase.Validate(cfg);
 
-        cfg.Update.HealthCheckTimeoutSeconds = 3600;
+        cfg.Deployment.Update.HealthCheckTimeoutSeconds = 3600;
         ConfigPhase.Validate(cfg);
 
         await Task.CompletedTask;
@@ -505,11 +572,11 @@ public sealed class ConfigValidationTests
     [Test]
     // Fail here with a clear name instead of "no such service" from docker compose.
     public Task UpdateServicesUnknownEntryFailsValidation()
-        => AssertInvalidAsync(c => c.Update.Services = ["msg-database"], "msg-database", "msg-db");
+        => AssertInvalidAsync(c => c.Deployment.Update.Services = ["msg-database"], "msg-database", "msg-db");
 
     [Test]
     public Task UpdateServicesBlankEntryFailsValidation()
-        => AssertInvalidAsync(c => c.Update.Services = ["msg-db", ""], "blank entry");
+        => AssertInvalidAsync(c => c.Deployment.Update.Services = ["msg-db", ""], "blank entry");
 
     [Test]
     public async Task UpdateServicesKnownEntriesPassValidation()
@@ -517,7 +584,7 @@ public sealed class ConfigValidationTests
         foreach (var svc in ConfigPhase.ValidUpdateServices)
         {
             var cfg = MakeValid();
-            cfg.Update.Services = [svc];
+            cfg.Deployment.Update.Services = [svc];
             ConfigPhase.Validate(cfg);
         }
         await Task.CompletedTask;
@@ -528,7 +595,7 @@ public sealed class ConfigValidationTests
     {
         // Empty = "every service" (the default).
         var cfg = MakeValid();
-        cfg.Update.Services = [];
+        cfg.Deployment.Update.Services = [];
 
         ConfigPhase.Validate(cfg);
         await Task.CompletedTask;
@@ -545,9 +612,9 @@ public sealed class ConfigValidationTests
                 foreach (var recreate in new[] { true, false })
                 {
                     var cfg = MakeValid();
-                    cfg.Update.Enabled = enabled;
-                    cfg.Update.AutoRestoreOnFailure = autoRestore;
-                    cfg.Update.RecreateOnUpdate = recreate;
+                    cfg.Deployment.Update.Enabled = enabled;
+                    cfg.Deployment.Update.AutoRestoreOnFailure = autoRestore;
+                    cfg.Deployment.Update.RecreateOnUpdate = recreate;
                     ConfigPhase.Validate(cfg);
                 }
             }
