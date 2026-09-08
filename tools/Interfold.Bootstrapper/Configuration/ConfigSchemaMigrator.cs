@@ -544,7 +544,7 @@ internal static class ConfigSchemaMigrator
 
         throw new InvalidOperationException(
             $"{configPath}: deployment.edge.enabled was removed — edge-nginx is always emitted. " +
-            "Delete the enabled property; use edge.tlsMode to select none / privateCa / letsEncrypt.");
+            "Delete the enabled property; use edge.tlsMode to select none / privateCa.");
     }
 
     private static JsonObject EnsureObject(JsonObject parent, string name)

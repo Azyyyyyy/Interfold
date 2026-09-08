@@ -217,7 +217,7 @@ internal static class ConfigPhase
                                                             .DefaultValue(c.Edge.TlsMode.ToWire())
                                                             .AddChoices(ValidEdgeTlsModes)),
                                                         EdgeTlsMode.PrivateCa,
-                                                        trimmed => $"Unrecognised edge TLS mode '{trimmed}'. Valid values: none, privateCa, letsEncrypt.")),
+                                                        trimmed => $"Unrecognised edge TLS mode '{trimmed}'. Valid values: none, privateCa.")),
                 ("Edge routing",                    () => c.Edge.Routing.Mode.ToWire(),
                                                     () => c.Edge.Routing.Mode = EnumWireExtensions.ParseWithDefault(
                                                         console.Prompt(new TextPrompt<string>("Edge routing:")
@@ -229,13 +229,17 @@ internal static class ConfigPhase
                                                     () => c.Edge.Routing.ApiHost = PromptStr("Edge API host (required for subdomain routing)", c.Edge.Routing.ApiHost)),
                 ("Edge web host (subdomain)",       () => ShowOrEmpty(c.Edge.Routing.WebHost),
                                                     () => c.Edge.Routing.WebHost = PromptStr("Edge web host (required for subdomain routing)", c.Edge.Routing.WebHost)),
-                ("Cloudflare IP allowlist",         () => c.Edge.Cloudflare.IpAllowlist.ToString(),
-                                                    () => c.Edge.Cloudflare.IpAllowlist = PromptBool(
-                                                        "Restrict edge to Cloudflare IPs (orange-cloud / DNS-01)", c.Edge.Cloudflare.IpAllowlist)),
-                ("Cloudflare DNS API token",        () => Mask(c.Edge.Cloudflare.DnsApiToken),
-                                                    () => c.Edge.Cloudflare.DnsApiToken = PromptOAuth(
-                                                        "Cloudflare DNS API token (Zone:DNS:Edit; blank if unused)",
-                                                        c.Edge.Cloudflare.DnsApiToken)),
+                ("Cloudflare Tunnel",               () => c.Edge.Cloudflare.Enabled.ToString(),
+                                                    () => c.Edge.Cloudflare.Enabled = PromptBool(
+                                                        "Enable Cloudflare Tunnel (public hostname → private origin)", c.Edge.Cloudflare.Enabled)),
+                ("Cloudflare API token",            () => Mask(c.Edge.Cloudflare.ApiToken),
+                                                    () => c.Edge.Cloudflare.ApiToken = PromptOAuth(
+                                                        "Cloudflare API token (Account Tunnel Edit + Zone DNS Edit)",
+                                                        c.Edge.Cloudflare.ApiToken)),
+                ("Cloudflare tunnel name",          () => c.Edge.Cloudflare.TunnelName,
+                                                    () => c.Edge.Cloudflare.TunnelName = PromptStr(
+                                                        "Cloudflare tunnel name",
+                                                        string.IsNullOrEmpty(c.Edge.Cloudflare.TunnelName) ? "interfold" : c.Edge.Cloudflare.TunnelName)),
                 ("Edge HTTP port",                  () => c.Edge.Ports.Http.ToString(),
                                                     () => c.Edge.Ports.Http = PromptInt("Edge HTTP port", c.Edge.Ports.Http, 1, 65535)),
                 ("Edge HTTPS port",                 () => c.Edge.Ports.Https.ToString(),
@@ -352,6 +356,14 @@ internal static class ConfigPhase
             Group("Updates",
                 ("Chain updates after backup",      () => c.Deployment.Update.Enabled.ToString(),
                                                     () => c.Deployment.Update.Enabled = PromptBool("Chain interfold-update.service after each successful backup", c.Deployment.Update.Enabled)),
+                ("Self-update bootstrapper before images", () => c.Deployment.Update.Bootstrapper.Enabled.ToString(),
+                                                    () => c.Deployment.Update.Bootstrapper.Enabled = PromptBool("Run update-self before update-images in the chained update service", c.Deployment.Update.Bootstrapper.Enabled)),
+                ("Bootstrapper release channel",  () => c.Deployment.Update.Bootstrapper.Channel.ToWireValue(),
+                                                    () => c.Deployment.Update.Bootstrapper.Channel = PromptBootstrapperChannel(console, c.Deployment.Update.Bootstrapper.Channel)),
+                ("Self-update on bootstrap",      () => c.Deployment.Update.Bootstrapper.ResolveUpdateOnBootstrap().ToString(),
+                                                    () => c.Deployment.Update.Bootstrapper.UpdateOnBootstrap = PromptBool("Check for a newer bootstrapper at the start of bootstrap", c.Deployment.Update.Bootstrapper.ResolveUpdateOnBootstrap())),
+                ("Rollback bootstrapper on image-update failure", () => c.Deployment.Update.Bootstrapper.AutoRollbackOnFailure.ToString(),
+                                                    () => c.Deployment.Update.Bootstrapper.AutoRollbackOnFailure = PromptBool("Restore interfold-bootstrap.old when update-images health-check fails", c.Deployment.Update.Bootstrapper.AutoRollbackOnFailure)),
                 ("Health-check timeout (seconds)",  () => c.Deployment.Update.HealthCheckTimeoutSeconds.ToString(),
                                                     () => c.Deployment.Update.HealthCheckTimeoutSeconds = PromptInt("Health-check timeout after pull+recreate (seconds)", c.Deployment.Update.HealthCheckTimeoutSeconds, 1, 3600)),
                 ("Auto-restore on failure",         () => c.Deployment.Update.AutoRestoreOnFailure.ToString(),
@@ -528,6 +540,20 @@ internal static class ConfigPhase
         return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToArray();
     }
 
+    private static BootstrapperReleaseChannel PromptBootstrapperChannel(
+        IAnsiConsole console,
+        BootstrapperReleaseChannel fallback)
+    {
+        var choice = console.Prompt(
+            new SelectionPrompt<string>()
+                .Title("Bootstrapper release channel:")
+                .AddChoices("stable", "bleeding-edge")
+                .HighlightStyle(new Style(Color.Cyan1))
+                .UseConverter(s => s)
+                .DefaultValue(fallback.ToWireValue()));
+        return BootstrapperReleaseChannelExtensions.ParseWire(choice);
+    }
+
     /// <summary>Menu-row summary: <c>off</c> or <c>N/4 configured (...)</c>.</summary>
     private static string ShowFirebaseState(FirebaseSection section)
     {
@@ -692,6 +718,10 @@ internal static class ConfigPhase
                     Http = c.Edge.Ports.Http,
                     Https = c.Edge.Ports.Https,
                 },
+                Cloudflare = new EdgeCloudflareSection
+                {
+                    Enabled = c.Edge.Cloudflare.Enabled,
+                },
             },
             Api = new ApiSection
             {
@@ -786,7 +816,29 @@ internal static class ConfigPhase
         int corsDefaultPort;
         IEnumerable<string> corsHosts;
 
-        if (config.Edge.TlsMode == EdgeTlsMode.None)
+        // Tunnel terminates public HTTPS at Cloudflare; OAuth/JWT/CORS use bare https://{host}.
+        if (config.Edge.Cloudflare.Enabled)
+        {
+            if (config.Edge.Routing.Mode == EdgeRoutingMode.Subdomain
+                && !string.IsNullOrWhiteSpace(config.Edge.Routing.ApiHost)
+                && !string.IsNullOrWhiteSpace(config.Edge.Routing.WebHost))
+            {
+                apiDerivedBaseUrl = $"https://{config.Edge.Routing.ApiHost.Trim()}";
+                corsScheme = "https";
+                corsPort = DefaultHttpsPort;
+                corsDefaultPort = DefaultHttpsPort;
+                corsHosts = [config.Edge.Routing.WebHost.Trim()];
+            }
+            else
+            {
+                apiDerivedBaseUrl = $"https://{HostParser.ToUrlHost(primary)}";
+                corsScheme = "https";
+                corsPort = DefaultHttpsPort;
+                corsDefaultPort = DefaultHttpsPort;
+                corsHosts = parsed.Where(h => h.IsLeafEligible).Select(HostParser.ToUrlHost);
+            }
+        }
+        else if (config.Edge.TlsMode == EdgeTlsMode.None)
         {
             var edgePortSuffix = config.Edge.Ports.Http == DefaultHttpPort
                 ? string.Empty
@@ -1099,24 +1151,33 @@ internal static class ConfigPhase
             }
         }
 
-        if (edge.TlsMode == EdgeTlsMode.LetsEncrypt)
+        if (edge.Cloudflare.Enabled)
         {
+            if (string.IsNullOrWhiteSpace(edge.Cloudflare.ApiToken))
+            {
+                throw new InvalidOperationException(
+                    "config.edge.cloudflare.apiToken is required when cloudflare.enabled=true.");
+            }
+
+            if (string.IsNullOrWhiteSpace(edge.Cloudflare.TunnelName))
+            {
+                throw new InvalidOperationException(
+                    "config.edge.cloudflare.tunnelName is required when cloudflare.enabled=true.");
+            }
+
             var dnsCapable = edge.Routing.Mode == EdgeRoutingMode.Subdomain
                 || parsedHosts.Any(h => h.Kind == HostKind.Dns);
             if (!dnsCapable)
             {
                 throw new InvalidOperationException(
-                    "config.edge.tlsMode=letsEncrypt requires at least one DNS hostname " +
+                    "config.edge.cloudflare.enabled=true requires at least one DNS hostname " +
                     "(edge.hosts, or edge.routing.apiHost/webHost for subdomain routing). " +
-                    "IP-only primaries cannot obtain a public certificate.");
+                    "IP-only primaries cannot be published via Cloudflare Tunnel.");
             }
 
-            if (edge.Cloudflare.IpAllowlist
-                && string.IsNullOrWhiteSpace(edge.Cloudflare.DnsApiToken))
+            if (edge.TlsMode != EdgeTlsMode.None)
             {
-                throw new InvalidOperationException(
-                    "config.edge.cloudflare.dnsApiToken is required when " +
-                    "tlsMode=letsEncrypt and cloudflare.ipAllowlist=true (DNS-01 for orange-cloud).");
+                edge.TlsMode = EdgeTlsMode.None;
             }
         }
     }

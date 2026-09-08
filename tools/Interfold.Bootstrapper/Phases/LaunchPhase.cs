@@ -8,9 +8,8 @@ namespace Interfold.Bootstrapper.Phases;
 
 /// <summary>
 /// Phase 6 — runs <c>docker compose up -d</c> against the emitted compose file and waits for the
-/// API's <c>/health/ready</c> endpoint to return 200 through edge-nginx. Failure here is the most
-/// common operator-visible failure mode, so the implementation logs verbosely and surfaces compose
-/// logs on timeout.
+/// API's <c>/health/ready</c> endpoint to return 200 through edge-nginx (or compose healthchecks
+/// when Cloudflare Tunnel keeps the origin private).
 /// </summary>
 internal static class LaunchPhase
 {
@@ -35,7 +34,15 @@ internal static class LaunchPhase
 
         try
         {
-            await WaitForApiHealthyAsync(config, logger, ct).ConfigureAwait(false);
+            if (config.Edge.Cloudflare.Enabled)
+            {
+                await WaitForComposeHealthyAsync(composeFile, logger, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                await WaitForApiHealthyAsync(config, logger, ct).ConfigureAwait(false);
+            }
+
             logger.PhaseDone(Phase);
         }
         catch (TimeoutException)
@@ -58,6 +65,42 @@ internal static class LaunchPhase
             throw new TimeoutException(
                 $"interfold-api did not become healthy at {readyUrl} within {HealthTimeout.TotalMinutes:F0} minutes.");
         }
+    }
+
+    private static async Task WaitForComposeHealthyAsync(string composeFile, PhaseLogger logger, CancellationToken ct)
+    {
+        logger.Info($"    waiting for compose services healthy (edge-nginx, cloudflared; up to {HealthTimeout.TotalMinutes:F0}m)");
+        var deadline = DateTime.UtcNow + HealthTimeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var ps = await ProcessRunner.RunAsync(
+                "docker",
+                ["compose", "-f", composeFile, "ps", "--format", "{{.Service}} {{.Health}} {{.State}}"],
+                ct: ct).ConfigureAwait(false);
+            if (ps.ExitCode == 0)
+            {
+                var lines = ps.StdOut.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var edgeOk = lines.Any(l =>
+                    l.StartsWith(ComposeServices.EdgeNginx, StringComparison.Ordinal)
+                    && (l.Contains("healthy", StringComparison.OrdinalIgnoreCase)
+                        || l.Contains(" running", StringComparison.OrdinalIgnoreCase)
+                        || l.EndsWith("running", StringComparison.OrdinalIgnoreCase)));
+                var cfdOk = lines.Any(l =>
+                    l.StartsWith(ComposeServices.Cloudflared, StringComparison.Ordinal)
+                    && l.Contains("running", StringComparison.OrdinalIgnoreCase));
+                if (edgeOk && cfdOk)
+                {
+                    logger.Info("    edge-nginx and cloudflared are up");
+                    return;
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
+        }
+
+        throw new TimeoutException(
+            $"edge-nginx/cloudflared did not become ready within {HealthTimeout.TotalMinutes:F0} minutes.");
     }
 
     private static async Task DumpComposeLogsAsync(string composeFile, PhaseLogger logger, CancellationToken ct)

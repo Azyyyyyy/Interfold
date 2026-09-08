@@ -32,6 +32,12 @@ internal static class PublishPhase
 
         Directory.CreateDirectory(options.OutputDir);
 
+        if (config.Edge.Cloudflare.Enabled)
+        {
+            await CloudflareTunnelPhase.EnsureTunnelArtifactsAsync(config, options.OutputDir, logger, ct)
+                .ConfigureAwait(false);
+        }
+
         var anchor = SetupAnchor(options.OutputDir);
         var previousCwd = Directory.GetCurrentDirectory();
 
@@ -189,8 +195,7 @@ internal static class PublishPhase
                 ResolveAvatarHostRoot(config, outputDir),
         };
 
-        if (config.Edge.TlsMode != EdgeTlsMode.LetsEncrypt
-            && config.Edge.TlsMode != EdgeTlsMode.None)
+        if (config.Edge.TlsMode != EdgeTlsMode.None && !config.Edge.Cloudflare.Enabled)
         {
             bindMountLookup[$"{ComposeServices.InterfoldApi}:/certs"] = Path.Combine(outputDir, "certs");
         }
@@ -200,17 +205,16 @@ internal static class PublishPhase
             Path.Combine(edgeSupport, "default.conf.template");
         bindMountLookup[$"{ComposeServices.EdgeNginx}:{EdgePaths.ContainerProxyParams}"] =
             Path.Combine(edgeSupport, "proxy_params.conf");
-        bindMountLookup[$"{ComposeServices.EdgeNginx}:{EdgePaths.ContainerCloudflareIps}"] =
-            Path.Combine(edgeSupport, "cloudflare-ips.conf");
-        if (config.Edge.TlsMode != EdgeTlsMode.None)
+        if (config.Edge.TlsMode != EdgeTlsMode.None && !config.Edge.Cloudflare.Enabled)
         {
             bindMountLookup[$"{ComposeServices.EdgeNginx}:{EdgePaths.ContainerCertsDir}"] =
                 Path.Combine(outputDir, "certs");
-            if (config.Edge.TlsMode == EdgeTlsMode.LetsEncrypt)
-            {
-                bindMountLookup[$"{ComposeServices.EdgeNginx}:{EdgePaths.ContainerAcmeWebroot}"] =
-                    Path.Combine(outputDir, "certs", "certbot-www");
-            }
+        }
+
+        if (config.Edge.Cloudflare.Enabled)
+        {
+            bindMountLookup[$"{ComposeServices.Cloudflared}:{EdgePaths.ContainerCloudflareTunnelToken}"] =
+                CloudflareTunnelPhase.ConnectorTokenPath(outputDir);
         }
 
         // Region-keyed rackdc mount; single mode → one "scylla" node in "nam", multi mode → one
@@ -278,25 +282,6 @@ internal static class PublishPhase
         var proxyTarget = Path.Combine(edgeDir, "proxy_params.conf");
         if (EmbeddedSupportFiles.Materialize(EmbeddedSupportFiles.EdgeProxyParamsRelative, proxyTarget, logger))
             materialized++;
-
-        var cfTarget = Path.Combine(edgeDir, "cloudflare-ips.conf");
-        // Always refresh Cloudflare ranges when allowlist is on; otherwise write a no-op stub.
-        // Synchronous wait keeps StagePublishSupportFiles sync for existing callers.
-        if (config.Edge.Cloudflare.IpAllowlist)
-        {
-            CloudflareIpAllowlist.WriteAllowlistAsync(cfTarget, logger).GetAwaiter().GetResult();
-        }
-        else
-        {
-            CloudflareIpAllowlist.WriteDisabled(cfTarget);
-        }
-
-        Directory.CreateDirectory(Path.Combine(outputDir, "certs", "certbot-www"));
-
-        if (config.Edge.TlsMode == EdgeTlsMode.LetsEncrypt)
-        {
-            LetsEncryptStaging.EnsureCredentialsAndPlaceholderCerts(config, outputDir, logger);
-        }
     }
 
     /// <summary>Host directory bind-mounted at <see cref="ContainerMountPaths.InterfoldAvatars"/>.
@@ -490,12 +475,19 @@ internal static class PublishPhase
         // Aspire dev dashboard would pull an MCR-nightly image at compose-up — unwanted in prod.
         injected[AppHostParameterKeys.IncludeDashboard] = BoolWire.FalseValue;
         injected[AppHostParameterKeys.IncludeWeb] = BoolWire.ToWireValue(config.Deployment.IncludeWeb);
-        injected[AppHostParameterKeys.EdgeTlsMode] = config.Edge.TlsMode.ToWire();
+        injected[AppHostParameterKeys.EdgeTlsMode] = config.Edge.Cloudflare.Enabled
+            ? EdgeTlsMode.None.ToWire()
+            : config.Edge.TlsMode.ToWire();
         injected[AppHostParameterKeys.EdgeRouting] = config.Edge.Routing.Mode.ToWire();
         injected[AppHostParameterKeys.EdgeApiHost] = config.Edge.Routing.ApiHost;
         injected[AppHostParameterKeys.EdgeWebHost] = config.Edge.Routing.WebHost;
-        injected[AppHostParameterKeys.EdgeCloudflareAllowlist] =
-            BoolWire.ToWireValue(config.Edge.Cloudflare.IpAllowlist);
+        injected[AppHostParameterKeys.EdgeCloudflareTunnel] =
+            BoolWire.ToWireValue(config.Edge.Cloudflare.Enabled);
+        if (config.Edge.Cloudflare.Enabled)
+        {
+            injected[AppHostParameterKeys.EdgeCloudflareTunnelTokenPath] =
+                CloudflareTunnelPhase.ConnectorTokenAspireRelativePath;
+        }
         injected[AppHostParameterKeys.EdgeIncludeWebUpstream] =
             BoolWire.ToWireValue(config.Deployment.IncludeWeb);
         injected[AppHostParameterKeys.EdgeServerName] = PickServerName(config.Edge.Hosts);

@@ -101,9 +101,12 @@ internal static partial class PrerequisitesPhase
             "hosts/Interfold.AppHost instead.");
     }
 
+    internal static bool IsRunningAsRoot()
+        => OperatingSystem.IsLinux() && NativeMethods.geteuid() == 0;
+
     private static void EnsureRoot(PhaseLogger logger)
     {
-        if (NativeMethods.geteuid() == 0) return;
+        if (IsRunningAsRoot()) return;
 
         logger.PhaseFail(BootstrapPhase.Prereqs.ToWireName(), PhaseFailureReasons.NonRoot);
         throw new InvalidOperationException(
@@ -259,7 +262,7 @@ internal static partial class PrerequisitesPhase
     private static async Task DownloadFileAsync(string url, string destinationPath, CancellationToken ct)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("interfold-bootstrap/1.0");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd(BootstrapperVersion.UserAgent);
 
         using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)

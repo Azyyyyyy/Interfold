@@ -22,7 +22,6 @@ internal static class EmbeddedSupportFiles
     internal const string EdgeSubdomainTemplateRelative = "edge/nginx/subdomain.conf.template";
     internal const string EdgeSubdomainHttpTemplateRelative = "edge/nginx/subdomain-http.conf.template";
     internal const string EdgeProxyParamsRelative = "edge/nginx/proxy_params.conf";
-    internal const string EdgeCloudflareIpsRelative = "edge/nginx/cloudflare-ips.conf";
 
     internal static string EdgeTemplateRelative(bool subdomain, bool plaintext) =>
         subdomain

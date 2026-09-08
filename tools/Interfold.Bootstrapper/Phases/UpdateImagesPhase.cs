@@ -509,6 +509,20 @@ internal static class UpdateImagesPhase
         {
             logger.Warn("update failed and --skip-pre-update-backup was used; no automatic recovery path available.");
         }
+
+        if (config.Deployment.Update.Bootstrapper.AutoRollbackOnFailure)
+        {
+            logger.Info("    deployment.update.bootstrapper.autoRollbackOnFailure=true: rolling back bootstrapper binary");
+            var rollback = SelfUpdatePhaseCore.Rollback(SelfUpdatePhaseCore.ResolveBinaryPath(), logger);
+            if (rollback != SelfUpdateResult.RolledBack)
+            {
+                logger.Warn("bootstrapper rollback failed; run `interfold-bootstrap update-self --rollback` manually.");
+            }
+        }
+        else
+        {
+            logger.Warn("To roll back the bootstrapper binary after a failed update, run: interfold-bootstrap update-self --rollback");
+        }
     }
 
     /// <summary>Newest postgres + scylla archive by mtime — called immediately after the

@@ -320,21 +320,41 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public Task EdgeLetsEncryptWithoutDnsHostFails()
+    public Task EdgeCloudflareTunnelWithoutDnsHostFails()
         => AssertInvalidAsync(c =>
         {
             c.Edge.Hosts = ["192.168.1.10"];
-            c.Edge.TlsMode = EdgeTlsMode.LetsEncrypt;
-        }, "letsEncrypt");
+            c.Edge.Cloudflare.Enabled = true;
+            c.Edge.Cloudflare.ApiToken = "cf-token";
+            c.Edge.Cloudflare.TunnelName = "interfold";
+        }, "Cloudflare Tunnel");
 
     [Test]
-    public Task EdgeLetsEncryptWithCloudflareRequiresToken()
+    public Task EdgeCloudflareTunnelRequiresApiToken()
         => AssertInvalidAsync(c =>
         {
-            c.Edge.TlsMode = EdgeTlsMode.LetsEncrypt;
-            c.Edge.Cloudflare.IpAllowlist = true;
-            c.Edge.Cloudflare.DnsApiToken = "";
-        }, "dnsApiToken");
+            c.Edge.Cloudflare.Enabled = true;
+            c.Edge.Cloudflare.ApiToken = "";
+            c.Edge.Cloudflare.TunnelName = "interfold";
+        }, "apiToken");
+
+    [Test]
+    public async Task EdgeCloudflareTunnelCoercesTlsModeToNone()
+    {
+        var cfg = MakeValid();
+        cfg.Edge.TlsMode = EdgeTlsMode.PrivateCa;
+        cfg.Edge.Cloudflare.Enabled = true;
+        cfg.Edge.Cloudflare.ApiToken = "cf-token";
+        cfg.Edge.Cloudflare.TunnelName = "interfold";
+        cfg.Api.OAuth.CallbackBaseUrl = string.Empty;
+        cfg.Api.OAuth.JwtAuthority = string.Empty;
+        cfg.Api.CorsAllowedOrigins = [];
+
+        ConfigPhase.Validate(cfg);
+
+        await Assert.That(cfg.Edge.TlsMode).IsEqualTo(EdgeTlsMode.None);
+        await Assert.That(cfg.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://api.example.com");
+    }
 
     [Test]
     public Task EdgeSubdomainRequiresHosts()

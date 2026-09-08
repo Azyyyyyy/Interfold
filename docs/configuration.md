@@ -81,6 +81,12 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
     },
     "update": {
       "enabled": false,
+      "bootstrapper": {
+        "enabled": false,
+        "channel": "stable",
+        "updateOnBootstrap": true,
+        "autoRollbackOnFailure": false
+      },
       "healthCheckTimeoutSeconds": 180,
       "autoRestoreOnFailure": false,
       "recreateOnUpdate": true,
@@ -96,7 +102,7 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
       "webHost": ""
     },
     "ports": { "http": 80, "https": 443 },
-    "cloudflare": { "ipAllowlist": false, "dnsApiToken": "" },
+    "cloudflare": { "enabled": false, "apiToken": "", "tunnelName": "interfold" },
     "certificates": {
       "rootCaName": "Interfold Root CA",
       "certYears": 5,
@@ -150,6 +156,18 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
 }
 ```
 
+#### `edge.cloudflare` (Cloudflare Tunnel)
+
+| Field | Default | Notes |
+| ----- | ------- | ----- |
+| `enabled` | `false` | When `true`, origin stays private (no host-published edge ports). Publish creates/reuses a remotely-managed tunnel; Launch starts `cloudflared`; a post-launch phase registers hostnames + proxied DNS CNAMEs. |
+| `apiToken` | `""` | Cloudflare API token with **Account → Cloudflare Tunnel Edit** and **Zone → DNS Edit**. Used only by the bootstrapper — never passed to `cloudflared`. |
+| `tunnelName` | `interfold` | Stable name for create-or-reuse of the tunnel object. |
+
+Account ID is resolved from the primary hostname’s zone (`GET /zones?name=`). The connector token is written to `{outputDir}/secrets/cloudflare-tunnel.token` (mode 0600). Skip hostname registration with `--skip-cloudflare-tunnel`.
+
+When tunnel is enabled, `edge.tlsMode` is coerced to `none` (Cloudflare terminates public TLS). OAuth/JWT/CORS derived URLs use bare `https://{host}`.
+
 OAuth **client IDs** are public values that end up in each provider's authorize-redirect URL.
 The bootstrapper carries them through as plain Aspire parameters (no masking, no
 `internal.secrets` round trip) — `PublishPhase.BuildEnvReplacements` writes them straight
@@ -159,6 +177,19 @@ via `InterfoldAppHost.ConfigureApiSelfHostEnv`. The matching client **secrets** 
 `internal.secrets` (seeded by `DatabaseInitPhase`) and are patched onto
 `AuthenticationConfiguration` by `SecretsBootstrapService` at API startup — they never
 appear in `.env`.
+
+#### `deployment.update.bootstrapper` (bootstrapper self-update)
+
+| Field | Default | Notes |
+| ----- | ------- | ----- |
+| `enabled` | `false` | When `true`, `interfold-update.service` runs `update-self` before `update-images`. Opt-in — manual `update-self` works regardless. |
+| `channel` | `stable` | `stable` (GitHub release `latest`) or `bleeding-edge` (release tag `bleeding-edge`). |
+| `updateOnBootstrap` | `true` when `enabled`, else `false` | At the start of `bootstrap`, check GitHub Releases and apply a newer bootstrapper before prerequisites. Skip with `--skip-self-update`. |
+| `autoRollbackOnFailure` | `false` | When `update-images` health-check fails after a chained update, run `update-self --rollback` to restore `interfold-bootstrap.old`. Image rollback uses the existing `autoRestoreOnFailure` path separately. |
+
+Downloads are verified against `SHA256SUMS` on the release. The live binary is replaced via
+`interfold-bootstrap.new` → atomic rename; the previous binary is kept as
+`interfold-bootstrap.old` until the next successful update or an explicit `--rollback`.
 
 First-time operators don't need to hand-author this file — running `interfold-bootstrap` on
 a real TTY without an existing `interfold.bootstrap.json` drops into a Spectre.Console
@@ -199,8 +230,9 @@ of the following shapes:
 The **primary host** is the first non-CIDR entry. It seeds the leaf cert subject CN, the
 nginx `server_name`, and the derived `api.oauth.callbackBaseUrl` /
 `api.oauth.jwtAuthority` URLs (`http://` via `tlsMode=none` on `edge.ports.http`, or
-`https://` via `privateCa` / `letsEncrypt` on `edge.ports.https`; port suffix dropped at
-80/443; IPv6 literals are bracket-wrapped per RFC 3986 §3.2.2). Wildcard DNS entries cannot
+`https://` via `privateCa` on `edge.ports.https`; when `cloudflare.enabled`, bare
+`https://{host}` with Cloudflare terminating TLS; port suffix dropped at 80/443; IPv6
+literals are bracket-wrapped per RFC 3986 §3.2.2). Wildcard DNS entries cannot
 be the primary because `*.example.com` is not a single host the leaf cert can serve — list the concrete primary
 alongside the wildcard.
 
@@ -240,16 +272,16 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 > | **Host / browser** | Edge public ports only | API, web, DB ports directly |
 >
 > The browser calls the API through edge (`/api/` or subdomain routing); the web container
-> does not join `edge-api`.
+> does not join `edge-api`. When `cloudflare.enabled`, edge has no host-published ports —
+> `cloudflared` reaches `edge-nginx:80` on the compose network only.
 >
 > - `deployment.includeWeb` (default `false`) — when `true`, ship `octocon-web` on the
 >   `edge-web` network. Nginx routes `/` (path mode) or `webHost` (subdomain mode) to it.
-> - `edge.tlsMode` — `none` (plaintext HTTP on `edge.ports.http` only),
->   `privateCa` (bootstrapper mints certs; HTTP + HTTPS ports), or `letsEncrypt`
->   (DNS-01 via Cloudflare token when `cloudflare.ipAllowlist` is on).
+> - `edge.tlsMode` — `none` (plaintext HTTP on `edge.ports.http` only) or
+>   `privateCa` (bootstrapper mints certs; HTTP + HTTPS ports). Public TLS is Cloudflare
+>   Tunnel when `cloudflare.enabled` (origin coerced to `none`).
 > - `edge.routing.mode` — `path` (`/api/` → API, `/` → web) or `subdomain`
->   (separate `routing.apiHost` / `routing.webHost`). Optional `cloudflare.ipAllowlist`
->   restricts listeners to Cloudflare ranges and restores client IP from `CF-Connecting-IP`.
+>   (separate `routing.apiHost` / `routing.webHost`).
 >
 > **Schema versions.** `schemaVersion` stays at `2`. A file with no `schemaVersion` (or
 > `schemaVersion: 1`) is treated as **V1** and auto-upgraded on the next bootstrapper load.
@@ -277,8 +309,9 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 > | :----------: | :-------: | :----- |
 > | `false` | `none` | Edge fronts API over HTTP; API-only stack. |
 > | `true` | `none` | Edge fronts API + web over HTTP. |
-> | `false` | `privateCa` / `letsEncrypt` | Edge fronts API over HTTPS; `/` → 404 without web. |
-> | `true` | `privateCa` / `letsEncrypt` | Edge fronts API + web over HTTPS. |
+> | `false` | `privateCa` | Edge fronts API over HTTPS; `/` → 404 without web. |
+> | `true` | `privateCa` | Edge fronts API + web over HTTPS. |
+> | * | * + `cloudflare.enabled` | Private origin + `cloudflared`; public HTTPS via Tunnel. |
 >
 > **Edge HTTP→HTTPS redirect.** When `tlsMode` is not `none`, plaintext `:80` requests get
 > a `301` to HTTPS when `edge.ports.https` is not `443`. With `tlsMode=none`, edge listens
@@ -353,7 +386,7 @@ All four are rendered from templates embedded in the bootstrapper binary; see
 | `interfold.service`        | `oneshot` `RemainAfterExit=yes` | Brings the compose stack up via `/usr/bin/docker compose -f {outputDir}/docker-compose.yaml up -d` after `docker.service` on boot. Deliberately does NOT shell out to `interfold-bootstrap up` — that would re-run the 5-minute `/health/ready` wait inside systemd's boot critical path. Compose's own restart policy + the API container's healthcheck handle steady-state recovery. |
 | `interfold-backup.service` | `oneshot`                  | Runs `interfold-bootstrap backup --config {configPath} --output-dir {outputDir} --component all`. Inherits the bootstrapper's `phase=...` log line format. Operators add drop-in overrides via `/etc/systemd/system/interfold-backup.service.d/*.conf`; the bootstrapper never edits drop-ins on rerun. |
 | `interfold-backup.timer`   | `timer`                    | Fires `interfold-backup.service` on `OnCalendar={config.backup.schedule}` with `Persistent=true` so a missed run (host powered off at the scheduled time) fires on next boot. |
-| `interfold-update.service` | `oneshot`                  | Runs `interfold-bootstrap update-images --config {configPath} --output-dir {outputDir}`. Always rendered so manual invocations always have a target service; only the `OnSuccess=` drop-in that fires it from the backup schedule is conditional on `config.update.enabled`. Never enabled independently — the drop-in is what schedules it. |
+| `interfold-update.service` | `oneshot`                  | Runs `interfold-bootstrap update-images --config {configPath} --output-dir {outputDir}` by default. When `deployment.update.bootstrapper.enabled=true`, `ExecStart` chains `update-self --non-interactive --channel {channel}` before `exec … update-images` so the post-swap binary performs the image pull. Always rendered so manual invocations always have a target service; only the `OnSuccess=` drop-in that fires it from the backup schedule is conditional on `config.update.enabled`. Never enabled independently — the drop-in is what schedules it. |
 
 Conditional drop-in — written only when `config.update.enabled=true`:
 
@@ -423,7 +456,7 @@ encryption pepper, and the API refuses to boot without it). If the value is stil
 
 | Env var                               | Default         | Notes                                                                                                                                                 |
 | ------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OCTOCON_AUTH_CALLBACK_BASE_URL`      | *empty*         | Base URL the API's OAuth callbacks redirect to. Sourced from `BootstrapConfig.api.oauth.callbackBaseUrl` via Aspire parameter `oauth-callback-base-url`; defaults derive from the primary host (first non-CIDR entry of `edge.hosts`; IPv6 literals bracket-wrapped): with `tlsMode=none`, `http://{primary}[:{edge.ports.http}]` (port suffix omitted when `http` is 80); with `privateCa` / `letsEncrypt`, `https://{primary}[:{edge.ports.https}]` (or `https://{routing.apiHost}` when `routing.mode=subdomain`; port suffix omitted when `https` is 443). (bootstrapper-managed) |
+| `OCTOCON_AUTH_CALLBACK_BASE_URL`      | *empty*         | Base URL the API's OAuth callbacks redirect to. Sourced from `BootstrapConfig.api.oauth.callbackBaseUrl` via Aspire parameter `oauth-callback-base-url`; defaults derive from the primary host (first non-CIDR entry of `edge.hosts`; IPv6 literals bracket-wrapped): with `cloudflare.enabled`, bare `https://{primary}` (or `https://{routing.apiHost}` in subdomain mode); with `tlsMode=none`, `http://{primary}[:{edge.ports.http}]` (port suffix omitted when `http` is 80); with `privateCa`, `https://{primary}[:{edge.ports.https}]` (port suffix omitted when `https` is 443). (bootstrapper-managed) |
 | `OCTOCON_JWT_AUTHORITY`               | `octocon-local` | JWT `iss` claim. Sourced from `BootstrapConfig.api.oauth.jwtAuthority` via Aspire parameter `jwt-authority`; derives the same way as `OCTOCON_AUTH_CALLBACK_BASE_URL`. The `octocon-local` default applies only to dev / non-bootstrapped runs. (bootstrapper-managed) |
 | `OCTOCON_JWT_AUDIENCE`                | `octocon`       | JWT `aud` claim. Sourced from `BootstrapConfig.api.oauth.jwtAudience` via Aspire parameter `jwt-audience`. Bound into `AuthenticationConfiguration.JwtAudience` by `ConfigurationServiceCollectionExtensions.ApplyAuthentication` (previously documented as bound but the binding was missing; fixed alongside the bootstrapper wire-up). (bootstrapper-managed) |
 | `OCTOCON_GOOGLE_OAUTH_CLIENT_ID`      | *empty*         | Sourced from `BootstrapConfig.oauth.googleClientId` via Aspire parameter `google-oauth-client-id`; empty value disables the Google scheme. (bootstrapper-managed) |

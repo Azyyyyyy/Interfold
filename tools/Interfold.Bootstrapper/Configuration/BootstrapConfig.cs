@@ -102,11 +102,14 @@ public sealed class EdgeCertificatesSection
 
 public sealed class EdgeCloudflareSection
 {
-    [JsonPropertyName("ipAllowlist")]
-    public bool IpAllowlist { get; set; }
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
 
-    [JsonPropertyName("dnsApiToken")]
-    public string DnsApiToken { get; set; } = string.Empty;
+    [JsonPropertyName("apiToken")]
+    public string ApiToken { get; set; } = string.Empty;
+
+    [JsonPropertyName("tunnelName")]
+    public string TunnelName { get; set; } = "interfold";
 }
 
 public sealed class DatastoresSection
@@ -243,6 +246,9 @@ public sealed class UpdateSection
     [JsonPropertyName("enabled")]
     public bool Enabled { get; set; }
 
+    [JsonPropertyName("bootstrapper")]
+    public UpdateBootstrapperSection Bootstrapper { get; set; } = new();
+
     [JsonPropertyName("healthCheckTimeoutSeconds")]
     public int HealthCheckTimeoutSeconds { get; set; } = 180;
 
@@ -254,6 +260,24 @@ public sealed class UpdateSection
 
     [JsonPropertyName("services")]
     public string[] Services { get; set; } = [];
+}
+
+public sealed class UpdateBootstrapperSection
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    [JsonPropertyName("channel")]
+    public BootstrapperReleaseChannel Channel { get; set; } = BootstrapperReleaseChannel.Stable;
+
+    [JsonPropertyName("updateOnBootstrap")]
+    public bool? UpdateOnBootstrap { get; set; }
+
+    [JsonPropertyName("autoRollbackOnFailure")]
+    public bool AutoRollbackOnFailure { get; set; }
+
+    internal bool ResolveUpdateOnBootstrap()
+        => UpdateOnBootstrap ?? Enabled;
 }
 
 public sealed class FirebaseSection

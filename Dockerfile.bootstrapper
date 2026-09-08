@@ -8,6 +8,7 @@
 
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG TARGETARCH
+ARG VERSION=0.0.0-dev
 WORKDIR /src
 COPY . .
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
@@ -20,10 +21,17 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
     dotnet publish tools/Interfold.Bootstrapper \
         --configuration Release \
         --runtime "$RID" \
-        /p:PublishProfile="$RID" && \
+        /p:PublishProfile="$RID" \
+        /p:Version="$VERSION" \
+        /p:InformationalVersion="$VERSION" && \
     mkdir -p /out && \
     cp "tools/Interfold.Bootstrapper/bin/Release/net10.0/$RID/publish/interfold-bootstrap" /out/
 
 # `scratch` so `--output=type=local` extracts only the binary, no rootfs noise.
 FROM scratch AS out
 COPY --from=build /out/interfold-bootstrap /interfold-bootstrap
+
+# Container distribution (ghcr.io) — ENTRYPOINT is the bootstrapper CLI.
+FROM scratch AS runtime
+COPY --from=build /out/interfold-bootstrap /interfold-bootstrap
+ENTRYPOINT ["/interfold-bootstrap"]
