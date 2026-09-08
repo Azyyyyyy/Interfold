@@ -1,3 +1,4 @@
+using Interfold.AppHost;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
 using Interfold.Shared.Contracts.Enums;
@@ -161,9 +162,9 @@ public sealed class PublishEnvPostProcessingTests
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, baseDir, outputDir);
 
         var total = replacements.Parameters.Count + replacements.BindMounts.Count;
-        // Single mode: 23 shared env parameters + 7 bind mounts (avatar, API certs, edge
-        // nginx support ×3, edge certs, scylla rackdc) = 30.
-        await Assert.That(total).IsEqualTo(30);
+        // Single mode: 23 shared env parameters + 6 bind mounts (avatar, API certs, edge
+        // nginx template + proxy_params, edge certs, scylla rackdc) = 29.
+        await Assert.That(total).IsEqualTo(29);
     }
 
     [Test]
@@ -417,10 +418,27 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(replacements.BindMounts.ContainsKey(
             "edge-nginx:/etc/nginx/proxy_params_interfold.conf")).IsTrue();
         await Assert.That(replacements.BindMounts.ContainsKey(
-            "edge-nginx:/etc/nginx/cloudflare-ips.conf")).IsTrue();
+            "edge-nginx:/etc/nginx/cloudflare-ips.conf")).IsFalse();
         await Assert.That(replacements.BindMounts.ContainsKey("edge-nginx:/certs")).IsTrue();
         await Assert.That(replacements.BindMounts.ContainsKey("interfold-api:/certs")).IsTrue()
             .Because("privateCa edge still mounts certs on the API for TrustController");
+    }
+
+    [Test]
+    public async Task CloudflareTunnelAddsCloudflaredTokenMountAndOmitsCerts()
+    {
+        var (config, secrets) = MakeInputs();
+        config.Edge.Cloudflare.Enabled = true;
+        config.Edge.Cloudflare.ApiToken = "token";
+        config.Edge.TlsMode = EdgeTlsMode.None;
+        var outputDir = Path.Combine(Path.GetTempPath(), "interfold-edge-tunnel-" + Guid.NewGuid().ToString("N"));
+
+        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", outputDir);
+
+        await Assert.That(replacements.BindMounts.ContainsKey(
+            $"cloudflared:{EdgePaths.ContainerCloudflareTunnelToken}")).IsTrue();
+        await Assert.That(replacements.BindMounts.ContainsKey("edge-nginx:/certs")).IsFalse();
+        await Assert.That(replacements.BindMounts.ContainsKey("interfold-api:/certs")).IsFalse();
     }
 
     [Test]

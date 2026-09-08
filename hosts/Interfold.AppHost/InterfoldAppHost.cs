@@ -76,8 +76,8 @@ public static class InterfoldAppHost
         var includeEdge = !testBenchMode;
         var edgeTlsMode = builder.Configuration[AppHostParameterKeys.EdgeTlsMode] ?? "privateCa";
         var edgeUsesPlainHttp = string.Equals(edgeTlsMode, "none", StringComparison.OrdinalIgnoreCase);
-        var edgeUsesLetsEncrypt = includeEdge
-            && string.Equals(edgeTlsMode, "letsEncrypt", StringComparison.OrdinalIgnoreCase);
+        var edgeCloudflareTunnel = BoolWire.ParseToggle(
+            builder.Configuration[AppHostParameterKeys.EdgeCloudflareTunnel], fallback: false);
         var hostPublishDbPorts = testBenchMode;
 
         var includeApi = testBenchMode
@@ -615,7 +615,7 @@ public static class InterfoldAppHost
                    .WithEnvironment(OctoconEnvKeys.HydrationMaxConcurrency, hydrationMaxConcurrency);
 
                 // Mount root CA for TrustController whenever edge uses private CA material.
-                if (!edgeUsesLetsEncrypt && !edgeUsesPlainHttp)
+                if (!edgeUsesPlainHttp && !edgeCloudflareTunnel)
                 {
                     api.WithBindMount(CertsPaths.HostDir, CertsPaths.ContainerDir, isReadOnly: true)
                        .WithEnvironment(OctoconEnvKeys.TrustRootCaPath, CertsPaths.RootCaCrt)
@@ -684,15 +684,15 @@ public static class InterfoldAppHost
             var includeWebUpstream = BoolWire.ParseToggle(
                 builder.Configuration[AppHostParameterKeys.EdgeIncludeWebUpstream], fallback: includeWeb);
 
-            var sslCert = edgeUsesLetsEncrypt
-                ? $"{EdgePaths.LetsEncryptLiveRoot}/{edgeServerName}/fullchain.pem"
-                : EdgePaths.LeafCrt;
-            var sslKey = edgeUsesLetsEncrypt
-                ? $"{EdgePaths.LetsEncryptLiveRoot}/{edgeServerName}/privkey.pem"
-                : EdgePaths.LeafKey;
+            // Tunnel: private HTTP origin only (no host-published ports). Otherwise publish
+            // edge HTTP, and HTTPS + leaf certs when tlsMode is privateCa.
+            var edge = edgeCloudflareTunnel
+                ? builder.AddContainer(ComposeServices.EdgeNginx, "nginx", "1.27-alpine")
+                    .WithHttpEndpoint(targetPort: 80, name: HttpEndpointName)
+                : builder.AddContainer(ComposeServices.EdgeNginx, "nginx", "1.27-alpine")
+                    .WithHttpEndpoint(port: edgeHttpPort, targetPort: 80, name: HttpEndpointName);
 
-            var edge = builder.AddContainer(ComposeServices.EdgeNginx, "nginx", "1.27-alpine")
-                .WithHttpEndpoint(port: edgeHttpPort, targetPort: 80, name: HttpEndpointName)
+            edge = edge
                 .WithBindMount(
                     $"{EdgePaths.HostSupportDir}/default.conf.template",
                     EdgePaths.ContainerNginxTemplate,
@@ -700,28 +700,18 @@ public static class InterfoldAppHost
                 .WithBindMount(
                     $"{EdgePaths.HostSupportDir}/proxy_params.conf",
                     EdgePaths.ContainerProxyParams,
-                    isReadOnly: true)
-                .WithBindMount(
-                    $"{EdgePaths.HostSupportDir}/cloudflare-ips.conf",
-                    EdgePaths.ContainerCloudflareIps,
                     isReadOnly: true);
 
-            if (!edgeUsesPlainHttp)
+            if (!edgeCloudflareTunnel && !edgeUsesPlainHttp)
             {
                 edge = edge
                     .WithHttpsEndpoint(port: edgeHttpsPort, targetPort: 443, name: HttpsEndpointName)
                     .WithBindMount(EdgePaths.HostCertsDir, EdgePaths.ContainerCertsDir, isReadOnly: true)
-                    .WithEnvironment(ContainerEnvNames.NginxSslCertFile, sslCert)
-                    .WithEnvironment(ContainerEnvNames.NginxSslKeyFile, sslKey)
+                    .WithEnvironment(ContainerEnvNames.NginxSslCertFile, EdgePaths.LeafCrt)
+                    .WithEnvironment(ContainerEnvNames.NginxSslKeyFile, EdgePaths.LeafKey)
                     .WithEnvironment(
                         ContainerEnvNames.NginxHttpsPortSuffix,
                         edgeHttpsPort == 443 ? string.Empty : $":{edgeHttpsPort}");
-
-                if (edgeUsesLetsEncrypt)
-                {
-                    edge = edge.WithBindMount(
-                        EdgePaths.HostAcmeWebroot, EdgePaths.ContainerAcmeWebroot, isReadOnly: false);
-                }
             }
 
             edge = edge
@@ -738,17 +728,46 @@ public static class InterfoldAppHost
                     ContainerEnvNames.NginxIncludeWeb,
                     includeWebUpstream ? "1" : string.Empty)
                 .WithEnvironment(ContainerEnvNames.NginxEnvsubstFilter, "^NGINX_")
-                .WithHttpHealthCheck("/nginx-health", endpointName: HttpEndpointName)
-                .WithExternalHttpEndpoints()
-                .PublishAsDockerComposeService((_, service) =>
-                {
-                    service.Networks = includeWebUpstream
-                        ? [ComposeNetworks.EdgeApi, ComposeNetworks.EdgeWeb]
-                        : [ComposeNetworks.EdgeApi];
-                    service.Healthcheck = ComposeHealthcheck.Cmd(
-                        interval: "15s", timeout: "5s", retries: 5, startPeriod: "10s",
-                        command: ["wget", "-qO-", "http://127.0.0.1/nginx-health"]);
-                });
+                .WithHttpHealthCheck("/nginx-health", endpointName: HttpEndpointName);
+
+            if (!edgeCloudflareTunnel)
+                edge = edge.WithExternalHttpEndpoints();
+
+            edge = edge.PublishAsDockerComposeService((_, service) =>
+            {
+                service.Networks = includeWebUpstream
+                    ? [ComposeNetworks.EdgeApi, ComposeNetworks.EdgeWeb]
+                    : [ComposeNetworks.EdgeApi];
+                service.Healthcheck = ComposeHealthcheck.Cmd(
+                    interval: "15s", timeout: "5s", retries: 5, startPeriod: "10s",
+                    command: ["wget", "-qO-", "http://127.0.0.1/nginx-health"]);
+                // Private origin: no host port publish even if Aspire allocated an ephemeral mapping.
+                if (edgeCloudflareTunnel)
+                    service.Ports = [];
+            });
+
+            if (edgeCloudflareTunnel)
+            {
+                var tokenPath = builder.Configuration[AppHostParameterKeys.EdgeCloudflareTunnelTokenPath]
+                    ?? throw new InvalidOperationException(
+                        $"Missing configuration for '{AppHostParameterKeys.EdgeCloudflareTunnelTokenPath}'.");
+
+                var cloudflared = builder.AddContainer(ComposeServices.Cloudflared, "cloudflare/cloudflared", "2025.2.1")
+                    .WithArgs(
+                        "tunnel", "--no-autoupdate", "run",
+                        "--token-file", EdgePaths.ContainerCloudflareTunnelToken)
+                    .WithBindMount(tokenPath, EdgePaths.ContainerCloudflareTunnelToken, isReadOnly: true)
+                    .WaitFor(edge)
+                    .PublishAsDockerComposeService((_, service) =>
+                    {
+                        service.Networks = includeWebUpstream
+                            ? [ComposeNetworks.EdgeApi, ComposeNetworks.EdgeWeb]
+                            : [ComposeNetworks.EdgeApi];
+                        service.Restart = "unless-stopped";
+                    });
+                _ = cloudflared;
+            }
+
             _ = edge;
         }
 

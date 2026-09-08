@@ -46,6 +46,11 @@ public static class RootCli
         var faultInjectOpt = new Option<string?>("--fault-inject") { Hidden = true };
         var printPhaseStatusOpt = new Option<bool>("--print-phase-status") { Hidden = true };
 
+        var skipCloudflareTunnelOpt = new Option<bool>("--skip-cloudflare-tunnel")
+        {
+            Description = "Skip Cloudflare Tunnel hostname/DNS registration after launch (air-gapped / tests)."
+        };
+
         // --- backup-specific options ---
         // Component selector: postgres = pg_dump only; scylla = nodetool snapshot only;
         // all = both, in that order. Invalid values are caught by BackupPhase, not here,
@@ -138,10 +143,12 @@ public static class RootCli
             "Run all phases: prereqs -> config -> secrets -> certs -> publish -> launch.");
         AddSharedOptions(bootstrapCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         bootstrapCmd.Options.Add(reconfigureOpt);
+        bootstrapCmd.Options.Add(skipCloudflareTunnelOpt);
         bootstrapCmd.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Bootstrap, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
             rotateSecrets: false, rotateCerts: false, ct,
-            reconfigureOpt: reconfigureOpt));
+            reconfigureOpt: reconfigureOpt,
+            skipCloudflareTunnelOpt: skipCloudflareTunnelOpt));
         root.Subcommands.Add(bootstrapCmd);
 
         // ---------- publish (compose-only, no docker compose up) ----------
@@ -157,9 +164,11 @@ public static class RootCli
         var upCmd = new Command("up",
             "Launch an already-generated compose stack: docker compose up -d + health wait.");
         AddSharedOptions(upCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
+        upCmd.Options.Add(skipCloudflareTunnelOpt);
         upCmd.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Up, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
-            rotateSecrets: false, rotateCerts: false, ct));
+            rotateSecrets: false, rotateCerts: false, ct,
+            skipCloudflareTunnelOpt: skipCloudflareTunnelOpt));
         root.Subcommands.Add(upCmd);
 
         // ---------- rotate-secrets ----------
@@ -264,10 +273,12 @@ public static class RootCli
         // No subcommand -> default to `bootstrap`.
         AddSharedOptions(root, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         root.Options.Add(reconfigureOpt);
+        root.Options.Add(skipCloudflareTunnelOpt);
         root.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Bootstrap, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
             rotateSecrets: false, rotateCerts: false, ct,
-            reconfigureOpt: reconfigureOpt));
+            reconfigureOpt: reconfigureOpt,
+            skipCloudflareTunnelOpt: skipCloudflareTunnelOpt));
 
         return root;
     }
@@ -316,7 +327,8 @@ public static class RootCli
         Option<string?>? restoreScyllaOpt = null,
         Option<bool>? restoreLatestOpt = null,
         Option<bool>? restoreForceOpt = null,
-        Option<bool>? reconfigureOpt = null)
+        Option<bool>? reconfigureOpt = null,
+        Option<bool>? skipCloudflareTunnelOpt = null)
     {
         var options = new BootstrapOptions(
             Command: command,
@@ -343,7 +355,8 @@ public static class RootCli
             RestoreScyllaArchive: restoreScyllaOpt is null ? null : parse.GetValue(restoreScyllaOpt),
             RestoreLatest: restoreLatestOpt is not null && parse.GetValue(restoreLatestOpt),
             RestoreForce: restoreForceOpt is not null && parse.GetValue(restoreForceOpt),
-            Reconfigure: reconfigureOpt is not null && parse.GetValue(reconfigureOpt));
+            Reconfigure: reconfigureOpt is not null && parse.GetValue(reconfigureOpt),
+            SkipCloudflareTunnel: skipCloudflareTunnelOpt is not null && parse.GetValue(skipCloudflareTunnelOpt));
 
         var logger = new PhaseLogger(options);
 

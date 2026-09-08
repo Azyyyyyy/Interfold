@@ -165,4 +165,20 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
         await Assert.That(cfg.Api.CorsAllowedOrigins).Contains("http://192.168.1.42");
         await Assert.That(cfg.Api.CorsAllowedOrigins.Count).IsEqualTo(1);
     }
+
+    [Test]
+    public async Task CloudflareTunnelUsesBareHttpsWithoutPort()
+    {
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(
+            edgeTlsMode: EdgeTlsMode.PrivateCa,
+            hosts: "api.example.com");
+        cfg.Edge.Ports.Https = 8443;
+        cfg.Edge.Cloudflare.Enabled = true;
+
+        ConfigPhase.ResolveDerivedDefaults(cfg);
+
+        await Assert.That(cfg.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://api.example.com");
+        await Assert.That(cfg.Api.OAuth.JwtAuthority).IsEqualTo("https://api.example.com");
+        await Assert.That(cfg.Api.CorsAllowedOrigins).Contains("https://api.example.com");
+    }
 }

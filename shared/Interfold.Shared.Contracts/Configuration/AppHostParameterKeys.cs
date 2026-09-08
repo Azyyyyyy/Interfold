@@ -41,10 +41,12 @@ public static class AppHostParameterKeys
     public const string EdgeRouting = "Parameters:edge-routing";
     public const string EdgeApiHost = "Parameters:edge-api-host";
     public const string EdgeWebHost = "Parameters:edge-web-host";
-    public const string EdgeCloudflareAllowlist = "Parameters:edge-cloudflare-allowlist";
+    public const string EdgeCloudflareTunnel = "Parameters:edge-cloudflare-tunnel";
     public const string EdgeIncludeWebUpstream = "Parameters:edge-include-web-upstream";
     public const string EdgeServerName = "Parameters:edge-server-name";
     public const string ApiImage = "Parameters:api-image";
+    /// <summary>Absolute host path to the Cloudflare Tunnel connector token file (0600).</summary>
+    public const string EdgeCloudflareTunnelTokenPath = "Parameters:edge-cloudflare-tunnel-token-path";
 
     // Bench-mode marker consumed by InterfoldAppHost + TestBenchCoordinator. When on, the
     // AppHost forces api/web/dashboard off, pins stable container names, and emits a

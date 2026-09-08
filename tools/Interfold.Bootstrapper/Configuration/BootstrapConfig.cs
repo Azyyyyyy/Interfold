@@ -102,11 +102,14 @@ public sealed class EdgeCertificatesSection
 
 public sealed class EdgeCloudflareSection
 {
-    [JsonPropertyName("ipAllowlist")]
-    public bool IpAllowlist { get; set; }
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
 
-    [JsonPropertyName("dnsApiToken")]
-    public string DnsApiToken { get; set; } = string.Empty;
+    [JsonPropertyName("apiToken")]
+    public string ApiToken { get; set; } = string.Empty;
+
+    [JsonPropertyName("tunnelName")]
+    public string TunnelName { get; set; } = "interfold";
 }
 
 public sealed class DatastoresSection

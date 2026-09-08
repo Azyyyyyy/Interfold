@@ -11,8 +11,6 @@ server {
     server_name ${NGINX_SERVER_NAME};
     resolver 127.0.0.11 valid=10s ipv6=off;
 
-    include /etc/nginx/cloudflare-ips.conf;
-
     location = /nginx-health {
         access_log off;
         return 200 'ok';

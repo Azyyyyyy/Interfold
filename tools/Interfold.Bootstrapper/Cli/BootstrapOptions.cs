@@ -56,7 +56,8 @@ public sealed record BootstrapOptions(
     string? RestoreScyllaArchive = null,
     bool RestoreLatest = false,
     bool RestoreForce = false,
-    bool Reconfigure = false);
+    bool Reconfigure = false,
+    bool SkipCloudflareTunnel = false);
 
 public enum BootstrapCommand
 {
