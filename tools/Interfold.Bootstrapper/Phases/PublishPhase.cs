@@ -32,10 +32,15 @@ internal static class PublishPhase
 
         Directory.CreateDirectory(options.OutputDir);
 
-        if (config.Edge.Cloudflare.Enabled)
+        if (config.Edge.Cloudflare.Enabled && !options.SkipCloudflareTunnel)
         {
             await CloudflareTunnelPhase.EnsureTunnelArtifactsAsync(config, options.OutputDir, logger, ct)
                 .ConfigureAwait(false);
+            if (config.Edge.Cloudflare.Access.Enabled)
+            {
+                await CloudflareAccessPhase.EnsureAccessArtifactsAsync(config, options.OutputDir, logger, ct)
+                    .ConfigureAwait(false);
+            }
         }
 
         var anchor = SetupAnchor(options.OutputDir);
@@ -120,7 +125,7 @@ internal static class PublishPhase
     /// (cluster/topology/image/dashboard/web/ports) that don't round-trip through .env, plus
     /// <c>CASSANDRA_IMAGE</c> which flows in via <see cref="CassandraImagePhase"/>.</summary>
     internal static IEnumerable<(string ConfigKey, string EnvKey, string Value)>
-        EnumerateSharedAspireParameters(BootstrapConfig config, GeneratedSecrets secrets)
+        EnumerateSharedAspireParameters(BootstrapConfig config, GeneratedSecrets secrets, string? outputDir = null)
     {
         // POSTGRES_INIT_PASSWORD carries the *initial* db_init password so operators who nuke
         // pgdata can rerun the bootstrap; DatabaseInitPhase scrambles it again in-cluster.
@@ -166,6 +171,10 @@ internal static class PublishPhase
         yield return (AppHostParameterKeys.DbRetryInitialDelayMs, "DB_RETRY_INITIAL_DELAY_MS", config.Api.Resilience.DbRetryInitialDelayMs.ToString());
         yield return (AppHostParameterKeys.DbRetryMaxDelayMs, "DB_RETRY_MAX_DELAY_MS", config.Api.Resilience.DbRetryMaxDelayMs.ToString());
         yield return (AppHostParameterKeys.HydrationMaxConcurrency, "HYDRATION_MAX_CONCURRENCY", config.Api.Resilience.HydrationMaxConcurrency.ToString());
+
+        var access = outputDir is null ? null : CloudflareAccessPhase.TryLoadState(outputDir);
+        yield return (AppHostParameterKeys.CfAccessTeamDomain, "CF_ACCESS_TEAM_DOMAIN", access?.TeamDomain ?? string.Empty);
+        yield return (AppHostParameterKeys.CfAccessAud, "CF_ACCESS_AUD", access?.Aud ?? string.Empty);
     }
 
     internal static EnvReplacements BuildEnvReplacements(
@@ -176,7 +185,7 @@ internal static class PublishPhase
     {
         // Seeded from the shared enumerator so every operator-tunable value is emitted here AND
         // injected as an AppHost Parameter from one source of truth.
-        var parameters = EnumerateSharedAspireParameters(config, secrets)
+        var parameters = EnumerateSharedAspireParameters(config, secrets, outputDir)
             .ToDictionary(p => p.EnvKey, p => p.Value, StringComparer.Ordinal);
 
         if (CassandraImagePhase.IsCassandraDeployment(config))
@@ -460,7 +469,7 @@ internal static class PublishPhase
         // the .env file rather than the compose YAML at publish time. Seeded from the shared
         // enumerator; extras below are graph-only knobs (topology, image, ports, cluster name)
         // that never round-trip through .env.
-        var injected = EnumerateSharedAspireParameters(config, secrets)
+        var injected = EnumerateSharedAspireParameters(config, secrets, options.OutputDir)
             .ToDictionary(p => p.ConfigKey, p => (string?)p.Value, StringComparer.Ordinal);
 
         // ClusterName is IConfiguration-read (like include-scylla / scylla-topology) rather than

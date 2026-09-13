@@ -199,6 +199,126 @@ public sealed class CloudflareTunnelClientTests
             .IsEqualTo("tun-1.cfargotunnel.com");
     }
 
+    [Test]
+    public async Task GetOrganizationReadsAuthDomain()
+    {
+        var handler = new StubCloudflareHandler();
+        handler.OnGet = (path, _) =>
+        {
+            if (path.EndsWith("/access/organizations", StringComparison.Ordinal))
+                return Json("""{"success":true,"result":{"name":"Interfold","auth_domain":"team.cloudflareaccess.com"},"errors":[]}""");
+            return Fail();
+        };
+
+        using var client = CreateClient(handler);
+        var org = await client.GetOrganizationAsync("acct-1", CancellationToken.None);
+        await Assert.That(org.AuthDomain).IsEqualTo("team.cloudflareaccess.com");
+        await Assert.That(CloudflareTunnelClient.GoogleAccessCallbackUri(org.AuthDomain))
+            .IsEqualTo("https://team.cloudflareaccess.com/cdn-cgi/access/callback");
+    }
+
+    [Test]
+    public async Task EnsureGoogleIdentityProviderCreatesWhenMissing()
+    {
+        string? postBody = null;
+        var handler = new StubCloudflareHandler();
+        handler.OnGet = (path, _) =>
+        {
+            if (path.Contains("identity_providers", StringComparison.Ordinal))
+                return Json("""{"success":true,"result":[],"errors":[]}""");
+            return Fail();
+        };
+        handler.OnPost = (_, body) =>
+        {
+            postBody = body;
+            return Json("""{"success":true,"result":{"id":"idp-1","name":"interfold-google"},"errors":[]}""");
+        };
+
+        using var client = CreateClient(handler);
+        var id = await client.EnsureGoogleIdentityProviderAsync("acct-1", "cid", "csecret", CancellationToken.None);
+        await Assert.That(id).IsEqualTo("idp-1");
+        using var doc = JsonDocument.Parse(postBody!);
+        await Assert.That(doc.RootElement.GetProperty("type").GetString()).IsEqualTo("google");
+        await Assert.That(doc.RootElement.GetProperty("name").GetString()).IsEqualTo("interfold-google");
+    }
+
+    [Test]
+    public async Task EnsureSelfHostedAppCreatesWhenMissing()
+    {
+        string? postBody = null;
+        var handler = new StubCloudflareHandler();
+        handler.OnGet = (path, _) =>
+        {
+            if (path.EndsWith("/access/apps", StringComparison.Ordinal))
+                return Json("""{"success":true,"result":[],"errors":[]}""");
+            return Fail();
+        };
+        handler.OnPost = (_, body) =>
+        {
+            postBody = body;
+            return Json("""{"success":true,"result":{"id":"app-1","domain":"api.example.com","aud":"aud-1"},"errors":[]}""");
+        };
+
+        using var client = CreateClient(handler);
+        var app = await client.EnsureSelfHostedAppAsync("acct-1", "api.example.com", "idp-1", CancellationToken.None);
+        await Assert.That(app.Aud).IsEqualTo("aud-1");
+        using var doc = JsonDocument.Parse(postBody!);
+        await Assert.That(doc.RootElement.GetProperty("domain").GetString()).IsEqualTo("api.example.com");
+        await Assert.That(doc.RootElement.GetProperty("type").GetString()).IsEqualTo("self_hosted");
+    }
+
+    [Test]
+    public async Task ReplaceAppPoliciesDeletesThenCreates()
+    {
+        string? created = null;
+        var handler = new StubCloudflareHandler();
+        handler.OnGet = (path, _) =>
+        {
+            if (path.Contains("/policies", StringComparison.Ordinal))
+                return Json("""{"success":true,"result":[{"id":"pol-old"}],"errors":[]}""");
+            return Fail();
+        };
+        handler.OnDelete = (_, _) => Json("""{"success":true,"result":{},"errors":[]}""");
+        handler.OnPost = (_, body) =>
+        {
+            created = body;
+            return Json("""{"success":true,"result":{"id":"pol-new"},"errors":[]}""");
+        };
+
+        using var client = CreateClient(handler);
+        var policy = CloudflareAccessPhase.BuildAllowPolicy(
+            ["ops@example.com"],
+            ["example.com"],
+            "idp-1");
+        await client.ReplaceAppPoliciesAsync("acct-1", "app-1", [policy], CancellationToken.None);
+
+        await Assert.That(handler.DeleteCount).IsEqualTo(1);
+        using var doc = JsonDocument.Parse(created!);
+        await Assert.That(doc.RootElement.GetProperty("decision").GetString()).IsEqualTo("allow");
+        await Assert.That(doc.RootElement.GetProperty("include").GetArrayLength()).IsEqualTo(2);
+        await Assert.That(doc.RootElement.GetProperty("require")[0].GetProperty("login_method").GetProperty("id").GetString())
+            .IsEqualTo("idp-1");
+    }
+
+    [Test]
+    public async Task EnsureServiceTokenCreatesWhenMissing()
+    {
+        var handler = new StubCloudflareHandler();
+        handler.OnGet = (path, _) =>
+        {
+            if (path.Contains("service_tokens", StringComparison.Ordinal))
+                return Json("""{"success":true,"result":[],"errors":[]}""");
+            return Fail();
+        };
+        handler.OnPost = (_, _) => Json(
+            """{"success":true,"result":{"id":"st-1","client_id":"cid","client_secret":"csec"},"errors":[]}""");
+
+        using var client = CreateClient(handler);
+        var token = await client.EnsureServiceTokenAsync("acct-1", "interfold-bootstrap", null, null, CancellationToken.None);
+        await Assert.That(token.ClientId).IsEqualTo("cid");
+        await Assert.That(token.ClientSecret).IsEqualTo("csec");
+    }
+
     private static CloudflareTunnelClient CreateClient(HttpMessageHandler handler)
         => new(new HttpClient(handler)
         {
@@ -226,7 +346,9 @@ public sealed class CloudflareTunnelClientTests
         public Func<string, string, HttpResponseMessage>? OnPost { get; set; }
         public Func<string, string, HttpResponseMessage>? OnPut { get; set; }
         public Func<string, string, HttpResponseMessage>? OnPatch { get; set; }
+        public Func<string, string, HttpResponseMessage>? OnDelete { get; set; }
         public int PostCount { get; private set; }
+        public int DeleteCount { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -246,6 +368,7 @@ public sealed class CloudflareTunnelClientTests
                 "POST" => IncrementPost(OnPost?.Invoke(path, body) ?? Fail()),
                 "PUT" => OnPut?.Invoke(path, body) ?? Fail(),
                 "PATCH" => OnPatch?.Invoke(path, body) ?? Fail(),
+                "DELETE" => IncrementDelete(OnDelete?.Invoke(path, body) ?? Fail()),
                 _ => Fail(),
             };
         }
@@ -253,6 +376,12 @@ public sealed class CloudflareTunnelClientTests
         private HttpResponseMessage IncrementPost(HttpResponseMessage response)
         {
             PostCount++;
+            return response;
+        }
+
+        private HttpResponseMessage IncrementDelete(HttpResponseMessage response)
+        {
+            DeleteCount++;
             return response;
         }
     }

@@ -224,6 +224,8 @@ public static class InterfoldAppHost
         var dbRetryInitialDelayMs = builder.AddParameter(ParamName(AppHostParameterKeys.DbRetryInitialDelayMs), "100", publishValueAsDefault: true);
         var dbRetryMaxDelayMs = builder.AddParameter(ParamName(AppHostParameterKeys.DbRetryMaxDelayMs), "1500", publishValueAsDefault: true);
         var hydrationMaxConcurrency = builder.AddParameter(ParamName(AppHostParameterKeys.HydrationMaxConcurrency), "8", publishValueAsDefault: true);
+        var cfAccessTeamDomain = builder.AddParameter(ParamName(AppHostParameterKeys.CfAccessTeamDomain), "", publishValueAsDefault: true);
+        var cfAccessAud = builder.AddParameter(ParamName(AppHostParameterKeys.CfAccessAud), "", publishValueAsDefault: true);
 
         // Reject well-known default passwords in dev mode. Each check is gated on the
         // matching include-* toggle so opt-out fixtures don't need placeholder creds. Publish
@@ -612,7 +614,9 @@ public static class InterfoldAppHost
                    .WithEnvironment(OctoconEnvKeys.DbRetryAttempts, dbRetryAttempts)
                    .WithEnvironment(OctoconEnvKeys.DbRetryInitialDelayMs, dbRetryInitialDelayMs)
                    .WithEnvironment(OctoconEnvKeys.DbRetryMaxDelayMs, dbRetryMaxDelayMs)
-                   .WithEnvironment(OctoconEnvKeys.HydrationMaxConcurrency, hydrationMaxConcurrency);
+                   .WithEnvironment(OctoconEnvKeys.HydrationMaxConcurrency, hydrationMaxConcurrency)
+                   .WithEnvironment(OctoconEnvKeys.CfAccessTeamDomain, cfAccessTeamDomain)
+                   .WithEnvironment(OctoconEnvKeys.CfAccessAud, cfAccessAud);
 
                 // Mount root CA for TrustController whenever edge uses private CA material.
                 if (!edgeUsesPlainHttp && !edgeCloudflareTunnel)

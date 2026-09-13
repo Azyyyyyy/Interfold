@@ -31,6 +31,36 @@ public sealed class AuthControllerTests(IWebFactoryFixture fixture) : BaseEndpoi
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
     }
 
+    [Test]
+    public async Task LoginMethods_ReportsCloudflareAccessDisabledByDefault()
+    {
+        using var client = fixture.Factory.CreateClient();
+        var response = await client.GetAsync("/auth/login-methods");
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        await Assert.That(doc.RootElement.GetProperty("cloudflare").GetBoolean()).IsFalse();
+        await Assert.That(doc.RootElement.GetProperty("google").GetBoolean()).IsFalse();
+        await Assert.That(doc.RootElement.GetProperty("discord").GetBoolean()).IsFalse();
+        await Assert.That(doc.RootElement.GetProperty("apple").GetBoolean()).IsFalse();
+    }
+
+    [Test]
+    public async Task CloudflareExchange_UnavailableWhenAccessEnvUnset()
+    {
+        using var client = TestClient.NoRedirect(fixture);
+        var response = await client.GetAsync("/auth/cloudflare?redirect_uri=https://app.example.com/done");
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
+    }
+
+    [Test]
+    public async Task CloudflareSession_UnauthorizedWithoutAccessJwt()
+    {
+        using var client = fixture.Factory.CreateClient();
+        var response = await client.PostAsync("/auth/cloudflare/session", content: null);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
+    }
+
     //TODO: DO we need this? Maybe can split it up another way...
     [Test]
     public async Task Api_AuthAndIdempotencyFlow_VerifiesEndToEndBehavior()

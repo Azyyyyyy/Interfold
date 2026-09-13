@@ -164,6 +164,17 @@ internal static class ConfigPhase
             return console.Prompt(p);
         }
 
+        List<string> PromptCsv(string label, List<string> fallback)
+        {
+            var fallbackText = string.Join(",", fallback);
+            var raw = console.Prompt(
+                new TextPrompt<string>($"{label}:")
+                    .DefaultValue(fallbackText)
+                    .AllowEmpty());
+            if (string.IsNullOrWhiteSpace(raw)) return [];
+            return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        }
+
         // Blank → null (use API default). Manual TextPrompt<string> because Spectre lacks TextPrompt<int?>.
         int? PromptNullableInt(string label, int? fallback, int min, int max)
         {
@@ -234,12 +245,24 @@ internal static class ConfigPhase
                                                         "Enable Cloudflare Tunnel (public hostname → private origin)", c.Edge.Cloudflare.Enabled)),
                 ("Cloudflare API token",            () => Mask(c.Edge.Cloudflare.ApiToken),
                                                     () => c.Edge.Cloudflare.ApiToken = PromptOAuth(
-                                                        "Cloudflare API token (Account Tunnel Edit + Zone DNS Edit)",
+                                                        "Cloudflare API token (Tunnel + DNS + Access Apps/Policies + Service Tokens)",
                                                         c.Edge.Cloudflare.ApiToken)),
                 ("Cloudflare tunnel name",          () => c.Edge.Cloudflare.TunnelName,
                                                     () => c.Edge.Cloudflare.TunnelName = PromptStr(
                                                         "Cloudflare tunnel name",
                                                         string.IsNullOrEmpty(c.Edge.Cloudflare.TunnelName) ? "interfold" : c.Edge.Cloudflare.TunnelName)),
+                ("Cloudflare Access",               () => c.Edge.Cloudflare.Access.Enabled.ToString(),
+                                                    () => c.Edge.Cloudflare.Access.Enabled = PromptBool(
+                                                        "Enable Cloudflare Access (Google allowlist + single login)",
+                                                        c.Edge.Cloudflare.Access.Enabled)),
+                ("Access allowed emails",           () => string.Join(",", c.Edge.Cloudflare.Access.AllowedEmails),
+                                                    () => c.Edge.Cloudflare.Access.AllowedEmails = PromptCsv(
+                                                        "Access allowed emails (comma-separated exact addresses)",
+                                                        c.Edge.Cloudflare.Access.AllowedEmails)),
+                ("Access allowed email domains",    () => string.Join(",", c.Edge.Cloudflare.Access.AllowedEmailDomains),
+                                                    () => c.Edge.Cloudflare.Access.AllowedEmailDomains = PromptCsv(
+                                                        "Access allowed email domains (comma-separated, e.g. example.com)",
+                                                        c.Edge.Cloudflare.Access.AllowedEmailDomains)),
                 ("Edge HTTP port",                  () => c.Edge.Ports.Http.ToString(),
                                                     () => c.Edge.Ports.Http = PromptInt("Edge HTTP port", c.Edge.Ports.Http, 1, 65535)),
                 ("Edge HTTPS port",                 () => c.Edge.Ports.Https.ToString(),
@@ -699,6 +722,10 @@ internal static class ConfigPhase
                 Cloudflare = new EdgeCloudflareSection
                 {
                     Enabled = c.Edge.Cloudflare.Enabled,
+                    Access = new EdgeCloudflareAccessSection
+                    {
+                        Enabled = c.Edge.Cloudflare.Access.Enabled,
+                    },
                 },
             },
             Api = new ApiSection
@@ -1156,6 +1183,38 @@ internal static class ConfigPhase
             if (edge.TlsMode != EdgeTlsMode.None)
             {
                 edge.TlsMode = EdgeTlsMode.None;
+            }
+        }
+
+        if (edge.Cloudflare.Access.Enabled)
+        {
+            if (!edge.Cloudflare.Enabled)
+            {
+                throw new InvalidOperationException(
+                    "config.edge.cloudflare.access.enabled=true requires cloudflare.enabled=true (Access sits on tunnel hostnames).");
+            }
+
+            if (string.IsNullOrWhiteSpace(config.Api.OAuth.GoogleClientId)
+                || string.IsNullOrWhiteSpace(config.Api.OAuth.GoogleClientSecret))
+            {
+                throw new InvalidOperationException(
+                    "config.api.oauth.googleClientId and googleClientSecret are required when cloudflare.access.enabled=true.");
+            }
+
+            var emails = edge.Cloudflare.Access.AllowedEmails
+                .Select(e => e.Trim())
+                .Where(e => e.Length > 0)
+                .ToList();
+            var domains = edge.Cloudflare.Access.AllowedEmailDomains
+                .Select(d => d.Trim())
+                .Where(d => d.Length > 0)
+                .ToList();
+            edge.Cloudflare.Access.AllowedEmails = emails;
+            edge.Cloudflare.Access.AllowedEmailDomains = domains;
+            if (emails.Count == 0 && domains.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "config.edge.cloudflare.access requires at least one allowedEmails or allowedEmailDomains entry.");
             }
         }
     }

@@ -81,6 +81,8 @@ public static class AppHostParameterKeys
     public const string DbRetryInitialDelayMs = "Parameters:db-retry-initial-delay-ms";
     public const string DbRetryMaxDelayMs = "Parameters:db-retry-max-delay-ms";
     public const string HydrationMaxConcurrency = "Parameters:hydration-max-concurrency";
+    public const string CfAccessTeamDomain = "Parameters:cf-access-team-domain";
+    public const string CfAccessAud = "Parameters:cf-access-aud";
 
     // --- Host port mappings ---
     public const string PortsPostgres = "Ports:postgres";

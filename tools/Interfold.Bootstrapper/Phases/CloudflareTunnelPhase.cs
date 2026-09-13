@@ -73,10 +73,18 @@ internal static class CloudflareTunnelPhase
             await client.UpsertDnsCnameAsync(zone.ZoneId, host, state.TunnelId, ct).ConfigureAwait(false);
         }
 
+        if (config.Edge.Cloudflare.Access.Enabled)
+        {
+            await CloudflareAccessPhase.RunAfterTunnelAsync(options, config, logger, ct).ConfigureAwait(false);
+        }
+
         var primary = hostnames[0];
         var readyUrl = CloudflareTunnelClient.BuildPublicReadyUrl(primary);
         logger.Info($"    polling public {readyUrl} (up to {PublicHealthTimeout.TotalMinutes:F0}m)");
-        await WaitForPublicReadyAsync(readyUrl, logger, ct).ConfigureAwait(false);
+        var serviceToken = config.Edge.Cloudflare.Access.Enabled
+            ? CloudflareAccessPhase.TryLoadServiceToken(options.OutputDir)
+            : null;
+        await WaitForPublicReadyAsync(readyUrl, serviceToken, logger, ct).ConfigureAwait(false);
 
         logger.PhaseDone(Phase);
     }
@@ -177,7 +185,11 @@ internal static class CloudflareTunnelPhase
             hosts.Add(host);
     }
 
-    private static async Task WaitForPublicReadyAsync(string readyUrl, PhaseLogger logger, CancellationToken ct)
+    private static async Task WaitForPublicReadyAsync(
+        string readyUrl,
+        CloudflareAccessServiceToken? serviceToken,
+        PhaseLogger logger,
+        CancellationToken ct)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         var deadline = DateTime.UtcNow + PublicHealthTimeout;
@@ -188,7 +200,16 @@ internal static class CloudflareTunnelPhase
             attempt++;
             try
             {
-                var resp = await http.GetAsync(readyUrl, ct).ConfigureAwait(false);
+                using var request = new HttpRequestMessage(HttpMethod.Get, readyUrl);
+                if (serviceToken is not null)
+                {
+                    request.Headers.TryAddWithoutValidation(
+                        Interfold.Shared.Contracts.InterfoldHeaders.CfAccessClientId, serviceToken.ClientId);
+                    request.Headers.TryAddWithoutValidation(
+                        Interfold.Shared.Contracts.InterfoldHeaders.CfAccessClientSecret, serviceToken.ClientSecret);
+                }
+
+                var resp = await http.SendAsync(request, ct).ConfigureAwait(false);
                 if (resp.IsSuccessStatusCode)
                 {
                     logger.Info($"    public api ready at {readyUrl} after {attempt} attempt(s)");

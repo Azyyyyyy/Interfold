@@ -162,9 +162,9 @@ public sealed class PublishEnvPostProcessingTests
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, baseDir, outputDir);
 
         var total = replacements.Parameters.Count + replacements.BindMounts.Count;
-        // Single mode: 23 shared env parameters + 6 bind mounts (avatar, API certs, edge
-        // nginx template + proxy_params, edge certs, scylla rackdc) = 29.
-        await Assert.That(total).IsEqualTo(29);
+        // Single mode: 25 shared env parameters + 6 bind mounts (avatar, API certs, edge
+        // nginx template + proxy_params, edge certs, scylla rackdc) = 31.
+        await Assert.That(total).IsEqualTo(31);
     }
 
     [Test]
@@ -189,6 +189,24 @@ public sealed class PublishEnvPostProcessingTests
         // Comma-separated on OCTOCON_CORS_ALLOWED_ORIGINS; API CORS startup splits on ','.
         await Assert.That(replacements.Parameters["CORS_ALLOWED_ORIGINS"])
             .IsEqualTo("https://app.example.com,https://admin.example.com");
+        await Assert.That(replacements.Parameters["CF_ACCESS_TEAM_DOMAIN"]).IsEqualTo(string.Empty);
+        await Assert.That(replacements.Parameters["CF_ACCESS_AUD"]).IsEqualTo(string.Empty);
+    }
+
+    [Test]
+    public async Task BuildEnvReplacementsReadsCloudflareAccessState()
+    {
+        using var scratch = TestSupport.NewScratchDir("interfold-cf-access-env");
+        var (config, secrets) = MakeInputs();
+        Directory.CreateDirectory(scratch.Path);
+        await File.WriteAllTextAsync(
+            Path.Combine(scratch.Path, ".cloudflare-access.json"),
+            """{"teamDomain":"team.cloudflareaccess.com","aud":"aud-from-state","identityProviderId":"idp-1","appIds":{}}""");
+
+        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", scratch.Path);
+
+        await Assert.That(replacements.Parameters["CF_ACCESS_TEAM_DOMAIN"]).IsEqualTo("team.cloudflareaccess.com");
+        await Assert.That(replacements.Parameters["CF_ACCESS_AUD"]).IsEqualTo("aud-from-state");
     }
 
     [Test]
@@ -632,8 +650,8 @@ public sealed class PublishEnvPostProcessingTests
                 .Because($"env-key '{envKey}' must be the upper-snake-cased form of the kebab-cased Aspire parameter '{bareName}' (config-key '{configKey}')");
         }
 
-        // Spec-frozen at 23 — bump this AND the enumerator together.
-        await Assert.That(seenConfigKeys.Count).IsEqualTo(23)
-            .Because("shared-parameter count is spec-frozen at 23; update BOTH the enumerator AND this assertion together");
+        // Spec-frozen at 25 — bump this AND the enumerator together.
+        await Assert.That(seenConfigKeys.Count).IsEqualTo(25)
+            .Because("shared-parameter count is spec-frozen at 25; update BOTH the enumerator AND this assertion together");
     }
 }

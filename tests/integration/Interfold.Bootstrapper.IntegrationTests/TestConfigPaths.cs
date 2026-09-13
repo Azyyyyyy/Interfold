@@ -10,4 +10,5 @@ public static class TestConfigPaths
     public static string EdgeConfig => Path.Combine(AppContext.BaseDirectory, "Fixtures", "interfold.bootstrap.test.edge.json");
     public static string EdgeHttpConfig => Path.Combine(AppContext.BaseDirectory, "Fixtures", "interfold.bootstrap.test.edge-http.json");
     public static string CloudflareTunnelConfig => Path.Combine(AppContext.BaseDirectory, "Fixtures", "interfold.bootstrap.test.cloudflare-tunnel.json");
+    public static string CloudflareAccessConfig => Path.Combine(AppContext.BaseDirectory, "Fixtures", "interfold.bootstrap.test.cloudflare-access.json");
 }

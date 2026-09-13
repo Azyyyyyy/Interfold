@@ -42,6 +42,9 @@ public static class OctoconEnvKeys
     public const string AppleOAuthClientId = "OCTOCON_APPLE_OAUTH_CLIENT_ID";
     public const string AppleOAuthClientSecret = "OCTOCON_APPLE_OAUTH_CLIENT_SECRET";
 
+    public const string CfAccessTeamDomain = "OCTOCON_CF_ACCESS_TEAM_DOMAIN";
+    public const string CfAccessAud = "OCTOCON_CF_ACCESS_AUD";
+
     public const string CorsAllowedOrigins = "OCTOCON_CORS_ALLOWED_ORIGINS";
 
     public const string OtlpEndpoint = "OCTOCON_OTLP_ENDPOINT";

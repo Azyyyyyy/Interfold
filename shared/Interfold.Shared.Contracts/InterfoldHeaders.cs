@@ -19,6 +19,15 @@ public static class InterfoldHeaders
     /// </summary>
     public const string InboundRequestId = "X-Request-Id";
     public const string Principal = "X-Interfold-Principal";
+
+    /// <summary>Cloudflare Access identity JWT. Nginx must forward this to origin unchanged.</summary>
+    public const string CfAccessJwtAssertion = "Cf-Access-Jwt-Assertion";
+
+    /// <summary>Cloudflare Access authenticated email, forwarded for diagnostics only.</summary>
+    public const string CfAccessAuthenticatedUserEmail = "Cf-Access-Authenticated-User-Email";
+
+    public const string CfAccessClientId = "CF-Access-Client-Id";
+    public const string CfAccessClientSecret = "CF-Access-Client-Secret";
 }
 
 /// <summary>

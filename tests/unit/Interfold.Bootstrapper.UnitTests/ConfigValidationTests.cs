@@ -357,6 +357,55 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
+    public Task EdgeCloudflareAccessRequiresTunnel()
+        => AssertInvalidAsync(c =>
+        {
+            c.Edge.Cloudflare.Enabled = false;
+            c.Edge.Cloudflare.Access.Enabled = true;
+            c.Edge.Cloudflare.Access.AllowedEmails = ["ops@example.com"];
+            c.Api.OAuth.GoogleClientId = "gid";
+            c.Api.OAuth.GoogleClientSecret = "gsecret";
+        }, "access.enabled", "cloudflare.enabled");
+
+    [Test]
+    public Task EdgeCloudflareAccessRequiresGoogleOAuth()
+        => AssertInvalidAsync(c =>
+        {
+            c.Edge.Cloudflare.Enabled = true;
+            c.Edge.Cloudflare.ApiToken = "cf-token";
+            c.Edge.Cloudflare.TunnelName = "interfold";
+            c.Edge.Cloudflare.Access.Enabled = true;
+            c.Edge.Cloudflare.Access.AllowedEmails = ["ops@example.com"];
+        }, "googleClientId", "googleClientSecret");
+
+    [Test]
+    public Task EdgeCloudflareAccessRequiresAllowlist()
+        => AssertInvalidAsync(c =>
+        {
+            c.Edge.Cloudflare.Enabled = true;
+            c.Edge.Cloudflare.ApiToken = "cf-token";
+            c.Edge.Cloudflare.TunnelName = "interfold";
+            c.Edge.Cloudflare.Access.Enabled = true;
+            c.Api.OAuth.GoogleClientId = "gid";
+            c.Api.OAuth.GoogleClientSecret = "gsecret";
+        }, "allowedEmails", "allowedEmailDomains");
+
+    [Test]
+    public async Task EdgeCloudflareAccessWithDomainAllowlistPasses()
+    {
+        var cfg = MakeValid();
+        cfg.Edge.Cloudflare.Enabled = true;
+        cfg.Edge.Cloudflare.ApiToken = "cf-token";
+        cfg.Edge.Cloudflare.TunnelName = "interfold";
+        cfg.Edge.Cloudflare.Access.Enabled = true;
+        cfg.Edge.Cloudflare.Access.AllowedEmailDomains = ["example.com"];
+        cfg.Api.OAuth.GoogleClientId = "gid";
+        cfg.Api.OAuth.GoogleClientSecret = "gsecret";
+        ConfigPhase.Validate(cfg);
+        await Assert.That(cfg.Edge.TlsMode).IsEqualTo(EdgeTlsMode.None);
+    }
+
+    [Test]
     public Task EdgeSubdomainRequiresHosts()
         => AssertInvalidAsync(c =>
         {

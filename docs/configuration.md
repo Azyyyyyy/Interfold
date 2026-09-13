@@ -96,7 +96,12 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
       "webHost": ""
     },
     "ports": { "http": 80, "https": 443 },
-    "cloudflare": { "enabled": false, "apiToken": "", "tunnelName": "interfold" },
+    "cloudflare": {
+      "enabled": false,
+      "apiToken": "",
+      "tunnelName": "interfold",
+      "access": { "enabled": false, "allowedEmails": [], "allowedEmailDomains": [] }
+    },
     "certificates": {
       "rootCaName": "Interfold Root CA",
       "certYears": 5,
@@ -155,10 +160,30 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
 | Field | Default | Notes |
 | ----- | ------- | ----- |
 | `enabled` | `false` | When `true`, origin stays private (no host-published edge ports). Publish creates/reuses a remotely-managed tunnel; Launch starts `cloudflared`; a post-launch phase registers hostnames + proxied DNS CNAMEs. |
-| `apiToken` | `""` | Cloudflare API token with **Account → Cloudflare Tunnel Edit** and **Zone → DNS Edit**. Used only by the bootstrapper — never passed to `cloudflared`. |
+| `apiToken` | `""` | Cloudflare API token with **Account → Cloudflare Tunnel Edit**, **Zone → DNS Edit**, **Access: Apps and Policies Edit**, **Access: Service Tokens Edit**, and organization read. Used only by the bootstrapper — never passed to `cloudflared`. |
 | `tunnelName` | `interfold` | Stable name for create-or-reuse of the tunnel object. |
+| `access.enabled` | `false` | When `true`, Cloudflare Access gates public hostnames. Requires tunnel enabled, Interfold Google client id **and** secret, and at least one of `allowedEmails` / `allowedEmailDomains`. |
+| `access.allowedEmails` | `[]` | Exact Google addresses allowed through Access (AND with the Interfold Google IdP). Enforced at Access only — the API does not re-check the list. |
+| `access.allowedEmailDomains` | `[]` | Google email domains (e.g. `example.com`) allowed through Access. At least one email or domain is required when Access is on. |
 
-Account ID is resolved from the primary hostname’s zone (`GET /zones?name=`). The connector token is written to `{outputDir}/secrets/cloudflare-tunnel.token` (mode 0600). Skip hostname registration with `--skip-cloudflare-tunnel`.
+Account ID is resolved from the primary hostname’s zone (`GET /zones?name=`). The connector token is written to `{outputDir}/secrets/cloudflare-tunnel.token` (mode 0600). Skip hostname registration with `--skip-cloudflare-tunnel` (also skips Access).
+
+When Access is enabled, the bootstrapper creates/reuses a Zero Trust Google IdP named `interfold-google` from the same Interfold Google OAuth client, one self-hosted app per public hostname, allow + service-token policies, and bypass apps for `/health` and `/health/ready`. Persist `{ teamDomain, aud, appIds, identityProviderId }` in `{outputDir}/.cloudflare-access.json`. The Access service token (`interfold-bootstrap`) is written to `{outputDir}/secrets/cloudflare-access-service.token` (mode 0600).
+
+**Google redirect URI (operator must add this — Google Cloud Console only):**  
+`https://{team}.cloudflareaccess.com/cdn-cgi/access/callback`  
+The bootstrapper prints this URI on every Access run (phase log and interactive table). The same Google client as Interfold OAuth is reused.
+
+##### Client contract (Access on)
+
+This repo does not own the mobile UI. `GET /auth/login-methods` returns `{ "cloudflare", "google", "discord", "apple" }` (each a bool). Google/Discord/Apple are true when the matching OAuth client id is set. When `cloudflare` is true:
+
+- Show only **Continue with Cloudflare** → system browser / webview to `https://{apiHost}/auth/cloudflare?redirect_uri={app}`.
+- The Access JWT (`Cf-Access-Jwt-Assertion`) is exchanged for a normal Interfold ES256 JWT (`redirect_uri?token=&id=` or `POST /auth/cloudflare/session` → `{ token, id }`).
+- Attach Access service-token headers (`CF-Access-Client-Id` / `CF-Access-Client-Secret`) on API calls that are not a user browser session, or rely on the Access JWT/cookie after the webview.
+- Discord / Apple / Google Interfold buttons stay for non-Access deployments.
+
+The Access JWT is **not** accepted as `Authorization: Bearer` on REST or WebSocket. Sockets and JTI allowlist stay on the Interfold JWT.
 
 When tunnel is enabled, `edge.tlsMode` is coerced to `none` (Cloudflare terminates public TLS). OAuth/JWT/CORS derived URLs use bare `https://{host}`.
 
@@ -446,6 +471,8 @@ encryption pepper, and the API refuses to boot without it). If the value is stil
 | `OCTOCON_GOOGLE_OAUTH_CLIENT_SECRET`  | *null*          | Placeholder only; overwritten at startup from `internal.secrets:oauth:google:client_secret`. **Do not rely on the env value.** (bootstrapper-managed) |
 | `OCTOCON_DISCORD_OAUTH_CLIENT_SECRET` | *null*          | Same handling. (bootstrapper-managed)                                                                                                                 |
 | `OCTOCON_APPLE_OAUTH_CLIENT_SECRET`   | *null*          | Same handling. (bootstrapper-managed)                                                                                                                 |
+| `OCTOCON_CF_ACCESS_TEAM_DOMAIN`       | *empty*         | Cloudflare Access team host (e.g. `myteam.cloudflareaccess.com`). Empty disables `GET/POST /auth/cloudflare`. Sourced from `{outputDir}/.cloudflare-access.json` via Aspire parameter `cf-access-team-domain`. (bootstrapper-managed) |
+| `OCTOCON_CF_ACCESS_AUD`               | *empty*         | Access application AUD used to validate `Cf-Access-Jwt-Assertion`. Empty disables the exchange. Sourced from `.cloudflare-access.json` via `cf-access-aud`. (bootstrapper-managed) |
 
 
 Each provider's authorize URL, ASP.NET Core challenge scheme name, and static challenge

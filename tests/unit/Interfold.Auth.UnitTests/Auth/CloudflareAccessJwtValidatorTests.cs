@@ -1,0 +1,124 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Net;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
+using Interfold.Auth.Api.Auth;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Shared.Contracts;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+
+namespace Interfold.Api.UnitTests.Auth;
+
+public sealed class CloudflareAccessJwtValidatorTests
+{
+    [Test]
+    public async Task DisabledWhenEnvEmpty()
+    {
+        var validator = CreateValidator(new CloudflareAccessConfiguration(), JsonWebKeySetJson(Rsa()));
+        await Assert.That(validator.IsEnabled).IsFalse();
+        var result = await validator.ValidateAsync("not-a-jwt", CancellationToken.None);
+        await Assert.That(result.Error).IsEqualTo(ErrorCodes.CloudflareAccessUnavailable);
+    }
+
+    [Test]
+    public async Task MissingHeaderFails()
+    {
+        var rsa = Rsa();
+        var validator = CreateValidator(EnabledConfig(), JsonWebKeySetJson(rsa));
+        var result = await validator.ValidateAsync(null, CancellationToken.None);
+        await Assert.That(result.Error).IsEqualTo(ErrorCodes.MissingAccessJwt);
+    }
+
+    [Test]
+    public async Task ValidUserJwtReturnsEmail()
+    {
+        var rsa = Rsa();
+        var token = Mint(rsa, email: "ops@example.com");
+        var validator = CreateValidator(EnabledConfig(), JsonWebKeySetJson(rsa));
+        var result = await validator.ValidateAsync(token, CancellationToken.None);
+        await Assert.That(result.Succeeded).IsTrue();
+        await Assert.That(result.Email).IsEqualTo("ops@example.com");
+    }
+
+    [Test]
+    public async Task ServiceTokenWithoutEmailIsRejected()
+    {
+        var rsa = Rsa();
+        var token = Mint(rsa, email: null, commonName: "interfold-bootstrap");
+        var validator = CreateValidator(EnabledConfig(), JsonWebKeySetJson(rsa));
+        var result = await validator.ValidateAsync(token, CancellationToken.None);
+        await Assert.That(result.Succeeded).IsFalse();
+        await Assert.That(result.Error).IsEqualTo(ErrorCodes.InvalidToken);
+    }
+
+    [Test]
+    public async Task AudienceMismatchFails()
+    {
+        var rsa = Rsa();
+        var token = Mint(rsa, email: "ops@example.com", aud: "other-aud");
+        var validator = CreateValidator(EnabledConfig(), JsonWebKeySetJson(rsa));
+        var result = await validator.ValidateAsync(token, CancellationToken.None);
+        await Assert.That(result.Succeeded).IsFalse();
+    }
+
+    private static CloudflareAccessConfiguration EnabledConfig() => new()
+    {
+        TeamDomain = "team.cloudflareaccess.com",
+        Audience = "app-aud",
+    };
+
+    private static CloudflareAccessJwtValidator CreateValidator(CloudflareAccessConfiguration cfg, string jwks)
+    {
+        var handler = new StubJwksHandler(jwks);
+        return new CloudflareAccessJwtValidator(
+            new StaticOptions(cfg),
+            new HttpClient(handler) { BaseAddress = new Uri("https://team.cloudflareaccess.com/") });
+    }
+
+    private static RSA Rsa() => RSA.Create(2048);
+
+    private static string Mint(RSA rsa, string? email, string? commonName = null, string aud = "app-aud")
+    {
+        var key = new RsaSecurityKey(rsa);
+        var creds = new SigningCredentials(key, SecurityAlgorithms.RsaSha256);
+        var claims = new List<Claim>();
+        if (email is not null)
+            claims.Add(new Claim("email", email));
+        if (commonName is not null)
+            claims.Add(new Claim("common_name", commonName));
+
+        var token = new JwtSecurityToken(
+            issuer: "https://team.cloudflareaccess.com",
+            audience: aud,
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(1),
+            signingCredentials: creds);
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static string JsonWebKeySetJson(RSA rsa)
+    {
+        var jwk = JsonWebKeyConverter.ConvertFromRSASecurityKey(new RsaSecurityKey(rsa) { KeyId = "test" });
+        jwk.Use = "sig";
+        jwk.Alg = "RS256";
+        return $$"""{"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"test","n":"{{jwk.N}}","e":"{{jwk.E}}"}]}""";
+    }
+
+    private sealed class StaticOptions(CloudflareAccessConfiguration value) : IOptionsMonitor<CloudflareAccessConfiguration>
+    {
+        public CloudflareAccessConfiguration CurrentValue { get; } = value;
+        public CloudflareAccessConfiguration Get(string? name) => CurrentValue;
+        public IDisposable? OnChange(Action<CloudflareAccessConfiguration, string?> listener) => null;
+    }
+
+    private sealed class StubJwksHandler(string jwks) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(jwks, Encoding.UTF8, "application/json"),
+            });
+    }
+}

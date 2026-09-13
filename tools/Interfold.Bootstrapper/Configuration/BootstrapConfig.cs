@@ -110,6 +110,21 @@ public sealed class EdgeCloudflareSection
 
     [JsonPropertyName("tunnelName")]
     public string TunnelName { get; set; } = "interfold";
+
+    [JsonPropertyName("access")]
+    public EdgeCloudflareAccessSection Access { get; set; } = new();
+}
+
+public sealed class EdgeCloudflareAccessSection
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    [JsonPropertyName("allowedEmails")]
+    public List<string> AllowedEmails { get; set; } = [];
+
+    [JsonPropertyName("allowedEmailDomains")]
+    public List<string> AllowedEmailDomains { get; set; } = [];
 }
 
 public sealed class DatastoresSection

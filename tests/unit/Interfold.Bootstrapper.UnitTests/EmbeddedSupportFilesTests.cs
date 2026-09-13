@@ -113,6 +113,17 @@ public sealed class EmbeddedSupportFilesTests
     }
 
     [Test]
+    public async Task NginxProxyParamsForwardsAccessJwtAndCloudflareProto()
+    {
+        using var stream = EmbeddedSupportFiles.Open(EmbeddedSupportFiles.EdgeProxyParamsRelative);
+        using var reader = new StreamReader(stream);
+        var text = await reader.ReadToEndAsync();
+        await Assert.That(text).Contains("Cf-Access-Jwt-Assertion");
+        await Assert.That(text).Contains("Cf-Access-Authenticated-User-Email");
+        await Assert.That(text).Contains("$interfold_forwarded_proto");
+    }
+
+    [Test]
     public async Task StagePublishSupportFilesMaterializesRackdcUnderOutputSupport()
     {
         using var scratch = TestSupport.NewScratchDir("interfold-publish-support");
