@@ -78,6 +78,8 @@ public static class InterfoldAppHost
         var edgeUsesPlainHttp = string.Equals(edgeTlsMode, "none", StringComparison.OrdinalIgnoreCase);
         var edgeUsesLetsEncrypt = includeEdge
             && string.Equals(edgeTlsMode, "letsEncrypt", StringComparison.OrdinalIgnoreCase);
+        // Host-published DB ports are how an operator-supplied (external) DB is reached.
+        // Test-bench is the only current caller.
         var hostPublishDbPorts = testBenchMode;
 
         var includeApi = testBenchMode
@@ -114,7 +116,7 @@ public static class InterfoldAppHost
                 "Parameters:include-api=true requires Parameters:include-postgres=true (the API depends on msg-db).");
         }
 
-        if (includeApi)
+        if (includePostgres)
         {
             var hcBuilder = builder.Services.AddHealthChecks();
             if (hostPublishDbPorts)
@@ -324,8 +326,7 @@ public static class InterfoldAppHost
                         $"pg_isready -U ${ContainerEnvNames.PostgresUser} -d postgres",
                         interval: "10s", timeout: "5s", retries: 10, startPeriod: "15s");
                 });
-            if (includeApi)
-                msgDb.WithHealthCheck(MsgDbHealthCheckName);
+            msgDb.WithHealthCheck(MsgDbHealthCheckName);
             if (testBenchMode)
             {
                 // Bench mode is deliberately volume-less: the container's own filesystem
@@ -503,7 +504,7 @@ public static class InterfoldAppHost
                         interval: "15s", timeout: "10s", retries: 20, startPeriod: "30s");
                 });
 
-            if (includeApi && !includeScylla)
+            if (!includeScylla)
             {
                 // Attach scylla-health only when Cassandra owns Ports:scylla.
                 cassandra.WithHealthCheck(ScyllaHealthCheckName);

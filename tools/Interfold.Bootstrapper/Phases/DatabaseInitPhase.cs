@@ -32,6 +32,8 @@ internal static class DatabaseInitPhase
 {
     private static readonly string Phase = BootstrapPhase.DbInit.ToWireName();
     private const string PostgresService = ComposeServices.Postgres;
+    // CQL listen port on the compose network — not a host-published port.
+    private const int ScyllaCqlListenPort = 9042;
 
     public static async Task RunAsync(
         BootstrapOptions options,
@@ -49,7 +51,7 @@ internal static class DatabaseInitPhase
         // multi-region scylla deployments use a different container alias - we drive the
         // first node only because all admin operations propagate via gossip.
         var scyllaService = ResolveScyllaServiceName(config);
-        var scyllaPort = ResolveScyllaPort();
+        var scyllaPort = ScyllaCqlListenPort;
 
         if (CassandraImagePhase.IsCassandraDeployment(config))
         {
@@ -135,12 +137,6 @@ internal static class DatabaseInitPhase
 
     private static string ResolveScyllaServiceName(BootstrapConfig config)
         => BackupPhase.ResolveScyllaSeed(config).Service;
-
-    private static int ResolveScyllaPort()
-    {
-        // CQL port the API uses over the compose docker network — always the container listen port.
-        return 9042;
-    }
 
     // -------- Bring-up --------
 

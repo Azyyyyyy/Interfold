@@ -8,9 +8,9 @@ namespace Interfold.Bootstrapper.Configuration;
 public sealed class BootstrapConfig
 {
     [JsonPropertyName("schemaVersion")]
-    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+    public ConfigSchemaVersion SchemaVersion { get; set; } = CurrentSchemaVersion;
 
-    public const int CurrentSchemaVersion = 2;
+    public static readonly ConfigSchemaVersion CurrentSchemaVersion = ConfigSchemaVersion.V2;
 
     [JsonPropertyName("deployment")]
     public DeploymentSection Deployment { get; set; } = new();

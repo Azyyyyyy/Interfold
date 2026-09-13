@@ -343,7 +343,7 @@ public sealed class ConfigSchemaMigrationTests
 
         using var doc = JsonDocument.Parse(json);
 
-        await Assert.That(ConfigSchemaMigrator.DetectVersion(doc.RootElement)).IsEqualTo(1);
+        await Assert.That(ConfigSchemaMigrator.DetectVersion(doc.RootElement)).IsEqualTo(ConfigSchemaVersion.V1);
 
     }
 
