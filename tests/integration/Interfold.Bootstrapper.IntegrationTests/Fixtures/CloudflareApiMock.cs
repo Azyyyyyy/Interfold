@@ -6,6 +6,9 @@ internal static class CloudflareApiMock
     internal static string TunnelScriptPath =>
         Path.Combine(AppContext.BaseDirectory, "Fixtures", "cf_api_mock.py");
 
+    internal static string AccessScriptPath =>
+        Path.Combine(AppContext.BaseDirectory, "Fixtures", "cf_access_api_mock.py");
+
     internal static async Task<ExecResult> StartAsync(
         DinDFixtureBase dinD,
         string hostScriptPath,

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Interfold.Alters.Contracts.Models;
 using Interfold.Alters.Contracts.Models.Read;
+using Interfold.Auth.Api.Models;
 using Interfold.Auth.Contracts.Configuration;
 using Interfold.IntegrationTests.Shared;
 using Interfold.IntegrationTests.Shared.TestServices;
@@ -37,12 +38,12 @@ public sealed class AuthControllerTests(IWebFactoryFixture fixture) : BaseEndpoi
         using var client = fixture.Factory.CreateClient();
         var response = await client.GetAsync("/auth/login-methods");
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        var json = await response.Content.ReadAsStringAsync();
-        using var doc = JsonDocument.Parse(json);
-        await Assert.That(doc.RootElement.GetProperty("cloudflare").GetBoolean()).IsFalse();
-        await Assert.That(doc.RootElement.GetProperty("google").GetBoolean()).IsFalse();
-        await Assert.That(doc.RootElement.GetProperty("discord").GetBoolean()).IsFalse();
-        await Assert.That(doc.RootElement.GetProperty("apple").GetBoolean()).IsFalse();
+        var methods = await response.Content.ReadFromJsonAsync<LoginMethodsResponse>();
+        await Assert.That(methods).IsNotNull();
+        await Assert.That(methods!.Cloudflare).IsFalse();
+        await Assert.That(methods.Google).IsFalse();
+        await Assert.That(methods.Discord).IsFalse();
+        await Assert.That(methods.Apple).IsFalse();
     }
 
     [Test]

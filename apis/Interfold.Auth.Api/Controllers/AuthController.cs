@@ -73,10 +73,6 @@ public sealed class AuthController : OAuthControllerBase
     [HttpGet("cloudflare")]
     public async Task<IActionResult> CloudflareBegin([FromQuery(Name = OAuthQueryKeys.RedirectUri)] string? redirectUri)
     {
-        var exchange = await ExchangeAccessJwtAsync();
-        if (exchange.Error is { } error)
-            return error;
-
         if (string.IsNullOrWhiteSpace(redirectUri))
         {
             Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
@@ -85,6 +81,10 @@ public sealed class AuthController : OAuthControllerBase
                 ErrorCodes.MissingRedirectUri,
                 detail: "Pass redirect_uri on GET /auth/cloudflare so the callback knows where to send the token."));
         }
+
+        var exchange = await ExchangeAccessJwtAsync();
+        if (exchange.Error is { } error)
+            return error;
 
         var separator = redirectUri.Contains('?') ? '&' : '?';
         var redirectUrl =
@@ -231,7 +231,15 @@ public sealed class AuthController : OAuthControllerBase
                 validated.Error ?? ErrorCodes.InvalidToken)));
         }
 
-        var identity = ProviderIdentity.FromGoogle(new Email(validated.Email!));
+        if (!validated.TryToProviderIdentity(out var identity))
+        {
+            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+            return (null, null, StatusCode(StatusCodes.Status403Forbidden, new ErrorResponse(
+                $"Cloudflare Access identity provider '{validated.IdentityProvider}' is not supported.",
+                ErrorCodes.UnsupportedAccessIdentityProvider,
+                detail: "Interfold currently maps Access logins from Google only.")));
+        }
+
         var envelope = BuildEnvelope(OperationIds.AuthCloudflareExchange, new AuthenticateOAuthCommand(identity));
         var result = await _authHandler.HandleAsync(envelope, HttpContext.RequestAborted);
         if (!result.Accepted)

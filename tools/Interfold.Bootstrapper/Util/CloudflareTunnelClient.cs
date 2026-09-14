@@ -41,7 +41,7 @@ internal sealed class CloudflareTunnelClient : IDisposable
             Timeout = TimeSpan.FromMinutes(2),
         };
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiToken.Trim());
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("interfold-bootstrap/1.0");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd(BootstrapperVersion.UserAgent);
         return new CloudflareTunnelClient(http);
     }
 

@@ -55,6 +55,7 @@ public static class ErrorCodes
     public static readonly ErrorCode TokenRevoked = new("token_revoked");
     public static readonly ErrorCode CloudflareAccessUnavailable = new("cloudflare_access_unavailable");
     public static readonly ErrorCode MissingAccessJwt = new("missing_access_jwt");
+    public static readonly ErrorCode UnsupportedAccessIdentityProvider = new("unsupported_access_identity_provider");
 
     // Firebase client-config endpoint
     public static readonly ErrorCode FirebaseConfigUnavailable = new("firebase_config_unavailable");
