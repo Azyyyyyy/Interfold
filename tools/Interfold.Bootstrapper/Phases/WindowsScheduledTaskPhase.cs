@@ -172,15 +172,13 @@ internal static class WindowsScheduledTaskPhase
             var channel = string.IsNullOrWhiteSpace(input.BootstrapperChannel)
                 ? BootstrapperReleaseChannel.Stable.ToWireValue()
                 : input.BootstrapperChannel;
-            sb.Append(
-                $"""
-                      <Exec>
-                        <Command>{{{{BINARY_PATH}}}}</Command>
-                        <Arguments>update-self --non-interactive --channel {XmlEscape(channel)}</Arguments>
-                        <WorkingDirectory>{{{{OUTPUT_DIR}}}}</WorkingDirectory>
-                      </Exec>
-
-                """);
+            sb.Append("      <Exec>\n");
+            sb.Append("        <Command>{{BINARY_PATH}}</Command>\n");
+            sb.Append("        <Arguments>update-self --non-interactive --channel ");
+            sb.Append(XmlEscape(channel));
+            sb.Append("</Arguments>\n");
+            sb.Append("        <WorkingDirectory>{{OUTPUT_DIR}}</WorkingDirectory>\n");
+            sb.Append("      </Exec>\n");
         }
 
         sb.Append(

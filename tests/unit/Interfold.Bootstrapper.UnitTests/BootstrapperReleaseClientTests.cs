@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
 using Interfold.Bootstrapper.Util;
@@ -79,10 +80,12 @@ public sealed class BootstrapperReleaseClientTests
         var extracted = Path.Combine(scratch.Path, "out", binaryName);
 
         await File.WriteAllTextAsync(staged, "zip-payload");
-        File.Delete(zipPath);
-        using (var archive = System.IO.Compression.ZipFile.Open(zipPath, System.IO.Compression.ZipArchiveMode.Create))
+        using (var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create))
         {
-            archive.CreateEntryFromFile(staged, binaryName);
+            var entry = archive.CreateEntry(binaryName);
+            await using var entryStream = entry.Open();
+            await using var fileStream = File.OpenRead(staged);
+            await fileStream.CopyToAsync(entryStream);
         }
 
         BootstrapperReleaseClient.ExtractBootstrapperFromZip(zipPath, extracted);

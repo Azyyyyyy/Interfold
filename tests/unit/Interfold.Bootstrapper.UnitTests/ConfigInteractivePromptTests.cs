@@ -8,7 +8,7 @@ using Spectre.Console.Testing;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
-/// <summary>Drives Spectre <c>SelectionPrompt&lt;int&gt;</c> for the config form: 53 field
+/// <summary>Drives Spectre <c>SelectionPrompt&lt;int&gt;</c> for the config form: 57 field
 /// rows across 10 sections + trailing "Confirm and save". Headers are inert; cursor resets
 /// to field 0 after each edit, so tests use absolute Navigate distances.
 /// <para>Field order: 0..2 Deployment · 3..18 Edge · 19..22 Datastores · 23..29 API ·
@@ -1001,7 +1001,7 @@ public sealed class ConfigInteractivePromptTests
         File.WriteAllText(sa, FirebaseServiceAccountFixture);
 
         var console = NewConsole();
-        Navigate(console, downArrows: 52);
+        Navigate(console, downArrows: 56);
         // Auto-detect is the first choice — Enter without a DownArrow.
         console.Input.PushKey(ConsoleKey.Enter);
         console.Input.PushTextWithEnter(folder);
@@ -1031,7 +1031,7 @@ public sealed class ConfigInteractivePromptTests
         File.WriteAllText(sa, FirebaseServiceAccountFixture);
 
         var console = NewConsole();
-        Navigate(console, downArrows: 52);
+        Navigate(console, downArrows: 56);
         // Per-file is the 2nd choice — one DownArrow before Enter.
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.Enter);
@@ -1054,7 +1054,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Cancel is the 4th choice — three DownArrows. Every *Path must stay empty.
         var console = NewConsole();
-        Navigate(console, downArrows: 52);
+        Navigate(console, downArrows: 56);
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.DownArrow);
