@@ -261,17 +261,18 @@ internal sealed class CloudflareTunnelClient : IDisposable
         using var response = await _http
             .GetAsync($"accounts/{accountId}/access/organizations", ct)
             .ConfigureAwait(false);
-        using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-        var result = RequireResultObject(doc);
-        var authDomain = result.TryGetProperty("auth_domain", out var ad) ? ad.GetString() : null;
-        var name = result.TryGetProperty("name", out var n) ? n.GetString() : null;
-        if (string.IsNullOrWhiteSpace(authDomain))
+        var result = await ReadRequiredResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareAccessOrganizationResult,
+                ct)
+            .ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(result.AuthDomain))
         {
             throw new InvalidOperationException(
                 "Cloudflare Access organization is missing auth_domain. Create a Zero Trust team in the dashboard first.");
         }
 
-        return new CloudflareAccessOrganization(name ?? "interfold", authDomain);
+        return new CloudflareAccessOrganization(result.Name ?? "interfold", result.AuthDomain);
     }
 
     internal async Task<string> EnsureGoogleIdentityProviderAsync(
@@ -282,35 +283,37 @@ internal sealed class CloudflareTunnelClient : IDisposable
     {
         const string idpName = "interfold-google";
         var existing = await FindIdentityProviderByNameAsync(accountId, idpName, ct).ConfigureAwait(false);
-        using var content = JsonBody(writer =>
-        {
-            writer.WriteStartObject();
-            writer.WriteString("name", idpName);
-            writer.WriteString("type", "google");
-            writer.WritePropertyName("config");
-            writer.WriteStartObject();
-            writer.WriteString("client_id", clientId);
-            writer.WriteString("client_secret", clientSecret);
-            writer.WriteEndObject();
-            writer.WriteEndObject();
-        });
+        using var content = JsonBody(
+            new CloudflareGoogleIdpRequest
+            {
+                Name = idpName,
+                Config = new CloudflareGoogleIdpConfig { ClientId = clientId, ClientSecret = clientSecret },
+            },
+            CloudflareApiJsonContext.Default.CloudflareGoogleIdpRequest);
 
         if (existing is null)
         {
             using var response = await _http
                 .PostAsync($"accounts/{accountId}/access/identity_providers", content, ct)
                 .ConfigureAwait(false);
-            using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-            var id = RequireResultObject(doc).GetProperty("id").GetString();
-            if (string.IsNullOrWhiteSpace(id))
+            var created = await ReadRequiredResultAsync(
+                    response,
+                    CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareIdentityProviderResult,
+                    ct)
+                .ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(created.Id))
                 throw new InvalidOperationException("Cloudflare Access Google IdP create response missing id.");
-            return id;
+            return created.Id;
         }
 
         using var put = await _http
             .PutAsync($"accounts/{accountId}/access/identity_providers/{existing}", content, ct)
             .ConfigureAwait(false);
-        _ = await ReadDocumentAsync(put, ct).ConfigureAwait(false);
+        _ = await ReadEnvelopeAsync(
+                put,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareIdentityProviderResult,
+                ct)
+            .ConfigureAwait(false);
         return existing;
     }
 
@@ -321,22 +324,39 @@ internal sealed class CloudflareTunnelClient : IDisposable
         CancellationToken ct)
     {
         var existing = await FindAppByDomainAsync(accountId, hostname, ct).ConfigureAwait(false);
-        using var content = JsonBody(writer => WriteSelfHostedApp(writer, hostname, identityProviderId));
+        using var content = JsonBody(
+            new CloudflareSelfHostedAppRequest
+            {
+                Name = $"interfold-{hostname.Replace('/', '-')}",
+                Domain = hostname,
+                AutoRedirectToIdentity = true,
+                AllowedIdps = [identityProviderId],
+            },
+            CloudflareApiJsonContext.Default.CloudflareSelfHostedAppRequest);
 
         if (existing is null)
         {
             using var response = await _http
                 .PostAsync($"accounts/{accountId}/access/apps", content, ct)
                 .ConfigureAwait(false);
-            using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-            return ReadAccessApp(RequireResultObject(doc), hostname);
+            var created = await ReadRequiredResultAsync(
+                    response,
+                    CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareAccessAppResult,
+                    ct)
+                .ConfigureAwait(false);
+            return ToAccessApp(created, hostname);
         }
 
         using var put = await _http
             .PutAsync($"accounts/{accountId}/access/apps/{existing.Id}", content, ct)
             .ConfigureAwait(false);
-        using var putDoc = await ReadDocumentAsync(put, ct).ConfigureAwait(false);
-        var updated = ReadAccessApp(RequireResultObject(putDoc), hostname);
+        var updated = ToAccessApp(
+            await ReadRequiredResultAsync(
+                    put,
+                    CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareAccessAppResult,
+                    ct)
+                .ConfigureAwait(false),
+            hostname);
         return updated with { Id = existing.Id, Aud = string.IsNullOrWhiteSpace(updated.Aud) ? existing.Aud : updated.Aud };
     }
 
@@ -352,16 +372,24 @@ internal sealed class CloudflareTunnelClient : IDisposable
             using var del = await _http
                 .DeleteAsync($"accounts/{accountId}/access/apps/{appId}/policies/{policyId}", ct)
                 .ConfigureAwait(false);
-            _ = await ReadDocumentAsync(del, ct).ConfigureAwait(false);
+            _ = await ReadEnvelopeAsync(
+                    del,
+                    CloudflareApiJsonContext.Default.CloudflareApiResponseJsonElement,
+                    ct)
+                .ConfigureAwait(false);
         }
 
         foreach (var policy in policies)
         {
-            using var content = JsonBody(writer => WritePolicy(writer, policy));
+            using var content = JsonBody(ToPolicyRequest(policy), CloudflareApiJsonContext.Default.CloudflareAccessPolicyRequest);
             using var response = await _http
                 .PostAsync($"accounts/{accountId}/access/apps/{appId}/policies", content, ct)
                 .ConfigureAwait(false);
-            _ = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
+            _ = await ReadEnvelopeAsync(
+                    response,
+                    CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareAccessPolicyResult,
+                    ct)
+                .ConfigureAwait(false);
         }
     }
 
@@ -387,24 +415,26 @@ internal sealed class CloudflareTunnelClient : IDisposable
                 "Delete the token in Zero Trust and re-run bootstrap, or restore secrets/cloudflare-access-service.token.");
         }
 
-        using var content = JsonBody(writer =>
-        {
-            writer.WriteStartObject();
-            writer.WriteString("name", name);
-            writer.WriteEndObject();
-        });
+        using var content = JsonBody(
+            new CloudflareServiceTokenRequest { Name = name },
+            CloudflareApiJsonContext.Default.CloudflareServiceTokenRequest);
         using var response = await _http
             .PostAsync($"accounts/{accountId}/access/service_tokens", content, ct)
             .ConfigureAwait(false);
-        using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-        var result = RequireResultObject(doc);
-        var id = result.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-        var clientId = result.TryGetProperty("client_id", out var cid) ? cid.GetString() : null;
-        var clientSecret = result.TryGetProperty("client_secret", out var csec) ? csec.GetString() : null;
-        if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
-            throw new InvalidOperationException("Cloudflare Access service-token create response missing id/client_id/client_secret.");
+        var result = await ReadRequiredResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareServiceTokenResult,
+                ct)
+            .ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(result.Id)
+            || string.IsNullOrWhiteSpace(result.ClientId)
+            || string.IsNullOrWhiteSpace(result.ClientSecret))
+        {
+            throw new InvalidOperationException(
+                "Cloudflare Access service-token create response missing id/client_id/client_secret.");
+        }
 
-        return new CloudflareAccessServiceToken(id, clientId, clientSecret);
+        return new CloudflareAccessServiceToken(result.Id, result.ClientId, result.ClientSecret);
     }
 
     private async Task<string?> FindIdentityProviderByNameAsync(string accountId, string name, CancellationToken ct)
@@ -412,16 +442,21 @@ internal sealed class CloudflareTunnelClient : IDisposable
         using var response = await _http
             .GetAsync($"accounts/{accountId}/access/identity_providers", ct)
             .ConfigureAwait(false);
-        using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-        if (!TryGetResultArray(doc, out var idps))
+        var idps = await ReadResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseListCloudflareIdentityProviderResult,
+                ct)
+            .ConfigureAwait(false);
+        if (idps is null)
             return null;
 
-        foreach (var idp in idps.EnumerateArray())
+        foreach (var idp in idps)
         {
-            var idpName = idp.TryGetProperty("name", out var n) ? n.GetString() : null;
-            var id = idp.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-            if (!string.IsNullOrWhiteSpace(id) && string.Equals(idpName, name, StringComparison.OrdinalIgnoreCase))
-                return id;
+            if (!string.IsNullOrWhiteSpace(idp.Id)
+                && string.Equals(idp.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return idp.Id;
+            }
         }
 
         return null;
@@ -432,16 +467,19 @@ internal sealed class CloudflareTunnelClient : IDisposable
         using var response = await _http
             .GetAsync($"accounts/{accountId}/access/apps", ct)
             .ConfigureAwait(false);
-        using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-        if (!TryGetResultArray(doc, out var apps))
+        var apps = await ReadResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseListCloudflareAccessAppResult,
+                ct)
+            .ConfigureAwait(false);
+        if (apps is null)
             return null;
 
-        foreach (var app in apps.EnumerateArray())
+        foreach (var app in apps)
         {
-            var appDomain = app.TryGetProperty("domain", out var d) ? d.GetString() : null;
-            if (!string.Equals(appDomain, domain, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(app.Domain, domain, StringComparison.OrdinalIgnoreCase))
                 continue;
-            return ReadAccessApp(app, domain);
+            return ToAccessApp(app, domain);
         }
 
         return null;
@@ -452,19 +490,18 @@ internal sealed class CloudflareTunnelClient : IDisposable
         using var response = await _http
             .GetAsync($"accounts/{accountId}/access/apps/{appId}/policies", ct)
             .ConfigureAwait(false);
-        using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-        var ids = new List<string>();
-        if (!TryGetResultArray(doc, out var policies))
-            return ids;
+        var policies = await ReadResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseListCloudflareAccessPolicyResult,
+                ct)
+            .ConfigureAwait(false);
+        if (policies is null)
+            return [];
 
-        foreach (var policy in policies.EnumerateArray())
-        {
-            var id = policy.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-            if (!string.IsNullOrWhiteSpace(id))
-                ids.Add(id);
-        }
-
-        return ids;
+        return [.. policies
+            .Select(p => p.Id)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)];
     }
 
     private async Task<(string Id, string ClientId)?> FindServiceTokenByNameAsync(
@@ -475,107 +512,42 @@ internal sealed class CloudflareTunnelClient : IDisposable
         using var response = await _http
             .GetAsync($"accounts/{accountId}/access/service_tokens", ct)
             .ConfigureAwait(false);
-        using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-        if (!TryGetResultArray(doc, out var tokens))
+        var tokens = await ReadResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseListCloudflareServiceTokenResult,
+                ct)
+            .ConfigureAwait(false);
+        if (tokens is null)
             return null;
 
-        foreach (var token in tokens.EnumerateArray())
+        foreach (var token in tokens)
         {
-            var tokenName = token.TryGetProperty("name", out var n) ? n.GetString() : null;
-            var id = token.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-            var clientId = token.TryGetProperty("client_id", out var cid) ? cid.GetString() : null;
-            if (!string.IsNullOrWhiteSpace(id)
-                && !string.IsNullOrWhiteSpace(clientId)
-                && string.Equals(tokenName, name, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(token.Id)
+                && !string.IsNullOrWhiteSpace(token.ClientId)
+                && string.Equals(token.Name, name, StringComparison.OrdinalIgnoreCase))
             {
-                return (id, clientId);
+                return (token.Id, token.ClientId);
             }
         }
 
         return null;
     }
 
-    private static void WriteSelfHostedApp(Utf8JsonWriter writer, string hostname, string identityProviderId)
+    private static CloudflareAccessApp ToAccessApp(CloudflareAccessAppResult result, string fallbackDomain)
     {
-        writer.WriteStartObject();
-        writer.WriteString("name", $"interfold-{hostname.Replace('/', '-')}");
-        writer.WriteString("domain", hostname);
-        writer.WriteString("type", "self_hosted");
-        writer.WriteString("session_duration", "24h");
-        writer.WriteBoolean("auto_redirect_to_identity", true);
-        writer.WritePropertyName("allowed_idps");
-        writer.WriteStartArray();
-        writer.WriteStringValue(identityProviderId);
-        writer.WriteEndArray();
-        writer.WriteEndObject();
-    }
-
-    private static void WritePolicy(Utf8JsonWriter writer, CloudflareAccessPolicySpec policy)
-    {
-        writer.WriteStartObject();
-        writer.WriteString("name", policy.Name);
-        writer.WriteString("decision", policy.Decision);
-        writer.WritePropertyName("include");
-        writer.WriteStartArray();
-        foreach (var rule in policy.Include)
-            WritePolicyRule(writer, rule);
-        writer.WriteEndArray();
-        writer.WritePropertyName("require");
-        writer.WriteStartArray();
-        foreach (var rule in policy.Require)
-            WritePolicyRule(writer, rule);
-        writer.WriteEndArray();
-        writer.WriteEndObject();
-    }
-
-    private static void WritePolicyRule(Utf8JsonWriter writer, CloudflareAccessPolicyRule rule)
-    {
-        writer.WriteStartObject();
-        switch (rule.Kind)
-        {
-            case CloudflareAccessPolicyRuleKind.Email:
-                writer.WritePropertyName("email");
-                writer.WriteStartObject();
-                writer.WriteString("email", rule.Value);
-                writer.WriteEndObject();
-                break;
-            case CloudflareAccessPolicyRuleKind.EmailDomain:
-                writer.WritePropertyName("email_domain");
-                writer.WriteStartObject();
-                writer.WriteString("domain", rule.Value);
-                writer.WriteEndObject();
-                break;
-            case CloudflareAccessPolicyRuleKind.LoginMethod:
-                writer.WritePropertyName("login_method");
-                writer.WriteStartObject();
-                writer.WriteString("id", rule.Value);
-                writer.WriteEndObject();
-                break;
-            case CloudflareAccessPolicyRuleKind.Everyone:
-                writer.WritePropertyName("everyone");
-                writer.WriteStartObject();
-                writer.WriteEndObject();
-                break;
-            case CloudflareAccessPolicyRuleKind.ServiceToken:
-                writer.WritePropertyName("service_token");
-                writer.WriteStartObject();
-                writer.WriteString("token_id", rule.Value);
-                writer.WriteEndObject();
-                break;
-        }
-
-        writer.WriteEndObject();
-    }
-
-    private static CloudflareAccessApp ReadAccessApp(JsonElement result, string fallbackDomain)
-    {
-        var id = result.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-        var aud = result.TryGetProperty("aud", out var audEl) ? audEl.GetString() : null;
-        var domain = result.TryGetProperty("domain", out var d) ? d.GetString() : fallbackDomain;
-        if (string.IsNullOrWhiteSpace(id))
+        if (string.IsNullOrWhiteSpace(result.Id))
             throw new InvalidOperationException("Cloudflare Access app response missing id.");
-        return new CloudflareAccessApp(id, domain ?? fallbackDomain, aud ?? string.Empty);
+        return new CloudflareAccessApp(result.Id, result.Domain ?? fallbackDomain, result.Aud ?? string.Empty);
     }
+
+    private static CloudflareAccessPolicyRequest ToPolicyRequest(CloudflareAccessPolicySpec policy)
+        => new()
+        {
+            Name = policy.Name,
+            Decision = policy.Decision,
+            Include = [.. policy.Include.Select(CloudflareAccessPolicyCondition.From)],
+            Require = [.. policy.Require.Select(CloudflareAccessPolicyCondition.From)],
+        };
 
     private async Task<(string Id, string Name)?> FindTunnelByNameAsync(
         string accountId,
