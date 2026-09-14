@@ -78,6 +78,10 @@ public static class InterfoldAppHost
         var edgeUsesPlainHttp = string.Equals(edgeTlsMode, "none", StringComparison.OrdinalIgnoreCase);
         var edgeCloudflareTunnel = BoolWire.ParseToggle(
             builder.Configuration[AppHostParameterKeys.EdgeCloudflareTunnel], fallback: false);
+        var edgeUsesLetsEncrypt = includeEdge
+            && string.Equals(edgeTlsMode, "letsEncrypt", StringComparison.OrdinalIgnoreCase);
+        // Host-published DB ports are how an operator-supplied (external) DB is reached.
+        // Test-bench is the only current caller.
         var hostPublishDbPorts = testBenchMode;
 
         var includeApi = testBenchMode
@@ -114,7 +118,7 @@ public static class InterfoldAppHost
                 "Parameters:include-api=true requires Parameters:include-postgres=true (the API depends on msg-db).");
         }
 
-        if (includeApi)
+        if (includePostgres)
         {
             var hcBuilder = builder.Services.AddHealthChecks();
             if (hostPublishDbPorts)
@@ -326,8 +330,7 @@ public static class InterfoldAppHost
                         $"pg_isready -U ${ContainerEnvNames.PostgresUser} -d postgres",
                         interval: "10s", timeout: "5s", retries: 10, startPeriod: "15s");
                 });
-            if (includeApi)
-                msgDb.WithHealthCheck(MsgDbHealthCheckName);
+            msgDb.WithHealthCheck(MsgDbHealthCheckName);
             if (testBenchMode)
             {
                 // Bench mode is deliberately volume-less: the container's own filesystem
@@ -505,7 +508,7 @@ public static class InterfoldAppHost
                         interval: "15s", timeout: "10s", retries: 20, startPeriod: "30s");
                 });
 
-            if (includeApi && !includeScylla)
+            if (!includeScylla)
             {
                 // Attach scylla-health only when Cassandra owns Ports:scylla.
                 cassandra.WithHealthCheck(ScyllaHealthCheckName);
@@ -619,7 +622,7 @@ public static class InterfoldAppHost
                    .WithEnvironment(OctoconEnvKeys.CfAccessAud, cfAccessAud);
 
                 // Mount root CA for TrustController whenever edge uses private CA material.
-                if (!edgeUsesPlainHttp && !edgeCloudflareTunnel)
+                if (!edgeUsesLetsEncrypt && !edgeUsesPlainHttp && !edgeCloudflareTunnel)
                 {
                     api.WithBindMount(CertsPaths.HostDir, CertsPaths.ContainerDir, isReadOnly: true)
                        .WithEnvironment(OctoconEnvKeys.TrustRootCaPath, CertsPaths.RootCaCrt)
@@ -688,8 +691,15 @@ public static class InterfoldAppHost
             var includeWebUpstream = BoolWire.ParseToggle(
                 builder.Configuration[AppHostParameterKeys.EdgeIncludeWebUpstream], fallback: includeWeb);
 
+            var sslCert = edgeUsesLetsEncrypt
+                ? $"{EdgePaths.LetsEncryptLiveRoot}/{edgeServerName}/fullchain.pem"
+                : EdgePaths.LeafCrt;
+            var sslKey = edgeUsesLetsEncrypt
+                ? $"{EdgePaths.LetsEncryptLiveRoot}/{edgeServerName}/privkey.pem"
+                : EdgePaths.LeafKey;
+
             // Tunnel: private HTTP origin only (no host-published ports). Otherwise publish
-            // edge HTTP, and HTTPS + leaf certs when tlsMode is privateCa.
+            // edge HTTP, and HTTPS + certs when tlsMode is not none.
             var edge = edgeCloudflareTunnel
                 ? builder.AddContainer(ComposeServices.EdgeNginx, "nginx", "1.27-alpine")
                     .WithHttpEndpoint(targetPort: 80, name: HttpEndpointName)
@@ -711,11 +721,17 @@ public static class InterfoldAppHost
                 edge = edge
                     .WithHttpsEndpoint(port: edgeHttpsPort, targetPort: 443, name: HttpsEndpointName)
                     .WithBindMount(EdgePaths.HostCertsDir, EdgePaths.ContainerCertsDir, isReadOnly: true)
-                    .WithEnvironment(ContainerEnvNames.NginxSslCertFile, EdgePaths.LeafCrt)
-                    .WithEnvironment(ContainerEnvNames.NginxSslKeyFile, EdgePaths.LeafKey)
+                    .WithEnvironment(ContainerEnvNames.NginxSslCertFile, sslCert)
+                    .WithEnvironment(ContainerEnvNames.NginxSslKeyFile, sslKey)
                     .WithEnvironment(
                         ContainerEnvNames.NginxHttpsPortSuffix,
                         edgeHttpsPort == 443 ? string.Empty : $":{edgeHttpsPort}");
+
+                if (edgeUsesLetsEncrypt)
+                {
+                    edge = edge.WithBindMount(
+                        EdgePaths.HostAcmeWebroot, EdgePaths.ContainerAcmeWebroot, isReadOnly: false);
+                }
             }
 
             edge = edge
