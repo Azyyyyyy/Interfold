@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Shared.Contracts.Configuration;
 
@@ -51,24 +52,24 @@ internal sealed class CloudflareTunnelClient : IDisposable
             using var response = await _http
                 .GetAsync($"zones?name={Uri.EscapeDataString(candidate)}", ct)
                 .ConfigureAwait(false);
-            using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-            if (!TryGetResultArray(doc, out var zones) || zones.GetArrayLength() == 0)
+            var zones = await ReadResultAsync(
+                    response,
+                    CloudflareApiJsonContext.Default.CloudflareApiResponseListCloudflareZoneResult,
+                    ct)
+                .ConfigureAwait(false);
+            if (zones is null || zones.Count == 0)
                 continue;
 
             var zone = zones[0];
-            var zoneId = zone.GetProperty("id").GetString();
-            var zoneName = zone.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : candidate;
-            var accountId = zone.TryGetProperty("account", out var account)
-                && account.TryGetProperty("id", out var acctId)
-                ? acctId.GetString()
-                : null;
+            var zoneId = zone.Id;
+            var accountId = zone.Account?.Id;
             if (string.IsNullOrWhiteSpace(zoneId) || string.IsNullOrWhiteSpace(accountId))
             {
                 throw new InvalidOperationException(
                     $"Cloudflare zone '{candidate}' response missing id/account.id.");
             }
 
-            return new CloudflareZoneAccount(zoneId, accountId, zoneName ?? candidate);
+            return new CloudflareZoneAccount(zoneId, accountId, zone.Name ?? candidate);
         }
 
         throw new InvalidOperationException(
@@ -88,24 +89,21 @@ internal sealed class CloudflareTunnelClient : IDisposable
             return new CloudflareTunnelCredentials(existing.Value.Id, tunnelName, connectorToken);
         }
 
-        using var content = JsonBody(writer =>
-        {
-            writer.WriteStartObject();
-            writer.WriteString("name", tunnelName);
-            writer.WriteString("config_src", "cloudflare");
-            writer.WriteEndObject();
-        });
+        using var content = JsonBody(
+            new CloudflareCreateTunnelRequest { Name = tunnelName },
+            CloudflareApiJsonContext.Default.CloudflareCreateTunnelRequest);
         using var response = await _http
             .PostAsync($"accounts/{accountId}/cfd_tunnel", content, ct)
             .ConfigureAwait(false);
-        using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-        var result = RequireResultObject(doc);
-        var id = result.GetProperty("id").GetString();
-        var createToken = result.TryGetProperty("token", out var tokenEl) ? tokenEl.GetString() : null;
-        if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(createToken))
+        var created = await ReadRequiredResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareTunnelResult,
+                ct)
+            .ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(created.Id) || string.IsNullOrWhiteSpace(created.Token))
             throw new InvalidOperationException("Cloudflare tunnel create response missing id/token.");
 
-        return new CloudflareTunnelCredentials(id, tunnelName, createToken);
+        return new CloudflareTunnelCredentials(created.Id, tunnelName, created.Token);
     }
 
     internal async Task<string> GetConnectorTokenAsync(string accountId, string tunnelId, CancellationToken ct)
@@ -113,12 +111,12 @@ internal sealed class CloudflareTunnelClient : IDisposable
         using var response = await _http
             .GetAsync($"accounts/{accountId}/cfd_tunnel/{tunnelId}/token", ct)
             .ConfigureAwait(false);
-        using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
         // Token endpoint returns { success, result: "<jwt>" } — result is a string.
-        if (!doc.RootElement.TryGetProperty("result", out var result) || result.ValueKind != JsonValueKind.String)
-            throw new InvalidOperationException($"Cloudflare tunnel token missing for {tunnelId}.");
-
-        var token = result.GetString();
+        var token = await ReadRequiredResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseString,
+                ct)
+            .ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(token))
             throw new InvalidOperationException($"Cloudflare tunnel token missing for {tunnelId}.");
 
@@ -159,35 +157,30 @@ internal sealed class CloudflareTunnelClient : IDisposable
         string originService,
         CancellationToken ct)
     {
-        using var content = JsonBody(writer =>
+        var ingress = new List<CloudflareIngressRule>(hostnames.Count + 1);
+        foreach (var hostname in hostnames)
         {
-            writer.WriteStartObject();
-            writer.WritePropertyName("config");
-            writer.WriteStartObject();
-            writer.WritePropertyName("ingress");
-            writer.WriteStartArray();
-            foreach (var hostname in hostnames)
+            ingress.Add(new CloudflareIngressRule
             {
-                writer.WriteStartObject();
-                writer.WriteString("hostname", hostname);
-                writer.WriteString("service", originService);
-                writer.WritePropertyName("originRequest");
-                writer.WriteStartObject();
-                writer.WriteEndObject();
-                writer.WriteEndObject();
-            }
+                Hostname = hostname,
+                Service = originService,
+                OriginRequest = new CloudflareOriginRequest(),
+            });
+        }
 
-            writer.WriteStartObject();
-            writer.WriteString("service", "http_status:404");
-            writer.WriteEndObject();
-            writer.WriteEndArray();
-            writer.WriteEndObject();
-            writer.WriteEndObject();
-        });
+        ingress.Add(new CloudflareIngressRule { Service = "http_status:404" });
+
+        using var content = JsonBody(
+            new CloudflarePutIngressRequest { Config = new CloudflareTunnelConfig { Ingress = ingress } },
+            CloudflareApiJsonContext.Default.CloudflarePutIngressRequest);
         using var response = await _http
             .PutAsync($"accounts/{accountId}/cfd_tunnel/{tunnelId}/configurations", content, ct)
             .ConfigureAwait(false);
-        _ = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
+        _ = await ReadEnvelopeAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseJsonElement,
+                ct)
+            .ConfigureAwait(false);
     }
 
     internal async Task UpsertDnsCnameAsync(
@@ -196,32 +189,37 @@ internal sealed class CloudflareTunnelClient : IDisposable
         string tunnelId,
         CancellationToken ct)
     {
-        var contentValue = $"{tunnelId}.cfargotunnel.com";
-        var existingId = await FindDnsRecordIdAsync(zoneId, hostname, ct).ConfigureAwait(false);
-        using var content = JsonBody(writer =>
+        var request = new CloudflareDnsRecordRequest
         {
-            writer.WriteStartObject();
-            writer.WriteString("type", "CNAME");
-            writer.WriteString("name", hostname);
-            writer.WriteString("content", contentValue);
-            writer.WriteBoolean("proxied", true);
-            writer.WriteNumber("ttl", 1);
-            writer.WriteEndObject();
-        });
+            Name = hostname,
+            Content = $"{tunnelId}.cfargotunnel.com",
+            Proxied = true,
+            Ttl = 1,
+        };
+        using var content = JsonBody(request, CloudflareApiJsonContext.Default.CloudflareDnsRecordRequest);
+        var existingId = await FindDnsRecordIdAsync(zoneId, hostname, ct).ConfigureAwait(false);
 
         if (existingId is null)
         {
             using var response = await _http
                 .PostAsync($"zones/{zoneId}/dns_records", content, ct)
                 .ConfigureAwait(false);
-            _ = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
+            _ = await ReadEnvelopeAsync(
+                    response,
+                    CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareDnsRecordResult,
+                    ct)
+                .ConfigureAwait(false);
             return;
         }
 
         using var patchResponse = await _http
             .PatchAsync($"zones/{zoneId}/dns_records/{existingId}", content, ct)
             .ConfigureAwait(false);
-        _ = await ReadDocumentAsync(patchResponse, ct).ConfigureAwait(false);
+        _ = await ReadEnvelopeAsync(
+                patchResponse,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareDnsRecordResult,
+                ct)
+            .ConfigureAwait(false);
     }
 
     internal static IEnumerable<string> EnumerateZoneCandidates(string hostname)
@@ -252,18 +250,20 @@ internal sealed class CloudflareTunnelClient : IDisposable
                 $"accounts/{accountId}/cfd_tunnel?name={Uri.EscapeDataString(name)}&is_deleted=false",
                 ct)
             .ConfigureAwait(false);
-        using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-        if (!TryGetResultArray(doc, out var tunnels))
+        var tunnels = await ReadResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseListCloudflareTunnelResult,
+                ct)
+            .ConfigureAwait(false);
+        if (tunnels is null)
             return null;
 
-        foreach (var tunnel in tunnels.EnumerateArray())
+        foreach (var tunnel in tunnels)
         {
-            var tunnelName = tunnel.TryGetProperty("name", out var n) ? n.GetString() : null;
-            var id = tunnel.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-            if (string.IsNullOrWhiteSpace(id))
+            if (string.IsNullOrWhiteSpace(tunnel.Id))
                 continue;
-            if (string.Equals(tunnelName, name, StringComparison.OrdinalIgnoreCase))
-                return (id, tunnelName ?? name);
+            if (string.Equals(tunnel.Name, name, StringComparison.OrdinalIgnoreCase))
+                return (tunnel.Id, tunnel.Name ?? name);
         }
 
         return null;
@@ -274,12 +274,13 @@ internal sealed class CloudflareTunnelClient : IDisposable
         using var response = await _http
             .GetAsync($"accounts/{accountId}/cfd_tunnel/{tunnelId}", ct)
             .ConfigureAwait(false);
-        using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-        var result = RequireResultObject(doc);
-        var status = result.TryGetProperty("status", out var statusEl) ? statusEl.GetString() ?? "unknown" : "unknown";
-        var connections = result.TryGetProperty("connections", out var conn) && conn.ValueKind == JsonValueKind.Array
-            ? conn.GetArrayLength()
-            : 0;
+        var result = await ReadRequiredResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareTunnelResult,
+                ct)
+            .ConfigureAwait(false);
+        var status = string.IsNullOrWhiteSpace(result.Status) ? "unknown" : result.Status;
+        var connections = result.Connections.Count;
         var healthy = connections > 0
             || string.Equals(status, "healthy", StringComparison.OrdinalIgnoreCase);
         return new TunnelStatus(status, connections, healthy);
@@ -292,28 +293,50 @@ internal sealed class CloudflareTunnelClient : IDisposable
                 $"zones/{zoneId}/dns_records?type=CNAME&name={Uri.EscapeDataString(hostname)}",
                 ct)
             .ConfigureAwait(false);
-        using var doc = await ReadDocumentAsync(response, ct).ConfigureAwait(false);
-        if (!TryGetResultArray(doc, out var records) || records.GetArrayLength() == 0)
+        var records = await ReadResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseListCloudflareDnsRecordResult,
+                ct)
+            .ConfigureAwait(false);
+        if (records is null || records.Count == 0)
             return null;
 
-        return records[0].TryGetProperty("id", out var id) ? id.GetString() : null;
+        return records[0].Id;
     }
 
-    private static StringContent JsonBody(Action<Utf8JsonWriter> write)
+    private static StringContent JsonBody<T>(T value, JsonTypeInfo<T> typeInfo)
+        => new(JsonSerializer.Serialize(value, typeInfo), Encoding.UTF8, "application/json");
+
+    private static async Task<TResult> ReadRequiredResultAsync<TResult>(
+        HttpResponseMessage response,
+        JsonTypeInfo<CloudflareApiResponse<TResult>> typeInfo,
+        CancellationToken ct)
     {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
-            write(writer);
-        return new StringContent(Encoding.UTF8.GetString(stream.ToArray()), Encoding.UTF8, "application/json");
+        var envelope = await ReadEnvelopeAsync(response, typeInfo, ct).ConfigureAwait(false);
+        if (envelope.Result is null)
+            throw new InvalidOperationException("Cloudflare API response missing result.");
+        return envelope.Result;
     }
 
-    private static async Task<JsonDocument> ReadDocumentAsync(HttpResponseMessage response, CancellationToken ct)
+    private static async Task<TResult?> ReadResultAsync<TResult>(
+        HttpResponseMessage response,
+        JsonTypeInfo<CloudflareApiResponse<TResult>> typeInfo,
+        CancellationToken ct)
+    {
+        var envelope = await ReadEnvelopeAsync(response, typeInfo, ct).ConfigureAwait(false);
+        return envelope.Result;
+    }
+
+    private static async Task<CloudflareApiResponse<TResult>> ReadEnvelopeAsync<TResult>(
+        HttpResponseMessage response,
+        JsonTypeInfo<CloudflareApiResponse<TResult>> typeInfo,
+        CancellationToken ct)
     {
         var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        JsonDocument doc;
+        CloudflareApiResponse<TResult>? envelope;
         try
         {
-            doc = JsonDocument.Parse(json);
+            envelope = JsonSerializer.Deserialize(json, typeInfo);
         }
         catch (JsonException ex)
         {
@@ -321,48 +344,34 @@ internal sealed class CloudflareTunnelClient : IDisposable
                 $"Cloudflare API returned non-JSON (HTTP {(int)response.StatusCode}): {Truncate(json)}", ex);
         }
 
-        var root = doc.RootElement;
-        var success = root.TryGetProperty("success", out var successEl) && successEl.ValueKind == JsonValueKind.True;
-        if (!response.IsSuccessStatusCode || !success)
+        if (envelope is null)
         {
-            var errors = FormatErrors(root);
-            doc.Dispose();
+            throw new InvalidOperationException(
+                $"Cloudflare API returned empty JSON (HTTP {(int)response.StatusCode}).");
+        }
+
+        if (!response.IsSuccessStatusCode || !envelope.Success)
+        {
+            var errors = FormatErrors(envelope.Errors);
             throw new InvalidOperationException(
                 $"Cloudflare API error: {(string.IsNullOrEmpty(errors) ? $"HTTP {(int)response.StatusCode}" : errors)}");
         }
 
-        return doc;
+        return envelope;
     }
 
-    private static bool TryGetResultArray(JsonDocument doc, out JsonElement array)
+    private static string FormatErrors(List<CloudflareApiError> errors)
     {
-        if (doc.RootElement.TryGetProperty("result", out array) && array.ValueKind == JsonValueKind.Array)
-            return true;
-        array = default;
-        return false;
-    }
-
-    private static JsonElement RequireResultObject(JsonDocument doc)
-    {
-        if (!doc.RootElement.TryGetProperty("result", out var result) || result.ValueKind != JsonValueKind.Object)
-            throw new InvalidOperationException("Cloudflare API response missing result object.");
-        return result;
-    }
-
-    private static string FormatErrors(JsonElement root)
-    {
-        if (!root.TryGetProperty("errors", out var errors) || errors.ValueKind != JsonValueKind.Array)
+        if (errors.Count == 0)
             return string.Empty;
 
-        var parts = new List<string>();
-        foreach (var err in errors.EnumerateArray())
+        return string.Join("; ", errors.Select(err =>
         {
-            var code = err.TryGetProperty("code", out var c) ? c.ToString() : "?";
-            var message = err.TryGetProperty("message", out var m) ? m.GetString() : null;
-            parts.Add($"{code}: {message}");
-        }
-
-        return string.Join("; ", parts);
+            var code = err.Code is { ValueKind: not JsonValueKind.Undefined and not JsonValueKind.Null } el
+                ? el.ToString()
+                : "?";
+            return $"{code}: {err.Message}";
+        }));
     }
 
     private static string Truncate(string s)
