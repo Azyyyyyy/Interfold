@@ -14,7 +14,7 @@ namespace Interfold.Bootstrapper.UnitTests;
 ///
 /// <para>
 /// Tests focus on the return-value contract (true = mutated, false = no-op) and the
-/// observable mutations to <see cref="DeploymentSection.Hosts"/>. The exact warning wording
+/// observable mutations to <see cref="EdgeSection.Hosts"/>. The exact warning wording
 /// (including the "bootstrap will continue" copy that pins the "we don't halt" invariant)
 /// is asserted end-to-end by the DinD integration tests where a real subprocess writes to a
 /// real stdout — TUnit's Source-Generated engine intercepts <see cref="Console.Out"/> ahead
@@ -40,13 +40,13 @@ public sealed class ConfigMdnsGateTests
     /// <summary>
     /// Constructs a minimal <see cref="BootstrapConfig"/> with the supplied hosts. Every
     /// other field stays at its property-initialiser default — the gate doesn't touch
-    /// anything except <c>Deployment.Hosts</c>, so this keeps the tests focused on the
+    /// anything except <c>Edge.Hosts</c>, so this keeps the tests focused on the
     /// hosts-mutation behaviour without unrelated field wiring.
     /// </summary>
     private static BootstrapConfig ConfigWithHosts(params string[] hosts)
     {
         var config = new BootstrapConfig();
-        config.Deployment.Hosts = [.. hosts];
+        config.Edge.Hosts = [.. hosts];
         return config;
     }
 
@@ -67,9 +67,9 @@ public sealed class ConfigMdnsGateTests
                 "probe must not be called when no .local entries are present"));
 
         await Assert.That(mutated).IsFalse();
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(2);
-        await Assert.That(config.Deployment.Hosts).Contains("api.example.com");
-        await Assert.That(config.Deployment.Hosts).Contains("192.168.1.42");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(2);
+        await Assert.That(config.Edge.Hosts).Contains("api.example.com");
+        await Assert.That(config.Edge.Hosts).Contains("192.168.1.42");
     }
 
     [Test]
@@ -88,8 +88,8 @@ public sealed class ConfigMdnsGateTests
             probe: (_, _) => Task.FromResult<bool?>(null));
 
         await Assert.That(mutated).IsFalse();
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(2);
-        await Assert.That(config.Deployment.Hosts[0]).IsEqualTo("workstation.local");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(2);
+        await Assert.That(config.Edge.Hosts[0]).IsEqualTo("workstation.local");
     }
 
     [Test]
@@ -108,7 +108,7 @@ public sealed class ConfigMdnsGateTests
             probe: (_, _) => Task.FromResult<bool?>(true));
 
         await Assert.That(mutated).IsFalse();
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(3);
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(3);
     }
 
     [Test]
@@ -129,9 +129,9 @@ public sealed class ConfigMdnsGateTests
             probe: (_, _) => Task.FromResult<bool?>(false));
 
         await Assert.That(mutated).IsTrue();
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(1);
-        await Assert.That(config.Deployment.Hosts[0]).IsEqualTo("192.168.1.42");
-        await Assert.That(config.Deployment.Hosts).DoesNotContain("workstation.local");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(1);
+        await Assert.That(config.Edge.Hosts[0]).IsEqualTo("192.168.1.42");
+        await Assert.That(config.Edge.Hosts).DoesNotContain("workstation.local");
     }
 
     [Test]
@@ -150,10 +150,10 @@ public sealed class ConfigMdnsGateTests
             probe: (_, _) => Task.FromResult<bool?>(false));
 
         await Assert.That(mutated).IsTrue();
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(1);
-        await Assert.That(config.Deployment.Hosts).DoesNotContain("host-a.local");
-        await Assert.That(config.Deployment.Hosts).DoesNotContain("host-b.local");
-        await Assert.That(config.Deployment.Hosts).Contains("192.168.1.42");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(1);
+        await Assert.That(config.Edge.Hosts).DoesNotContain("host-a.local");
+        await Assert.That(config.Edge.Hosts).DoesNotContain("host-b.local");
+        await Assert.That(config.Edge.Hosts).Contains("192.168.1.42");
     }
 
     [Test]
@@ -173,10 +173,10 @@ public sealed class ConfigMdnsGateTests
             probe: (name, _) => Task.FromResult<bool?>(name == "good.local"));
 
         await Assert.That(mutated).IsTrue();
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(2);
-        await Assert.That(config.Deployment.Hosts).Contains("good.local");
-        await Assert.That(config.Deployment.Hosts).DoesNotContain("bad.local");
-        await Assert.That(config.Deployment.Hosts).Contains("192.168.1.42");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(2);
+        await Assert.That(config.Edge.Hosts).Contains("good.local");
+        await Assert.That(config.Edge.Hosts).DoesNotContain("bad.local");
+        await Assert.That(config.Edge.Hosts).Contains("192.168.1.42");
     }
 
     [Test]
@@ -220,7 +220,7 @@ public sealed class ConfigMdnsGateTests
             probe: (_, _) => Task.FromResult<bool?>(false));
 
         await Assert.That(mutated).IsTrue();
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(0);
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(0);
         // The caller's subsequent Validate() throws with the "at least one host" invariant.
         // Confirm the exact contract here so a future refactor that (say) silently retains
         // the broken entry to keep validation happy gets caught.
@@ -243,8 +243,8 @@ public sealed class ConfigMdnsGateTests
             probe: (_, _) => Task.FromResult<bool?>(false));
 
         await Assert.That(mutated).IsTrue();
-        await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(1);
-        await Assert.That(config.Deployment.Hosts[0]).IsEqualTo("192.168.1.42");
+        await Assert.That(config.Edge.Hosts.Count).IsEqualTo(1);
+        await Assert.That(config.Edge.Hosts[0]).IsEqualTo("192.168.1.42");
     }
 
     [Test]

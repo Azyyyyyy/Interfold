@@ -302,7 +302,7 @@ public sealed class CliParsingTests
         var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
         var cfg = TestSupport.MakeConfig(tweak: c =>
         {
-            c.Deployment.Hosts = ["api.example.com"];
+            c.Edge.Hosts = ["api.example.com"];
             c.Deployment.OutputDir = tmpDir;
         });
         await File.WriteAllTextAsync(

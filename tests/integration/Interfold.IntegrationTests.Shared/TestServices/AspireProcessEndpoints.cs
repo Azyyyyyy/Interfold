@@ -18,13 +18,6 @@ public static class AspireProcessEndpoints
     public const string MultiNodeOtlp = "https://127.0.0.1:25246";
     public const string MultiNodeAppUrls = "http://127.0.0.1:25277";
 
-    /// <summary>Legacy <see cref="SharedDbFixture"/> host ports — isolated from the shared
-    /// test-bench defaults (<c>14200</c>/<c>19042</c>/<c>19043</c>) so Infrastructure's
-    /// opted-out Aspire host can run beside the bench without Docker bind conflicts.</summary>
-    public const int LegacyPostgresPort = 24200;
-    public const int LegacyScyllaPort = 29042;
-    public const int LegacyCassandraPort = 29043;
-
     public static void ApplyTo(System.Diagnostics.ProcessStartInfo psi, string resourceService, string otlp, string appUrls)
     {
         // `--no-launch-profile` skips launchSettings' https applicationUrl; Aspire refuses

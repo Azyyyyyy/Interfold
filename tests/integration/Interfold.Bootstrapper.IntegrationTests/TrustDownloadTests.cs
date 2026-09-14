@@ -35,11 +35,12 @@ public class TrustDownloadTests(UbuntuDinDFixture dinD)
         var fingerprintOnDisk = Encoding.UTF8.GetString(
             await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/rootCA.sha256.txt")).Trim();
 
-        var apiPort = scratch.Ports.ApiHttp;
-        var baseUrl = $"http://localhost:{apiPort}/.well-known/interfold-root-ca";
+        var edgePort = scratch.Ports.EdgeHttps;
+        var baseUrl = $"https://localhost:{edgePort}/.well-known/interfold-root-ca";
+        var curlTls = edgePort == 443 ? "-fsSLk" : "-fsSLk";
 
         // --- .pem route: bytes-on-the-wire equal bytes-on-disk ---
-        var pemResp = await dinD.ExecAsync(["curl", "-fsSL", $"{baseUrl}.pem"]);
+        var pemResp = await dinD.ExecAsync(["curl", curlTls, $"{baseUrl}.pem"]);
         await Assert.That(pemResp.ExitCode).IsEqualTo(0)
             .Because($"curl {baseUrl}.pem failed: stdout='{pemResp.Stdout}' stderr='{pemResp.Stderr}'");
         var pemBytesFetched = Encoding.UTF8.GetBytes(pemResp.Stdout);
@@ -47,7 +48,7 @@ public class TrustDownloadTests(UbuntuDinDFixture dinD)
             .Because("the .pem route must stream rootCA.crt verbatim");
 
         // --- .sha256 route: text equals the recorded fingerprint ---
-        var sha256Resp = await dinD.ExecAsync(["curl", "-fsSL", $"{baseUrl}.sha256"]);
+        var sha256Resp = await dinD.ExecAsync(["curl", curlTls, $"{baseUrl}.sha256"]);
         await Assert.That(sha256Resp.ExitCode).IsEqualTo(0)
             .Because($"curl {baseUrl}.sha256 failed: stdout='{sha256Resp.Stdout}' stderr='{sha256Resp.Stderr}'");
         await Assert.That(sha256Resp.Stdout.Trim()).IsEqualTo(fingerprintOnDisk)
@@ -56,7 +57,7 @@ public class TrustDownloadTests(UbuntuDinDFixture dinD)
         // --- .crt route: response (DER) must round-trip through the recorded fingerprint ---
         // Curl is piped through base64 on the DinD side because the body is binary and
         // ExecAsync.Stdout is a string — UTF-8 decoding would mangle the DER bytes otherwise.
-        var derResp = await dinD.ExecAsync(["sh", "-c", $"curl -fsSL {baseUrl}.crt | base64 -w0"]);
+        var derResp = await dinD.ExecAsync(["sh", "-c", $"curl {curlTls} {baseUrl}.crt | base64 -w0"]);
         await Assert.That(derResp.ExitCode).IsEqualTo(0)
             .Because($"curl {baseUrl}.crt | base64 failed: stdout='{derResp.Stdout}' stderr='{derResp.Stderr}'");
         var derFetched = Convert.FromBase64String(derResp.Stdout.Trim());
@@ -73,11 +74,14 @@ public class TrustDownloadTests(UbuntuDinDFixture dinD)
             .Because("sha256(downloaded .crt) must equal the published fingerprint");
 
         // --- ETag invariant: every route returns the fingerprint-derived ETag ---
-        var headersResp = await dinD.ExecAsync(["sh", "-c", $"curl -sSI {baseUrl}.crt | tr -d '\\r'"]);
+        var headersResp = await dinD.ExecAsync(["sh", "-c", $"curl -sSIk {baseUrl}.crt | tr -d '\\r'"]);
         await Assert.That(headersResp.ExitCode).IsEqualTo(0).Because(headersResp.Stderr);
-        await Assert.That(headersResp.Stdout).Contains($"ETag: \"{fingerprintOnDisk}\"")
+        var headers = headersResp.Stdout;
+        await Assert.That(headers.Contains($"etag: \"{fingerprintOnDisk}\"", StringComparison.OrdinalIgnoreCase))
+            .IsTrue()
             .Because("the .crt route must publish the fingerprint as its ETag for cache invalidation on --rotate-certs");
-        await Assert.That(headersResp.Stdout).Contains("Cache-Control: public, max-age=60, must-revalidate")
+        await Assert.That(headers.Contains("cache-control: public, max-age=60, must-revalidate", StringComparison.OrdinalIgnoreCase))
+            .IsTrue()
             .Because("the .crt route must publish a 60s cacheable Cache-Control directive");
     }
 }

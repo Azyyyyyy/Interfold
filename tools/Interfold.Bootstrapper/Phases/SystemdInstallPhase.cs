@@ -48,7 +48,7 @@ internal static class SystemdInstallPhase
             ComposeFile: composeFile,
             ConfigPath: Path.GetFullPath(configPath),
             BinaryPath: binaryPath,
-            OnCalendar: config.Backup.Schedule);
+            OnCalendar: config.Deployment.Backup.Schedule);
 
         logger.Info($"    rendering units to {unitDir}");
         Directory.CreateDirectory(unitDir);
@@ -61,7 +61,7 @@ internal static class SystemdInstallPhase
             logger.Info($"    wrote {destination}");
         }
 
-        if (config.Update.Enabled)
+        if (config.Deployment.Update.Enabled)
         {
             await EnsureSystemdSupportsOnSuccessAsync(logger, ct).ConfigureAwait(false);
             await WriteBackupOnSuccessDropInAsync(unitDir, logger, ct).ConfigureAwait(false);
@@ -77,7 +77,7 @@ internal static class SystemdInstallPhase
         if (await ProcessRunner.ExistsOnPathAsync("systemd-analyze", ct).ConfigureAwait(false))
         {
             await VerifyAllUnitsAsync(unitDir, logger, ct).ConfigureAwait(false);
-            await VerifyCalendarAsync(config.Backup.Schedule, logger, ct).ConfigureAwait(false);
+            await VerifyCalendarAsync(config.Deployment.Backup.Schedule, logger, ct).ConfigureAwait(false);
         }
         else
         {
@@ -86,8 +86,8 @@ internal static class SystemdInstallPhase
         }
 
         // --enable-* CLI flags beat the matching config toggles.
-        var enableAutostart = options.EnableAutostart || config.Backup.AutostartServer;
-        var enableBackupTimer = options.EnableBackupTimer || config.Backup.Enabled;
+        var enableAutostart = options.EnableAutostart || config.Deployment.AutostartServer;
+        var enableBackupTimer = options.EnableBackupTimer || config.Deployment.Backup.Enabled;
 
         if (await ProcessRunner.ExistsOnPathAsync("systemctl", ct).ConfigureAwait(false)
             && options.SystemdUnitDir is null)

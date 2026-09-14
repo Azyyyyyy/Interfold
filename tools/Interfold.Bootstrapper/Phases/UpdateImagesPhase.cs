@@ -38,9 +38,9 @@ internal static class UpdateImagesPhase
         }
 
         var healthTimeout = TimeSpan.FromSeconds(
-            options.HealthCheckTimeoutOverride ?? config.Update.HealthCheckTimeoutSeconds);
-        var autoRestore = options.AutoRestore || config.Update.AutoRestoreOnFailure;
-        var recreate = config.Update.RecreateOnUpdate;
+            options.HealthCheckTimeoutOverride ?? config.Deployment.Update.HealthCheckTimeoutSeconds);
+        var autoRestore = options.AutoRestore || config.Deployment.Update.AutoRestoreOnFailure;
+        var recreate = config.Deployment.Update.RecreateOnUpdate;
 
         // Pre = container .Image ids; post = Config.Image tag resolution.
         // Avoids `docker compose images`, which exits 1 under the containerd image store
@@ -140,7 +140,7 @@ internal static class UpdateImagesPhase
         if (backupArtifacts is not null)
         {
             var backupRoot = BackupPhase.ResolveBackupRoot(options, config);
-            var retainCount = options.BackupRetainOverride ?? config.Backup.RetainCount;
+            var retainCount = options.BackupRetainOverride ?? config.Deployment.Backup.RetainCount;
             BackupPhase.PruneComponent(
                 Path.Combine(backupRoot, BackupStoragePaths.PostgresDir),
                 BackupDatabaseComponent.Postgres, retainCount, logger);
@@ -172,7 +172,7 @@ internal static class UpdateImagesPhase
 
             return options.UpdateServices;
         }
-        return config.Update.Services;
+        return config.Deployment.Update.Services;
     }
 
     /// <summary>Only cassandra mode, and only when <c>cassandra</c> is in scope; otherwise
@@ -416,7 +416,7 @@ internal static class UpdateImagesPhase
         var scErr = await WaitForScyllaReadyAsync(composeFile, scyllaService, deadline, logger, ct).ConfigureAwait(false);
         if (scErr is not null) return scErr;
 
-        var apiErr = await WaitForApiReadyAsync(config.Ports.ApiHttp, deadline, logger, ct).ConfigureAwait(false);
+        var apiErr = await WaitForApiReadyAsync(config, deadline, logger, ct).ConfigureAwait(false);
         if (apiErr is not null) return apiErr;
 
         logger.Info("    health-check: all three tiers ready");
@@ -451,8 +451,8 @@ internal static class UpdateImagesPhase
     }
 
     private static Task<string?> WaitForApiReadyAsync(
-        int apiHttpPort, DateTime deadline, PhaseLogger logger, CancellationToken ct)
-        => ApiReadinessProbe.TryWaitUntilAsync(apiHttpPort, deadline, logger, ct);
+        BootstrapConfig config, DateTime deadline, PhaseLogger logger, CancellationToken ct)
+        => ApiReadinessProbe.TryWaitUntilAsync(config, deadline, logger, ct);
 
     private static async Task OnHealthCheckFailedAsync(
         BootstrapOptions options, BootstrapConfig config, string composeFile,

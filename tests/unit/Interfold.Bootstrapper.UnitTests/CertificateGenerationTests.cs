@@ -29,12 +29,15 @@ public sealed class CertificateGenerationTests
     {
         var config = new BootstrapConfig
         {
-            Deployment =
+            Edge =
             {
-                RootCaName = rootCaName ?? "Interfold Root CA",
-                CertYears = certYears ?? 5,
+                Certificates =
+                {
+                    RootCaName = rootCaName ?? "Interfold Root CA",
+                    CertYears = certYears ?? 5,
+                    TrustStoreInstall = trustStoreInstall,
+                },
                 Hosts = hosts is null ? ["api.example.com"] : [.. hosts],
-                TrustStoreInstall = trustStoreInstall,
             },
         };
         return (config, SecretsPhase.Generate());

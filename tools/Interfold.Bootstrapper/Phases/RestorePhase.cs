@@ -138,7 +138,7 @@ internal static class RestorePhase
         await WaitForPostgresAsync(composeFile, logger, ct).ConfigureAwait(false);
 
         logger.Info($"    postgres: pg_restore --clean --if-exists <- {archivePath}");
-        var argv = BuildPgRestoreArgs(composeFile, adminUser, config.PostgresDatabase);
+        var argv = BuildPgRestoreArgs(composeFile, adminUser, config.Datastores.Postgres.Database);
         await DatabaseArchiveStreamer.StreamFileToProcessStdinAsync(
             "docker", argv,
             environment: DatabaseArchiveStreamer.PgPasswordEnv(adminPassword),

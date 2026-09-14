@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "deployment": {
+    "outputDir": "/opt/deploy",
+    "includeWeb": true
+  },
+  "edge": {
+    "hosts": ["web.test.local", "127.0.0.1"],
+    "tlsMode": "none",
+    "routing": { "mode": "path" },
+    "certificates": {
+      "rootCaName": "Interfold Test Root CA",
+      "certYears": 2,
+      "trustStoreInstall": false
+    }
+  },
+  "datastores": {
+    "cql": { "backend": "scylla-single" }
+  },
+  "api": {
+    "image": "interfold-api:test",
+    "oauth": {
+      "googleClientSecret": "",
+      "discordClientSecret": ""
+    }
+  }
+}

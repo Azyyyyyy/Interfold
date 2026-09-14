@@ -1,0 +1,24 @@
+{
+  "deployment": {
+    "outputDir": "./deploy",
+    "hosts": ["api.example.com"],
+    "rootCaName": "Interfold Root CA",
+    "certYears": 5,
+    "trustStoreInstall": true,
+    "includeWeb": false,
+    "webHttps": false
+  },
+  "ports": {
+    "apiHttp": 5000,
+    "apiHttps": 5001,
+    "webHttp": 8080,
+    "webHttps": 8081,
+    "postgres": 5432,
+    "scylla": 9042
+  },
+  "databaseMode": "single",
+  "apiImage": "ghcr.io/azyyyyyy/interfold-api:latest",
+  "postgresDatabase": "interfold",
+  "clusterName": "InterfoldCluster",
+  "scyllaKeyspace": "nam"
+}

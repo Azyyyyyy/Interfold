@@ -32,6 +32,17 @@ internal static partial class CertificatePhase
         const string Phase = "certs";
         logger.PhaseStart(Phase);
 
+        // Cloudflare Tunnel / plaintext: skip the private CA leaf (origin TLS is unused).
+        if ((config.Edge.Cloudflare.Enabled || config.Edge.TlsMode == EdgeTlsMode.None)
+            && !options.RotateCerts)
+        {
+            logger.Info(config.Edge.Cloudflare.Enabled
+                ? "    skipping private CA (Cloudflare Tunnel enabled)"
+                : "    skipping private CA (edge tlsMode=none)");
+            logger.PhaseDone(Phase);
+            return;
+        }
+
         var certsDir = Path.Combine(options.OutputDir, CertsRelativeDir);
         var rootCrtPath = Path.Combine(certsDir, "rootCA.crt");
         var rootKeyPath = Path.Combine(certsDir, "rootCA.key");
@@ -60,9 +71,9 @@ internal static partial class CertificatePhase
         Directory.CreateDirectory(certsDir);
 
         // ConfigPhase.Validate already parsed these; re-parse here to hand helpers the typed shape.
-        var hosts = config.Deployment.Hosts.Select(HostParser.Parse).ToList();
-        var (rootCert, rootKey) = GenerateRootCa(config.Deployment.RootCaName, config.Deployment.CertYears, hosts);
-        var (leafCert, leafKey) = GenerateLeaf(rootCert, rootKey, hosts, config.Deployment.CertYears);
+        var hosts = config.Edge.Hosts.Select(HostParser.Parse).ToList();
+        var (rootCert, rootKey) = GenerateRootCa(config.Edge.Certificates.RootCaName, config.Edge.Certificates.CertYears, hosts);
+        var (leafCert, leafKey) = GenerateLeaf(rootCert, rootKey, hosts, config.Edge.Certificates.CertYears);
 
         await PersistAsync(rootCert, rootKey, leafCert, leafKey, secrets.LeafPfxPassword,
             rootCrtPath, rootKeyPath, leafCrtPath, leafKeyPath, leafPfxPath, ct).ConfigureAwait(false);
@@ -82,7 +93,7 @@ internal static partial class CertificatePhase
         rootKey.Dispose();
         leafKey.Dispose();
 
-        if (config.Deployment.TrustStoreInstall && RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        if (config.Edge.Certificates.TrustStoreInstall && RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
             await InstallToTrustStoreAsync(rootCrtPath, logger, ct).ConfigureAwait(false);
         }
@@ -328,7 +339,7 @@ internal static partial class CertificatePhase
         logger.Info($"      Path:        {rootCrtPath}");
         logger.Info($"      SHA-256:     {fingerprint}");
         logger.Info($"      Not after:   {cert.NotAfter.ToUniversalTime():yyyy-MM-dd HH:mm:ss} UTC");
-        logger.Info($"      Distribute:  curl -fSL http://<host>:5000/.well-known/interfold-root-ca.crt -o rootCA.crt");
+        logger.Info($"      Distribute:  curl -fSL https://<host>[:edgeHttps]/.well-known/interfold-root-ca.crt -o rootCA.crt");
         logger.Info($"      Verify:      openssl x509 -in rootCA.crt -noout -fingerprint -sha256");
         logger.Info($"                   (compare the printed SHA256 Fingerprint to the value above)");
         logger.Info("");

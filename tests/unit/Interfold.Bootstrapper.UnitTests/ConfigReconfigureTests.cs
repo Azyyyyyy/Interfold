@@ -17,7 +17,7 @@ public sealed class ConfigReconfigureTests
         var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
         var cfg = TestSupport.MakeConfig(tweak: c =>
         {
-            c.Deployment.Hosts = ["api.example.com"];
+            c.Edge.Hosts = ["api.example.com"];
             c.Deployment.OutputDir = tmpDir;
         });
         await File.WriteAllTextAsync(
@@ -48,9 +48,9 @@ public sealed class ConfigReconfigureTests
         var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
         var cfg = TestSupport.MakeConfig(tweak: c =>
         {
-            c.Deployment.Hosts = ["loaded.example.com"];
+            c.Edge.Hosts = ["loaded.example.com"];
             c.Deployment.OutputDir = tmpDir;
-            c.Deployment.RootCaName = "Loaded Root CA";
+            c.Edge.Certificates.RootCaName = "Loaded Root CA";
         });
         await File.WriteAllTextAsync(
             configPath,
@@ -67,7 +67,7 @@ public sealed class ConfigReconfigureTests
 
         var loaded = await ConfigPhase.RunAsync(options, logger, CancellationToken.None);
 
-        await Assert.That(loaded.Deployment.Hosts).IsEquivalentTo(["loaded.example.com"]);
-        await Assert.That(loaded.Deployment.RootCaName).IsEqualTo("Loaded Root CA");
+        await Assert.That(loaded.Edge.Hosts).IsEquivalentTo(["loaded.example.com"]);
+        await Assert.That(loaded.Edge.Certificates.RootCaName).IsEqualTo("Loaded Root CA");
     }
 }

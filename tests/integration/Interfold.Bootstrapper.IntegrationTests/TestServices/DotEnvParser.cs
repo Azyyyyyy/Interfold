@@ -7,7 +7,7 @@ namespace Interfold.Bootstrapper.IntegrationTests.TestServices;
 /// the form <c>KEY=VALUE</c>, comments (lines beginning with <c>#</c>) stripped, blank lines
 /// ignored. We don't bother handling quoted values because the bootstrapper's emitter doesn't
 /// produce any (every value is either a known-safe alphabet password or an absolute path).
-/// Previously duplicated verbatim in <c>PublishIntegrationTests</c> and <c>WebHttpsTests</c>.
+/// Previously duplicated verbatim in <c>PublishIntegrationTests</c> and <c>EdgeNginxTests</c>.
 /// </summary>
 internal static class DotEnvParser
 {

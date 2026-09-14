@@ -1,0 +1,64 @@
+# Plaintext edge (tlsMode=none), subdomain routing: :80 only per host block.
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# Cloudflare already set X-Forwarded-Proto / CF-Visitor; $scheme is http on compose.
+map $http_x_forwarded_proto $interfold_forwarded_proto {
+    default $http_x_forwarded_proto;
+    ''      $cf_visitor_scheme;
+}
+
+map $http_cf_visitor $cf_visitor_scheme {
+    default $scheme;
+    ~*"scheme"\s*:\s*"https" https;
+    ~*"scheme"\s*:\s*"http"  http;
+}
+
+server {
+    listen 80;
+    server_name ${NGINX_API_SERVER_NAME};
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    location = /nginx-health {
+        access_log off;
+        return 200 'ok';
+        add_header Content-Type text/plain;
+    }
+
+    location /health/ {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    location / {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+}
+
+server {
+    listen 80;
+    server_name ${NGINX_WEB_SERVER_NAME};
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    location = /nginx-health {
+        access_log off;
+        return 200 'ok';
+        add_header Content-Type text/plain;
+    }
+
+    location / {
+        set $include_web "${NGINX_INCLUDE_WEB}";
+        if ($include_web = "") {
+            return 404;
+        }
+        set $web_upstream http://${NGINX_WEB_UPSTREAM};
+        proxy_pass $web_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+}

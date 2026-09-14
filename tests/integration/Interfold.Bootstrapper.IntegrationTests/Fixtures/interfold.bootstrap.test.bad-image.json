@@ -1,16 +1,26 @@
 {
+  "schemaVersion": 2,
   "deployment": {
-    "outputDir": "/opt/deploy",
-    "hosts": ["api.test.local", "alt.test.local", "127.0.0.1"],
-    "rootCaName": "Interfold Test Root CA",
-    "certYears": 2,
-    "trustStoreInstall": false
+    "outputDir": "/opt/deploy"
   },
-  "ports": { "apiHttp": 5000, "apiHttps": 5001, "webHttp": 8080, "webHttps": 8081 },
-  "databaseMode": "single",
-  "apiImage": "interfold-api:nonexistent-tag-for-health-timeout-test",
-  "oauth": {
-    "googleClientSecret": "test-google-secret",
-    "discordClientSecret": ""
+  "edge": {
+    "hosts": ["api.test.local", "alt.test.local", "127.0.0.1"],
+    "tlsMode": "privateCa",
+    "routing": { "mode": "path" },
+    "certificates": {
+      "rootCaName": "Interfold Test Root CA",
+      "certYears": 2,
+      "trustStoreInstall": false
+    }
+  },
+  "datastores": {
+    "cql": { "backend": "scylla-single" }
+  },
+  "api": {
+    "image": "interfold-api:nonexistent-tag-for-health-timeout-test",
+    "oauth": {
+      "googleClientSecret": "test-google-secret",
+      "discordClientSecret": ""
+    }
   }
 }

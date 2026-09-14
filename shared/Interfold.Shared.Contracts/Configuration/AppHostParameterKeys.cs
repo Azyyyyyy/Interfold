@@ -37,9 +37,16 @@ public static class AppHostParameterKeys
     public const string PersistentContainers = "Parameters:persistent-containers";
     public const string ScyllaTopology = "Parameters:scylla-topology";
     public const string ClusterName = "Parameters:cluster-name";
-    public const string WebTls = "Parameters:web-tls";
-    public const string WebServerName = "Parameters:web-server-name";
+    public const string EdgeTlsMode = "Parameters:edge-tls-mode";
+    public const string EdgeRouting = "Parameters:edge-routing";
+    public const string EdgeApiHost = "Parameters:edge-api-host";
+    public const string EdgeWebHost = "Parameters:edge-web-host";
+    public const string EdgeCloudflareTunnel = "Parameters:edge-cloudflare-tunnel";
+    public const string EdgeIncludeWebUpstream = "Parameters:edge-include-web-upstream";
+    public const string EdgeServerName = "Parameters:edge-server-name";
     public const string ApiImage = "Parameters:api-image";
+    /// <summary>Absolute host path to the Cloudflare Tunnel connector token file (0600).</summary>
+    public const string EdgeCloudflareTunnelTokenPath = "Parameters:edge-cloudflare-tunnel-token-path";
 
     // Bench-mode marker consumed by InterfoldAppHost + TestBenchCoordinator. When on, the
     // AppHost forces api/web/dashboard off, pins stable container names, and emits a
@@ -74,17 +81,16 @@ public static class AppHostParameterKeys
     public const string DbRetryInitialDelayMs = "Parameters:db-retry-initial-delay-ms";
     public const string DbRetryMaxDelayMs = "Parameters:db-retry-max-delay-ms";
     public const string HydrationMaxConcurrency = "Parameters:hydration-max-concurrency";
+    public const string CfAccessTeamDomain = "Parameters:cf-access-team-domain";
+    public const string CfAccessAud = "Parameters:cf-access-aud";
 
     // --- Host port mappings ---
     public const string PortsPostgres = "Ports:postgres";
     public const string PortsScylla = "Ports:scylla";
     public const string PortsCassandra = "Ports:cassandra";
-    public const string PortsApiHttp = "Ports:api-http";
-    public const string PortsApiHttps = "Ports:api-https";
-    public const string PortsWebHttp = "Ports:web-http";
-    public const string PortsWebHttps = "Ports:web-https";
+    public const string PortsEdgeHttp = "Ports:edge-http";
+    public const string PortsEdgeHttps = "Ports:edge-https";
 
-    // --- Inside-the-container Kestrel ports (not host-published; must match the API image) ---
+    // --- Inside-the-container Kestrel port (not host-published; must match the API image) ---
     public const string PortsApiContainerHttp = "Ports:api-container-http";
-    public const string PortsApiContainerHttps = "Ports:api-container-https";
 }

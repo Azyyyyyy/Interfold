@@ -12,7 +12,7 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 ///   <list type="bullet">
 ///     <item>find the persisted compose file and bring the stack up against it,</item>
 ///     <item>react to a bad image reference by surfacing diagnostic output instead of hanging,</item>
-///     <item>respect the operator's custom HTTP port when polling for API health.</item>
+///     <item>respect the operator's custom edge HTTPS port when polling for API health.</item>
 ///   </list>
 /// </summary>
 [RequiresDocker]
@@ -80,27 +80,21 @@ public class LaunchPhaseTests(UbuntuDinDFixture dinD)
     }
 
     [Test]
-    public async Task RespectsCustomApiHttpPort()
+    public async Task RespectsCustomEdgeHttpsPort()
     {
-        // Every test gets its own apiHttp port via the DinD port allocator
-        // (CreateScratchAsync substitutes the allocated 6-port window into the test
-        // config). That makes this test redundant with every other launch-style test in
-        // terms of "does the operator's port actually get used", but it's kept as the
-        // explicit canary: LaunchPhase must emit a polling line for the allocator's port
-        // specifically, so a future refactor that hard-codes 5000 / 4200 / 9042 in the
-        // launch path is caught directly.
-        var scratch = await dinD.CreateScratchAsync(nameof(RespectsCustomApiHttpPort), TestConfigPaths.DefaultConfig);
+        // Every test gets its own edgeHttps port via the DinD port allocator
+        // (CreateScratchAsync substitutes the allocated port window into the test
+        // config). Canary: LaunchPhase must poll the allocator's edge HTTPS port,
+        // not a hard-coded default.
+        var scratch = await dinD.CreateScratchAsync(nameof(RespectsCustomEdgeHttpsPort), TestConfigPaths.DefaultConfig);
 
-        var result = await dinD.RunOnScratchAsync(scratch, nameof(RespectsCustomApiHttpPort), "bootstrap",
+        var result = await dinD.RunOnScratchAsync(scratch, nameof(RespectsCustomEdgeHttpsPort), "bootstrap",
             "--skip-prereqs");
 
-        // The test passes whether or not the API ultimately reached healthy state — what we're
-        // pinning is that the launch phase polled the allocated port. If the API doesn't come up
-        // (e.g. DinD pressure causes a health timeout) we still want to see the polling line.
         var combined = result.Stdout + result.Stderr;
-        var expectedUrl = $"http://localhost:{scratch.Ports.ApiHttp}";
+        var expectedUrl = $"https://localhost:{scratch.Ports.EdgeHttps}/health/ready";
         await Assert.That(combined).Contains(expectedUrl)
-            .Because($"LaunchPhase should poll the allocated apiHttp port ({expectedUrl}): {result.Stderr}");
+            .Because($"LaunchPhase should poll the edge-proxied ready URL ({expectedUrl}): {result.Stderr}");
     }
 }
 

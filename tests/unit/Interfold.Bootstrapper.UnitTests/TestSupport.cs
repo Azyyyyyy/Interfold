@@ -1,6 +1,5 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
-using Interfold.Shared.Contracts.Enums;
 using TUnit.Core.Exceptions;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -124,45 +123,41 @@ internal static class TestSupport
 
     /// <summary>
     /// Builds a fresh <see cref="BootstrapConfig"/> at its property-initialiser defaults with
-    /// an optional <see cref="DatabaseMode"/> override and an optional post-construction
-    /// tweak for the handful of fields a specific test cares about. Use this instead of
-    /// <c>new BootstrapConfig { ... }</c> in test files so we get one place to add scaffolding
-    /// (e.g. deterministic host / port seeding) when the config record grows.
+    /// an optional <see cref="CqlBackend"/> override and an optional post-construction
+    /// tweak for the handful of fields a specific test cares about.
     /// </summary>
-    /// <remarks>
-    /// Default <see cref="DatabaseMode"/> is <see cref="DatabaseMode.Single"/> to match
-    /// <see cref="BootstrapConfig.DatabaseMode"/>'s own property initialiser; the enum
-    /// has no <c>Scylla</c> member (Single/Multi/Cassandra are the three shipped modes).
-    /// </remarks>
     public static BootstrapConfig MakeConfig(
-        DatabaseMode mode = DatabaseMode.Single,
+        CqlBackend backend = CqlBackend.ScyllaSingle,
         Action<BootstrapConfig>? tweak = null)
     {
-        var config = new BootstrapConfig { DatabaseMode = mode };
+        var config = new BootstrapConfig();
+        config.Datastores.Cql.Backend = backend;
         tweak?.Invoke(config);
         return config;
     }
 
     /// <summary>
-    /// Builds a fresh <see cref="BootstrapConfig"/> with explicit deployment values so the
-    /// derivation inputs are unambiguous, default-shipped ports (5001/8080/8081), and an empty
-    /// <see cref="ApiRuntimeSection"/> so every test starts from the "needs derivation" state.
+    /// Builds a fresh <see cref="BootstrapConfig"/> with explicit edge values so the
+    /// derivation inputs are unambiguous, default-shipped edge ports (80/443), and empty
+    /// OAuth/CORS fields so every test starts from the "needs derivation" state.
     /// </summary>
     public static BootstrapConfig MakeConfigWithEmptyApiRuntime(
-        bool webHttps = false,
+        EdgeTlsMode edgeTlsMode = EdgeTlsMode.PrivateCa,
+        EdgeRoutingMode edgeRouting = EdgeRoutingMode.Path,
         params string[] hosts)
     {
         var cfg = new BootstrapConfig
         {
-            Deployment =
+            Edge =
             {
                 Hosts = hosts.Length > 0 ? [.. hosts] : ["api.example.com"],
-                WebHttps = webHttps,
+                TlsMode = edgeTlsMode,
+                Routing = { Mode = edgeRouting },
             },
         };
-        cfg.ApiRuntime.CallbackBaseUrl = string.Empty;
-        cfg.ApiRuntime.JwtAuthority = string.Empty;
-        cfg.ApiRuntime.CorsAllowedOrigins = [];
+        cfg.Api.OAuth.CallbackBaseUrl = string.Empty;
+        cfg.Api.OAuth.JwtAuthority = string.Empty;
+        cfg.Api.CorsAllowedOrigins = [];
         return cfg;
     }
 

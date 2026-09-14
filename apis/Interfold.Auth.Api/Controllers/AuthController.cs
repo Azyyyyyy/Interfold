@@ -1,7 +1,9 @@
 using Interfold.Auth.Api.Auth;
 using Interfold.Auth.Api.Controllers.Base;
+using Interfold.Auth.Api.Models;
 using Interfold.Auth.Api.Services;
 using Interfold.Auth.Contracts.Configuration;
+using Interfold.Auth.Contracts.Ids;
 using Interfold.Auth.Contracts.Enums;
 using Interfold.Auth.Contracts.Models.Commands;
 using Interfold.Auth.Domain;
@@ -9,6 +11,7 @@ using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -23,6 +26,7 @@ public sealed class AuthController : OAuthControllerBase
     private readonly AuthenticateOAuthCommandHandler _authHandler;
     private readonly RecordAuthTokenCommandHandler _recordTokenHandler;
     private readonly RevokeAuthTokenCommandHandler _revokeTokenHandler;
+    private readonly CloudflareAccessJwtValidator _accessJwt;
 
     public AuthController(
         AuthenticateOAuthCommandHandler authHandler,
@@ -32,15 +36,75 @@ public sealed class AuthController : OAuthControllerBase
         DiscordOAuthService discordOAuth,
         AppleOAuthService appleOAuth,
         RecordAuthTokenCommandHandler recordTokenHandler,
-        RevokeAuthTokenCommandHandler revokeTokenHandler)
+        RevokeAuthTokenCommandHandler revokeTokenHandler,
+        CloudflareAccessJwtValidator accessJwt)
         : base(authOptions, schemeProvider, googleOAuth, discordOAuth, appleOAuth)
     {
         _authHandler = authHandler;
         _recordTokenHandler = recordTokenHandler;
         _revokeTokenHandler = revokeTokenHandler;
+        _accessJwt = accessJwt;
     }
 
     protected override string CallbackRoutePrefix => "auth";
+
+    /// <summary>Anonymous discovery of login buttons. When <c>cloudflare</c> is true,
+    /// clients should hide Discord/Apple/Google Interfold buttons.</summary>
+    [AllowAnonymous]
+    [HttpGet("login-methods")]
+    public IActionResult LoginMethods()
+    {
+        var auth = AuthOptions.CurrentValue;
+        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.QueryAuthLoginMethods.Value;
+        return Ok(new LoginMethodsResponse
+        {
+            Cloudflare = _accessJwt.IsEnabled,
+            Google = !string.IsNullOrWhiteSpace(auth.GoogleOAuthClientId),
+            Discord = !string.IsNullOrWhiteSpace(auth.DiscordOAuthClientId),
+            Apple = !string.IsNullOrWhiteSpace(auth.AppleOAuthClientId),
+        });
+    }
+
+    /// <summary>
+    /// Exchanges a Cloudflare Access JWT for an Interfold session and redirects to
+    /// <c>redirect_uri?token=&amp;id=</c>. Same query shape as Google/Discord/Apple callbacks.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("cloudflare")]
+    public async Task<IActionResult> CloudflareBegin([FromQuery(Name = OAuthQueryKeys.RedirectUri)] string? redirectUri)
+    {
+        if (string.IsNullOrWhiteSpace(redirectUri))
+        {
+            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+            return BadRequest(new ErrorResponse(
+                "Missing client-supplied redirect_uri.",
+                ErrorCodes.MissingRedirectUri,
+                detail: "Pass redirect_uri on GET /auth/cloudflare so the callback knows where to send the token."));
+        }
+
+        var exchange = await ExchangeAccessJwtAsync();
+        if (exchange.Error is { } error)
+            return error;
+
+        var separator = redirectUri.Contains('?') ? '&' : '?';
+        var redirectUrl =
+            $"{redirectUri}{separator}{OAuthQueryKeys.CallbackToken}={Uri.EscapeDataString(exchange.Token!)}&{OAuthQueryKeys.CallbackId}={Uri.EscapeDataString(exchange.SystemId!)}";
+        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+        return Redirect(redirectUrl);
+    }
+
+    /// <summary>Same Access JWT exchange as GET /auth/cloudflare, returning JSON for native/SPA clients.</summary>
+    [AllowAnonymous]
+    [HttpPost("cloudflare/session")]
+    public async Task<IActionResult> CloudflareSession()
+    {
+        var exchange = await ExchangeAccessJwtAsync();
+        if (exchange.Error is { } error)
+            return error;
+
+        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+        return Ok(new CloudflareSessionResponse { Token = exchange.Token!, Id = exchange.SystemId! });
+    }
 
     [AllowAnonymous]
     [HttpGet("{provider}")]
@@ -150,6 +214,43 @@ public sealed class AuthController : OAuthControllerBase
 
         Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthOAuthCallback.Value;
         return Redirect(redirectUrl);
+    }
+
+    private async Task<(string? Token, string? SystemId, IActionResult? Error)> ExchangeAccessJwtAsync()
+    {
+        var assertion = Request.Headers[InterfoldHeaders.CfAccessJwtAssertion].ToString();
+        var validated = await _accessJwt.ValidateAsync(assertion, HttpContext.RequestAborted);
+        if (!validated.Succeeded)
+        {
+            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+            var status = validated.Error == ErrorCodes.CloudflareAccessUnavailable
+                ? StatusCodes.Status503ServiceUnavailable
+                : StatusCodes.Status401Unauthorized;
+            return (null, null, StatusCode(status, new ErrorResponse(
+                validated.Message ?? "Cloudflare Access JWT rejected.",
+                validated.Error ?? ErrorCodes.InvalidToken)));
+        }
+
+        if (!validated.TryToProviderIdentity(out var identity))
+        {
+            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+            return (null, null, StatusCode(StatusCodes.Status403Forbidden, new ErrorResponse(
+                $"Cloudflare Access identity provider '{validated.IdentityProvider}' is not supported.",
+                ErrorCodes.UnsupportedAccessIdentityProvider,
+                detail: "Interfold currently maps Access logins from Google only.")));
+        }
+
+        var envelope = BuildEnvelope(OperationIds.AuthCloudflareExchange, new AuthenticateOAuthCommand(identity));
+        var result = await _authHandler.HandleAsync(envelope, HttpContext.RequestAborted);
+        if (!result.Accepted)
+        {
+            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+            return (null, null, StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you use the same account to sign in before?"));
+        }
+
+        var systemId = result.Result;
+        var token = await IssueDeepLinkTokenAsync(systemId);
+        return (token, systemId.Value, null);
     }
 
     private async Task<string> IssueDeepLinkTokenAsync(SystemId systemId)
