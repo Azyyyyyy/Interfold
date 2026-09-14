@@ -23,73 +23,13 @@ public sealed class CloudflareTunnelIntegrationTests(UbuntuDinDFixture dinD)
             TestConfigPaths.CloudflareTunnelConfig);
 
         var port = 19878;
-        var mockRoot = "/tmp/cf-api-mock";
-        var setup = await dinD.ExecAsync(["sh", "-c", """
-            set -e
-            rm -rf __MOCK_ROOT__ /tmp/cf-tunnel-create.json
-            mkdir -p __MOCK_ROOT__
-            cat > __MOCK_ROOT__/server.py <<'PY'
-            from http.server import BaseHTTPRequestHandler, HTTPServer
-            import json
-
-            def ok(handler, result):
-                body = json.dumps({"success": True, "result": result, "errors": []}).encode()
-                handler.send_response(200)
-                handler.send_header("Content-Type", "application/json")
-                handler.send_header("Content-Length", str(len(body)))
-                handler.end_headers()
-                handler.wfile.write(body)
-
-            class H(BaseHTTPRequestHandler):
-                def log_message(self, *args):
-                    pass
-
-                def _read(self):
-                    n = int(self.headers.get("Content-Length", 0))
-                    return self.rfile.read(n) if n else b""
-
-                def do_GET(self):
-                    path = self.path.split("?", 1)[0]
-                    if path.startswith("/client/v4/zones"):
-                        ok(self, [{"id": "zone-test", "name": "example.com", "account": {"id": "acct-test"}}])
-                    elif "/cfd_tunnel/" in path and path.endswith("/token"):
-                        ok(self, "connector-token-from-get")
-                    elif path.startswith("/client/v4/accounts/") and "cfd_tunnel" in path:
-                        ok(self, [])
-                    elif "/dns_records" in path:
-                        ok(self, [])
-                    else:
-                        self.send_error(404)
-
-                def do_POST(self):
-                    body = self._read()
-                    path = self.path.split("?", 1)[0]
-                    if path.endswith("/cfd_tunnel"):
-                        open("/tmp/cf-tunnel-create.json", "wb").write(body)
-                        ok(self, {"id": "tun-test", "name": "interfold-test", "token": "connector-token-jwt"})
-                    elif path.endswith("/dns_records"):
-                        open("/tmp/cf-dns-post.json", "wb").write(body)
-                        ok(self, {"id": "dns-1"})
-                    else:
-                        self.send_error(404)
-
-                def do_PUT(self):
-                    body = self._read()
-                    open("/tmp/cf-ingress-put.json", "wb").write(body)
-                    ok(self, {})
-
-            HTTPServer(("127.0.0.1", __PORT__), H).serve_forever()
-            PY
-            python3 __MOCK_ROOT__/server.py >/tmp/cf-api-mock.log 2>&1 &
-            echo $! > /tmp/cf-api-mock.pid
-            for i in $(seq 1 30); do
-              python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:__PORT__/client/v4/zones')" 2>/dev/null && exit 0
-              sleep 0.2
-            done
-            echo "mock CF API failed to start" >&2
-            cat /tmp/cf-api-mock.log >&2 || true
-            exit 1
-            """.Replace("__MOCK_ROOT__", mockRoot).Replace("__PORT__", port.ToString())]);
+        var setup = await CloudflareApiMock.StartAsync(
+            dinD,
+            CloudflareApiMock.TunnelScriptPath,
+            containerDir: "/tmp/cf-api-mock",
+            port,
+            logPath: "/tmp/cf-api-mock.log",
+            pidPath: "/tmp/cf-api-mock.pid");
         await Assert.That(setup.ExitCode).IsEqualTo(0L).Because(setup.Stderr + setup.Stdout);
 
         try
@@ -124,7 +64,7 @@ public sealed class CloudflareTunnelIntegrationTests(UbuntuDinDFixture dinD)
         }
         finally
         {
-            await dinD.ExecAsync(["sh", "-c", "kill $(cat /tmp/cf-api-mock.pid) 2>/dev/null || true"]);
+            await CloudflareApiMock.StopAsync(dinD, "/tmp/cf-api-mock.pid");
         }
     }
 
