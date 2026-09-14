@@ -37,7 +37,9 @@ internal static class Orchestrator
         }
         if (options.Command == BootstrapCommand.InstallService)
         {
-            return await SystemdInstallPhase.RunAsync(options, logger, ct).ConfigureAwait(false);
+            return OperatingSystem.IsWindows()
+                ? await WindowsScheduledTaskPhase.RunAsync(options, logger, ct).ConfigureAwait(false)
+                : await SystemdInstallPhase.RunAsync(options, logger, ct).ConfigureAwait(false);
         }
         if (options.Command == BootstrapCommand.UpdateImages)
         {

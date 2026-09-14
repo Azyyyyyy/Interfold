@@ -1,4 +1,7 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Security.Principal;
 using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
@@ -7,8 +10,8 @@ using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Phases;
 
-/// <summary>Phase 1 — verifies platform support and installs Docker Engine + Compose,
-/// openssl, and a persistent <c>fs.aio-max-nr</c> setting (Scylla/Seastar startup requirement).</summary>
+/// <summary>Phase 1 — verifies platform support and installs Docker Engine + Compose
+/// (Linux: distro packages + AIO sysctl; Windows: Docker Desktop via winget/choco).</summary>
 internal static partial class PrerequisitesPhase
 {
     // Seastar's own startup error text; keep aligned with scripts/docker/ensure-host-aio.sh
@@ -35,6 +38,13 @@ internal static partial class PrerequisitesPhase
     {
         string Phase = BootstrapPhase.Prereqs.ToWireName();
         logger.PhaseStart(Phase);
+
+        if (OperatingSystem.IsWindows())
+        {
+            await RunWindowsAsync(options, logger, ct).ConfigureAwait(false);
+            logger.PhaseDone(Phase);
+            return;
+        }
 
         EnsureLinux(logger);
         EnsureRoot(logger);
@@ -97,8 +107,8 @@ internal static partial class PrerequisitesPhase
         }
         logger.PhaseFail(BootstrapPhase.Prereqs.ToWireName(), PhaseFailureReasons.NonLinuxHost);
         throw new InvalidOperationException(
-            "The bootstrapper is Linux-only. For local development use `aspire run` from " +
-            "hosts/Interfold.AppHost instead.");
+            "The bootstrapper supports Linux and Windows. macOS is not supported; " +
+            "for local development on this OS use `aspire run` from hosts/Interfold.AppHost instead.");
     }
 
     private static void EnsureRoot(PhaseLogger logger)
@@ -390,4 +400,229 @@ internal static partial class PrerequisitesPhase
             logger.Warn($"could not write {SysctlDropIn}: {ex.Message} (setting is in effect for this boot)");
         }
     }
+
+    [SupportedOSPlatform("windows")]
+    private static async Task RunWindowsAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
+    {
+        logger.Info($"    detected host: {RuntimeInformation.OSDescription}");
+
+        // Docker already on PATH → no elevation. Missing → Administrator for winget/choco.
+        if (await DockerComposeReadyAsync(ct).ConfigureAwait(false))
+        {
+            logger.Info("    docker + compose plugin already present");
+        }
+        else
+        {
+            EnsureAdministrator(logger);
+            await InstallDockerDesktopAsync(logger, ct).ConfigureAwait(false);
+            RefreshProcessPathFromMachine();
+            await EnsureDockerDesktopRunningAsync(logger, ct).ConfigureAwait(false);
+        }
+
+        var scyllaNodes = await PeekScyllaNodeCountAsync(options, logger, ct).ConfigureAwait(false);
+        await ProbeContainerAioAsync(scyllaNodes, logger, ct).ConfigureAwait(false);
+    }
+
+    internal static async Task<bool> DockerComposeReadyAsync(CancellationToken ct = default)
+    {
+        if (!await ProcessRunner.ExistsOnPathAsync("docker", ct).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        try
+        {
+            var compose = await ProcessRunner.RunAsync("docker", ["compose", "version"], ct: ct).ConfigureAwait(false);
+            return compose.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    internal static void EnsureAdministrator(PhaseLogger logger, Func<bool>? isAdministrator = null)
+    {
+        if ((isAdministrator ?? IsCurrentProcessElevated)())
+        {
+            return;
+        }
+
+        logger.PhaseFail(BootstrapPhase.Prereqs.ToWireName(), PhaseFailureReasons.NonAdmin);
+        throw new InvalidOperationException(
+            "Installing Docker Desktop requires an elevated process. Re-run from an " +
+            "Administrator terminal, or install Docker Desktop first: " +
+            "https://docs.docker.com/desktop/setup/install/windows-install/");
+    }
+
+    [SupportedOSPlatform("windows")]
+    internal static bool IsCurrentProcessElevated()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+    }
+
+    /// <summary>Elevation only on the Docker Desktop install path (docker+compose missing).</summary>
+    internal static bool NeedsAdministratorForDockerInstall(bool dockerComposeReady) =>
+        !dockerComposeReady;
+
+    private static async Task InstallDockerDesktopAsync(PhaseLogger logger, CancellationToken ct)
+    {
+        logger.Info("    docker not on PATH; installing Docker Desktop...");
+
+        if (await ProcessRunner.ExistsOnPathAsync("winget", ct).ConfigureAwait(false))
+        {
+            logger.Info("    winget install Docker.DockerDesktop...");
+            var winget = await ProcessRunner.RunAsync(
+                "winget",
+                ["install", "-e", "--id", "Docker.DockerDesktop",
+                 "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"],
+                ct: ct).ConfigureAwait(false);
+            if (winget.ExitCode == 0)
+            {
+                return;
+            }
+            logger.Warn($"winget install exited {winget.ExitCode}: {winget.StdErr.Trim()}");
+        }
+
+        if (await ProcessRunner.ExistsOnPathAsync("choco", ct).ConfigureAwait(false))
+        {
+            logger.Info("    choco install docker-desktop...");
+            var choco = await ProcessRunner.RunAsync(
+                "choco", ["install", "docker-desktop", "-y"], ct: ct).ConfigureAwait(false);
+            if (choco.ExitCode == 0)
+            {
+                return;
+            }
+            logger.Warn($"choco install exited {choco.ExitCode}: {choco.StdErr.Trim()}");
+        }
+
+        throw new InvalidOperationException(
+            "Could not install Docker Desktop (winget/choco missing or failed). " +
+            "Install it from https://docs.docker.com/desktop/setup/install/windows-install/ " +
+            "and re-run. A reboot, WSL2, or signing out to pick up the docker-users group may be required.");
+    }
+
+    private static void RefreshProcessPathFromMachine()
+    {
+        RefreshProcessPathFromMachine(
+            target => Environment.GetEnvironmentVariable("PATH", target),
+            value => Environment.SetEnvironmentVariable("PATH", value));
+    }
+
+    /// <summary>Merges Machine+User PATH into the process env (post-winget installs).</summary>
+    internal static void RefreshProcessPathFromMachine(
+        Func<EnvironmentVariableTarget, string?> getPath,
+        Action<string> setProcessPath)
+    {
+        var machine = getPath(EnvironmentVariableTarget.Machine) ?? "";
+        var user = getPath(EnvironmentVariableTarget.User) ?? "";
+        var combined = string.IsNullOrEmpty(user) ? machine : machine + Path.PathSeparator + user;
+        if (!string.IsNullOrEmpty(combined))
+        {
+            setProcessPath(combined);
+        }
+    }
+
+    private static async Task EnsureDockerDesktopRunningAsync(PhaseLogger logger, CancellationToken ct)
+    {
+        const int TimeoutSeconds = 180;
+        var deadline = DateTime.UtcNow.AddSeconds(TimeoutSeconds);
+
+        TryStartDockerDesktop(logger);
+
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (await DockerComposeReadyAsync(ct).ConfigureAwait(false)
+                && await DockerInfoOkAsync(ct).ConfigureAwait(false))
+            {
+                logger.Info("    docker daemon is reachable");
+                return;
+            }
+            await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
+        }
+
+        throw new InvalidOperationException(
+            "Docker Desktop is installed but the daemon did not become reachable within " +
+            $"{TimeoutSeconds}s. Start Docker Desktop, wait until it reports running, then re-run. " +
+            "A reboot or signing out to pick up the docker-users group is sometimes required.");
+    }
+
+    private static void TryStartDockerDesktop(PhaseLogger logger)
+    {
+        var exe = HostPaths.FindDockerDesktopExecutable();
+        if (exe is null)
+        {
+            logger.Warn("Docker Desktop.exe not found under Program Files or LocalAppData; waiting for docker on PATH anyway.");
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = exe,
+                UseShellExecute = true,
+            });
+            logger.Info("    started Docker Desktop");
+        }
+        catch (Exception ex)
+        {
+            logger.Warn($"could not start Docker Desktop ({ex.GetType().Name}: {ex.Message}); waiting for docker anyway.");
+        }
+    }
+
+    private static async Task<bool> DockerInfoOkAsync(CancellationToken ct)
+    {
+        try
+        {
+            var info = await ProcessRunner.RunAsync("docker", ["info"], ct: ct).ConfigureAwait(false);
+            return info.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static async Task ProbeContainerAioAsync(int scyllaNodes, PhaseLogger logger, CancellationToken ct)
+    {
+        var minRequired = MinimumContainerAio(scyllaNodes);
+        try
+        {
+            var probe = await ProcessRunner.RunAsync(
+                "docker",
+                ["run", "--rm", "alpine", "cat", "/proc/sys/fs/aio-max-nr"],
+                ct: ct).ConfigureAwait(false);
+            if (probe.ExitCode != 0 || !int.TryParse(probe.StdOut.Trim(), out var current))
+            {
+                logger.Warn("could not probe fs.aio-max-nr inside a container; skipping AIO check. " +
+                            "Scylla/Seastar needs a high aio-max-nr in the Docker Desktop Linux VM.");
+                return;
+            }
+
+            if (IsContainerAioSufficient(current, scyllaNodes))
+            {
+                logger.Info($"    container fs.aio-max-nr={current} (>= {minRequired} for {scyllaNodes} Scylla node(s)); ok");
+                return;
+            }
+
+            logger.Warn(
+                $"container fs.aio-max-nr={current} (< {minRequired} for {scyllaNodes} Scylla node(s)). " +
+                "Raise it inside the Docker Desktop Linux VM if Scylla fails to start; the bootstrapper " +
+                "does not write WSL sysctl (distro name is not stable).");
+        }
+        catch (Exception ex)
+        {
+            logger.Warn($"AIO container probe failed ({ex.GetType().Name}: {ex.Message}); continuing.");
+        }
+    }
+
+    internal static int MinimumContainerAio(int scyllaNodes) =>
+        scyllaNodes * AioPerNodeMin + AioHeadroom;
+
+    internal static bool IsContainerAioSufficient(int current, int scyllaNodes) =>
+        current >= MinimumContainerAio(scyllaNodes);
 }

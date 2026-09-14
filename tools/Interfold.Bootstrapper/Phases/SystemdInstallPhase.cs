@@ -17,7 +17,6 @@ internal static class SystemdInstallPhase
     private static readonly string Phase = BootstrapCommand.InstallService.ToPhaseLogName();
 
     private const string DefaultUnitDir = "/etc/systemd/system";
-    private const string DefaultBinaryName = "interfold-bootstrap";
 
     /// <summary>Minimum systemd for <c>OnSuccess=</c> (Ubuntu 22.04+, Debian 12+, Fedora 35+).</summary>
     internal const int MinSystemdVersionForOnSuccess = 249;
@@ -153,7 +152,7 @@ internal static class SystemdInstallPhase
         sb.Replace("{{CONFIG_PATH}}", input.ConfigPath);
         sb.Replace("{{BINARY_PATH}}", input.BinaryPath);
         sb.Replace("{{ON_CALENDAR}}", input.OnCalendar);
-        var rendered = sb.ToString();
+        var rendered = sb.ToString().Replace("\r", "", StringComparison.Ordinal);
 
         if (rendered.Contains("{{", StringComparison.Ordinal))
         {
@@ -172,14 +171,7 @@ internal static class SystemdInstallPhase
     }
 
     private static string ResolveBinaryPath(BootstrapOptions options)
-    {
-        if (!string.IsNullOrWhiteSpace(options.BinaryPathOverride))
-        {
-            return Path.GetFullPath(options.BinaryPathOverride);
-        }
-        // Canonical install layout the README documents.
-        return Path.Combine(AppContext.BaseDirectory, DefaultBinaryName);
-    }
+        => HostPaths.ResolveBootstrapperBinary(options.BinaryPathOverride);
 
     private static string ResolveComposeFile(BootstrapOptions options)
         => BootstrapArtifactPaths.ResolveComposeFileOrConventional(options.OutputDir);
@@ -273,7 +265,7 @@ internal static class SystemdInstallPhase
                 $"Embedded template '{resourceName}' missing. " +
                 "Check Interfold.Bootstrapper.csproj's <EmbeddedResource> entries.");
         using var reader = new StreamReader(stream, Encoding.UTF8);
-        return reader.ReadToEnd();
+        return reader.ReadToEnd().Replace("\r", "", StringComparison.Ordinal);
     }
 
     /// <summary>Fails if the running systemd is older than

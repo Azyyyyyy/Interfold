@@ -92,7 +92,7 @@ internal static class ConfigPhase
             }
         }
 
-        if (!string.Equals(Path.GetFullPath(config.Deployment.OutputDir), options.OutputDir, StringComparison.Ordinal))
+        if (!HostPaths.OutputDirsEqual(config.Deployment.OutputDir, options.OutputDir))
         {
             logger.Info($"    overriding config.outputDir with --output-dir={options.OutputDir}");
             config.Deployment.OutputDir = options.OutputDir;
@@ -1369,6 +1369,12 @@ internal static class ConfigPhase
             return null;
         }
 
+        if (!MdnsAvailability.SupportsAutoInstall(distro.Family))
+        {
+            logger.Warn($"    no auto-install on this platform; {hostname} will be omitted from the pre-fill");
+            return null;
+        }
+
         var install = AnsiConsole.Prompt(new ConfirmationPrompt(
             $"Install avahi-daemon + nss-mdns now so {hostname} can be included in the hosts list?")
         { DefaultValue = true });
@@ -1461,34 +1467,37 @@ internal static class ConfigPhase
         if (!options.NonInteractive && !Console.IsInputRedirected)
         {
             var distro = DistroInfo.Read();
-            var install = AnsiConsole.Prompt(new ConfirmationPrompt(
-                $"mDNS is unavailable but your hosts list contains {string.Join(", ", broken)}. " +
-                "Install avahi-daemon + nss-mdns now?")
-            { DefaultValue = true });
-            if (install)
+            if (MdnsAvailability.SupportsAutoInstall(distro.Family))
             {
-                if (await MdnsAvailability.TryInstallAvahiAsync(distro, logger, ct).ConfigureAwait(false))
+                var install = AnsiConsole.Prompt(new ConfirmationPrompt(
+                    $"mDNS is unavailable but your hosts list contains {string.Join(", ", broken)}. " +
+                    "Install avahi-daemon + nss-mdns now?")
+                { DefaultValue = true });
+                if (install)
                 {
-                    // Re-probe; any residual failure falls through to strip so the run still succeeds.
-                    var stillBroken = false;
-                    foreach (var host in broken)
+                    if (await MdnsAvailability.TryInstallAvahiAsync(distro, logger, ct).ConfigureAwait(false))
                     {
-                        if (await probeFn(host, ct).ConfigureAwait(false) != true)
+                        // Re-probe; any residual failure falls through to strip so the run still succeeds.
+                        var stillBroken = false;
+                        foreach (var host in broken)
                         {
-                            stillBroken = true;
-                            break;
+                            if (await probeFn(host, ct).ConfigureAwait(false) != true)
+                            {
+                                stillBroken = true;
+                                break;
+                            }
                         }
+                        if (!stillBroken)
+                        {
+                            logger.Info("    mDNS now resolvable for all .local hosts");
+                            return false;
+                        }
+                        logger.Warn($"avahi installed but {string.Join(", ", broken)} still doesn't resolve; removing from hosts.");
                     }
-                    if (!stillBroken)
+                    else
                     {
-                        logger.Info("    mDNS now resolvable for all .local hosts");
-                        return false;
+                        logger.Warn("removing unresolvable .local host(s) after failed avahi install.");
                     }
-                    logger.Warn($"avahi installed but {string.Join(", ", broken)} still doesn't resolve; removing from hosts.");
-                }
-                else
-                {
-                    logger.Warn("removing unresolvable .local host(s) after failed avahi install.");
                 }
             }
         }

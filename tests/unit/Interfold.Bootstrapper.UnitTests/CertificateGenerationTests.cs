@@ -203,6 +203,59 @@ public sealed class CertificateGenerationTests
             .Because($"rootCA.key must be 0600 (User R+W only); got {actualMode}");
     }
 
+    // Windows Root store Add/Remove always raise the Security Warning / Root Certificate
+    // Store UI — even for CurrentUser. Keep Explicit so default unit runs stay non-interactive;
+    // opt in with --treenode-filter or the IDE "Run Explicit" path.
+    [Test]
+    [Explicit]
+    public async Task WindowsTrustStoreInstallAddsCurrentUserRoot()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var artifacts = await RunPhaseAsync(trustStoreInstall: false);
+        using var generated = LoadCert(artifacts.CertPath("rootCA.crt"));
+        var thumbprint = generated.Thumbprint;
+        var logger = new PhaseLogger(artifacts.Options);
+
+        try
+        {
+            CertificatePhase.InstallToWindowsTrustStore(artifacts.CertPath("rootCA.crt"), logger);
+
+            using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.ReadOnly);
+            var found = store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, validOnly: false);
+            await Assert.That(found.Count).IsGreaterThan(0)
+                .Because("private CA must land in CurrentUser\\Root when trustStoreInstall runs on Windows");
+        }
+        finally
+        {
+            using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.ReadWrite);
+            var found = store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, validOnly: false);
+            foreach (var cert in found)
+            {
+                store.Remove(cert);
+            }
+        }
+    }
+
+    [Test]
+    public async Task PrintTrustInfoMentionsWindowsCertutil()
+    {
+        await Assert.That(CertificatePhase.WindowsCertutilVerifyHint)
+            .Contains("certutil -dump rootCA.crt");
+
+        using var artifacts = await RunPhaseAsync(trustStoreInstall: false);
+        var logger = new PhaseLogger(artifacts.Options);
+        CertificatePhase.PrintTrustInfo(
+            artifacts.CertPath("rootCA.crt"),
+            artifacts.CertPath("rootCA.sha256.txt"),
+            logger);
+    }
+
     [Test]
     public async Task RootHasCriticalNameConstraints()
     {

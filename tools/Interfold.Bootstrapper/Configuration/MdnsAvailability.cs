@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Phases;
@@ -19,20 +21,29 @@ namespace Interfold.Bootstrapper.Configuration;
 internal static class MdnsAvailability
 {
     /// <summary>
-    /// Shells out to <c>getent hosts &lt;name&gt;</c> — exits 0 iff the whole
-    /// nsswitch → mdns_minimal → avahi chain successfully resolves <paramref name="hostname"/>.
-    /// The exit-code + stdout check together beat probing avahi's systemd unit status because
-    /// a running daemon with a broken <c>nsswitch.conf</c> would still fail resolution.
-    ///
-    /// <para>
-    /// Returns <c>null</c> on non-Linux platforms (getent doesn't exist on Windows / macOS in
-    /// the shape the bootstrapper needs), which the callers treat as "unknown — skip the
-    /// gate". The bootstrap phase itself is Linux-only anyway; this branch just lets the
-    /// ConfigPhase logic run cleanly on a dev workstation for JSON validation.
-    /// </para>
+    /// Linux: <c>getent hosts</c> (nsswitch → mdns_minimal → avahi). Windows:
+    /// <see cref="Dns.GetHostAddressesAsync(string)"/>. Returns <c>null</c> on macOS
+    /// and on probe failures the callers treat as "unknown — skip the gate".
     /// </summary>
     public static async Task<bool?> IsHostnameResolvableAsync(string hostname, CancellationToken ct)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                var addresses = await Dns.GetHostAddressesAsync(hostname, ct).ConfigureAwait(false);
+                return addresses.Length > 0;
+            }
+            catch (SocketException)
+            {
+                return false;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
             return null;
@@ -51,6 +62,10 @@ internal static class MdnsAvailability
             return null;
         }
     }
+
+    /// <summary>True when the interactive banner can shell out to a package manager.</summary>
+    public static bool SupportsAutoInstall(DistroFamily family) =>
+        OperatingSystem.IsLinux() && InstallPackages(family).Count > 0;
 
     /// <summary>
     /// Distro-family-specific package list to satisfy the mDNS resolution chain:
@@ -73,15 +88,23 @@ internal static class MdnsAvailability
     /// present in the shell recipe because the packages don't self-enable the daemon on every
     /// distro (Debian starts it via a maintainer script; RHEL leaves it inactive).
     /// </summary>
-    public static string ManualInstallHint(DistroFamily family) => family switch
+    public static string ManualInstallHint(DistroFamily family)
     {
-        DistroFamily.Debian =>
-            "sudo apt-get install -y avahi-daemon libnss-mdns && sudo systemctl enable --now avahi-daemon",
-        DistroFamily.RedHat =>
-            "sudo dnf install -y avahi nss-mdns && sudo systemctl enable --now avahi-daemon",
-        _ =>
-            "(install avahi-daemon and its nss module for your distro, then enable the service)",
-    };
+        if (OperatingSystem.IsWindows())
+        {
+            return "Windows resolves .local via mDNS/Bonjour. Enable the 'Function Discovery Resource Publication' service, or install Bonjour Print Services.";
+        }
+
+        return family switch
+        {
+            DistroFamily.Debian =>
+                "sudo apt-get install -y avahi-daemon libnss-mdns && sudo systemctl enable --now avahi-daemon",
+            DistroFamily.RedHat =>
+                "sudo dnf install -y avahi nss-mdns && sudo systemctl enable --now avahi-daemon",
+            _ =>
+                "(install avahi-daemon and its nss module for your distro, then enable the service)",
+        };
+    }
 
     /// <summary>
     /// Attempts to install the avahi packages for <paramref name="distro"/> and enable the
@@ -92,6 +115,12 @@ internal static class MdnsAvailability
     public static async Task<bool> TryInstallAvahiAsync(
         DistroInfo distro, PhaseLogger logger, CancellationToken ct)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            logger.Warn("    Windows has no avahi package; skipping auto-install");
+            return false;
+        }
+
         var packages = InstallPackages(distro.Family);
         if (packages.Count == 0)
         {

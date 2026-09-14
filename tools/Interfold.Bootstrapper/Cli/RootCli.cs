@@ -31,7 +31,7 @@ public static class RootCli
         };
         var skipPrereqsOpt = new Option<bool>("--skip-prereqs")
         {
-            Description = "Skip the prerequisites phase (Docker/openssl install, AIO sysctl). Use on re-runs."
+            Description = "Skip the prerequisites phase (Docker/openssl install, AIO sysctl, or Windows Docker Desktop). Use on re-runs."
         };
         var nonInteractiveOpt = new Option<bool>("--non-interactive")
         {
@@ -76,19 +76,19 @@ public static class RootCli
         // via the System.CommandLine bool option's "specified" check on the parse result.
         var enableAutostartOpt = new Option<bool>("--enable-autostart")
         {
-            Description = "After writing units, run `systemctl enable --now interfold.service`. Overrides config.deployment.autostartServer."
+            Description = "After writing units/tasks, enable autostart (Linux: systemctl enable --now interfold.service; Windows: logon trigger + docker compose up -d). Overrides config.deployment.autostartServer."
         };
         var enableBackupTimerOpt = new Option<bool>("--enable-backup-timer")
         {
-            Description = "After writing units, run `systemctl enable --now interfold-backup.timer`. Overrides config.deployment.backup.enabled."
+            Description = "After writing units/tasks, enable the backup schedule (Linux: systemctl enable --now interfold-backup.timer; Windows: calendar trigger on InterfoldBackup). Overrides config.deployment.backup.enabled."
         };
         var systemdUnitDirOpt = new Option<string?>("--systemd-unit-dir")
         {
-            Description = "Override the systemd unit installation directory (default: /etc/systemd/system). Used by integration tests."
+            Description = "Write units/XML here and skip registration. Linux default: /etc/systemd/system. Windows: skip schtasks (test mode)."
         };
         var binaryPathOpt = new Option<string?>("--binary-path")
         {
-            Description = "Override the bootstrapper binary path baked into interfold-backup.service (default: AppContext.BaseDirectory/interfold-bootstrap)."
+            Description = "Override the bootstrapper binary path baked into backup/update jobs (default: AppContext.BaseDirectory/interfold-bootstrap[.exe])."
         };
 
         // --- update-images-specific options ---
@@ -136,7 +136,7 @@ public static class RootCli
         };
 
         var root = new RootCommand(
-            "Interfold self-hosting bootstrapper. Brings a fresh Linux box from 'git clone' to a running stack.");
+            "Interfold self-hosting bootstrapper. Brings a fresh Linux or Windows host from 'git clone' to a running stack.");
 
         // ---------- bootstrap (default) ----------
         var bootstrapCmd = new Command("bootstrap",
@@ -215,7 +215,7 @@ public static class RootCli
 
         // ---------- install-service ----------
         var installServiceCmd = new Command("install-service",
-            "Install systemd units for boot-up autostart + scheduled backups. Writes to /etc/systemd/system/.");
+            "Install autostart + scheduled backup (Linux: systemd units in /etc/systemd/system/; Windows: Task Scheduler Interfold / InterfoldBackup).");
         AddSharedOptions(installServiceCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         installServiceCmd.Options.Add(enableAutostartOpt);
         installServiceCmd.Options.Add(enableBackupTimerOpt);

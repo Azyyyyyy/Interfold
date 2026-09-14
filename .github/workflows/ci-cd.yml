@@ -209,7 +209,8 @@ jobs:
       #   - Bootstrapper.IntegrationTests: every test class is [Explicit] (see the
       #     assembly's AssemblyInfo.cs); a `/*/*/*/*` treenode filter matches all
       #     tests, all explicit, so TUnit runs the full suite. Default (unfiltered)
-      #     invocation would skip everything.
+      #     invocation would skip everything. Native Windows tests ([RequiresWindows])
+      #     skip here; `test-int-bootstrapper-windows` runs them.
       #   - Infrastructure.IntegrationTests: MultiNodeScyllaTests alone is [Explicit]
       #     (7-DC ring, GB-scale RAM). Runs in two passes because TUnit's rule is
       #     "explicit only runs when every filtered test is explicit" — a single
@@ -269,6 +270,104 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # Native Windows: multi-RID publish (win-x64 / win-arm64) + zip
+  # artefacts, size guard, Task Scheduler install-service tests, and a thin
+  # publish smoke. (No win-arm — .NET has no Windows 32-bit ARM RID; linux-arm
+  # has no peer.) DinD/systemd stays on the ubuntu Bootstrapper matrix leg.
+  test-int-bootstrapper-windows:
+    runs-on: windows-latest
+    needs: build
+    name: test-int (Bootstrapper Windows multi-RID)
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup test runner
+        uses: ./.github/actions/setup-test-runner
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          build-artifact-name: dotnet-build-${{ github.sha }}
+
+      - name: Publish Windows bootstrapper RIDs (zip + size guard)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rids = @('win-x64', 'win-arm64')
+          $base = Join-Path $env:RUNNER_TEMP 'interfold-bootstrap-win'
+          $maxBytes = 75L * 1024 * 1024
+          New-Item -ItemType Directory -Force -Path $base | Out-Null
+
+          foreach ($rid in $rids) {
+            $out = Join-Path $base $rid
+            New-Item -ItemType Directory -Force -Path $out | Out-Null
+            Write-Host "Publishing $rid -> $out"
+            dotnet publish tools/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj `
+              /p:PublishProfile=$rid `
+              -o $out
+            $exe = Join-Path $out 'interfold-bootstrap.exe'
+            if (-not (Test-Path $exe)) {
+              throw "$rid publish missing interfold-bootstrap.exe under $out"
+            }
+            $len = (Get-Item -LiteralPath $exe).Length
+            Write-Host ("{0} size: {1:N1} MiB" -f $rid, ($len / 1MB))
+            if ($len -ge $maxBytes) {
+              throw ("{0} PE is {1:N1} MiB (limit {2:N0} MiB)" -f $rid, ($len / 1MB), ($maxBytes / 1MB))
+            }
+            $zip = Join-Path $env:RUNNER_TEMP "interfold-bootstrap-$rid.zip"
+            if (Test-Path $zip) { Remove-Item -LiteralPath $zip -Force }
+            Compress-Archive -Path (Join-Path $out '*') -DestinationPath $zip -Force
+          }
+
+          # Stage win-x64 for native tests + INTERFOLD_BOOTSTRAPPER_WIN_PUBLISH_DIR.
+          $stage = 'tools/Interfold.Bootstrapper/bin/Release/net10.0/win-x64/publish'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item -Path (Join-Path $base 'win-x64\*') -Destination $stage -Force
+          $winX64Out = Join-Path $base 'win-x64'
+          "INTERFOLD_BOOTSTRAPPER_WIN_PUBLISH_DIR=$winX64Out" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload bootstrapper artifact (win-x64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: interfold-bootstrap-win-x64-${{ github.sha }}
+          path: ${{ runner.temp }}/interfold-bootstrap-win-x64.zip
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload bootstrapper artifact (win-arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: interfold-bootstrap-win-arm64-${{ github.sha }}
+          path: ${{ runner.temp }}/interfold-bootstrap-win-arm64.zip
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Test (Windows install-service + publish smoke)
+        shell: pwsh
+        env:
+          TUNIT_AGGREGATE_REPORTS: defer
+        run: |
+          $dll = "tests/integration/Interfold.Bootstrapper.IntegrationTests/bin/Release/net10.0/Interfold.Bootstrapper.IntegrationTests.dll"
+          dotnet $dll `
+            --treenode-filter '/*/*/*Windows*/*' `
+            --coverage --coverage-output-format cobertura
+
+      - name: Upload TUnit report sidecar (Bootstrapper Windows)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunit-sidecar-Interfold.Bootstrapper.IntegrationTests-windows-${{ github.sha }}
+          path: 'tests/integration/Interfold.Bootstrapper.IntegrationTests/**/*.tunit-report.json'
+          retention-days: 1
+          if-no-files-found: warn
+
+      - name: Upload coverage (Bootstrapper Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-int-Interfold.Bootstrapper.IntegrationTests-windows-${{ github.sha }}
+          path: 'tests/integration/Interfold.Bootstrapper.IntegrationTests/**/TestResults/**/*.cobertura.xml'
+          retention-days: 1
+          if-no-files-found: error
+
   # test-int-summary: renders one native TUnit aggregated block from every
   # matrix leg's sidecar. `tunit-report merge --github-summary` splices the
   # block into $GITHUB_STEP_SUMMARY between HTML-comment markers so foreign
@@ -276,7 +375,7 @@ jobs:
   # renders top-level, not nested under `coverage`.
   test-int-summary:
     runs-on: ubuntu-latest
-    needs: test-int
+    needs: [ test-int, test-int-bootstrapper-windows ]
     if: always()
     steps:
       - name: Setup .NET
@@ -324,7 +423,7 @@ jobs:
   # is visible at a glance.
   coverage:
     runs-on: ubuntu-latest
-    needs: [ test-unit, test-int ]
+    needs: [ test-unit, test-int, test-int-bootstrapper-windows ]
     if: always()
     steps:
       - name: Checkout code
@@ -381,7 +480,7 @@ jobs:
   # with the bootstrapper buildx in `build`.
   publish:
     runs-on: ubuntu-latest
-    needs: [ test-unit, test-int ]
+    needs: [ test-unit, test-int, test-int-bootstrapper-windows ]
     if: >-
       github.event_name == 'push' &&
       (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||

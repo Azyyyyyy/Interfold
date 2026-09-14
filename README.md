@@ -17,20 +17,35 @@ This repository contains the backend code for Octocon, which is structured into 
 
 ## Self-hosting (production)
 
-Interfold ships a single bootstrapper binary that brings a fresh Linux box from `git clone` to a
+Interfold ships a single bootstrapper binary that brings a fresh Linux or Windows host from `git clone` to a
 running stack. The bootstrapper IS an Aspire AppHost — it reuses the same resource graph as the
 dev `aspire run` flow, with a Docker Compose publisher and a host-side prep wrapper around it.
 
 ### One-shot install
 
-1. Download the latest release tarball (TO BE CREATED) and unpack it on a fresh Ubuntu 22.04+/Debian 12+/Fedora 40+/RHEL 9+ box:
+CI uploads per-arch bootstrapper artefacts (Linux `.tar.gz`, Windows `.zip`):
 
-   ```bash
-   tar -xzf interfold-bootstrap-linux-x64.tar.gz
-   cd interfold-bootstrap
-   ```
+| Arch | Linux | Windows |
+|---|---|---|
+| x64 | `interfold-bootstrap-linux-x64.tar.gz` | `interfold-bootstrap-win-x64.zip` |
+| arm64 | `interfold-bootstrap-linux-arm64.tar.gz` | `interfold-bootstrap-win-arm64.zip` |
+| arm (32-bit) | `interfold-bootstrap-linux-arm.tar.gz` | *(none — .NET has no `win-arm` RID)* |
 
-2. Author `interfold.bootstrap.json` (or run the binary with no arguments to be prompted):
+**Linux** — unpack on a fresh Ubuntu 22.04+/Debian 12+/Fedora 40+/RHEL 9+ box:
+
+```bash
+tar -xzf interfold-bootstrap-linux-x64.tar.gz
+cd interfold-bootstrap
+```
+
+**Windows** — unpack on a Docker Desktop host (x64 / ARM):
+
+```powershell
+Expand-Archive interfold-bootstrap-win-x64.zip -DestinationPath .\interfold-bootstrap
+cd .\interfold-bootstrap
+```
+
+1. Author `interfold.bootstrap.json` (or run the binary with no arguments to be prompted):
 
    ```json
    {
@@ -51,10 +66,18 @@ dev `aspire run` flow, with a Docker Compose publisher and a host-side prep wrap
    }
    ```
 
-3. Run the bootstrapper as root:
+2. Run the bootstrapper:
+
+   Linux (as root):
 
    ```bash
    sudo ./interfold-bootstrap bootstrap --config interfold.bootstrap.json
+   ```
+
+   Windows (elevated only if Docker Desktop still needs installing):
+
+   ```powershell
+   .\interfold-bootstrap.exe bootstrap --config interfold.bootstrap.json
    ```
 
    This walks through six phases — prereqs → config → secrets → certs → publish → launch —
