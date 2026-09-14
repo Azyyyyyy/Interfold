@@ -264,8 +264,10 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 > - `edge.routing.mode` — `path` (`/api/` → API, `/` → web) or `subdomain`
 >   (separate `routing.apiHost` / `routing.webHost`).
 >
-> **Schema versions.** `schemaVersion` stays at `2`. A file with no `schemaVersion` (or
-> `schemaVersion: 1`) is treated as **V1** and auto-upgraded on the next bootstrapper load.
+> **Schema versions.** `schemaVersion` is major.minor, stored as an integer (no decimal
+> in the file): `1` / `2` mean 1.0 / 2.0; additive field additions bump the minor and
+> write `21` for 2.1, `22` for 2.2. A file with no `schemaVersion` (or `1`) is **V1**
+> and auto-upgraded on the next bootstrapper load. Current is **2.0** (`2`).
 >
 > | V1 (legacy) | V2 streamlined |
 > | :---------- | :------------- |

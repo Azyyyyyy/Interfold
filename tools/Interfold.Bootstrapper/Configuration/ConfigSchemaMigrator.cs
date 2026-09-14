@@ -4,7 +4,7 @@ using Interfold.Bootstrapper.Cli;
 
 namespace Interfold.Bootstrapper.Configuration;
 
-/// <summary>Automatic <c>interfold.bootstrap.json</c> schema upgrades (V1 → streamlined V2).</summary>
+/// <summary>Automatic <c>interfold.bootstrap.json</c> schema upgrades (V1 → streamlined V2, then additive minor bumps).</summary>
 internal static class ConfigSchemaMigrator
 {
     private const int V1DefaultApiHttp = 5000;
@@ -56,30 +56,41 @@ internal static class ConfigSchemaMigrator
         await File.WriteAllTextAsync(configPath, migratedJson, ct).ConfigureAwait(false);
     }
 
-    internal static int DetectVersion(JsonElement root)
+    internal static ConfigSchemaVersion DetectVersion(JsonElement root)
     {
-        if (root.TryGetProperty("schemaVersion", out var versionProp)
-            && versionProp.ValueKind == JsonValueKind.Number
-            && versionProp.TryGetInt32(out var version))
+        if (!root.TryGetProperty("schemaVersion", out var versionProp)
+            || versionProp.ValueKind != JsonValueKind.Number)
         {
-            return version;
+            return ConfigSchemaVersion.V1;
         }
 
-        return 1;
+        if (versionProp.TryGetInt32(out var wire))
+        {
+            return ConfigSchemaVersion.FromWire(wire);
+        }
+
+        if (versionProp.TryGetDecimal(out var dec))
+        {
+            return ConfigSchemaVersion.Parse(dec);
+        }
+
+        return ConfigSchemaVersion.V1;
     }
 
-    private static JsonObject MigrateChain(JsonObject root, int fromVersion, PhaseLogger logger)
+    private static JsonObject MigrateChain(JsonObject root, ConfigSchemaVersion fromVersion, PhaseLogger logger)
     {
         var current = fromVersion;
         while (current < BootstrapConfig.CurrentSchemaVersion)
         {
-            root = current switch
+            if (current == ConfigSchemaVersion.V1)
             {
-                1 => MigrateV1ToV2(root, logger),
-                _ => throw new InvalidOperationException(
-                    $"Unsupported bootstrap config schemaVersion {current} in {nameof(MigrateChain)}."),
-            };
-            current++;
+                root = MigrateV1ToV2(root, logger);
+                current = ConfigSchemaVersion.V2;
+                continue;
+            }
+
+            throw new InvalidOperationException(
+                $"Unsupported bootstrap config schemaVersion {current} in {nameof(MigrateChain)}.");
         }
 
         return root;
@@ -95,7 +106,7 @@ internal static class ConfigSchemaMigrator
         root["deployment"] = deployment;
 
         ApplyStreamlinedV2Layout(root);
-        root["schemaVersion"] = BootstrapConfig.CurrentSchemaVersion;
+        root["schemaVersion"] = BootstrapConfig.CurrentSchemaVersion.ToWire();
         logger.Info("    config: applying v1→v2 transforms (streamlined layout)");
         return root;
     }
