@@ -30,6 +30,7 @@ RUN apt-get update \
         iproute2 \
         jq \
         kmod \
+        python3 \
         openssl \
         sudo \
         systemd \
