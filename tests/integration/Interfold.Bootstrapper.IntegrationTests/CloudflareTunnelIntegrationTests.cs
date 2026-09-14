@@ -24,11 +24,11 @@ public sealed class CloudflareTunnelIntegrationTests(UbuntuDinDFixture dinD)
 
         var port = 19878;
         var mockRoot = "/tmp/cf-api-mock";
-        var setup = await dinD.ExecAsync(["sh", "-c", $$"""
+        var setup = await dinD.ExecAsync(["sh", "-c", """
             set -e
-            rm -rf {{mockRoot}} /tmp/cf-tunnel-create.json
-            mkdir -p {{mockRoot}}
-            cat > {{mockRoot}}/server.py <<'PY'
+            rm -rf __MOCK_ROOT__ /tmp/cf-tunnel-create.json
+            mkdir -p __MOCK_ROOT__
+            cat > __MOCK_ROOT__/server.py <<'PY'
             from http.server import BaseHTTPRequestHandler, HTTPServer
             import json
 
@@ -78,18 +78,18 @@ public sealed class CloudflareTunnelIntegrationTests(UbuntuDinDFixture dinD)
                     open("/tmp/cf-ingress-put.json", "wb").write(body)
                     ok(self, {})
 
-            HTTPServer(("127.0.0.1", {{port}}), H).serve_forever()
+            HTTPServer(("127.0.0.1", __PORT__), H).serve_forever()
             PY
-            python3 {{mockRoot}}/server.py >/tmp/cf-api-mock.log 2>&1 &
+            python3 __MOCK_ROOT__/server.py >/tmp/cf-api-mock.log 2>&1 &
             echo $! > /tmp/cf-api-mock.pid
             for i in $(seq 1 30); do
-              python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:{{port}}/client/v4/zones')" 2>/dev/null && exit 0
+              python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:__PORT__/client/v4/zones')" 2>/dev/null && exit 0
               sleep 0.2
             done
             echo "mock CF API failed to start" >&2
             cat /tmp/cf-api-mock.log >&2 || true
             exit 1
-            """]);
+            """.Replace("__MOCK_ROOT__", mockRoot).Replace("__PORT__", port.ToString())]);
         await Assert.That(setup.ExitCode).IsEqualTo(0L).Because(setup.Stderr + setup.Stdout);
 
         try
