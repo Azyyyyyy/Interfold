@@ -23,3 +23,15 @@ hash="$(sha256sum "$release_root/latest/interfold-bootstrap-linux-x64.tar.gz" | 
 echo "$hash  interfold-bootstrap-linux-x64.tar.gz" > "$release_root/latest/SHA256SUMS"
 python3 -m http.server "$port" --directory "$release_root" >"$log_file" 2>&1 &
 echo $! > "$pid_file"
+
+# Wait until the listener accepts connections — otherwise update-self races Connection refused.
+for _ in $(seq 1 30); do
+  if curl -sf "http://127.0.0.1:${port}/latest/version.txt" >/dev/null; then
+    exit 0
+  fi
+  sleep 0.2
+done
+echo "fake release HTTP server failed to become ready on port ${port}" >&2
+cat "$log_file" >&2 || true
+kill "$(cat "$pid_file")" 2>/dev/null || true
+exit 1
