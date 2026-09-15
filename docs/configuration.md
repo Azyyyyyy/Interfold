@@ -150,7 +150,9 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
     }
   },
   "observability": {
-    "otlpEndpoint": ""
+    "otlpEndpoint": "",
+    "advertiseOtlpToClients": false,
+    "clientOtlpHttpEndpoint": ""
   }
 }
 ```
@@ -533,7 +535,9 @@ your `.env`, they are dead values — the API no longer reads them.
 
 | Env var                 | Default | Notes                                                        |
 | ----------------------- | ------- | ------------------------------------------------------------ |
-| `OCTOCON_OTLP_ENDPOINT` | *empty* (= OTLP exporter not registered) | gRPC OTLP endpoint, e.g. `http://localhost:4317`. Sourced from `BootstrapConfig.observability.otlpEndpoint` via Aspire parameter `otlp-endpoint`; empty normalised to `null` by `ApplyObservability` so the OTLP exporter is not registered. Non-empty values must parse as absolute http(s) URIs. (bootstrapper-managed) |
+| `OCTOCON_OTLP_ENDPOINT` | *empty* (= OTLP exporter not registered) | OTLP endpoint for the API's own traces/metrics, e.g. `http://localhost:4317`. Sourced from `BootstrapConfig.observability.otlpEndpoint` via Aspire parameter `otlp-endpoint`; empty normalised to `null` by `ApplyObservability` so the OTLP exporter is not registered. Non-empty values must parse as absolute http(s) URIs. (bootstrapper-managed) |
+| `OCTOCON_ADVERTISE_OTLP_TO_CLIENTS` | `false` | Opt-in: when `true`, `GET /api/telemetry/otlp` may advertise `OCTOCON_OTLP_ENDPOINT` if no client override is set. Off by default so configuring the API exporter does not expose it to clients. Sourced from `BootstrapConfig.observability.advertiseOtlpToClients` via Aspire parameter `advertise-otlp-to-clients`. (bootstrapper-managed) |
+| `OCTOCON_CLIENT_OTLP_HTTP_ENDPOINT` | *empty* | Optional dedicated OTLP/HTTP URL for `GET /api/telemetry/otlp`. When set, always wins over the server endpoint. Use when clients need a different URL than the API exporter. Empty + advertise off → discovery 404. Sourced from `BootstrapConfig.observability.clientOtlpHttpEndpoint` via Aspire parameter `client-otlp-http-endpoint`. Non-empty values must parse as absolute http(s) URIs. The API does **not** ingest OTLP. (bootstrapper-managed) |
 
 
 #### Cluster

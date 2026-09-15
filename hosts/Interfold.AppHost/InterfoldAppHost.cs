@@ -221,6 +221,8 @@ public static class InterfoldAppHost
         var nodeGroup = builder.AddParameter(ParamName(AppHostParameterKeys.NodeGroup), "auxiliary", publishValueAsDefault: true);
         var avatarPublicBase = builder.AddParameter(ParamName(AppHostParameterKeys.AvatarPublicBase), "", publishValueAsDefault: true);
         var otlpEndpoint = builder.AddParameter(ParamName(AppHostParameterKeys.OtlpEndpoint), "", publishValueAsDefault: true);
+        var advertiseOtlpToClients = builder.AddParameter(ParamName(AppHostParameterKeys.AdvertiseOtlpToClients), "false", publishValueAsDefault: true);
+        var clientOtlpHttpEndpoint = builder.AddParameter(ParamName(AppHostParameterKeys.ClientOtlpHttpEndpoint), "", publishValueAsDefault: true);
         var socketBatchBytesThreshold = builder.AddParameter(ParamName(AppHostParameterKeys.SocketBatchBytesThreshold), "", publishValueAsDefault: true);
         var dbRetryAttempts = builder.AddParameter(ParamName(AppHostParameterKeys.DbRetryAttempts), "3", publishValueAsDefault: true);
         var dbRetryInitialDelayMs = builder.AddParameter(ParamName(AppHostParameterKeys.DbRetryInitialDelayMs), "100", publishValueAsDefault: true);
@@ -611,6 +613,8 @@ public static class InterfoldAppHost
                    .WithEnvironment(OctoconEnvKeys.AvatarStorageRoot, ContainerMountPaths.InterfoldAvatars)
                    .WithEnvironment(OctoconEnvKeys.AvatarPublicBase, avatarPublicBase)
                    .WithEnvironment(OctoconEnvKeys.OtlpEndpoint, otlpEndpoint)
+                   .WithEnvironment(OctoconEnvKeys.AdvertiseOtlpToClients, advertiseOtlpToClients)
+                   .WithEnvironment(OctoconEnvKeys.ClientOtlpHttpEndpoint, clientOtlpHttpEndpoint)
                    .WithEnvironment(OctoconEnvKeys.SocketBatchBytesThreshold, socketBatchBytesThreshold)
                    .WithEnvironment(OctoconEnvKeys.DbRetryAttempts, dbRetryAttempts)
                    .WithEnvironment(OctoconEnvKeys.DbRetryInitialDelayMs, dbRetryInitialDelayMs)

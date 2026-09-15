@@ -239,6 +239,12 @@ public sealed class ObservabilitySection
 {
     [JsonPropertyName("otlpEndpoint")]
     public string OtlpEndpoint { get; set; } = string.Empty;
+
+    [JsonPropertyName("advertiseOtlpToClients")]
+    public bool AdvertiseOtlpToClients { get; set; }
+
+    [JsonPropertyName("clientOtlpHttpEndpoint")]
+    public string ClientOtlpHttpEndpoint { get; set; } = string.Empty;
 }
 
 public sealed class BackupSection

@@ -311,8 +311,16 @@ internal static class ConfigPhase
                                                             .AddChoices(ValidNodeGroups)))),
                 ("OTLP endpoint",                   () => ShowOrEmpty(c.Observability.OtlpEndpoint),
                                                     () => c.Observability.OtlpEndpoint = PromptStr(
-                                                        "OTLP endpoint (blank to disable)",
-                                                        c.Observability.OtlpEndpoint))),
+                                                        "OTLP endpoint (blank to disable API export)",
+                                                        c.Observability.OtlpEndpoint)),
+                ("Advertise OTLP to clients",       () => c.Observability.AdvertiseOtlpToClients.ToString(),
+                                                    () => c.Observability.AdvertiseOtlpToClients = PromptBool(
+                                                        "Advertise OTLP endpoint to clients via GET /api/telemetry/otlp (uses the server OTLP URL when no client override is set)",
+                                                        c.Observability.AdvertiseOtlpToClients)),
+                ("Client OTLP/HTTP endpoint",       () => ShowOrEmpty(c.Observability.ClientOtlpHttpEndpoint),
+                                                    () => c.Observability.ClientOtlpHttpEndpoint = PromptStr(
+                                                        "Client OTLP/HTTP override for discovery (blank = use server OTLP when advertise is on; otherwise discovery unavailable)",
+                                                        c.Observability.ClientOtlpHttpEndpoint))),
 
             // Storage: blank AvatarStorageRoot → {outputDir}/data/avatars bind-mounted at
             // /app/data/avatars. Blank AvatarPublicBase → API serves /avatars/* directly.
@@ -1039,6 +1047,7 @@ internal static class ConfigPhase
 
         // http:// is legal for OTLP (SDK accepts gRPC-over-HTTP/2).
         ValidateOptionalAbsoluteHttpUri(config.Observability.OtlpEndpoint, "config.observability.otlpEndpoint");
+        ValidateOptionalAbsoluteHttpUri(config.Observability.ClientOtlpHttpEndpoint, "config.observability.clientOtlpHttpEndpoint");
 
         // Numeric bounds come from ConfigurationBounds so the bootstrapper prompts and the
         // API's [Range] attributes on the matching options stay lockstep.

@@ -48,6 +48,8 @@ public static class OctoconEnvKeys
     public const string CorsAllowedOrigins = "OCTOCON_CORS_ALLOWED_ORIGINS";
 
     public const string OtlpEndpoint = "OCTOCON_OTLP_ENDPOINT";
+    public const string AdvertiseOtlpToClients = "OCTOCON_ADVERTISE_OTLP_TO_CLIENTS";
+    public const string ClientOtlpHttpEndpoint = "OCTOCON_CLIENT_OTLP_HTTP_ENDPOINT";
 
     public const string TrustRootCaPath = "OCTOCON_TRUST_ROOT_CA_PATH";
     public const string TrustRootCaFingerprintPath = "OCTOCON_TRUST_ROOT_CA_FINGERPRINT_PATH";
