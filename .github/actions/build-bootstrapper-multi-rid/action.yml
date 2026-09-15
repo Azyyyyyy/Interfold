@@ -20,9 +20,13 @@ inputs:
     description: 'Suffix on each artefact `name`, typically the commit SHA so runs don''t collide.'
     required: true
   bootstrapper-version:
-    description: 'Informational version written to version.txt and embedded in release metadata.'
+    description: 'InformationalVersion embedded in the published binaries (also used as the rolling release tag suffix).'
     required: false
     default: '0.0.0-dev'
+  bootstrapper-channel:
+    description: 'Release channel stamped into the binary (stable, bleeding-edge, or pin tag). Empty for unstamped PR/local builds.'
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -40,6 +44,7 @@ runs:
         outputs: type=local,dest=./bootstrap-out
         build-args: |
           VERSION=${{ inputs.bootstrapper-version }}
+          CHANNEL=${{ inputs.bootstrapper-channel }}
         cache-from: type=gha,scope=interfold-dotnet
         cache-to: type=gha,mode=max,scope=interfold-dotnet
 
@@ -79,18 +84,6 @@ runs:
         mkdir -p "$dest"
         cp bootstrap-out/linux_amd64/interfold-bootstrap "$dest/interfold-bootstrap"
         chmod +x "$dest/interfold-bootstrap"
-        sha256sum interfold-bootstrap-*.tar.gz > SHA256SUMS
-        echo "${{ inputs.bootstrapper-version }}" > version.txt
-
-    - name: Upload release metadata artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: interfold-bootstrap-release-meta-${{ inputs.artifact-suffix }}
-        path: |
-          SHA256SUMS
-          version.txt
-        retention-days: 7
-        if-no-files-found: error
 
     # One artefact per RID so consumers download only the binary they need.
     # `if:` uses `format(' {0} ', ...)` word-boundaries so `linux-arm` doesn't

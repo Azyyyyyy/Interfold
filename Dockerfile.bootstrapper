@@ -9,6 +9,7 @@
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG TARGETARCH
 ARG VERSION=0.0.0-dev
+ARG CHANNEL=
 WORKDIR /src
 COPY . .
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
@@ -23,7 +24,8 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
         --runtime "$RID" \
         /p:PublishProfile="$RID" \
         /p:Version="$VERSION" \
-        /p:InformationalVersion="$VERSION" && \
+        /p:InformationalVersion="$VERSION" \
+        /p:BootstrapperReleaseChannel="$CHANNEL" && \
     mkdir -p /out && \
     cp "tools/Interfold.Bootstrapper/bin/Release/net10.0/$RID/publish/interfold-bootstrap" /out/
 

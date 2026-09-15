@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text.Json;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
 using Interfold.Bootstrapper.Util;
@@ -20,12 +21,125 @@ public sealed class BootstrapperReleaseClientTests
     }
 
     [Test]
-    public async Task FetchRemoteVersionRejectsPinnedChannel()
+    public async Task FetchRemoteVersionReturnsPinWireValue()
     {
         using var client = BootstrapperReleaseClient.CreateDefault();
         var pin = BootstrapperReleaseChannel.ParseWire("v0.0.1");
-        await Assert.That(async () => await client.FetchRemoteVersionAsync(pin, CancellationToken.None))
+        await Assert.That(await client.FetchRemoteVersionAsync(pin, CancellationToken.None))
+            .IsEqualTo("v0.0.1");
+    }
+
+    [Test]
+    public async Task VersionFromReleaseTagStripsRollingPrefixes()
+    {
+        await Assert.That(BootstrapperReleaseClient.VersionFromReleaseTag("stable-0.0.1+abc1234"))
+            .IsEqualTo("0.0.1+abc1234");
+        await Assert.That(BootstrapperReleaseClient.VersionFromReleaseTag("bleeding-edge-0.0.1+deadbee"))
+            .IsEqualTo("0.0.1+deadbee");
+        await Assert.That(BootstrapperReleaseClient.VersionFromReleaseTag("v0.0.1"))
+            .IsEqualTo("v0.0.1");
+    }
+
+    [Test]
+    public async Task ParseAssetDigestSha256AcceptsSha256Prefix()
+    {
+        var hash = BootstrapperReleaseClient.ParseAssetDigestSha256(
+            "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789");
+        await Assert.That(hash)
+            .IsEqualTo("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789");
+    }
+
+    [Test]
+    public async Task ParseAssetDigestSha256RejectsUnknownAlgorithm()
+    {
+        await Assert.That(() => BootstrapperReleaseClient.ParseAssetDigestSha256("md5:deadbeef"))
             .Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task SelectNewestRollingTagStableSkipsPrereleasesAndDrafts()
+    {
+        using var doc = JsonDocument.Parse(
+            """
+            [
+              { "tag_name": "bleeding-edge-0.0.1+ffff", "draft": false, "prerelease": true },
+              { "tag_name": "stable-0.0.1+draft", "draft": true, "prerelease": false },
+              { "tag_name": "v1.0.0", "draft": false, "prerelease": false },
+              { "tag_name": "stable-0.0.1+cafebabe", "draft": false, "prerelease": false },
+              { "tag_name": "stable-0.0.1+older", "draft": false, "prerelease": false }
+            ]
+            """);
+
+        var tag = BootstrapperReleaseClient.SelectNewestRollingTag(
+            doc.RootElement,
+            BootstrapperReleaseClient.StableRollingTagPrefix,
+            requirePrerelease: false);
+        await Assert.That(tag).IsEqualTo("stable-0.0.1+cafebabe");
+    }
+
+    [Test]
+    public async Task SelectNewestRollingTagBleedingEdgeSkipsDraftsAndNonMatching()
+    {
+        using var doc = JsonDocument.Parse(
+            """
+            [
+              { "tag_name": "v1.0.0", "draft": false, "prerelease": false },
+              { "tag_name": "stable-0.0.1+aaaa", "draft": false, "prerelease": false },
+              { "tag_name": "bleeding-edge-0.0.1+deadbeef", "draft": true, "prerelease": true },
+              { "tag_name": "bleeding-edge-0.0.1+cafebabe", "draft": false, "prerelease": true },
+              { "tag_name": "bleeding-edge-0.0.1+older", "draft": false, "prerelease": true }
+            ]
+            """);
+
+        var tag = BootstrapperReleaseClient.SelectNewestRollingTag(
+            doc.RootElement,
+            BootstrapperReleaseClient.BleedingEdgeRollingTagPrefix,
+            requirePrerelease: true);
+        await Assert.That(tag).IsEqualTo("bleeding-edge-0.0.1+cafebabe");
+    }
+
+    [Test]
+    public async Task SelectNewestRollingTagReturnsNullWhenPrefixAbsentOnPage()
+    {
+        using var doc = JsonDocument.Parse(
+            """
+            [
+              { "tag_name": "bleeding-edge-0.0.1+aaaa", "draft": false, "prerelease": true },
+              { "tag_name": "v0.0.1", "draft": false, "prerelease": false }
+            ]
+            """);
+
+        var tag = BootstrapperReleaseClient.SelectNewestRollingTag(
+            doc.RootElement,
+            BootstrapperReleaseClient.StableRollingTagPrefix,
+            requirePrerelease: false);
+        await Assert.That(tag).IsNull();
+    }
+
+    [Test]
+    public async Task ResolveReleaseTagUsesMirrorFolderWhenOverrideSet()
+    {
+        var prior = Environment.GetEnvironmentVariable("INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL",
+                "http://127.0.0.1:8765/releases/download");
+            using var client = BootstrapperReleaseClient.CreateDefault();
+            await Assert.That(await client.ResolveReleaseTagAsync(
+                    BootstrapperReleaseChannel.Stable, CancellationToken.None))
+                .IsEqualTo("latest");
+            await Assert.That(await client.ResolveReleaseTagAsync(
+                    BootstrapperReleaseChannel.BleedingEdge, CancellationToken.None))
+                .IsEqualTo("bleeding-edge");
+            await Assert.That(await client.ResolveReleaseTagAsync(
+                    BootstrapperReleaseChannel.ParseWire("v0.0.1"), CancellationToken.None))
+                .IsEqualTo("v0.0.1");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL", prior);
+        }
     }
 
     [Test]
@@ -71,8 +185,8 @@ public sealed class BootstrapperReleaseClientTests
                 "INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL",
                 "http://127.0.0.1:8765/releases/download");
             using var client = BootstrapperReleaseClient.CreateDefault();
-            await Assert.That(client.VersionUrl(BootstrapperReleaseChannel.Stable).ToString())
-                .IsEqualTo("http://127.0.0.1:8765/releases/download/latest/version.txt");
+            await Assert.That(client.ReleaseAssetUrl(BootstrapperReleaseChannel.Stable, "linux-x64").ToString())
+                .IsEqualTo("http://127.0.0.1:8765/releases/download/latest/interfold-bootstrap-linux-x64.tar.gz");
         }
         finally
         {

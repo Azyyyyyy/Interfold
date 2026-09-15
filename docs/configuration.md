@@ -220,11 +220,11 @@ appear in `.env`.
 | Field | Default | Notes |
 | ----- | ------- | ----- |
 | `enabled` | `false` | When `true`, scheduled update runs `update-self` before `update-images` (Linux: `interfold-update.service`; Windows: second/third Exec on the backup task). Opt-in — manual `update-self` works regardless. |
-| `channel` | `stable` | `stable` (GitHub release `latest`), `bleeding-edge` (release tag `bleeding-edge`), or a pin tag like `v0.0.1` (immutable Release; the tag **is** the version — no `version.txt`). |
+| `channel` | `stable` (or the channel stamped into the running binary when present) | `stable` (newest non-prerelease `stable-{version}` tag via paginated Releases API), `bleeding-edge` (newest `bleeding-edge-{version}` prerelease), or a pin tag like `v0.0.1` (immutable Release; the tag **is** the version). CI-published binaries stamp their origin channel; that stamp is the default for new configs and the last-resort `update-self` channel when config/`--channel` are absent. |
 | `updateOnBootstrap` | `true` when `enabled`, else `false` | At the start of `bootstrap`, check GitHub Releases and apply a newer bootstrapper before prerequisites. Skip with `--skip-self-update`. |
 | `autoRollbackOnFailure` | `false` | When `update-images` health-check fails after a chained update, run `update-self --rollback` to restore `{binary}.old`. Image rollback uses the existing `autoRestoreOnFailure` path separately. |
 
-Downloads are verified against `SHA256SUMS` on the release (Linux `.tar.gz` or Windows `.zip` for the host RID). Rolling channels additionally read `version.txt` to decide whether an update is available; pinned `v*` channels compare the running binary’s informational version to the pin tag instead. The live binary is replaced via
+Downloads are verified against the GitHub Releases API asset `digest` (`sha256:…`) on immutable releases (Linux `.tar.gz` or Windows `.zip` for the host RID). Rolling channels paginate for the newest matching `stable-*` / `bleeding-edge-*` tag (not the repo “latest” flag) and take the version from the tag suffix; pinned `v*` channels compare the running binary’s informational version to the pin tag. The live binary is replaced via
 `{binary}.new` → atomic rename; the previous binary is kept as
 `{binary}.old` until the next successful update or an explicit `--rollback`.
 

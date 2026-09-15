@@ -19,6 +19,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Version>0.0.0-dev</Version>
     <InformationalVersion>0.0.0-dev</InformationalVersion>
+    <!-- CI sets this to stable | bleeding-edge | vX.Y.Z so the binary knows its release channel. -->
+    <BootstrapperReleaseChannel Condition="'$(BootstrapperReleaseChannel)' == ''"></BootstrapperReleaseChannel>
     <!-- Bootstrapper never calls the AppHost's own Main, so the NETSDK1150 self-contained-mismatch guard doesn't apply. -->
     <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
     <!-- PublishTrimmed already disables reflection STJ; set explicitly so Debug/`dotnet run`
@@ -51,6 +53,10 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Interfold.Bootstrapper.UnitTests" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(BootstrapperReleaseChannel)' != ''">
+    <AssemblyMetadata Include="Interfold.Bootstrapper.ReleaseChannel" Value="$(BootstrapperReleaseChannel)" />
   </ItemGroup>
 
   <ItemGroup>

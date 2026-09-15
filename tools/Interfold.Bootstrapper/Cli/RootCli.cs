@@ -462,9 +462,12 @@ public static class RootCli
 
     private static void PrintVersion()
     {
-        var rid = OperatingSystem.IsLinux()
-            ? BootstrapperRid.DetectLinuxRid()
+        var rid = BootstrapperRid.TryDetectHostRid(out var detected)
+            ? detected
             : "unsupported";
-        Console.WriteLine($"{BootstrapperVersion.InformationalVersion} ({rid})");
+        var channel = BootstrapperVersion.ReleaseChannelWire;
+        Console.WriteLine(channel is null
+            ? $"{BootstrapperVersion.InformationalVersion} ({rid})"
+            : $"{BootstrapperVersion.InformationalVersion} ({rid}; {channel})");
     }
 }

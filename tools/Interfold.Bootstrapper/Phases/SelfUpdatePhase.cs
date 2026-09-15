@@ -25,6 +25,7 @@ internal static class SelfUpdatePhase
 
         var channel = options.SelfUpdateChannelOverride
             ?? config?.Deployment.Update.Bootstrapper.Channel
+            ?? BootstrapperVersion.BuiltReleaseChannel
             ?? BootstrapperReleaseChannel.Stable;
 
         var result = await SelfUpdatePhaseCore.RunAsync(
@@ -103,22 +104,15 @@ internal static class SelfUpdatePhaseCore
         using var client = BootstrapperReleaseClient.CreateDefault();
         var rid = BootstrapperRid.DetectHostRid();
         string remoteVersion;
-        if (request.Channel.IsPinned)
+        try
         {
-            // Pin tag is the version identity; pinned Releases omit version.txt.
-            remoteVersion = request.Channel.ToWireValue();
+            // Live: pin wire / rolling tag suffix. Test mirrors: version.txt.
+            remoteVersion = await client.FetchRemoteVersionAsync(request.Channel, ct).ConfigureAwait(false);
         }
-        else
+        catch (Exception ex)
         {
-            try
-            {
-                remoteVersion = await client.FetchRemoteVersionAsync(request.Channel, ct).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                logger.Error($"failed to fetch remote version: {ex.Message}");
-                return SelfUpdateResult.Failed;
-            }
+            logger.Error($"failed to fetch remote version: {ex.Message}");
+            return SelfUpdateResult.Failed;
         }
 
         if (!BootstrapperVersion.IsUpdateAvailable(remoteVersion, request.Force))
