@@ -38,26 +38,73 @@ env:
   DOTNET_VERSION: '10.0.x'
 
 jobs:
-  # prepare: emit tests/integration/*/ as a JSON array for test-int's matrix.
-  # `Interfold.IntegrationTests.Shared` is included because it also hosts real
-  # tests (ReplayParityTests).
+  # prepare: emit tests/integration/*/ as a JSON array for test-int's matrix,
+  # and detect whether bootstrapper-core paths changed (AppHost / ServiceDefaults /
+  # Bootstrapper tool + packaging/tests). API-only diffs do not enable the gate —
+  # AppHost references Api.Host but the bootstrapper never runs that host.
   prepare:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
+      bootstrapper: ${{ steps.bootstrapper.outputs.changed }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect bootstrapper-relevant changes
+        id: bootstrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Tags cut a release; workflow_dispatch is an explicit full rebuild.
+          if [ "${{ github.ref_type }}" = "tag" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Bootstrapper gate: forced on (${{ github.event_name }} / ${{ github.ref_type }})"
+            exit 0
+          fi
+
+          pattern='^hosts/Interfold\.AppHost/|^hosts/Interfold\.ServiceDefaults/|^tools/Interfold\.Bootstrapper/|^tests/unit/Interfold\.Bootstrapper\.UnitTests/|^tests/integration/Interfold\.Bootstrapper\.IntegrationTests/|^Dockerfile\.bootstrapper$|^\.github/actions/build-bootstrapper-multi-rid/|^\.github/scripts/resolve-bootstrapper-version\.sh$'
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base='${{ github.event.pull_request.base.sha }}'
+            head='${{ github.event.pull_request.head.sha }}'
+          else
+            base='${{ github.event.before }}'
+            head='${{ github.sha }}'
+            if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "Bootstrapper gate: forced on (new branch / no before SHA)"
+              exit 0
+            fi
+          fi
+
+          echo "Diffing $base...$head for bootstrapper-core paths"
+          if git diff --name-only "$base" "$head" | tee /tmp/changed-files.txt | grep -E "$pattern" >/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Bootstrapper gate: ON"
+            grep -E "$pattern" /tmp/changed-files.txt || true
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Bootstrapper gate: OFF (no AppHost / ServiceDefaults / Bootstrapper changes)"
+          fi
 
       - name: Enumerate integration test projects
         id: set-matrix
+        env:
+          BOOTSTRAPPER: ${{ steps.bootstrapper.outputs.changed }}
         run: |
           set -euo pipefail
           projects=$(ls -d tests/integration/*/ \
             | sed 's:tests/integration/::;s:/$::' \
             | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          if [ "$BOOTSTRAPPER" != "true" ]; then
+            projects=$(jq -c 'map(select(. != "Interfold.Bootstrapper.IntegrationTests"))' <<<"$projects")
+          fi
           echo "matrix=$projects" >> "$GITHUB_OUTPUT"
           echo "Discovered integration test projects: $projects"
+          echo "bootstrapper=$BOOTSTRAPPER"
 
   # build: whole-solution compile + bootstrapper buildx (matrix size gated by
   # `FULL_BOOTSTRAPPER_BUILD` below). Uploads per-RID `interfold-bootstrap-<rid>`
@@ -102,6 +149,7 @@ jobs:
       # System.Version / pin compare treat `v0.0.1` and `0.0.1` as the same.
       # Rolling builds use `{last v* tag}+{short commit id}` (see resolve script).
       - name: Resolve bootstrapper version stamp
+        if: needs.prepare.outputs.bootstrapper == 'true'
         id: boot_ver
         shell: bash
         run: |
@@ -110,6 +158,7 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Build & upload multi-RID bootstrapper artefacts
+        if: needs.prepare.outputs.bootstrapper == 'true'
         uses: ./.github/actions/build-bootstrapper-multi-rid
         with:
           platforms: ${{ env.FULL_BOOTSTRAPPER_BUILD == 'true' && env.BUILD_PLATFORMS || 'linux/amd64' }}
@@ -143,7 +192,7 @@ jobs:
   # build artefact - see `BinarySizeGuardrailTests.LocatePublishedBinary`.
   test-unit:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [ prepare, build ]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -161,10 +210,16 @@ jobs:
       # TUnit test hosts are self-contained MTP executables that accept the same
       # `--coverage` / `--coverage-output-format` flags directly.
       - name: Test (unit)
+        env:
+          BOOTSTRAPPER: ${{ needs.prepare.outputs.bootstrapper }}
         run: |
           set -euo pipefail
           for dir in tests/unit/*/; do
             name=$(basename "$dir")
+            if [ "$name" = "Interfold.Bootstrapper.UnitTests" ] && [ "$BOOTSTRAPPER" != "true" ]; then
+              echo "Skipping $name (no bootstrapper-core path changes)"
+              continue
+            fi
             echo "::group::$name"
             dotnet "$dir"bin/Release/net10.0/"$name".dll \
               --coverage --coverage-output-format cobertura
@@ -293,7 +348,8 @@ jobs:
   # has no peer.) DinD/systemd stays on the ubuntu Bootstrapper matrix leg.
   test-int-bootstrapper-windows:
     runs-on: windows-latest
-    needs: build
+    needs: [ prepare, build ]
+    if: needs.prepare.outputs.bootstrapper == 'true'
     name: test-int (Bootstrapper Windows multi-RID)
     steps:
       - name: Checkout code
@@ -567,11 +623,18 @@ jobs:
           cache-to: type=gha,mode=max,scope=interfold-dotnet
 
   # publish-bootstrapper: GitHub Releases tarballs + ghcr.io image for the bootstrapper CLI.
-  # Rolling tags (latest / bleeding-edge) on main/develop; immutable v* pins on tag push.
+  # Rolling unique tags on main/develop; immutable v* pins on tag push. Skipped when
+  # prepare's bootstrapper gate is off (no AppHost / ServiceDefaults / Bootstrapper diffs).
   publish-bootstrapper:
     runs-on: ubuntu-latest
-    needs: [ test-unit, test-int, test-int-bootstrapper-windows, build ]
+    needs: [ prepare, test-unit, test-int, test-int-bootstrapper-windows, build ]
     if: >-
+      always() &&
+      needs.prepare.outputs.bootstrapper == 'true' &&
+      needs.build.result == 'success' &&
+      needs.test-unit.result == 'success' &&
+      needs.test-int.result == 'success' &&
+      needs.test-int-bootstrapper-windows.result == 'success' &&
       github.event_name == 'push' &&
       (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
        github.ref == 'refs/heads/develop' ||
