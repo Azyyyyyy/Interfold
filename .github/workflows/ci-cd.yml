@@ -4,8 +4,8 @@ on:
   pull_request:
   push:
     branches: [ main, develop ]
-    # Immutable bootstrapper pins (tag IS the version).
-    tags: [ 'v*' ]
+    # Immutable pins: bootstrapper (bootstrap-v*) and API image releases (api-v*).
+    tags: [ 'bootstrap-v*', 'api-v*' ]
   # Manual safety-net for validating arm cross-builds from a PR head branch -
   # dispatch against the branch with `bootstrapper-full-rids` on (default) to
   # run the full RID matrix a PR run otherwise skips.
@@ -61,7 +61,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.ref_type }}" = "tag" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "force=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # bootstrap-v* pins force the bootstrapper CI path; api-v* does not.
+          if [ "${{ github.ref_type }}" = "tag" ] && [[ "${{ github.ref_name }}" == bootstrap-v* ]]; then
             echo "force=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -79,6 +84,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # API SemVer releases do not publish the bootstrapper.
+          if [ "${{ github.ref_type }}" = "tag" ] && [[ "${{ github.ref_name }}" == api-v* ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Bootstrapper gate: OFF (api-v* release)"
+            exit 0
+          fi
           if [ "${{ steps.range.outputs.force }}" = "true" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "Bootstrapper gate: forced on (${{ github.event_name }} / ${{ github.ref_type }})"
@@ -155,7 +166,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # Need full history + tags so rolling stamps can use `git describe` for the last v* tag.
+          # Need full history + tags so rolling stamps can use `git describe` for the last bootstrap-v* tag.
           fetch-depth: 0
 
       # Cache-key = csproj + global.json hashes (no packages.lock.json here);
@@ -179,9 +190,8 @@ jobs:
       - name: Build (Release)
         run: dotnet build Interfold.slnx --configuration Release --no-restore
 
-      # Tag pins stamp InformationalVersion without the leading `v` so
-      # System.Version / pin compare treat `v0.0.1` and `0.0.1` as the same.
-      # Rolling builds use `{last v* tag}+{short commit id}` (see resolve script).
+      # Tag pins (bootstrap-v*) stamp InformationalVersion without the `bootstrap-v`
+      # prefix. Rolling builds use `{last bootstrap-v* core}+{short commit id}`.
       # Channel (stable / bleeding-edge / pin) is stamped as AssemblyMetadata.
       - name: Resolve bootstrapper version stamp
         if: needs.prepare.outputs.bootstrapper == 'true'
@@ -631,22 +641,42 @@ jobs:
             cat coveragereport/all/SummaryGithub.md
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # publish: multi-arch API image push, gated to pushes on `main` (tag `latest`)
-  # or `develop` (tag `bleeding-edge`). Shares GHA cache scope `interfold-dotnet`
-  # with the bootstrapper buildx in `build`.
+  # publish: multi-arch API image push on `main` (`latest`), `develop`
+  # (`bleeding-edge`), or `api-v*` SemVer releases (`1.2.3` / `1.2` / `1`).
+  # Shares GHA cache scope `interfold-dotnet` with the bootstrapper buildx in `build`.
+  # Does not need `test-int-bootstrapper-windows` — that gate is bootstrapper-only;
+  # listing it here skip-propagated API publishes whenever the bootstrapper path was off.
   publish:
     runs-on: ubuntu-latest
-    needs: [ test-unit, test-int, test-int-bootstrapper-windows ]
+    needs: [ test-unit, test-int ]
     if: >-
       github.event_name == 'push' &&
       (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-       github.ref == 'refs/heads/develop')
+       github.ref == 'refs/heads/develop' ||
+       startsWith(github.ref, 'refs/tags/api-v'))
     permissions:
       contents: read
       packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve API version stamp
+        id: api_ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(bash .github/scripts/resolve-api-version.sh)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          # Floating GHCR tags from SemVer core (ignore +build metadata).
+          core="${version%%+*}"
+          core="${core%%-*}"
+          IFS=. read -r major minor patch _ <<< "${core}."
+          echo "tag_full=${core}" >> "$GITHUB_OUTPUT"
+          echo "tag_minor=${major}.${minor}" >> "$GITHUB_OUTPUT"
+          echo "tag_major=${major}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -658,9 +688,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # `latest` is gated to the default branch (currently `main`); `bleeding-edge`
-      # is gated to `develop`. The other two tags (branch name, `sha-<commit>`)
-      # follow docker/metadata-action defaults.
+      # Branch pushes: `latest` / `bleeding-edge` + branch / sha.
+      # api-v* tags: immutable full SemVer + floating major / minor.
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -671,6 +700,9 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
             type=raw,value=bleeding-edge,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=${{ steps.api_ver.outputs.tag_full }},enable=${{ startsWith(github.ref, 'refs/tags/api-v') }}
+            type=raw,value=${{ steps.api_ver.outputs.tag_minor }},enable=${{ startsWith(github.ref, 'refs/tags/api-v') }}
+            type=raw,value=${{ steps.api_ver.outputs.tag_major }},enable=${{ startsWith(github.ref, 'refs/tags/api-v') }}
 
       # provenance/sbom off so the manifest list doesn't carry BuildKit's
       # `unknown/unknown` attestation entries (breaks some consumers and the
@@ -686,11 +718,13 @@ jobs:
           sbom: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.api_ver.outputs.version }}
           cache-from: type=gha,scope=interfold-dotnet
           cache-to: type=gha,mode=max,scope=interfold-dotnet
 
   # publish-bootstrapper: GitHub Releases tarballs + ghcr.io image for the bootstrapper CLI.
-  # Rolling unique tags on main/develop; immutable v* pins on tag push. Skipped when
+  # Rolling unique tags on main/develop; immutable bootstrap-v* pins on tag push. Skipped when
   # prepare's bootstrapper gate is off (no AppHost / ServiceDefaults / Bootstrapper diffs).
   publish-bootstrapper:
     runs-on: ubuntu-latest
@@ -705,7 +739,7 @@ jobs:
       github.event_name == 'push' &&
       (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
        github.ref == 'refs/heads/develop' ||
-       startsWith(github.ref, 'refs/tags/v'))
+       startsWith(github.ref, 'refs/tags/bootstrap-v'))
     permissions:
       contents: write
       packages: write
@@ -823,10 +857,10 @@ jobs:
             gh release delete "$tag" --yes --cleanup-tag
           done
 
-      # Pin tag is the version identity (v* → InformationalVersion without leading v).
+      # Pin tag is the version identity (bootstrap-v* → InformationalVersion without prefix).
       # Draft-then-publish so assets land before immutability locks the release.
       - name: Publish pinned GitHub Release (draft)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/bootstrap-v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
@@ -843,7 +877,7 @@ jobs:
             bootstrap-release/interfold-bootstrap-win-arm64.zip
 
       - name: Finalize pinned GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/bootstrap-v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -871,8 +905,8 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
             type=raw,value=bleeding-edge,enable=${{ github.ref == 'refs/heads/develop' }}
-            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
-            type=raw,value=${{ github.ref_name }},enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=${{ steps.boot_ver.outputs.version }},enable=${{ startsWith(github.ref, 'refs/tags/bootstrap-v') }}
+            type=raw,value=${{ github.ref_name }},enable=${{ startsWith(github.ref, 'refs/tags/bootstrap-v') }}
 
       - name: Build and push bootstrapper container image
         uses: docker/build-push-action@v6

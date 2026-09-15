@@ -207,7 +207,9 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "Interfold API",
         Version = "v1",
-        Description = $"Interfold API - Contract Version: {InterfoldContractVersions.Current}"
+        Description =
+            $"Interfold API - Contract: {InterfoldContractVersions.Current}; " +
+            $"Api-Version: {InterfoldApiVersion.InformationalVersion}"
     });
 
     options.ResolveConflictingActions(apiDescriptions =>
@@ -309,6 +311,7 @@ app.Use(async (ctx, next) =>
     ctx.Response.OnStarting(() =>
     {
         ctx.Response.Headers[InterfoldHeaders.Contract] = InterfoldContractVersions.Current;
+        ctx.Response.Headers[InterfoldHeaders.ApiVersion] = InterfoldApiVersion.InformationalVersion;
         return Task.CompletedTask;
     });
     await next();

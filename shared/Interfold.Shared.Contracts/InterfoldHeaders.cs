@@ -10,6 +10,13 @@ public static class InterfoldHeaders
     public const string IdempotencyKey = "X-Interfold-Idempotency-Key";
     public const string CommandId = "X-Interfold-Command-Id";
     public const string Contract = "X-Interfold-Contract";
+
+    /// <summary>
+    /// Product SemVer of the running API host (<see cref="InterfoldApiVersion"/>).
+    /// Operator-facing stamp — not a client negotiation signal.
+    /// </summary>
+    public const string ApiVersion = "X-Interfold-Api-Version";
+
     public const string RequestId = "X-Interfold-Request-Id";
 
     /// <summary>

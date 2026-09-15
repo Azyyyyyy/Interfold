@@ -14,19 +14,19 @@ public sealed class BootstrapperReleaseClientTests
     {
         Environment.SetEnvironmentVariable("INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL", null);
         using var client = BootstrapperReleaseClient.CreateDefault();
-        var pin = BootstrapperReleaseChannel.ParseWire("v0.0.1");
+        var pin = BootstrapperReleaseChannel.ParseWire("bootstrap-v0.0.1");
         var url = client.TarballUrl(pin, "linux-x64");
         await Assert.That(url.ToString())
-            .IsEqualTo("https://github.com/Azyyyyyy/Interfold/releases/download/v0.0.1/interfold-bootstrap-linux-x64.tar.gz");
+            .IsEqualTo("https://github.com/Azyyyyyy/Interfold/releases/download/bootstrap-v0.0.1/interfold-bootstrap-linux-x64.tar.gz");
     }
 
     [Test]
-    public async Task FetchRemoteVersionReturnsPinWireValue()
+    public async Task FetchRemoteVersionReturnsPinSemVerCore()
     {
         using var client = BootstrapperReleaseClient.CreateDefault();
-        var pin = BootstrapperReleaseChannel.ParseWire("v0.0.1");
+        var pin = BootstrapperReleaseChannel.ParseWire("bootstrap-v0.0.1");
         await Assert.That(await client.FetchRemoteVersionAsync(pin, CancellationToken.None))
-            .IsEqualTo("v0.0.1");
+            .IsEqualTo("0.0.1");
     }
 
     [Test]
@@ -36,8 +36,8 @@ public sealed class BootstrapperReleaseClientTests
             .IsEqualTo("0.0.1+abc1234");
         await Assert.That(BootstrapperReleaseClient.VersionFromReleaseTag("bleeding-edge-0.0.1+deadbee"))
             .IsEqualTo("0.0.1+deadbee");
-        await Assert.That(BootstrapperReleaseClient.VersionFromReleaseTag("v0.0.1"))
-            .IsEqualTo("v0.0.1");
+        await Assert.That(BootstrapperReleaseClient.VersionFromReleaseTag("bootstrap-v0.0.1"))
+            .IsEqualTo("0.0.1");
     }
 
     [Test]
@@ -105,7 +105,7 @@ public sealed class BootstrapperReleaseClientTests
             """
             [
               { "tag_name": "bleeding-edge-0.0.1+aaaa", "draft": false, "prerelease": true },
-              { "tag_name": "v0.0.1", "draft": false, "prerelease": false }
+              { "tag_name": "bootstrap-v0.0.1", "draft": false, "prerelease": false }
             ]
             """);
 
@@ -133,8 +133,8 @@ public sealed class BootstrapperReleaseClientTests
                     BootstrapperReleaseChannel.BleedingEdge, CancellationToken.None))
                 .IsEqualTo("bleeding-edge");
             await Assert.That(await client.ResolveReleaseTagAsync(
-                    BootstrapperReleaseChannel.ParseWire("v0.0.1"), CancellationToken.None))
-                .IsEqualTo("v0.0.1");
+                    BootstrapperReleaseChannel.ParseWire("bootstrap-v0.0.1"), CancellationToken.None))
+                .IsEqualTo("bootstrap-v0.0.1");
         }
         finally
         {
