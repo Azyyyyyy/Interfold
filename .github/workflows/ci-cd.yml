@@ -39,55 +39,88 @@ env:
 
 jobs:
   # prepare: emit tests/integration/*/ as a JSON array for test-int's matrix,
-  # and detect whether bootstrapper-core paths changed (AppHost / ServiceDefaults /
-  # Bootstrapper tool + packaging/tests). API-only diffs do not enable the gate —
-  # AppHost references Api.Host but the bootstrapper never runs that host.
+  # and path gates for expensive optional work:
+  #   - bootstrapper: AppHost / ServiceDefaults / Bootstrapper tool + packaging/tests
+  #     (API-only diffs stay off — AppHost references Api.Host but the bootstrapper
+  #     never runs that host)
+  #   - multinode_scylla: Scylla project / db+scripts / Explicit suite fixture
   prepare:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       bootstrapper: ${{ steps.bootstrapper.outputs.changed }}
+      multinode_scylla: ${{ steps.multinode_scylla.outputs.changed }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Resolve diff range
+        id: range
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "force=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "force=false" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Detect bootstrapper-relevant changes
         id: bootstrapper
         shell: bash
         run: |
           set -euo pipefail
-          # Tags cut a release; workflow_dispatch is an explicit full rebuild.
-          if [ "${{ github.ref_type }}" = "tag" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ steps.range.outputs.force }}" = "true" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "Bootstrapper gate: forced on (${{ github.event_name }} / ${{ github.ref_type }})"
             exit 0
           fi
-
           pattern='^hosts/Interfold\.AppHost/|^hosts/Interfold\.ServiceDefaults/|^tools/Interfold\.Bootstrapper/|^tests/unit/Interfold\.Bootstrapper\.UnitTests/|^tests/integration/Interfold\.Bootstrapper\.IntegrationTests/|^Dockerfile\.bootstrapper$|^\.github/actions/build-bootstrapper-multi-rid/|^\.github/scripts/resolve-bootstrapper-version\.sh$|^\.github/scripts/resolve-bootstrapper-channel\.sh$'
-
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base='${{ github.event.pull_request.base.sha }}'
-            head='${{ github.event.pull_request.head.sha }}'
+          changed="$(bash .github/scripts/detect-path-changes.sh \
+            '${{ steps.range.outputs.base }}' \
+            '${{ steps.range.outputs.head }}' \
+            "$pattern")"
+          echo "changed=${changed}" >> "$GITHUB_OUTPUT"
+          if [ "$changed" = "true" ]; then
+            echo "Bootstrapper gate: ON"
+            git diff --name-only '${{ steps.range.outputs.base }}' '${{ steps.range.outputs.head }}' \
+              | grep -E "$pattern" || true
           else
-            base='${{ github.event.before }}'
-            head='${{ github.sha }}'
-            if [ "$base" = "0000000000000000000000000000000000000000" ]; then
-              echo "changed=true" >> "$GITHUB_OUTPUT"
-              echo "Bootstrapper gate: forced on (new branch / no before SHA)"
-              exit 0
-            fi
+            echo "Bootstrapper gate: OFF (no AppHost / ServiceDefaults / Bootstrapper changes)"
           fi
 
-          echo "Diffing $base...$head for bootstrapper-core paths"
-          if git diff --name-only "$base" "$head" | tee /tmp/changed-files.txt | grep -E "$pattern" >/dev/null; then
+      - name: Detect MultiNode Scylla-relevant changes
+        id: multinode_scylla
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.range.outputs.force }}" = "true" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Bootstrapper gate: ON"
-            grep -E "$pattern" /tmp/changed-files.txt || true
+            echo "MultiNode Scylla gate: forced on (${{ github.event_name }} / ${{ github.ref_type }})"
+            exit 0
+          fi
+          # Scylla project + 7-DC rack props/scripts + the Explicit suite/fixture.
+          pattern='^infrastructure/Interfold\.Infrastructure\.Scylla/|^db/scylla/|^scripts/scylla/|^tests/integration/Interfold\.Infrastructure\.IntegrationTests/Topology/MultiNodeScyllaTests\.cs$|^tests/integration/Interfold\.Infrastructure\.IntegrationTests/TestServices/MultiNodeScyllaFixture\.cs$'
+          changed="$(bash .github/scripts/detect-path-changes.sh \
+            '${{ steps.range.outputs.base }}' \
+            '${{ steps.range.outputs.head }}' \
+            "$pattern")"
+          echo "changed=${changed}" >> "$GITHUB_OUTPUT"
+          if [ "$changed" = "true" ]; then
+            echo "MultiNode Scylla gate: ON"
+            git diff --name-only '${{ steps.range.outputs.base }}' '${{ steps.range.outputs.head }}' \
+              | grep -E "$pattern" || true
           else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Bootstrapper gate: OFF (no AppHost / ServiceDefaults / Bootstrapper changes)"
+            echo "MultiNode Scylla gate: OFF"
           fi
 
       - name: Enumerate integration test projects
@@ -105,6 +138,7 @@ jobs:
           echo "matrix=$projects" >> "$GITHUB_OUTPUT"
           echo "Discovered integration test projects: $projects"
           echo "bootstrapper=$BOOTSTRAPPER"
+          echo "multinode_scylla=${{ steps.multinode_scylla.outputs.changed }}"
 
   # build: whole-solution compile + bootstrapper buildx (matrix size gated by
   # `FULL_BOOTSTRAPPER_BUILD` below). Uploads per-RID `interfold-bootstrap-<rid>`
@@ -302,9 +336,12 @@ jobs:
       #     mixed filter would exclude MultiNode. The first pass produces the
       #     canonical sidecar; the second is renamed on-the-fly so both survive
       #     upload. `test-int-summary` merges them like any other leg's sidecars.
+      #     The MultiNode pass is gated by prepare.outputs.multinode_scylla
+      #     (Scylla project / db/scylla / fixture / this test file).
       - name: Test (integration - ${{ matrix.project }})
         env:
           TUNIT_AGGREGATE_REPORTS: defer
+          MULTINODE_SCYLLA: ${{ needs.prepare.outputs.multinode_scylla }}
         run: |
           set -euo pipefail
           dll="tests/integration/${{ matrix.project }}/bin/Release/net10.0/${{ matrix.project }}.dll"
@@ -317,6 +354,10 @@ jobs:
             Interfold.Infrastructure.IntegrationTests)
               dotnet "$dll" \
                 --coverage --coverage-output-format cobertura
+              if [ "${MULTINODE_SCYLLA:-false}" != "true" ]; then
+                echo "Skipping MultiNodeScyllaTests (no Scylla-project path changes)"
+                exit 0
+              fi
               # Preserve the non-explicit sidecar before the second invocation
               # overwrites it. Both files are picked up by the `**/*.tunit-report.json`
               # upload glob below.
