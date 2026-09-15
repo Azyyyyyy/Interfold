@@ -92,7 +92,7 @@ internal static class ConfigPhase
             }
         }
 
-        if (!string.Equals(Path.GetFullPath(config.Deployment.OutputDir), options.OutputDir, StringComparison.Ordinal))
+        if (!HostPaths.OutputDirsEqual(config.Deployment.OutputDir, options.OutputDir))
         {
             logger.Info($"    overriding config.outputDir with --output-dir={options.OutputDir}");
             config.Deployment.OutputDir = options.OutputDir;
@@ -387,6 +387,14 @@ internal static class ConfigPhase
             Group("Updates",
                 ("Chain updates after backup",      () => c.Deployment.Update.Enabled.ToString(),
                                                     () => c.Deployment.Update.Enabled = PromptBool("Chain interfold-update.service after each successful backup", c.Deployment.Update.Enabled)),
+                ("Self-update bootstrapper before images", () => c.Deployment.Update.Bootstrapper.Enabled.ToString(),
+                                                    () => c.Deployment.Update.Bootstrapper.Enabled = PromptBool("Run update-self before update-images in the chained update service", c.Deployment.Update.Bootstrapper.Enabled)),
+                ("Bootstrapper release channel",  () => c.Deployment.Update.Bootstrapper.Channel.ToWireValue(),
+                                                    () => c.Deployment.Update.Bootstrapper.Channel = PromptBootstrapperChannel(console, c.Deployment.Update.Bootstrapper.Channel)),
+                ("Self-update on bootstrap",      () => c.Deployment.Update.Bootstrapper.ResolveUpdateOnBootstrap().ToString(),
+                                                    () => c.Deployment.Update.Bootstrapper.UpdateOnBootstrap = PromptBool("Check for a newer bootstrapper at the start of bootstrap", c.Deployment.Update.Bootstrapper.ResolveUpdateOnBootstrap())),
+                ("Rollback bootstrapper on image-update failure", () => c.Deployment.Update.Bootstrapper.AutoRollbackOnFailure.ToString(),
+                                                    () => c.Deployment.Update.Bootstrapper.AutoRollbackOnFailure = PromptBool("Restore interfold-bootstrap.old when update-images health-check fails", c.Deployment.Update.Bootstrapper.AutoRollbackOnFailure)),
                 ("Health-check timeout (seconds)",  () => c.Deployment.Update.HealthCheckTimeoutSeconds.ToString(),
                                                     () => c.Deployment.Update.HealthCheckTimeoutSeconds = PromptInt("Health-check timeout after pull+recreate (seconds)", c.Deployment.Update.HealthCheckTimeoutSeconds, 1, 3600)),
                 ("Auto-restore on failure",         () => c.Deployment.Update.AutoRestoreOnFailure.ToString(),
@@ -561,6 +569,43 @@ internal static class ConfigPhase
 
         if (string.IsNullOrWhiteSpace(raw)) return [];
         return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToArray();
+    }
+
+    private static BootstrapperReleaseChannel PromptBootstrapperChannel(
+        IAnsiConsole console,
+        BootstrapperReleaseChannel fallback)
+    {
+        var choice = console.Prompt(
+            new SelectionPrompt<string>()
+                .Title("Bootstrapper release channel:")
+                .AddChoices("stable", "bleeding-edge", "pinned")
+                .HighlightStyle(new Style(Color.Cyan1))
+                .UseConverter(s => s)
+                .DefaultValue(fallback.IsPinned ? "pinned" : fallback.ToWireValue()));
+        if (choice != "pinned")
+        {
+            return BootstrapperReleaseChannel.ParseWire(choice);
+        }
+
+        var pinDefault = fallback.IsPinned ? fallback.ToWireValue() : "v0.0.1";
+        var tag = console.Prompt(
+            new TextPrompt<string>("Pin to release tag (e.g. v0.0.1):")
+                .DefaultValue(pinDefault)
+                .Validate(raw =>
+                {
+                    try
+                    {
+                        var parsed = BootstrapperReleaseChannel.ParseWire(raw);
+                        return parsed.IsPinned
+                            ? ValidationResult.Success()
+                            : ValidationResult.Error("Enter a pin tag like v0.0.1 (not stable/bleeding-edge).");
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        return ValidationResult.Error(ex.Message);
+                    }
+                }));
+        return BootstrapperReleaseChannel.ParseWire(tag);
     }
 
     /// <summary>Menu-row summary: <c>off</c> or <c>N/4 configured (...)</c>.</summary>
@@ -1378,6 +1423,12 @@ internal static class ConfigPhase
             return null;
         }
 
+        if (!MdnsAvailability.SupportsAutoInstall(distro.Family))
+        {
+            logger.Warn($"    no auto-install on this platform; {hostname} will be omitted from the pre-fill");
+            return null;
+        }
+
         var install = AnsiConsole.Prompt(new ConfirmationPrompt(
             $"Install avahi-daemon + nss-mdns now so {hostname} can be included in the hosts list?")
         { DefaultValue = true });
@@ -1470,34 +1521,37 @@ internal static class ConfigPhase
         if (!options.NonInteractive && !Console.IsInputRedirected)
         {
             var distro = DistroInfo.Read();
-            var install = AnsiConsole.Prompt(new ConfirmationPrompt(
-                $"mDNS is unavailable but your hosts list contains {string.Join(", ", broken)}. " +
-                "Install avahi-daemon + nss-mdns now?")
-            { DefaultValue = true });
-            if (install)
+            if (MdnsAvailability.SupportsAutoInstall(distro.Family))
             {
-                if (await MdnsAvailability.TryInstallAvahiAsync(distro, logger, ct).ConfigureAwait(false))
+                var install = AnsiConsole.Prompt(new ConfirmationPrompt(
+                    $"mDNS is unavailable but your hosts list contains {string.Join(", ", broken)}. " +
+                    "Install avahi-daemon + nss-mdns now?")
+                { DefaultValue = true });
+                if (install)
                 {
-                    // Re-probe; any residual failure falls through to strip so the run still succeeds.
-                    var stillBroken = false;
-                    foreach (var host in broken)
+                    if (await MdnsAvailability.TryInstallAvahiAsync(distro, logger, ct).ConfigureAwait(false))
                     {
-                        if (await probeFn(host, ct).ConfigureAwait(false) != true)
+                        // Re-probe; any residual failure falls through to strip so the run still succeeds.
+                        var stillBroken = false;
+                        foreach (var host in broken)
                         {
-                            stillBroken = true;
-                            break;
+                            if (await probeFn(host, ct).ConfigureAwait(false) != true)
+                            {
+                                stillBroken = true;
+                                break;
+                            }
                         }
+                        if (!stillBroken)
+                        {
+                            logger.Info("    mDNS now resolvable for all .local hosts");
+                            return false;
+                        }
+                        logger.Warn($"avahi installed but {string.Join(", ", broken)} still doesn't resolve; removing from hosts.");
                     }
-                    if (!stillBroken)
+                    else
                     {
-                        logger.Info("    mDNS now resolvable for all .local hosts");
-                        return false;
+                        logger.Warn("removing unresolvable .local host(s) after failed avahi install.");
                     }
-                    logger.Warn($"avahi installed but {string.Join(", ", broken)} still doesn't resolve; removing from hosts.");
-                }
-                else
-                {
-                    logger.Warn("removing unresolvable .local host(s) after failed avahi install.");
                 }
             }
         }

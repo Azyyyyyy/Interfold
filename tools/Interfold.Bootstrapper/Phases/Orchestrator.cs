@@ -37,11 +37,17 @@ internal static class Orchestrator
         }
         if (options.Command == BootstrapCommand.InstallService)
         {
-            return await SystemdInstallPhase.RunAsync(options, logger, ct).ConfigureAwait(false);
+            return OperatingSystem.IsWindows()
+                ? await WindowsScheduledTaskPhase.RunAsync(options, logger, ct).ConfigureAwait(false)
+                : await SystemdInstallPhase.RunAsync(options, logger, ct).ConfigureAwait(false);
         }
         if (options.Command == BootstrapCommand.UpdateImages)
         {
             return await UpdateImagesPhase.RunAsync(options, logger, ct).ConfigureAwait(false);
+        }
+        if (options.Command == BootstrapCommand.UpdateSelf)
+        {
+            return await SelfUpdatePhase.RunAsync(options, logger, ct).ConfigureAwait(false);
         }
         if (options.Command == BootstrapCommand.Restore)
         {
@@ -61,6 +67,7 @@ internal static class Orchestrator
 
         if (options.Command == BootstrapCommand.Bootstrap && !options.SkipPrereqs)
         {
+            await MaybeSelfUpdateOnBootstrapAsync(options, logger, ct).ConfigureAwait(false);
             await PrerequisitesPhase.RunAsync(options, logger, ct).ConfigureAwait(false);
             if (HaltAfter(options, BootstrapPhase.Prereqs, logger)) return 0;
         }
@@ -130,6 +137,31 @@ internal static class Orchestrator
         }
 
         return 0;
+    }
+
+    private static async Task MaybeSelfUpdateOnBootstrapAsync(
+        BootstrapOptions options,
+        PhaseLogger logger,
+        CancellationToken ct)
+    {
+        if (options.SkipSelfUpdate)
+        {
+            return;
+        }
+
+        var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
+        if (!File.Exists(configPath))
+        {
+            return;
+        }
+
+        var config = await BootstrapConfigFile.LoadAsync(configPath, logger, ct).ConfigureAwait(false);
+        var result = await SelfUpdatePhase.RunForBootstrapAsync(config, options, logger, ct)
+            .ConfigureAwait(false);
+        if (result == SelfUpdateResult.Failed)
+        {
+            throw new InvalidOperationException("bootstrapper self-update failed during bootstrap.");
+        }
     }
 
     private static bool HaltAfter(BootstrapOptions options, BootstrapPhase phase, PhaseLogger logger)

@@ -1,6 +1,12 @@
 # Shell scripts must use LF (they run in Linux containers)
 *.sh text eol=lf
 
+# systemd units / drop-ins are parsed on Linux; CRLF in a Windows checkout
+# would be baked into a linux-x64 publish of the bootstrapper.
+*.service text eol=lf
+*.timer text eol=lf
+tools/Interfold.Bootstrapper/Phases/SystemdTemplates/*.conf text eol=lf
+
 # Embedded in Interfold.Infrastructure.Scylla.dll; SHA-256 of the file
 # bytes is the schema_migrations checksum, so CRLF on Windows checkouts
 # fails startup against a Linux-built (or restored) ledger.

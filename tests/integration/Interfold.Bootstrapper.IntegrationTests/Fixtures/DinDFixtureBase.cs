@@ -157,16 +157,28 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_dinD is not null)
+        if (_dinD is null) return;
+        try
         {
             await _dinD.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // privileged DinD teardown on Docker Desktop often cancels the npipe remove
         }
     }
 
     public async Task<ExecResult> ExecAsync(IList<string> command, CancellationToken ct = default)
     {
         if (_dinD is null) throw new InvalidOperationException("Fixture not initialized.");
-        var result = await _dinD.ExecAsync(command, ct).ConfigureAwait(false);
+        // dash treats `set -e\r` as an illegal option; C# raw strings on Windows carry CRLF.
+        var args = new string[command.Count];
+        for (var i = 0; i < command.Count; i++)
+        {
+            args[i] = command[i].Replace("\r", "", StringComparison.Ordinal);
+        }
+
+        var result = await _dinD.ExecAsync(args, ct).ConfigureAwait(false);
         return new ExecResult(result.ExitCode ?? -1, result.Stdout ?? string.Empty, result.Stderr ?? string.Empty);
     }
 

@@ -8,12 +8,12 @@ using Spectre.Console.Testing;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
-/// <summary>Drives Spectre <c>SelectionPrompt&lt;int&gt;</c> for the config form: 55 field
+/// <summary>Drives Spectre <c>SelectionPrompt&lt;int&gt;</c> for the config form: 59 field
 /// rows across 10 sections + trailing "Confirm and save". Headers are inert; cursor resets
 /// to field 0 after each edit, so tests use absolute Navigate distances.
 /// <para>Field order: 0..2 Deployment · 3..18 Edge · 19..22 Datastores · 23..31 API ·
-/// 32..33 Storage · 34..38 Performance · 39..44 OAuth · 45..48 Backup · 49..53 Updates ·
-/// 54 Firebase. Navigate(55) = Confirm and save.</para>
+/// 32..33 Storage · 34..38 Performance · 39..44 OAuth · 45..48 Backup · 49..57 Updates ·
+/// 58 Firebase. Navigate(59) = Confirm and save.</para>
 /// <para><c>[NotInParallel("bootstrapper-console")]</c>: Spectre TestConsole + MTP's
 /// NamedPipeServer race under Linux thread pressure (dotnet/runtime#58045). ~10s serialised.
 /// <c>[Retry(2)]</c> absorbs the residual native abort (exit 134/SIGABRT) that still slips
@@ -23,7 +23,7 @@ namespace Interfold.Bootstrapper.UnitTests;
 [Retry(2)]
 public sealed class ConfigInteractivePromptTests
 {
-    private const int FieldCount = 55;
+    private const int FieldCount = 59;
 
     /// <summary>Sized to fit the whole 60-row form so Spectre never paginates.</summary>
     private static TestConsole NewConsole()
@@ -655,7 +655,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task EditingBackupTogglesAndSchedule()
     {
-        // Happy-path edit of every row in the four-row backup section (39..42).
+        // Happy-path edit of every row in the four-row backup section (45..48).
         var console = NewConsole();
         EditField(console, fieldIndex: 45, "y");                           // Enabled := true
         EditField(console, fieldIndex: 46, "Mon..Fri 03:30");              // Schedule
@@ -838,18 +838,24 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task EditingUpdateSectionCapturesValues()
     {
-        // Happy-path edit of every row in the five-row update section (44..48).
+        // Happy-path edit of every row in the nine-row update section (49..57).
         var console = NewConsole();
-        EditField(console, fieldIndex: 49, "y");                                    // Enabled := true
-        EditField(console, fieldIndex: 50, "300");                                  // HealthCheckTimeoutSeconds
-        EditField(console, fieldIndex: 51, "y");                                    // AutoRestoreOnFailure := true
-        EditField(console, fieldIndex: 52, "n");                                    // RecreateOnUpdate := false
-        EditField(console, fieldIndex: 53, "interfold-api,octocon-web");            // Services
+        EditField(console, fieldIndex: 49, "y");                                    // Chain updates
+        EditField(console, fieldIndex: 50, "n");                                    // Bootstrapper self-update before images
+        Navigate(console, 51);
+        console.Input.PushKey(ConsoleKey.Enter);                                  // Channel (SelectionPrompt; default stable)
+        EditField(console, fieldIndex: 52, "n");                                    // Self-update on bootstrap
+        EditField(console, fieldIndex: 53, "n");                                    // Rollback bootstrapper on failure
+        EditField(console, fieldIndex: 54, "300");                                  // HealthCheckTimeoutSeconds
+        EditField(console, fieldIndex: 55, "y");                                    // AutoRestoreOnFailure := true
+        EditField(console, fieldIndex: 56, "n");                                    // RecreateOnUpdate := false
+        EditField(console, fieldIndex: 57, "interfold-api,octocon-web");            // Services
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
         await Assert.That(config.Deployment.Update.Enabled).IsTrue();
+        await Assert.That(config.Deployment.Update.Bootstrapper.Enabled).IsFalse();
         await Assert.That(config.Deployment.Update.HealthCheckTimeoutSeconds).IsEqualTo(300);
         await Assert.That(config.Deployment.Update.AutoRestoreOnFailure).IsTrue();
         await Assert.That(config.Deployment.Update.RecreateOnUpdate).IsFalse();
@@ -863,7 +869,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // 9999 breaches the [1..3600] bound; second answer sticks.
         var console = NewConsole();
-        EditField(console, fieldIndex: 50, "9999", "60");
+        EditField(console, fieldIndex: 54, "9999", "60");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -877,7 +883,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Unknown entry re-prompts against ValidUpdateServices; second answer sticks.
         var console = NewConsole();
-        EditField(console, fieldIndex: 53,
+        EditField(console, fieldIndex: 57,
             "msg-db,not-a-real-service",
             "msg-db,scylla");
         ConfirmForm(console);
@@ -895,7 +901,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Blank = "every service" (stored as empty array) — the un-scope path in the UI.
         var console = NewConsole();
-        EditField(console, fieldIndex: 53, string.Empty);
+        EditField(console, fieldIndex: 57, string.Empty);
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -1003,7 +1009,7 @@ public sealed class ConfigInteractivePromptTests
         File.WriteAllText(sa, FirebaseServiceAccountFixture);
 
         var console = NewConsole();
-        Navigate(console, downArrows: 54);
+        Navigate(console, downArrows: 58);
         // Auto-detect is the first choice — Enter without a DownArrow.
         console.Input.PushKey(ConsoleKey.Enter);
         console.Input.PushTextWithEnter(folder);
@@ -1033,7 +1039,7 @@ public sealed class ConfigInteractivePromptTests
         File.WriteAllText(sa, FirebaseServiceAccountFixture);
 
         var console = NewConsole();
-        Navigate(console, downArrows: 54);
+        Navigate(console, downArrows: 58);
         // Per-file is the 2nd choice — one DownArrow before Enter.
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.Enter);
@@ -1056,7 +1062,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Cancel is the 4th choice — three DownArrows. Every *Path must stay empty.
         var console = NewConsole();
-        Navigate(console, downArrows: 54);
+        Navigate(console, downArrows: 58);
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.DownArrow);

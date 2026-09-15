@@ -64,6 +64,16 @@ This file is the operator-facing input to the bootstrapper. It is *not* read by 
 directly — its values flow through the bootstrapper into either `secrets.json` (auto-generated
 output) or the `internal.secrets` table (seeded by `DatabaseInitPhase`).
 
+> **Windows host.** `interfold-bootstrap` runs natively on Windows as a Docker Desktop
+> operator. CI ships `win-x64` and `win-arm64` zips alongside the Linux tarballs (there is
+> no `win-arm` RID in modern .NET, so `linux-arm` has no Windows peer). The prereqs phase
+> verifies `docker` + `docker compose`, and if they are missing tries `winget` then `choco`
+> to install Docker Desktop (Administrator required only for that install). Host
+> `fs.aio-max-nr` sysctl is Linux-only; Windows probes the value inside a throwaway
+> container and warns if Scylla's floor is not met. `trustStoreInstall` writes the private
+> CA to `CurrentUser\Root` (no admin). `install-service` registers Task Scheduler jobs
+> instead of systemd. macOS is still unsupported.
+
 Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/BootstrapConfig.cs)`:
 
 ```jsonc
@@ -81,6 +91,12 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
     },
     "update": {
       "enabled": false,
+      "bootstrapper": {
+        "enabled": false,
+        "channel": "stable",
+        "updateOnBootstrap": true,
+        "autoRollbackOnFailure": false
+      },
       "healthCheckTimeoutSeconds": 180,
       "autoRestoreOnFailure": false,
       "recreateOnUpdate": true,
@@ -198,6 +214,19 @@ via `InterfoldAppHost.ConfigureApiSelfHostEnv`. The matching client **secrets** 
 `internal.secrets` (seeded by `DatabaseInitPhase`) and are patched onto
 `AuthenticationConfiguration` by `SecretsBootstrapService` at API startup — they never
 appear in `.env`.
+
+#### `deployment.update.bootstrapper` (bootstrapper self-update)
+
+| Field | Default | Notes |
+| ----- | ------- | ----- |
+| `enabled` | `false` | When `true`, scheduled update runs `update-self` before `update-images` (Linux: `interfold-update.service`; Windows: second/third Exec on the backup task). Opt-in — manual `update-self` works regardless. |
+| `channel` | `stable` | `stable` (GitHub release `latest`), `bleeding-edge` (release tag `bleeding-edge`), or a pin tag like `v0.0.1` (immutable Release; the tag **is** the version — no `version.txt`). |
+| `updateOnBootstrap` | `true` when `enabled`, else `false` | At the start of `bootstrap`, check GitHub Releases and apply a newer bootstrapper before prerequisites. Skip with `--skip-self-update`. |
+| `autoRollbackOnFailure` | `false` | When `update-images` health-check fails after a chained update, run `update-self --rollback` to restore `{binary}.old`. Image rollback uses the existing `autoRestoreOnFailure` path separately. |
+
+Downloads are verified against `SHA256SUMS` on the release (Linux `.tar.gz` or Windows `.zip` for the host RID). Rolling channels additionally read `version.txt` to decide whether an update is available; pinned `v*` channels compare the running binary’s informational version to the pin tag instead. The live binary is replaced via
+`{binary}.new` → atomic rename; the previous binary is kept as
+`{binary}.old` until the next successful update or an explicit `--rollback`.
 
 First-time operators don't need to hand-author this file — running `interfold-bootstrap` on
 a real TTY without an existing `interfold.bootstrap.json` drops into a Spectre.Console
@@ -336,18 +365,21 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 > with a JSON file) does **not** consult the detector — a file with an empty `hosts` list
 > still fails fast with a clear validation error, by design.
 
-> **mDNS preflight for `.local` names (Linux only).** The bootstrapper runs a two-tier
+> **mDNS preflight for `.local` names.** The bootstrapper runs a two-tier
 > check whenever the finalised `edge.hosts` list contains a `.local` entry:
 >
 > - **Pre-prompt banner (interactive fresh-config only).** Before the hosts row appears,
 >   the bootstrapper detects the device's short hostname, qualifies it as
->   `{hostname}.local`, and probes whether it resolves via `getent hosts` (which
->   traverses `nsswitch.conf` → `mdns_minimal` → avahi). If it does, the qualified name
+>   `{hostname}.local`, and probes whether it resolves. On Linux that probe is
+>   `getent hosts` (nsswitch → `mdns_minimal` → avahi). On Windows it is
+>   `Dns.GetHostAddresses` (native mDNS / Bonjour). If it does, the qualified name
 >   joins the auto-default alongside the primary IP. If it doesn't, a banner explains
->   that mDNS is unavailable and offers to install `avahi-daemon` + the platform's NSS
->   mdns module (`libnss-mdns` on Debian/Ubuntu, `nss-mdns` on Fedora/RHEL). Decline the
->   offer and the `.local` name is simply omitted from the pre-fill — the row is still
->   editable so the operator can type any host they like.
+>   that mDNS is unavailable. Linux then offers to install `avahi-daemon` + the
+>   platform's NSS mdns module (`libnss-mdns` on Debian/Ubuntu, `nss-mdns` on
+>   Fedora/RHEL). Windows never auto-installs Bonjour — the banner prints a manual
+>   hint instead. Decline the offer (or skip auto-install) and the `.local` name is
+>   omitted from the pre-fill — the row is still editable so the operator can type
+>   any host they like.
 > - **Post-fill safety gate (all `bootstrap` runs).** After the hosts list is finalised
 >   (either by the interactive prompt or loaded from JSON), every `.local` entry is
 >   re-probed. Unresolvable ones are removed from `edge.hosts` with a warning
@@ -359,8 +391,9 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 >
 > `--non-interactive` skips the pre-prompt banner (there's no operator to talk to) but
 > the post-fill gate still runs and applies the same strip-and-continue behaviour to
-> `.local` entries in the supplied config. Non-Linux platforms short-circuit both tiers
-> because `getent`'s exit-code contract doesn't translate to Windows / macOS resolvers.
+> `.local` entries in the supplied config. macOS short-circuits both tiers (`getent`
+> is not available in the shape the Linux probe needs); Windows probes and strips
+> but does not offer an auto-install.
 >
 > To enable mDNS ahead of time so the strip never fires:
 >
@@ -371,6 +404,10 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 > # Fedora / RHEL
 > sudo dnf install -y avahi nss-mdns && sudo systemctl enable --now avahi-daemon
 > ```
+>
+> On Windows, enable the **Function Discovery Resource Publication** service or install
+> Bonjour Print Services, then confirm `{hostname}.local` resolves before the next
+> `bootstrap` run.
 
 ## Layer 3 — Environment variables
 
@@ -396,7 +433,7 @@ All four are rendered from templates embedded in the bootstrapper binary; see
 | `interfold.service`        | `oneshot` `RemainAfterExit=yes` | Brings the compose stack up via `/usr/bin/docker compose -f {outputDir}/docker-compose.yaml up -d` after `docker.service` on boot. Deliberately does NOT shell out to `interfold-bootstrap up` — that would re-run the 5-minute `/health/ready` wait inside systemd's boot critical path. Compose's own restart policy + the API container's healthcheck handle steady-state recovery. |
 | `interfold-backup.service` | `oneshot`                  | Runs `interfold-bootstrap backup --config {configPath} --output-dir {outputDir} --component all`. Inherits the bootstrapper's `phase=...` log line format. Operators add drop-in overrides via `/etc/systemd/system/interfold-backup.service.d/*.conf`; the bootstrapper never edits drop-ins on rerun. |
 | `interfold-backup.timer`   | `timer`                    | Fires `interfold-backup.service` on `OnCalendar={config.backup.schedule}` with `Persistent=true` so a missed run (host powered off at the scheduled time) fires on next boot. |
-| `interfold-update.service` | `oneshot`                  | Runs `interfold-bootstrap update-images --config {configPath} --output-dir {outputDir}`. Always rendered so manual invocations always have a target service; only the `OnSuccess=` drop-in that fires it from the backup schedule is conditional on `config.update.enabled`. Never enabled independently — the drop-in is what schedules it. |
+| `interfold-update.service` | `oneshot`                  | Runs `interfold-bootstrap update-images --config {configPath} --output-dir {outputDir}` by default. When `deployment.update.bootstrapper.enabled=true`, `ExecStart` chains `update-self --non-interactive --channel {channel}` before `exec … update-images` so the post-swap binary performs the image pull. Always rendered so manual invocations always have a target service; only the `OnSuccess=` drop-in that fires it from the backup schedule is conditional on `config.update.enabled`. Never enabled independently — the drop-in is what schedules it. |
 
 Conditional drop-in — written only when `config.update.enabled=true`:
 
@@ -422,9 +459,10 @@ Enable/disable contract:
 - `interfold-update.service` is **never** enabled directly — the `OnSuccess=` drop-in is
   what schedules it. Enabling it manually would create a boot-time update pass, which is
   not the design goal.
-- Both flags require `systemctl` to be on PATH; if it isn't (Windows / macOS dev box,
-  unprivileged container) the units still get written but no enable-step runs and the
-  log says `systemctl not on PATH; units written but not enabled`.
+- Both flags require `systemctl` to be on PATH on Linux; if it isn't (unprivileged
+  container) the units still get written but no enable-step runs and the log says
+  `systemctl not on PATH; units written but not enabled`. On Windows, `install-service`
+  does not use systemd — see [Task Scheduler](#bootstrapper-installed-task-scheduler-windows).
 - `config.update.enabled=true` requires systemd >= 249 (the minimum version for the
   `OnSuccess=` directive). The install phase parses `systemctl --version`, fails fast
   on older hosts with a clear error naming Ubuntu 22.04 / Debian 12 as the minimum, and
@@ -434,6 +472,25 @@ Validation happens at install time: `systemd-analyze verify` runs against each r
 unit and `systemd-analyze calendar` against the schedule string. Either failing aborts
 the install with the analyzer's output — the unit files stay on disk so the operator can
 inspect and edit them, but no `daemon-reload` happens.
+
+### Bootstrapper-installed Task Scheduler (Windows)
+
+On Windows, the same `install-service` command registers two current-user tasks
+(`LeastPrivilege`, never `Highest`) and writes the XML under `{outputDir}/scheduled-tasks/`
+(or `--systemd-unit-dir` for a dry-run that skips `schtasks`). Templates live in
+`tools/Interfold.Bootstrapper/Phases/WindowsTaskTemplates/`.
+
+| Task | Trigger | What it does |
+| ---- | ------- | ------------ |
+| `Interfold` | At logon (enabled when autostart is on) | `docker compose -f {compose} up -d`. Immediate enable also runs compose up directly — not `schtasks /Run`. |
+| `InterfoldBackup` | Calendar from `config.deployment.backup.schedule` | `{binary} backup --config … --component all`. When `config.update.enabled`, a following Exec runs `update-images` (and, when `deployment.update.bootstrapper.enabled`, an `update-self` Exec runs first). Task Scheduler stops the action list on failure — the OnSuccess analogue. |
+
+`config.deployment.backup.schedule` stays a systemd OnCalendar string. Windows translates
+`daily`, `weekly`, `hourly`, and `*-*-* HH:MM[:SS]`. Other expressions fail install-service
+with `invalid-calendar` rather than silently changing the schedule.
+
+`--systemd-unit-dir` is the shared test seam: write XML (or Linux units) and skip
+registration.
 
 ### Full env inventory
 
@@ -615,6 +672,11 @@ and a critical Name Constraints extension on the root cap the blast radius of bo
 | `rootCA.sha256.txt`   | SHA-256 fingerprint of `rootCA.crt` in uppercase colon-hex (matches `openssl x509 -fingerprint -sha256`). | 0644 |
 | `leaf.crt` / `leaf.key` / `leaf.pfx` | Leaf cert + key. PFX password lives in `internal.secrets:certs:leaf_pfx_password`. | 0644 |
 
+On Windows the same 0600/0644 intent is applied as an NTFS ACL (owner-only vs inherited
+read). When `edge.certificates.trustStoreInstall` is true, the certs phase also imports
+`rootCA.crt` into `CurrentUser\Root` (no Administrator). Other Windows accounts still
+need a manual import.
+
 ### Endpoints (`/.well-known/interfold-root-ca.*`)
 
 `[TrustController](../apis/Interfold.Ops.Api/Controllers/TrustController.cs)` serves a
@@ -647,6 +709,7 @@ Root CA:     Interfold Root CA
   Not after:   2030-01-01 12:00:00 UTC
   Distribute:  curl -fSL https://<host>[:edgeHttps]/.well-known/interfold-root-ca.crt -o rootCA.crt
   Verify:      openssl x509 -in rootCA.crt -noout -fingerprint -sha256
+               certutil -dump rootCA.crt   (Windows)
                (compare the printed SHA256 Fingerprint to the value above)
 ```
 
