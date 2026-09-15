@@ -65,7 +65,7 @@ jobs:
             exit 0
           fi
 
-          pattern='^hosts/Interfold\.AppHost/|^hosts/Interfold\.ServiceDefaults/|^tools/Interfold\.Bootstrapper/|^tests/unit/Interfold\.Bootstrapper\.UnitTests/|^tests/integration/Interfold\.Bootstrapper\.IntegrationTests/|^Dockerfile\.bootstrapper$|^\.github/actions/build-bootstrapper-multi-rid/|^\.github/scripts/resolve-bootstrapper-version\.sh$'
+          pattern='^hosts/Interfold\.AppHost/|^hosts/Interfold\.ServiceDefaults/|^tools/Interfold\.Bootstrapper/|^tests/unit/Interfold\.Bootstrapper\.UnitTests/|^tests/integration/Interfold\.Bootstrapper\.IntegrationTests/|^Dockerfile\.bootstrapper$|^\.github/actions/build-bootstrapper-multi-rid/|^\.github/scripts/resolve-bootstrapper-version\.sh$|^\.github/scripts/resolve-bootstrapper-channel\.sh$'
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base='${{ github.event.pull_request.base.sha }}'
@@ -148,6 +148,7 @@ jobs:
       # Tag pins stamp InformationalVersion without the leading `v` so
       # System.Version / pin compare treat `v0.0.1` and `0.0.1` as the same.
       # Rolling builds use `{last v* tag}+{short commit id}` (see resolve script).
+      # Channel (stable / bleeding-edge / pin) is stamped as AssemblyMetadata.
       - name: Resolve bootstrapper version stamp
         if: needs.prepare.outputs.bootstrapper == 'true'
         id: boot_ver
@@ -156,6 +157,17 @@ jobs:
           set -euo pipefail
           version="$(bash .github/scripts/resolve-bootstrapper-version.sh)"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve bootstrapper release channel
+        if: needs.prepare.outputs.bootstrapper == 'true'
+        id: boot_channel
+        shell: bash
+        env:
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          channel="$(bash .github/scripts/resolve-bootstrapper-channel.sh)"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
 
       - name: Build & upload multi-RID bootstrapper artefacts
         if: needs.prepare.outputs.bootstrapper == 'true'
@@ -166,6 +178,7 @@ jobs:
           dockerfile: ${{ env.BOOTSTRAPPER_DOCKERFILE_PATH }}
           artifact-suffix: ${{ github.sha }}
           bootstrapper-version: ${{ steps.boot_ver.outputs.version }}
+          bootstrapper-channel: ${{ steps.boot_channel.outputs.channel }}
 
       # tar.gz preserves +x that upload-artifact@v4's zip strips. Ships test-
       # project bins (direct-DLL launch) and `tools/*/bin` because
@@ -371,10 +384,21 @@ jobs:
           version="$(bash .github/scripts/resolve-bootstrapper-version.sh)"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve bootstrapper release channel
+        id: boot_channel
+        shell: bash
+        env:
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          channel="$(bash .github/scripts/resolve-bootstrapper-channel.sh)"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
       - name: Publish Windows bootstrapper RIDs (zip + size guard)
         shell: pwsh
         env:
           BOOTSTRAPPER_VERSION: ${{ steps.boot_ver.outputs.version }}
+          BOOTSTRAPPER_CHANNEL: ${{ steps.boot_channel.outputs.channel }}
         run: |
           $ErrorActionPreference = 'Stop'
           $rids = @('win-x64', 'win-arm64')
@@ -382,16 +406,18 @@ jobs:
           $maxBytes = 75L * 1024 * 1024
           $version = $env:BOOTSTRAPPER_VERSION
           if ([string]::IsNullOrWhiteSpace($version)) { throw 'BOOTSTRAPPER_VERSION was empty' }
+          $channel = $env:BOOTSTRAPPER_CHANNEL
           New-Item -ItemType Directory -Force -Path $base | Out-Null
 
           foreach ($rid in $rids) {
             $out = Join-Path $base $rid
             New-Item -ItemType Directory -Force -Path $out | Out-Null
-            Write-Host "Publishing $rid -> $out (InformationalVersion=$version)"
+            Write-Host "Publishing $rid -> $out (InformationalVersion=$version; channel=$channel)"
             dotnet publish tools/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj `
               /p:PublishProfile=$rid `
               /p:Version=$version `
               /p:InformationalVersion=$version `
+              /p:BootstrapperReleaseChannel=$channel `
               -o $out
             $exe = Join-Path $out 'interfold-bootstrap.exe'
             if (-not (Test-Path $exe)) {
@@ -670,6 +696,16 @@ jobs:
           version="$(bash .github/scripts/resolve-bootstrapper-version.sh)"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve bootstrapper release channel
+        id: boot_channel
+        shell: bash
+        env:
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          channel="$(bash .github/scripts/resolve-bootstrapper-channel.sh)"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
       - name: Resolve rolling release identity
         if: github.ref_type != 'tag'
         id: rolling
@@ -811,5 +847,6 @@ jobs:
           labels: ${{ steps.bootstrapper_meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.boot_ver.outputs.version }}
+            CHANNEL=${{ steps.boot_channel.outputs.channel }}
           cache-from: type=gha,scope=interfold-dotnet
           cache-to: type=gha,mode=max,scope=interfold-dotnet

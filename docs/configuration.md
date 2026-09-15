@@ -218,7 +218,7 @@ appear in `.env`.
 | Field | Default | Notes |
 | ----- | ------- | ----- |
 | `enabled` | `false` | When `true`, scheduled update runs `update-self` before `update-images` (Linux: `interfold-update.service`; Windows: second/third Exec on the backup task). Opt-in — manual `update-self` works regardless. |
-| `channel` | `stable` | `stable` (newest non-prerelease `stable-{version}` tag via paginated Releases API), `bleeding-edge` (newest `bleeding-edge-{version}` prerelease), or a pin tag like `v0.0.1` (immutable Release; the tag **is** the version). |
+| `channel` | `stable` (or the channel stamped into the running binary when present) | `stable` (newest non-prerelease `stable-{version}` tag via paginated Releases API), `bleeding-edge` (newest `bleeding-edge-{version}` prerelease), or a pin tag like `v0.0.1` (immutable Release; the tag **is** the version). CI-published binaries stamp their origin channel; that stamp is the default for new configs and the last-resort `update-self` channel when config/`--channel` are absent. |
 | `updateOnBootstrap` | `true` when `enabled`, else `false` | At the start of `bootstrap`, check GitHub Releases and apply a newer bootstrapper before prerequisites. Skip with `--skip-self-update`. |
 | `autoRollbackOnFailure` | `false` | When `update-images` health-check fails after a chained update, run `update-self --rollback` to restore `{binary}.old`. Image rollback uses the existing `autoRestoreOnFailure` path separately. |
 

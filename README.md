@@ -26,7 +26,9 @@ dev `aspire run` flow, with a Docker Compose publisher and a host-side prep wrap
 CI uploads per-arch bootstrapper artefacts (Linux `.tar.gz`, Windows `.zip`). Rolling
 channels publish a **unique tag per CI run** (`stable-{version}` /
 `bleeding-edge-{version}`, where `{version}` is the InformationalVersion stamp) because
-the repo uses immutable releases — fixed tag names cannot be republished. `update-self`
+the repo uses immutable releases — fixed tag names cannot be republished. Published
+binaries also embed the release channel (`stable` / `bleeding-edge` / pin tag) as
+assembly metadata (`interfold-bootstrap --version` shows it). `update-self`
 resolves both channels by paginating the Releases API for the newest matching prefix
 (`stable-*` full release, `bleeding-edge-*` prerelease) — not GitHub’s “latest” flag —
 then verifies downloads against each asset’s Releases API `digest` (no `SHA256SUMS` /

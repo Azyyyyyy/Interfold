@@ -25,6 +25,7 @@ internal static class SelfUpdatePhase
 
         var channel = options.SelfUpdateChannelOverride
             ?? config?.Deployment.Update.Bootstrapper.Channel
+            ?? BootstrapperVersion.BuiltReleaseChannel
             ?? BootstrapperReleaseChannel.Stable;
 
         var result = await SelfUpdatePhaseCore.RunAsync(

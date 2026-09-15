@@ -23,6 +23,10 @@ inputs:
     description: 'InformationalVersion embedded in the published binaries (also used as the rolling release tag suffix).'
     required: false
     default: '0.0.0-dev'
+  bootstrapper-channel:
+    description: 'Release channel stamped into the binary (stable, bleeding-edge, or pin tag). Empty for unstamped PR/local builds.'
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -40,6 +44,7 @@ runs:
         outputs: type=local,dest=./bootstrap-out
         build-args: |
           VERSION=${{ inputs.bootstrapper-version }}
+          CHANNEL=${{ inputs.bootstrapper-channel }}
         cache-from: type=gha,scope=interfold-dotnet
         cache-to: type=gha,mode=max,scope=interfold-dotnet
 
