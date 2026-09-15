@@ -50,4 +50,19 @@ public sealed class BootstrapperVersionTests
         // Rolling stamps share a SemVer core; differing +commit metadata must still update.
         await Assert.That(BootstrapperVersion.IsUpdateAvailable($"{core}+deadbeef", force: false)).IsTrue();
     }
+
+    [Test]
+    public async Task UnitTestAssemblyHasNoReleaseChannelStamp()
+    {
+        // CI publish stamps AssemblyMetadata; local/unit builds omit it.
+        await Assert.That(BootstrapperVersion.ReleaseChannelWire).IsNull();
+        await Assert.That(BootstrapperVersion.BuiltReleaseChannel).IsNull();
+    }
+
+    [Test]
+    public async Task UserAgentOmitsChannelWhenUnstamped()
+    {
+        await Assert.That(BootstrapperVersion.UserAgent)
+            .IsEqualTo($"interfold-bootstrap/{BootstrapperVersion.InformationalVersion}");
+    }
 }

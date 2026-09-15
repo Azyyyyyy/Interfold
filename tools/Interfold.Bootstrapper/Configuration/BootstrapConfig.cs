@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Interfold.Bootstrapper.Util;
 using Interfold.Settings.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 
@@ -239,6 +240,12 @@ public sealed class ObservabilitySection
 {
     [JsonPropertyName("otlpEndpoint")]
     public string OtlpEndpoint { get; set; } = string.Empty;
+
+    [JsonPropertyName("advertiseOtlpToClients")]
+    public bool AdvertiseOtlpToClients { get; set; }
+
+    [JsonPropertyName("clientOtlpHttpEndpoint")]
+    public string ClientOtlpHttpEndpoint { get; set; } = string.Empty;
 }
 
 public sealed class BackupSection
@@ -283,7 +290,8 @@ public sealed class UpdateBootstrapperSection
     public bool Enabled { get; set; }
 
     [JsonPropertyName("channel")]
-    public BootstrapperReleaseChannel Channel { get; set; } = BootstrapperReleaseChannel.Stable;
+    public BootstrapperReleaseChannel Channel { get; set; }
+        = BootstrapperVersion.BuiltReleaseChannel ?? BootstrapperReleaseChannel.Stable;
 
     [JsonPropertyName("updateOnBootstrap")]
     public bool? UpdateOnBootstrap { get; set; }

@@ -48,6 +48,7 @@ public sealed class PublishEnvPostProcessingTests
         config.Api.Storage.AvatarStorageRoot = "/var/lib/interfold/avatars";
         config.Api.Storage.AvatarPublicBase = "https://cdn.example.com/avatars/";
         config.Observability.OtlpEndpoint = "http://localhost:4317";
+        config.Observability.ClientOtlpHttpEndpoint = "http://localhost:4318";
         config.Api.BatchBytesThreshold = 65536;
         const string baseDir = "/var/lib/interfold";
         const string outputDir = "/srv/interfold/deploy";
@@ -74,6 +75,8 @@ public sealed class PublishEnvPostProcessingTests
             "NODE_GROUP",
             "AVATAR_PUBLIC_BASE",
             "OTLP_ENDPOINT",
+            "ADVERTISE_OTLP_TO_CLIENTS",
+            "CLIENT_OTLP_HTTP_ENDPOINT",
             "SOCKET_BATCH_BYTES_THRESHOLD",
             "DB_RETRY_ATTEMPTS",
             "DB_RETRY_INITIAL_DELAY_MS",
@@ -162,9 +165,9 @@ public sealed class PublishEnvPostProcessingTests
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, baseDir, outputDir);
 
         var total = replacements.Parameters.Count + replacements.BindMounts.Count;
-        // Single mode: 25 shared env parameters + 6 bind mounts (avatar, API certs, edge
-        // nginx template + proxy_params, edge certs, scylla rackdc) = 31.
-        await Assert.That(total).IsEqualTo(31);
+        // Single mode: 27 shared env parameters + 6 bind mounts (avatar, API certs, edge
+        // nginx template + proxy_params, edge certs, scylla rackdc) = 33.
+        await Assert.That(total).IsEqualTo(33);
     }
 
     [Test]
@@ -245,6 +248,8 @@ public sealed class PublishEnvPostProcessingTests
         config.Api.Storage.AvatarStorageRoot = "/srv/avatars";
         config.Api.Storage.AvatarPublicBase = "https://cdn.example.com/a/";
         config.Observability.OtlpEndpoint = "http://otel-collector:4317";
+        config.Observability.AdvertiseOtlpToClients = true;
+        config.Observability.ClientOtlpHttpEndpoint = "http://otel-collector:4318";
         config.Api.BatchBytesThreshold = 131_072;
         config.Api.Resilience.DbRetryAttempts = 5;
         config.Api.Resilience.DbRetryInitialDelayMs = 250;
@@ -262,6 +267,9 @@ public sealed class PublishEnvPostProcessingTests
             .IsEqualTo("https://cdn.example.com/a/");
         await Assert.That(replacements.Parameters["OTLP_ENDPOINT"])
             .IsEqualTo("http://otel-collector:4317");
+        await Assert.That(replacements.Parameters["ADVERTISE_OTLP_TO_CLIENTS"]).IsEqualTo("true");
+        await Assert.That(replacements.Parameters["CLIENT_OTLP_HTTP_ENDPOINT"])
+            .IsEqualTo("http://otel-collector:4318");
         await Assert.That(replacements.Parameters["SOCKET_BATCH_BYTES_THRESHOLD"]).IsEqualTo("131072");
         await Assert.That(replacements.Parameters["DB_RETRY_ATTEMPTS"]).IsEqualTo("5");
         await Assert.That(replacements.Parameters["DB_RETRY_INITIAL_DELAY_MS"]).IsEqualTo("250");
@@ -298,9 +306,13 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(replacements.Parameters.ContainsKey("AVATAR_STORAGE_ROOT")).IsFalse();
         await Assert.That(replacements.Parameters.ContainsKey("AVATAR_PUBLIC_BASE")).IsTrue();
         await Assert.That(replacements.Parameters.ContainsKey("OTLP_ENDPOINT")).IsTrue();
+        await Assert.That(replacements.Parameters.ContainsKey("ADVERTISE_OTLP_TO_CLIENTS")).IsTrue();
+        await Assert.That(replacements.Parameters.ContainsKey("CLIENT_OTLP_HTTP_ENDPOINT")).IsTrue();
         await Assert.That(replacements.Parameters.ContainsKey("SOCKET_BATCH_BYTES_THRESHOLD")).IsTrue();
         await Assert.That(replacements.Parameters["AVATAR_PUBLIC_BASE"]).IsEqualTo(string.Empty);
         await Assert.That(replacements.Parameters["OTLP_ENDPOINT"]).IsEqualTo(string.Empty);
+        await Assert.That(replacements.Parameters["ADVERTISE_OTLP_TO_CLIENTS"]).IsEqualTo("false");
+        await Assert.That(replacements.Parameters["CLIENT_OTLP_HTTP_ENDPOINT"]).IsEqualTo(string.Empty);
         await Assert.That(replacements.Parameters["SOCKET_BATCH_BYTES_THRESHOLD"]).IsEqualTo(string.Empty);
 
         // Non-nullable tuning fields fall back to their property-initialiser defaults.
@@ -650,8 +662,8 @@ public sealed class PublishEnvPostProcessingTests
                 .Because($"env-key '{envKey}' must be the upper-snake-cased form of the kebab-cased Aspire parameter '{bareName}' (config-key '{configKey}')");
         }
 
-        // Spec-frozen at 25 — bump this AND the enumerator together.
-        await Assert.That(seenConfigKeys.Count).IsEqualTo(25)
-            .Because("shared-parameter count is spec-frozen at 25; update BOTH the enumerator AND this assertion together");
+        // Spec-frozen at 27 — bump this AND the enumerator together.
+        await Assert.That(seenConfigKeys.Count).IsEqualTo(27)
+            .Because("shared-parameter count is spec-frozen at 27; update BOTH the enumerator AND this assertion together");
     }
 }

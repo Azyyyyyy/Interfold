@@ -76,6 +76,8 @@ public static class AppHostParameterKeys
     public const string NodeGroup = "Parameters:node-group";
     public const string AvatarPublicBase = "Parameters:avatar-public-base";
     public const string OtlpEndpoint = "Parameters:otlp-endpoint";
+    public const string AdvertiseOtlpToClients = "Parameters:advertise-otlp-to-clients";
+    public const string ClientOtlpHttpEndpoint = "Parameters:client-otlp-http-endpoint";
     public const string SocketBatchBytesThreshold = "Parameters:socket-batch-bytes-threshold";
     public const string DbRetryAttempts = "Parameters:db-retry-attempts";
     public const string DbRetryInitialDelayMs = "Parameters:db-retry-initial-delay-ms";

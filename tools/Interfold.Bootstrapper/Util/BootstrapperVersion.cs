@@ -1,11 +1,13 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Interfold.Bootstrapper.Configuration;
 
 namespace Interfold.Bootstrapper.Util;
 
 internal static class BootstrapperVersion
 {
     internal const string DefaultDevVersion = "0.0.0-dev";
+    internal const string ReleaseChannelMetadataKey = "Interfold.Bootstrapper.ReleaseChannel";
 
     internal static string InformationalVersion =>
         Assembly.GetExecutingAssembly()
@@ -14,7 +16,60 @@ internal static class BootstrapperVersion
         ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
         ?? DefaultDevVersion;
 
-    internal static string UserAgent => $"interfold-bootstrap/{InformationalVersion}";
+    /// <summary>
+    /// Wire channel stamped at publish time (<c>stable</c> / <c>bleeding-edge</c> / pin),
+    /// or null for local/PR builds that omit the metadata.
+    /// </summary>
+    internal static string? ReleaseChannelWire
+    {
+        get
+        {
+            foreach (var meta in Assembly.GetExecutingAssembly()
+                         .GetCustomAttributes<AssemblyMetadataAttribute>())
+            {
+                if (string.Equals(meta.Key, ReleaseChannelMetadataKey, StringComparison.Ordinal)
+                    && !string.IsNullOrWhiteSpace(meta.Value))
+                {
+                    return meta.Value.Trim();
+                }
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>Parsed <see cref="ReleaseChannelWire"/>, or null when unstamped / invalid.</summary>
+    internal static BootstrapperReleaseChannel? BuiltReleaseChannel
+    {
+        get
+        {
+            var wire = ReleaseChannelWire;
+            if (wire is null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return BootstrapperReleaseChannel.ParseWire(wire);
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
+        }
+    }
+
+    internal static string UserAgent
+    {
+        get
+        {
+            var channel = ReleaseChannelWire;
+            return channel is null
+                ? $"interfold-bootstrap/{InformationalVersion}"
+                : $"interfold-bootstrap/{InformationalVersion} ({channel})";
+        }
+    }
 
     internal static string RuntimeDescription
     {

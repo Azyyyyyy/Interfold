@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Security.Claims;
 using System.Text;
@@ -519,16 +520,53 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     var httpClientFactory = websocketContext.RequestServices.GetRequiredService<IHttpClientFactory>();
     using var httpClient = httpClientFactory.CreateClient(LoopbackHttpClient.Name);
 
-    var response = await httpClient.SendAsync(request, websocketContext.RequestAborted);
-    try
+    using (TryActivateW3CContext(proxyRequest?.Traceparent, proxyRequest?.Tracestate))
     {
-        var responseBody = await response.Content.ReadAsStringAsync(websocketContext.RequestAborted);
-        return new SocketEndpointProxyResponse(response.StatusCode, responseBody);
+        var response = await httpClient.SendAsync(request, websocketContext.RequestAborted);
+        try
+        {
+            var responseBody = await response.Content.ReadAsStringAsync(websocketContext.RequestAborted);
+            return new SocketEndpointProxyResponse(response.StatusCode, responseBody);
+        }
+        finally
+        {
+            response.Dispose();
+        }
     }
-    finally
+}
+
+/// <summary>Extracts W3C Trace Context from the Phoenix endpoint payload and installs
+/// an ambient <see cref="Activity"/> so loopback REST spans parent under the client's
+/// <c>sendAPIRequest</c> span. Returns null when <paramref name="traceparent"/> is absent
+/// or invalid.</summary>
+internal static IDisposable? TryActivateW3CContext(string? traceparent, string? tracestate)
+{
+    if (string.IsNullOrWhiteSpace(traceparent))
+        return null;
+
+    // BCL parse — equivalent to W3C TextContextPropagator.Extract for these two fields.
+    // Avoids Propagators.DefaultTextMapPropagator, which may be replaced with Noop by
+    // an OpenTelemetry Sdk static initializer elsewhere in the process.
+    if (!ActivityContext.TryParse(traceparent, tracestate, true, out var activityContext)
+        || activityContext == default)
     {
-        response.Dispose();
+        return null;
     }
+
+    // Activity.Current is what HttpClient / ASP.NET instrumentation use to parent and
+    // inject W3C headers on the loopback hop. Clear ambient Current first so Start()
+    // honours SetParentId rather than chaining under an unrelated in-process span.
+    var prior = Activity.Current;
+    Activity.Current = null;
+    var activity = new Activity("socket.endpoint.proxy");
+    activity.SetParentId(
+        activityContext.TraceId,
+        activityContext.SpanId,
+        activityContext.TraceFlags);
+    if (!string.IsNullOrEmpty(activityContext.TraceState))
+        activity.TraceStateString = activityContext.TraceState;
+    activity.Start();
+    return new RestoreAmbientActivity(activity, prior);
 }
 
 static string ToJsonString<T>(T value)
@@ -784,4 +822,13 @@ static SecurityToken ValidateJwtTokenSignatureForSocket(
         await socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, cancellationToken);
     }
 }
+}
+
+file sealed class RestoreAmbientActivity(Activity activity, Activity? prior) : IDisposable
+{
+    public void Dispose()
+    {
+        activity.Dispose();
+        Activity.Current = prior;
+    }
 }
