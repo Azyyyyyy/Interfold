@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text.Json;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
 using Interfold.Bootstrapper.Util;
@@ -26,6 +27,49 @@ public sealed class BootstrapperReleaseClientTests
         var pin = BootstrapperReleaseChannel.ParseWire("v0.0.1");
         await Assert.That(async () => await client.FetchRemoteVersionAsync(pin, CancellationToken.None))
             .Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task SelectNewestBleedingEdgeTagSkipsDraftsAndNonMatching()
+    {
+        using var doc = JsonDocument.Parse(
+            """
+            [
+              { "tag_name": "v1.0.0", "draft": false, "prerelease": false },
+              { "tag_name": "bleeding-edge-9-deadbeef", "draft": true, "prerelease": true },
+              { "tag_name": "bleeding-edge-8-cafebabe", "draft": false, "prerelease": true },
+              { "tag_name": "bleeding-edge-7-older", "draft": false, "prerelease": true }
+            ]
+            """);
+
+        var tag = BootstrapperReleaseClient.SelectNewestBleedingEdgeTag(doc.RootElement);
+        await Assert.That(tag).IsEqualTo("bleeding-edge-8-cafebabe");
+    }
+
+    [Test]
+    public async Task ResolveReleaseTagUsesMirrorFolderWhenOverrideSet()
+    {
+        var prior = Environment.GetEnvironmentVariable("INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL",
+                "http://127.0.0.1:8765/releases/download");
+            using var client = BootstrapperReleaseClient.CreateDefault();
+            await Assert.That(await client.ResolveReleaseTagAsync(
+                    BootstrapperReleaseChannel.Stable, CancellationToken.None))
+                .IsEqualTo("latest");
+            await Assert.That(await client.ResolveReleaseTagAsync(
+                    BootstrapperReleaseChannel.BleedingEdge, CancellationToken.None))
+                .IsEqualTo("bleeding-edge");
+            await Assert.That(await client.ResolveReleaseTagAsync(
+                    BootstrapperReleaseChannel.ParseWire("v0.0.1"), CancellationToken.None))
+                .IsEqualTo("v0.0.1");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL", prior);
+        }
     }
 
     [Test]

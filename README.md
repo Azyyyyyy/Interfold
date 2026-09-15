@@ -24,9 +24,11 @@ dev `aspire run` flow, with a Docker Compose publisher and a host-side prep wrap
 ### One-shot install
 
 CI uploads per-arch bootstrapper artefacts (Linux `.tar.gz`, Windows `.zip`), plus
-`SHA256SUMS` on every GitHub Release. Rolling channels (`latest` / `bleeding-edge`)
-also ship `version.txt` for `update-self`; pinned `v*` Releases omit it — the tag
-**is** the version:
+`SHA256SUMS` on every GitHub Release. Rolling channels publish a **unique tag per CI run**
+(`stable-<run>-<sha>` / `bleeding-edge-<run>-<sha>`) because the repo uses immutable
+releases — fixed tag names cannot be republished. `update-self` resolves `stable` via
+GitHub’s latest release and `bleeding-edge` via the newest `bleeding-edge-*` prerelease.
+Pinned `v*` Releases omit `version.txt` — the tag **is** the version:
 
 | Arch | Linux | Windows |
 |---|---|---|
@@ -37,15 +39,17 @@ also ship `version.txt` for `update-self`; pinned `v*` Releases omit it — the 
 **Linux** — download a release tarball (or use a CI artefact) on Ubuntu 22.04+/Debian 12+/Fedora 40+/RHEL 9+:
 
 ```bash
-# Stable (tracks main)
+# Stable (tracks main — GitHub /releases/latest follows the release marked latest)
 curl -fsSL -o interfold-bootstrap-linux-x64.tar.gz \
   https://github.com/Azyyyyyy/Interfold/releases/latest/download/interfold-bootstrap-linux-x64.tar.gz
 tar -xzf interfold-bootstrap-linux-x64.tar.gz
 chmod +x interfold-bootstrap
 
-# Bleeding-edge (tracks develop)
+# Bleeding-edge (tracks develop — newest bleeding-edge-* prerelease)
+tag=$(curl -fsSL https://api.github.com/repos/Azyyyyyy/Interfold/releases \
+  | jq -r '[.[] | select(.prerelease and (.tag_name | startswith("bleeding-edge-")))][0].tag_name')
 curl -fsSL -o interfold-bootstrap-linux-x64.tar.gz \
-  https://github.com/Azyyyyyy/Interfold/releases/download/bleeding-edge/interfold-bootstrap-linux-x64.tar.gz
+  "https://github.com/Azyyyyyy/Interfold/releases/download/${tag}/interfold-bootstrap-linux-x64.tar.gz"
 tar -xzf interfold-bootstrap-linux-x64.tar.gz
 chmod +x interfold-bootstrap
 

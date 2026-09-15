@@ -625,13 +625,40 @@ jobs:
           version="$(bash .github/scripts/resolve-bootstrapper-version.sh)"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
-      - name: Publish rolling GitHub Release
+      - name: Resolve rolling release identity
+        if: github.ref_type != 'tag'
+        id: rolling
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Unique tag per run: immutable releases lock tags after publish, so fixed
+          # rolling names (latest / bleeding-edge) cannot be reused. Clients resolve
+          # stable via /releases/latest and bleeding-edge via newest bleeding-edge-* prerelease.
+          short_sha="$(echo '${{ github.sha }}' | cut -c1-12)"
+          if [ '${{ github.ref }}' = 'refs/heads/develop' ]; then
+            echo "tag=bleeding-edge-${{ github.run_number }}-${short_sha}" >> "$GITHUB_OUTPUT"
+            echo "prefix=bleeding-edge-" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=stable-${{ github.run_number }}-${short_sha}" >> "$GITHUB_OUTPUT"
+            echo "prefix=stable-" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "make_latest=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Draft first so assets attach before immutability locks the release (required for
+      # prereleases on immutable-release repos; safe for full releases too).
+      - name: Publish rolling GitHub Release (draft)
         if: github.ref_type != 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref == 'refs/heads/develop' && 'bleeding-edge' || 'latest' }}
-          name: ${{ github.ref == 'refs/heads/develop' && 'bleeding-edge' || 'latest' }}
-          prerelease: ${{ github.ref == 'refs/heads/develop' }}
+          tag_name: ${{ steps.rolling.outputs.tag }}
+          name: ${{ steps.rolling.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          draft: true
+          prerelease: ${{ steps.rolling.outputs.prerelease == 'true' }}
+          make_latest: false
           files: |
             bootstrap-release/interfold-bootstrap-linux-x64.tar.gz
             bootstrap-release/interfold-bootstrap-linux-arm.tar.gz
@@ -640,15 +667,48 @@ jobs:
             bootstrap-release/interfold-bootstrap-win-arm64.zip
             bootstrap-release/SHA256SUMS
             bootstrap-release/version.txt
-          make_latest: ${{ github.ref != 'refs/heads/develop' }}
+
+      - name: Finalize rolling GitHub Release
+        if: github.ref_type != 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ steps.rolling.outputs.tag }}'
+          if [ '${{ steps.rolling.outputs.prerelease }}' = 'true' ]; then
+            gh release edit "$tag" --draft=false --prerelease
+          else
+            gh release edit "$tag" --draft=false --latest
+          fi
+
+      - name: Prune older rolling releases
+        if: github.ref_type != 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          prefix='${{ steps.rolling.outputs.prefix }}'
+          keep=5
+          mapfile -t stale < <(gh release list --limit 50 --json tagName,createdAt \
+            --jq "[.[] | select(.tagName | startswith(\"${prefix}\"))] | sort_by(.createdAt) | reverse | .[${keep}:] | .[].tagName")
+          for tag in "${stale[@]+"${stale[@]}"}"; do
+            [[ -n "$tag" ]] || continue
+            echo "Deleting stale rolling release $tag"
+            gh release delete "$tag" --yes --cleanup-tag
+          done
 
       # Pin Releases omit version.txt — the tag is the version for update-self.
-      - name: Publish pinned GitHub Release
+      # Also draft-then-publish so assets land before immutability locks the release.
+      - name: Publish pinned GitHub Release (draft)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          draft: true
           prerelease: false
           make_latest: false
           files: |
@@ -658,6 +718,15 @@ jobs:
             bootstrap-release/interfold-bootstrap-win-x64.zip
             bootstrap-release/interfold-bootstrap-win-arm64.zip
             bootstrap-release/SHA256SUMS
+
+      - name: Finalize pinned GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit '${{ github.ref_name }}' --draft=false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

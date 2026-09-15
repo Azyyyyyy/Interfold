@@ -1,7 +1,9 @@
 using System.Formats.Tar;
 using System.IO.Compression;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Interfold.Bootstrapper.Configuration;
 
 namespace Interfold.Bootstrapper.Util;
@@ -10,6 +12,8 @@ internal sealed class BootstrapperReleaseClient : IDisposable
 {
     internal const string GitHubOwner = "Azyyyyyy";
     internal const string GitHubRepo = "Interfold";
+    internal const string StableRollingTagPrefix = "stable-";
+    internal const string BleedingEdgeRollingTagPrefix = "bleeding-edge-";
 
     private readonly HttpClient _http;
 
@@ -27,25 +31,30 @@ internal sealed class BootstrapperReleaseClient : IDisposable
             Timeout = TimeSpan.FromMinutes(10),
         };
         http.DefaultRequestHeaders.UserAgent.ParseAdd(BootstrapperVersion.UserAgent);
+        http.DefaultRequestHeaders.Accept.Add(
+            new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return new BootstrapperReleaseClient(http);
     }
 
+    /// <summary>
+    /// Sync URL helper for pins and <c>INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL</c> mirrors.
+    /// Live rolling channels resolve a unique tag via <see cref="ResolveReleaseTagAsync"/> first.
+    /// </summary>
     internal Uri ReleaseAssetUrl(BootstrapperReleaseChannel channel, string rid)
-        => ReleaseAssetUri(channel, BootstrapperRid.ReleaseAssetName(rid));
+        => ReleaseAssetUri(channel.ToGitHubReleaseTag(), BootstrapperRid.ReleaseAssetName(rid));
 
     /// <summary>Backward-compatible alias; asset may be <c>.tar.gz</c> or <c>.zip</c>.</summary>
     internal Uri TarballUrl(BootstrapperReleaseChannel channel, string rid)
         => ReleaseAssetUrl(channel, rid);
 
     internal Uri ChecksumsUrl(BootstrapperReleaseChannel channel)
-        => ReleaseAssetUri(channel, "SHA256SUMS");
+        => ReleaseAssetUri(channel.ToGitHubReleaseTag(), "SHA256SUMS");
 
     internal Uri VersionUrl(BootstrapperReleaseChannel channel)
-        => ReleaseAssetUri(channel, "version.txt");
+        => ReleaseAssetUri(channel.ToGitHubReleaseTag(), "version.txt");
 
-    private static Uri ReleaseAssetUri(BootstrapperReleaseChannel channel, string fileName)
+    private static Uri ReleaseAssetUri(string tag, string fileName)
     {
-        var tag = channel.ToGitHubReleaseTag();
         var overrideBase = Environment.GetEnvironmentVariable("INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL");
         if (!string.IsNullOrWhiteSpace(overrideBase))
         {
@@ -56,6 +65,39 @@ internal sealed class BootstrapperReleaseClient : IDisposable
             $"https://github.com/{GitHubOwner}/{GitHubRepo}/releases/download/{tag}/{fileName}");
     }
 
+    /// <summary>
+    /// Resolves the GitHub Release tag for <paramref name="channel"/>.
+    /// Pins use the tag as-is; rolling channels query the Releases API (unique per-run tags
+    /// under immutable releases). Test mirrors keep using <see cref="BootstrapperReleaseChannel.ToGitHubReleaseTag"/>.
+    /// </summary>
+    internal async Task<string> ResolveReleaseTagAsync(
+        BootstrapperReleaseChannel channel, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(
+                Environment.GetEnvironmentVariable("INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL")))
+        {
+            return channel.ToGitHubReleaseTag();
+        }
+
+        if (channel.IsPinned)
+        {
+            return channel.ToWireValue();
+        }
+
+        if (channel == BootstrapperReleaseChannel.Stable)
+        {
+            return await FetchLatestReleaseTagAsync(ct).ConfigureAwait(false);
+        }
+
+        if (channel == BootstrapperReleaseChannel.BleedingEdge)
+        {
+            return await FetchNewestBleedingEdgeTagAsync(ct).ConfigureAwait(false);
+        }
+
+        throw new InvalidOperationException(
+            $"Unknown bootstrapper release channel '{channel.ToWireValue()}'.");
+    }
+
     internal async Task<string> FetchRemoteVersionAsync(BootstrapperReleaseChannel channel, CancellationToken ct)
     {
         if (channel.IsPinned)
@@ -64,7 +106,8 @@ internal sealed class BootstrapperReleaseClient : IDisposable
                 $"Pinned channel '{channel.ToWireValue()}' has no version.txt; the release tag is the version.");
         }
 
-        var bytes = await DownloadBytesAsync(VersionUrl(channel), ct).ConfigureAwait(false);
+        var tag = await ResolveReleaseTagAsync(channel, ct).ConfigureAwait(false);
+        var bytes = await DownloadBytesAsync(ReleaseAssetUri(tag, "version.txt"), ct).ConfigureAwait(false);
         return Encoding.UTF8.GetString(bytes).Trim();
     }
 
@@ -74,12 +117,13 @@ internal sealed class BootstrapperReleaseClient : IDisposable
         string destinationPath,
         CancellationToken ct)
     {
+        var tag = await ResolveReleaseTagAsync(channel, ct).ConfigureAwait(false);
         var assetName = BootstrapperRid.ReleaseAssetName(rid);
         var sumsText = Encoding.UTF8.GetString(
-            await DownloadBytesAsync(ChecksumsUrl(channel), ct).ConfigureAwait(false));
+            await DownloadBytesAsync(ReleaseAssetUri(tag, "SHA256SUMS"), ct).ConfigureAwait(false));
         var expectedHash = ParseSha256Sum(sumsText, assetName);
 
-        var assetBytes = await DownloadBytesAsync(ReleaseAssetUrl(channel, rid), ct).ConfigureAwait(false);
+        var assetBytes = await DownloadBytesAsync(ReleaseAssetUri(tag, assetName), ct).ConfigureAwait(false);
         var actualHash = Convert.ToHexString(SHA256.HashData(assetBytes)).ToLowerInvariant();
         if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
         {
@@ -98,6 +142,84 @@ internal sealed class BootstrapperReleaseClient : IDisposable
         string destinationPath,
         CancellationToken ct)
         => DownloadVerifiedReleaseAssetAsync(channel, rid, destinationPath, ct);
+
+    private async Task<string> FetchLatestReleaseTagAsync(CancellationToken ct)
+    {
+        var url = new Uri($"https://api.github.com/repos/{GitHubOwner}/{GitHubRepo}/releases/latest");
+        using var doc = await DownloadJsonAsync(url, ct).ConfigureAwait(false);
+        if (!doc.RootElement.TryGetProperty("tag_name", out var tagEl)
+            || tagEl.GetString() is not { Length: > 0 } tag)
+        {
+            throw new InvalidOperationException(
+                "GitHub releases/latest response did not include a tag_name.");
+        }
+
+        return tag;
+    }
+
+    private async Task<string> FetchNewestBleedingEdgeTagAsync(CancellationToken ct)
+    {
+        var url = new Uri(
+            $"https://api.github.com/repos/{GitHubOwner}/{GitHubRepo}/releases?per_page=30");
+        using var doc = await DownloadJsonAsync(url, ct).ConfigureAwait(false);
+        var tag = SelectNewestBleedingEdgeTag(doc.RootElement);
+        if (tag is null)
+        {
+            throw new InvalidOperationException(
+                $"No prerelease tagged '{BleedingEdgeRollingTagPrefix}*' was found on GitHub Releases.");
+        }
+
+        return tag;
+    }
+
+    /// <summary>Picks the first non-draft prerelease whose tag starts with <see cref="BleedingEdgeRollingTagPrefix"/>.</summary>
+    internal static string? SelectNewestBleedingEdgeTag(JsonElement releases)
+    {
+        if (releases.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var release in releases.EnumerateArray())
+        {
+            if (release.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True)
+            {
+                continue;
+            }
+
+            if (!release.TryGetProperty("prerelease", out var pre) || pre.ValueKind != JsonValueKind.True)
+            {
+                continue;
+            }
+
+            if (!release.TryGetProperty("tag_name", out var tagEl)
+                || tagEl.GetString() is not { Length: > 0 } tag)
+            {
+                continue;
+            }
+
+            if (tag.StartsWith(BleedingEdgeRollingTagPrefix, StringComparison.Ordinal))
+            {
+                return tag;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<JsonDocument> DownloadJsonAsync(Uri url, CancellationToken ct)
+    {
+        using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct)
+            .ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Failed to query {url} (HTTP {(int)response.StatusCode} {response.ReasonPhrase}).");
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
+    }
 
     internal static void ExtractBootstrapperFromArchive(string archivePath, string destinationBinaryPath)
     {
