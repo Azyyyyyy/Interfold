@@ -570,11 +570,34 @@ internal static class ConfigPhase
         var choice = console.Prompt(
             new SelectionPrompt<string>()
                 .Title("Bootstrapper release channel:")
-                .AddChoices("stable", "bleeding-edge")
+                .AddChoices("stable", "bleeding-edge", "pinned")
                 .HighlightStyle(new Style(Color.Cyan1))
                 .UseConverter(s => s)
-                .DefaultValue(fallback.ToWireValue()));
-        return BootstrapperReleaseChannelExtensions.ParseWire(choice);
+                .DefaultValue(fallback.IsPinned ? "pinned" : fallback.ToWireValue()));
+        if (choice != "pinned")
+        {
+            return BootstrapperReleaseChannel.ParseWire(choice);
+        }
+
+        var pinDefault = fallback.IsPinned ? fallback.ToWireValue() : "v0.0.1";
+        var tag = console.Prompt(
+            new TextPrompt<string>("Pin to release tag (e.g. v0.0.1):")
+                .DefaultValue(pinDefault)
+                .Validate(raw =>
+                {
+                    try
+                    {
+                        var parsed = BootstrapperReleaseChannel.ParseWire(raw);
+                        return parsed.IsPinned
+                            ? ValidationResult.Success()
+                            : ValidationResult.Error("Enter a pin tag like v0.0.1 (not stable/bleeding-edge).");
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        return ValidationResult.Error(ex.Message);
+                    }
+                }));
+        return BootstrapperReleaseChannel.ParseWire(tag);
     }
 
     /// <summary>Menu-row summary: <c>off</c> or <c>N/4 configured (...)</c>.</summary>

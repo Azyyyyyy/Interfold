@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [ main, develop ]
+    # Immutable bootstrapper pins (tag IS the version; no version.txt on the Release).
+    tags: [ 'v*' ]
   # Manual safety-net for validating arm cross-builds from a PR head branch -
   # dispatch against the branch with `bootstrapper-full-rids` on (default) to
   # run the full RID matrix a PR run otherwise skips.
@@ -93,6 +95,20 @@ jobs:
       - name: Build (Release)
         run: dotnet build Interfold.slnx --configuration Release --no-restore
 
+      # Tag pins stamp InformationalVersion without the leading `v` so
+      # System.Version / pin compare treat `v0.0.1` and `0.0.1` as the same.
+      - name: Resolve bootstrapper version stamp
+        id: boot_ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            v="${{ github.ref_name }}"
+            echo "version=${v#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0+sha.${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build & upload multi-RID bootstrapper artefacts
         uses: ./.github/actions/build-bootstrapper-multi-rid
         with:
@@ -100,7 +116,7 @@ jobs:
           rids: ${{ env.FULL_BOOTSTRAPPER_BUILD == 'true' && env.BOOTSTRAPPER_RIDS || 'linux-x64' }}
           dockerfile: ${{ env.BOOTSTRAPPER_DOCKERFILE_PATH }}
           artifact-suffix: ${{ github.sha }}
-          bootstrapper-version: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0+sha.{0}', github.sha) }}
+          bootstrapper-version: ${{ steps.boot_ver.outputs.version }}
 
       # tar.gz preserves +x that upload-artifact@v4's zip strips. Ships test-
       # project bins (direct-DLL launch) and `tools/*/bin` because
@@ -296,7 +312,10 @@ jobs:
           $rids = @('win-x64', 'win-arm64')
           $base = Join-Path $env:RUNNER_TEMP 'interfold-bootstrap-win'
           $maxBytes = 75L * 1024 * 1024
-          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "0.0.0+sha.$($env:GITHUB_SHA)" }
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $n = $env:GITHUB_REF_NAME
+            if ($n.StartsWith('v') -or $n.StartsWith('V')) { $n.Substring(1) } else { $n }
+          } else { "0.0.0+sha.$($env:GITHUB_SHA)" }
           New-Item -ItemType Directory -Force -Path $base | Out-Null
 
           foreach ($rid in $rids) {
@@ -538,13 +557,15 @@ jobs:
           cache-to: type=gha,mode=max,scope=interfold-dotnet
 
   # publish-bootstrapper: GitHub Releases tarballs + ghcr.io image for the bootstrapper CLI.
+  # Rolling tags (latest / bleeding-edge) on main/develop; immutable v* pins on tag push.
   publish-bootstrapper:
     runs-on: ubuntu-latest
-    needs: [ test-unit, test-int, build ]
+    needs: [ test-unit, test-int, test-int-bootstrapper-windows, build ]
     if: >-
       github.event_name == 'push' &&
       (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-       github.ref == 'refs/heads/develop')
+       github.ref == 'refs/heads/develop' ||
+       startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: write
       packages: write
@@ -584,7 +605,20 @@ jobs:
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS
 
+      - name: Resolve bootstrapper image version stamp
+        id: boot_ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            v="${{ github.ref_name }}"
+            echo "version=${v#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0+sha.${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish rolling GitHub Release
+        if: github.ref_type != 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref == 'refs/heads/develop' && 'bleeding-edge' || 'latest' }}
@@ -599,6 +633,23 @@ jobs:
             bootstrap-release/SHA256SUMS
             bootstrap-release/version.txt
           make_latest: ${{ github.ref != 'refs/heads/develop' }}
+
+      # Pin Releases omit version.txt — the tag is the version for update-self.
+      - name: Publish pinned GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          prerelease: false
+          make_latest: false
+          files: |
+            bootstrap-release/interfold-bootstrap-linux-x64.tar.gz
+            bootstrap-release/interfold-bootstrap-linux-arm.tar.gz
+            bootstrap-release/interfold-bootstrap-linux-arm64.tar.gz
+            bootstrap-release/interfold-bootstrap-win-x64.zip
+            bootstrap-release/interfold-bootstrap-win-arm64.zip
+            bootstrap-release/SHA256SUMS
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -620,6 +671,8 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
             type=raw,value=bleeding-edge,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=${{ github.ref_name }},enable=${{ github.ref_type == 'tag' }}
 
       - name: Build and push bootstrapper container image
         uses: docker/build-push-action@v6
@@ -634,6 +687,6 @@ jobs:
           tags: ${{ steps.bootstrapper_meta.outputs.tags }}
           labels: ${{ steps.bootstrapper_meta.outputs.labels }}
           build-args: |
-            VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0+sha.{0}', github.sha) }}
+            VERSION=${{ steps.boot_ver.outputs.version }}
           cache-from: type=gha,scope=interfold-dotnet
           cache-to: type=gha,mode=max,scope=interfold-dotnet

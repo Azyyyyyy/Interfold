@@ -62,13 +62,21 @@ internal static class BootstrapperVersion
     {
         var trimmed = version.Trim();
         var plus = trimmed.IndexOf('+');
-        return plus >= 0 ? trimmed[..plus].Trim() : trimmed;
+        var withoutMeta = plus >= 0 ? trimmed[..plus].Trim() : trimmed;
+        return StripLeadingV(withoutMeta);
     }
+
+    private static string StripLeadingV(string version)
+        => version.Length >= 2
+           && (version[0] is 'v' or 'V')
+           && char.IsAsciiDigit(version[1])
+            ? version[1..]
+            : version;
 
     private static bool TryParseComparable(string version, out Version parsed)
     {
         parsed = default!;
-        var core = version.Split('+', 2)[0].Trim();
+        var core = StripLeadingV(version.Split('+', 2)[0].Trim());
         if (Version.TryParse(core, out var v))
         {
             parsed = v;

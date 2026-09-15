@@ -9,6 +9,26 @@ namespace Interfold.Bootstrapper.UnitTests;
 public sealed class BootstrapperReleaseClientTests
 {
     [Test]
+    public async Task PinTagTarballUrlUsesImmutableReleaseTag()
+    {
+        Environment.SetEnvironmentVariable("INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL", null);
+        using var client = BootstrapperReleaseClient.CreateDefault();
+        var pin = BootstrapperReleaseChannel.ParseWire("v0.0.1");
+        var url = client.TarballUrl(pin, "linux-x64");
+        await Assert.That(url.ToString())
+            .IsEqualTo("https://github.com/Azyyyyyy/Interfold/releases/download/v0.0.1/interfold-bootstrap-linux-x64.tar.gz");
+    }
+
+    [Test]
+    public async Task FetchRemoteVersionRejectsPinnedChannel()
+    {
+        using var client = BootstrapperReleaseClient.CreateDefault();
+        var pin = BootstrapperReleaseChannel.ParseWire("v0.0.1");
+        await Assert.That(async () => await client.FetchRemoteVersionAsync(pin, CancellationToken.None))
+            .Throws<InvalidOperationException>();
+    }
+
+    [Test]
     public async Task StableTarballUrlUsesLatestReleaseTag()
     {
         Environment.SetEnvironmentVariable("INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL", null);

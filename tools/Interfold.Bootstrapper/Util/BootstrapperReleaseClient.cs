@@ -58,6 +58,12 @@ internal sealed class BootstrapperReleaseClient : IDisposable
 
     internal async Task<string> FetchRemoteVersionAsync(BootstrapperReleaseChannel channel, CancellationToken ct)
     {
+        if (channel.IsPinned)
+        {
+            throw new InvalidOperationException(
+                $"Pinned channel '{channel.ToWireValue()}' has no version.txt; the release tag is the version.");
+        }
+
         var bytes = await DownloadBytesAsync(VersionUrl(channel), ct).ConfigureAwait(false);
         return Encoding.UTF8.GetString(bytes).Trim();
     }

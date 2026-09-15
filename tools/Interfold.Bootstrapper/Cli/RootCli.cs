@@ -69,7 +69,7 @@ public static class RootCli
         // --- update-self-specific options ---
         var selfUpdateChannelOpt = new Option<string?>("--channel")
         {
-            Description = "Release channel for `update-self`: stable or bleeding-edge. Overrides config.deployment.update.bootstrapper.channel."
+            Description = "Release channel for `update-self`: stable, bleeding-edge, or a pin tag (vX.Y.Z). Overrides config.deployment.update.bootstrapper.channel."
         };
         var selfUpdateCheckOpt = new Option<bool>("--check")
         {
@@ -405,7 +405,7 @@ public static class RootCli
             var wire = parse.GetValue(selfUpdateChannelOpt);
             if (!string.IsNullOrWhiteSpace(wire))
             {
-                channelOverride = BootstrapperReleaseChannelExtensions.ParseWire(wire);
+                channelOverride = BootstrapperReleaseChannel.ParseWire(wire);
             }
         }
 

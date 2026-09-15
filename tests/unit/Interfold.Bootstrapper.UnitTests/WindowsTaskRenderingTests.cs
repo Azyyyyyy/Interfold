@@ -92,6 +92,16 @@ public sealed class WindowsTaskRenderingTests
     }
 
     [Test]
+    public async Task UpdateActionChainsPinnedChannelUnchanged()
+    {
+        var rendered = WindowsScheduledTaskPhase.RenderTask(
+            WindowsScheduledTaskPhase.BackupTemplate,
+            MakeInput(includeUpdate: true, includeSelfUpdate: true, channel: "v0.0.1"));
+
+        await Assert.That(rendered).Contains("update-self --non-interactive --channel v0.0.1");
+    }
+
+    [Test]
     public async Task NoUnsubstitutedTokensRemain()
     {
         var input = MakeInput(includeUpdate: true);

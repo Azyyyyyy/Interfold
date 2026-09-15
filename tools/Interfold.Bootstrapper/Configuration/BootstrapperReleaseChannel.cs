@@ -1,35 +1,122 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Interfold.Bootstrapper.Configuration;
 
-[JsonConverter(typeof(JsonStringEnumConverter<BootstrapperReleaseChannel>))]
-public enum BootstrapperReleaseChannel
+/// <summary>
+/// Rolling channel (<c>stable</c> / <c>bleeding-edge</c>) or an immutable pin tag (<c>vX.Y.Z</c>).
+/// </summary>
+[JsonConverter(typeof(BootstrapperReleaseChannelJsonConverter))]
+public readonly struct BootstrapperReleaseChannel : IEquatable<BootstrapperReleaseChannel>
 {
-    Stable,
-    BleedingEdge,
+    public static BootstrapperReleaseChannel Stable { get; } = new("stable");
+    public static BootstrapperReleaseChannel BleedingEdge { get; } = new("bleeding-edge");
+
+    private readonly string _wire;
+
+    private BootstrapperReleaseChannel(string wire) => _wire = wire;
+
+    private string Wire => _wire ?? "stable";
+
+    public bool IsPinned
+    {
+        get
+        {
+            var w = Wire;
+            return w.Length > 0 && w[0] == 'v';
+        }
+    }
+
+    public string ToWireValue() => Wire;
+
+    public string ToGitHubReleaseTag() => IsPinned
+        ? Wire
+        : Wire switch
+        {
+            "stable" => "latest",
+            "bleeding-edge" => "bleeding-edge",
+            _ => throw new InvalidOperationException($"Unknown bootstrapper release channel '{Wire}'."),
+        };
+
+    public static BootstrapperReleaseChannel ParseWire(string? wire)
+    {
+        var trimmed = wire?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            return Stable;
+        }
+
+        var lower = trimmed.ToLowerInvariant();
+        return lower switch
+        {
+            "stable" => Stable,
+            "bleeding-edge" or "bleedingedge" => BleedingEdge,
+            _ when IsPinTag(lower) => new BootstrapperReleaseChannel(lower),
+            _ => throw new InvalidOperationException(
+                $"Unknown bootstrapper release channel '{wire}'. Expected 'stable', 'bleeding-edge', or a pin tag like 'v0.0.1'."),
+        };
+    }
+
+    /// <summary>Pin tags are <c>v</c> + digit-led semver-ish (<c>v0.0.1</c>, <c>v1.2.3-rc.1</c>).</summary>
+    internal static bool IsPinTag(string wire)
+    {
+        if (wire.Length < 2 || wire[0] != 'v' || !char.IsAsciiDigit(wire[1]))
+        {
+            return false;
+        }
+
+        for (var i = 2; i < wire.Length; i++)
+        {
+            var c = wire[i];
+            if (char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '+' or '_')
+            {
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    public bool Equals(BootstrapperReleaseChannel other)
+        => string.Equals(Wire, other.Wire, StringComparison.Ordinal);
+
+    public override bool Equals(object? obj)
+        => obj is BootstrapperReleaseChannel other && Equals(other);
+
+    public override int GetHashCode()
+        => StringComparer.Ordinal.GetHashCode(Wire);
+
+    public static bool operator ==(BootstrapperReleaseChannel left, BootstrapperReleaseChannel right)
+        => left.Equals(right);
+
+    public static bool operator !=(BootstrapperReleaseChannel left, BootstrapperReleaseChannel right)
+        => !left.Equals(right);
+
+    public override string ToString() => Wire;
 }
 
-internal static class BootstrapperReleaseChannelExtensions
+internal sealed class BootstrapperReleaseChannelJsonConverter : JsonConverter<BootstrapperReleaseChannel>
 {
-    public static string ToWireValue(this BootstrapperReleaseChannel channel) => channel switch
+    public override BootstrapperReleaseChannel Read(
+        ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        BootstrapperReleaseChannel.Stable => "stable",
-        BootstrapperReleaseChannel.BleedingEdge => "bleeding-edge",
-        _ => throw new ArgumentOutOfRangeException(nameof(channel), channel, null),
-    };
+        if (reader.TokenType == JsonTokenType.Null)
+        {
+            return BootstrapperReleaseChannel.Stable;
+        }
 
-    public static BootstrapperReleaseChannel ParseWire(string? wire) => wire?.Trim().ToLowerInvariant() switch
-    {
-        "stable" or null or "" => BootstrapperReleaseChannel.Stable,
-        "bleeding-edge" or "bleedingedge" => BootstrapperReleaseChannel.BleedingEdge,
-        _ => throw new InvalidOperationException(
-            $"Unknown bootstrapper release channel '{wire}'. Expected 'stable' or 'bleeding-edge'."),
-    };
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException(
+                $"Expected string for bootstrapper release channel, got {reader.TokenType}.");
+        }
 
-    public static string ToGitHubReleaseTag(this BootstrapperReleaseChannel channel) => channel switch
-    {
-        BootstrapperReleaseChannel.Stable => "latest",
-        BootstrapperReleaseChannel.BleedingEdge => "bleeding-edge",
-        _ => throw new ArgumentOutOfRangeException(nameof(channel), channel, null),
-    };
+        return BootstrapperReleaseChannel.ParseWire(reader.GetString());
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer, BootstrapperReleaseChannel value, JsonSerializerOptions options)
+        => writer.WriteStringValue(value.ToWireValue());
 }

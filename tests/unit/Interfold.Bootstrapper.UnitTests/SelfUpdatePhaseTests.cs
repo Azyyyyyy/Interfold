@@ -25,6 +25,22 @@ public sealed class SelfUpdatePhaseTests
     }
 
     [Test]
+    public async Task BuildUpdateExecStartChainsPinnedChannel()
+    {
+        var config = TestSupport.MakeConfig();
+        config.Deployment.Update.Bootstrapper.Enabled = true;
+        config.Deployment.Update.Bootstrapper.Channel = BootstrapperReleaseChannel.ParseWire("v0.0.1");
+
+        var exec = SystemdInstallPhase.BuildUpdateExecStart(
+            config,
+            "/opt/interfold/interfold-bootstrap",
+            "/opt/interfold/interfold.bootstrap.json",
+            "/opt/interfold/deploy");
+
+        await Assert.That(exec).Contains("update-self --non-interactive --channel v0.0.1");
+    }
+
+    [Test]
     public async Task BuildUpdateExecStartSkipsSelfUpdateWhenDisabled()
     {
         var config = TestSupport.MakeConfig();
@@ -65,5 +81,6 @@ public sealed class SelfUpdatePhaseTests
         await Assert.That(BootstrapperVersion.IsUpdateAvailable("1.2.0", force: false)).IsTrue();
         await Assert.That(BootstrapperVersion.IsUpdateAvailable("0.0.0-dev", force: false)).IsFalse();
         await Assert.That(BootstrapperVersion.IsUpdateAvailable("0.0.0-dev", force: true)).IsTrue();
+        await Assert.That(BootstrapperVersion.IsUpdateAvailable("v1.2.0", force: false)).IsTrue();
     }
 }
