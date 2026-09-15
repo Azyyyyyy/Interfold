@@ -122,9 +122,14 @@ public sealed class WindowsScheduledTaskInstallTests
 
             var queryBoot = await WindowsInstallScratch.SchtasksAsync("/Query", "/TN", InterfoldTask, "/FO", "LIST", "/V");
             await Assert.That(queryBoot.ExitCode).IsEqualTo(0).Because(queryBoot.Stderr + queryBoot.Stdout);
-            await Assert.That(queryBoot.Stdout).Contains("Least Privilege")
-                .Or.Contains("LeastPrivilege")
-                .Or.Contains("Limited");
+            // GHA windows-latest /Query LIST/V often omits the Run Level column; the
+            // rendered XML is the contract (LeastPrivilege) — assert that on disk.
+            var interfoldXml = Path.Combine(scratch.OutputDir, "scheduled-tasks", "interfold.xml");
+            await Assert.That(File.Exists(interfoldXml)).IsTrue()
+                .Because($"expected rendered task XML at {interfoldXml}");
+            var xml = await WindowsInstallScratch.ReadUtf16Async(interfoldXml);
+            await Assert.That(xml).Contains("<RunLevel>LeastPrivilege</RunLevel>");
+            await Assert.That(xml).DoesNotContain("Highest");
 
             var queryBackup = await WindowsInstallScratch.SchtasksAsync("/Query", "/TN", BackupTask, "/FO", "LIST", "/V");
             await Assert.That(queryBackup.ExitCode).IsEqualTo(0).Because(queryBackup.Stderr + queryBackup.Stdout);

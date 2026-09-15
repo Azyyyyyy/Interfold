@@ -34,28 +34,45 @@ internal static class PathLookup
         var names = CandidateNames(command, pathExt, windows);
         foreach (var dir in pathEnv.Split(separator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            foreach (var name in names)
+            try
             {
-                try
+                if (!Directory.Exists(dir))
+                {
+                    continue;
+                }
+
+                if (windows)
+                {
+                    // Real Windows FS is case-insensitive; PATHEXT is conventionally
+                    // uppercase (.EXE). Unit tests (and DinD) often run this path on Linux,
+                    // so match candidate names with OrdinalIgnoreCase against the directory.
+                    foreach (var file in Directory.EnumerateFiles(dir))
+                    {
+                        var fileName = Path.GetFileName(file);
+                        foreach (var name in names)
+                        {
+                            if (string.Equals(fileName, name, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return file;
+                            }
+                        }
+                    }
+
+                    continue;
+                }
+
+                foreach (var name in names)
                 {
                     var candidate = Path.Combine(dir, name);
                     if (File.Exists(candidate))
                     {
-                        if (windows)
-                        {
-                            var matches = Directory.GetFiles(dir, Path.GetFileName(candidate));
-                            if (matches.Length > 0)
-                            {
-                                return matches[0];
-                            }
-                        }
                         return candidate;
                     }
                 }
-                catch
-                {
-                    // PATH entries can be malformed or unreadable; skip and keep scanning.
-                }
+            }
+            catch
+            {
+                // PATH entries can be malformed or unreadable; skip and keep scanning.
             }
         }
 
