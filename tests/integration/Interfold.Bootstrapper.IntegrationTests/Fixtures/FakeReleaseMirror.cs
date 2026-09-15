@@ -19,8 +19,9 @@ internal static class FakeReleaseMirror
         await dinD.CopyInAsync(ScriptPath, containerScript).ConfigureAwait(false);
         await dinD.ExecAsync(["sed", "-i", "s/\\r$//", containerScript]).ConfigureAwait(false);
         await dinD.ExecAsync(["chmod", "+x", containerScript]).ConfigureAwait(false);
+        // Script uses bashisms (`set -o pipefail`); Ubuntu DinD's `sh` is dash.
         return await dinD.ExecAsync([
-            "sh", containerScript,
+            "bash", containerScript,
             sharedBootstrapper,
             privateBootstrapper,
             releaseRoot,
