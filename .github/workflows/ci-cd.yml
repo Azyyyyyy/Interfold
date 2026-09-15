@@ -38,16 +38,63 @@ env:
   DOTNET_VERSION: '10.0.x'
 
 jobs:
-  # prepare: emit tests/integration/*/ as a JSON array for test-int's matrix.
+  # prepare: emit tests/integration/*/ as a JSON array for test-int's matrix,
+  # and path gates for expensive optional suites (MultiNode Scylla today).
   # `Interfold.IntegrationTests.Shared` is included because it also hosts real
   # tests (ReplayParityTests).
   prepare:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
+      multinode_scylla: ${{ steps.multinode_scylla.outputs.changed }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve diff range
+        id: range
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "force=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "force=false" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect MultiNode Scylla-relevant changes
+        id: multinode_scylla
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.range.outputs.force }}" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "MultiNode Scylla gate: forced on (${{ github.event_name }} / ${{ github.ref_type }})"
+            exit 0
+          fi
+          # Scylla project + 7-DC rack props/scripts + the Explicit suite/fixture.
+          pattern='^infrastructure/Interfold\.Infrastructure\.Scylla/|^db/scylla/|^scripts/scylla/|^tests/integration/Interfold\.Infrastructure\.IntegrationTests/Topology/MultiNodeScyllaTests\.cs$|^tests/integration/Interfold\.Infrastructure\.IntegrationTests/TestServices/MultiNodeScyllaFixture\.cs$'
+          changed="$(bash .github/scripts/detect-path-changes.sh \
+            '${{ steps.range.outputs.base }}' \
+            '${{ steps.range.outputs.head }}' \
+            "$pattern")"
+          echo "changed=${changed}" >> "$GITHUB_OUTPUT"
+          if [ "$changed" = "true" ]; then
+            echo "MultiNode Scylla gate: ON"
+            git diff --name-only '${{ steps.range.outputs.base }}' '${{ steps.range.outputs.head }}' \
+              | grep -E "$pattern" || true
+          else
+            echo "MultiNode Scylla gate: OFF"
+          fi
 
       - name: Enumerate integration test projects
         id: set-matrix
@@ -58,6 +105,7 @@ jobs:
             | jq -R -s -c 'split("\n") | map(select(length > 0))')
           echo "matrix=$projects" >> "$GITHUB_OUTPUT"
           echo "Discovered integration test projects: $projects"
+          echo "multinode_scylla=${{ steps.multinode_scylla.outputs.changed }}"
 
   # build: whole-solution compile + bootstrapper buildx (matrix size gated by
   # `FULL_BOOTSTRAPPER_BUILD` below). Uploads per-RID `interfold-bootstrap-<rid>`
@@ -234,9 +282,12 @@ jobs:
       #     mixed filter would exclude MultiNode. The first pass produces the
       #     canonical sidecar; the second is renamed on-the-fly so both survive
       #     upload. `test-int-summary` merges them like any other leg's sidecars.
+      #     The MultiNode pass is gated by prepare.outputs.multinode_scylla
+      #     (Scylla project / db/scylla / fixture / this test file).
       - name: Test (integration - ${{ matrix.project }})
         env:
           TUNIT_AGGREGATE_REPORTS: defer
+          MULTINODE_SCYLLA: ${{ needs.prepare.outputs.multinode_scylla }}
         run: |
           set -euo pipefail
           dll="tests/integration/${{ matrix.project }}/bin/Release/net10.0/${{ matrix.project }}.dll"
@@ -249,6 +300,10 @@ jobs:
             Interfold.Infrastructure.IntegrationTests)
               dotnet "$dll" \
                 --coverage --coverage-output-format cobertura
+              if [ "${MULTINODE_SCYLLA:-false}" != "true" ]; then
+                echo "Skipping MultiNodeScyllaTests (no Scylla-project path changes)"
+                exit 0
+              fi
               # Preserve the non-explicit sidecar before the second invocation
               # overwrites it. Both files are picked up by the `**/*.tunit-report.json`
               # upload glob below.
