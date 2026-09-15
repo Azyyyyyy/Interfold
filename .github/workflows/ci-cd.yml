@@ -633,7 +633,8 @@ jobs:
           set -euo pipefail
           # Unique tag per run: immutable releases lock tags after publish, so fixed
           # rolling names (latest / bleeding-edge) cannot be reused. Clients resolve
-          # stable via /releases/latest and bleeding-edge via newest bleeding-edge-* prerelease.
+          # both channels by paginating Releases for the newest matching prefix
+          # (stable-* full release, bleeding-edge-* prerelease) — not /releases/latest.
           short_sha="$(echo '${{ github.sha }}' | cut -c1-12)"
           if [ '${{ github.ref }}' = 'refs/heads/develop' ]; then
             echo "tag=bleeding-edge-${{ github.run_number }}-${short_sha}" >> "$GITHUB_OUTPUT"
@@ -644,6 +645,7 @@ jobs:
             echo "tag=stable-${{ github.run_number }}-${short_sha}" >> "$GITHUB_OUTPUT"
             echo "prefix=stable-" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            # Still mark for the GitHub UI; update-self does not rely on this flag.
             echo "make_latest=true" >> "$GITHUB_OUTPUT"
           fi
 

@@ -86,12 +86,20 @@ internal sealed class BootstrapperReleaseClient : IDisposable
 
         if (channel == BootstrapperReleaseChannel.Stable)
         {
-            return await FetchLatestReleaseTagAsync(ct).ConfigureAwait(false);
+            return await FetchNewestRollingTagAsync(
+                    StableRollingTagPrefix,
+                    requirePrerelease: false,
+                    ct)
+                .ConfigureAwait(false);
         }
 
         if (channel == BootstrapperReleaseChannel.BleedingEdge)
         {
-            return await FetchNewestBleedingEdgeTagAsync(ct).ConfigureAwait(false);
+            return await FetchNewestRollingTagAsync(
+                    BleedingEdgeRollingTagPrefix,
+                    requirePrerelease: true,
+                    ct)
+                .ConfigureAwait(false);
         }
 
         throw new InvalidOperationException(
@@ -143,37 +151,60 @@ internal sealed class BootstrapperReleaseClient : IDisposable
         CancellationToken ct)
         => DownloadVerifiedReleaseAssetAsync(channel, rid, destinationPath, ct);
 
-    private async Task<string> FetchLatestReleaseTagAsync(CancellationToken ct)
+    /// <summary>
+    /// Walks GitHub Releases pages (newest first) until a non-draft release whose tag starts
+    /// with <paramref name="tagPrefix"/> matches the prerelease filter.
+    /// Does not use <c>/releases/latest</c> — that flag tracks whichever release was last
+    /// marked latest (often not main when develop publishes more often).
+    /// </summary>
+    private async Task<string> FetchNewestRollingTagAsync(
+        string tagPrefix,
+        bool requirePrerelease,
+        CancellationToken ct)
     {
-        var url = new Uri($"https://api.github.com/repos/{GitHubOwner}/{GitHubRepo}/releases/latest");
-        using var doc = await DownloadJsonAsync(url, ct).ConfigureAwait(false);
-        if (!doc.RootElement.TryGetProperty("tag_name", out var tagEl)
-            || tagEl.GetString() is not { Length: > 0 } tag)
+        const int pageSize = 100;
+        for (var page = 1; ; page++)
         {
-            throw new InvalidOperationException(
-                "GitHub releases/latest response did not include a tag_name.");
+            var url = new Uri(
+                $"https://api.github.com/repos/{GitHubOwner}/{GitHubRepo}/releases?per_page={pageSize}&page={page}");
+            using var doc = await DownloadJsonAsync(url, ct).ConfigureAwait(false);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                throw new InvalidOperationException(
+                    $"GitHub releases list response was not an array (page {page}).");
+            }
+
+            var count = doc.RootElement.GetArrayLength();
+            if (count == 0)
+            {
+                break;
+            }
+
+            var tag = SelectNewestRollingTag(doc.RootElement, tagPrefix, requirePrerelease);
+            if (tag is not null)
+            {
+                return tag;
+            }
+
+            if (count < pageSize)
+            {
+                break;
+            }
         }
 
-        return tag;
+        var kind = requirePrerelease ? "prerelease" : "release";
+        throw new InvalidOperationException(
+            $"No {kind} tagged '{tagPrefix}*' was found on GitHub Releases.");
     }
 
-    private async Task<string> FetchNewestBleedingEdgeTagAsync(CancellationToken ct)
-    {
-        var url = new Uri(
-            $"https://api.github.com/repos/{GitHubOwner}/{GitHubRepo}/releases?per_page=30");
-        using var doc = await DownloadJsonAsync(url, ct).ConfigureAwait(false);
-        var tag = SelectNewestBleedingEdgeTag(doc.RootElement);
-        if (tag is null)
-        {
-            throw new InvalidOperationException(
-                $"No prerelease tagged '{BleedingEdgeRollingTagPrefix}*' was found on GitHub Releases.");
-        }
-
-        return tag;
-    }
-
-    /// <summary>Picks the first non-draft prerelease whose tag starts with <see cref="BleedingEdgeRollingTagPrefix"/>.</summary>
-    internal static string? SelectNewestBleedingEdgeTag(JsonElement releases)
+    /// <summary>
+    /// Picks the first non-draft release on a page (already newest-first) whose tag starts
+    /// with <paramref name="tagPrefix"/> and matches <paramref name="requirePrerelease"/>.
+    /// </summary>
+    internal static string? SelectNewestRollingTag(
+        JsonElement releases,
+        string tagPrefix,
+        bool requirePrerelease)
     {
         if (releases.ValueKind != JsonValueKind.Array)
         {
@@ -187,7 +218,9 @@ internal sealed class BootstrapperReleaseClient : IDisposable
                 continue;
             }
 
-            if (!release.TryGetProperty("prerelease", out var pre) || pre.ValueKind != JsonValueKind.True)
+            var isPrerelease = release.TryGetProperty("prerelease", out var pre)
+                && pre.ValueKind == JsonValueKind.True;
+            if (isPrerelease != requirePrerelease)
             {
                 continue;
             }
@@ -198,7 +231,7 @@ internal sealed class BootstrapperReleaseClient : IDisposable
                 continue;
             }
 
-            if (tag.StartsWith(BleedingEdgeRollingTagPrefix, StringComparison.Ordinal))
+            if (tag.StartsWith(tagPrefix, StringComparison.Ordinal))
             {
                 return tag;
             }

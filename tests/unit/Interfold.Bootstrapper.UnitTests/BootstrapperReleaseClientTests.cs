@@ -30,20 +30,63 @@ public sealed class BootstrapperReleaseClientTests
     }
 
     [Test]
-    public async Task SelectNewestBleedingEdgeTagSkipsDraftsAndNonMatching()
+    public async Task SelectNewestRollingTagStableSkipsPrereleasesAndDrafts()
+    {
+        using var doc = JsonDocument.Parse(
+            """
+            [
+              { "tag_name": "bleeding-edge-99-ffff", "draft": false, "prerelease": true },
+              { "tag_name": "stable-5-draft", "draft": true, "prerelease": false },
+              { "tag_name": "v1.0.0", "draft": false, "prerelease": false },
+              { "tag_name": "stable-4-cafebabe", "draft": false, "prerelease": false },
+              { "tag_name": "stable-3-older", "draft": false, "prerelease": false }
+            ]
+            """);
+
+        var tag = BootstrapperReleaseClient.SelectNewestRollingTag(
+            doc.RootElement,
+            BootstrapperReleaseClient.StableRollingTagPrefix,
+            requirePrerelease: false);
+        await Assert.That(tag).IsEqualTo("stable-4-cafebabe");
+    }
+
+    [Test]
+    public async Task SelectNewestRollingTagBleedingEdgeSkipsDraftsAndNonMatching()
     {
         using var doc = JsonDocument.Parse(
             """
             [
               { "tag_name": "v1.0.0", "draft": false, "prerelease": false },
+              { "tag_name": "stable-9-aaaa", "draft": false, "prerelease": false },
               { "tag_name": "bleeding-edge-9-deadbeef", "draft": true, "prerelease": true },
               { "tag_name": "bleeding-edge-8-cafebabe", "draft": false, "prerelease": true },
               { "tag_name": "bleeding-edge-7-older", "draft": false, "prerelease": true }
             ]
             """);
 
-        var tag = BootstrapperReleaseClient.SelectNewestBleedingEdgeTag(doc.RootElement);
+        var tag = BootstrapperReleaseClient.SelectNewestRollingTag(
+            doc.RootElement,
+            BootstrapperReleaseClient.BleedingEdgeRollingTagPrefix,
+            requirePrerelease: true);
         await Assert.That(tag).IsEqualTo("bleeding-edge-8-cafebabe");
+    }
+
+    [Test]
+    public async Task SelectNewestRollingTagReturnsNullWhenPrefixAbsentOnPage()
+    {
+        using var doc = JsonDocument.Parse(
+            """
+            [
+              { "tag_name": "bleeding-edge-1-aaaa", "draft": false, "prerelease": true },
+              { "tag_name": "v0.0.1", "draft": false, "prerelease": false }
+            ]
+            """);
+
+        var tag = BootstrapperReleaseClient.SelectNewestRollingTag(
+            doc.RootElement,
+            BootstrapperReleaseClient.StableRollingTagPrefix,
+            requirePrerelease: false);
+        await Assert.That(tag).IsNull();
     }
 
     [Test]
