@@ -23,13 +23,14 @@ dev `aspire run` flow, with a Docker Compose publisher and a host-side prep wrap
 
 ### One-shot install
 
-CI uploads per-arch bootstrapper artefacts (Linux `.tar.gz`, Windows `.zip`), plus
-`SHA256SUMS` on every GitHub Release. Rolling channels publish a **unique tag per CI run**
-(`stable-<run>-<sha>` / `bleeding-edge-<run>-<sha>`) because the repo uses immutable
-releases — fixed tag names cannot be republished. `update-self` resolves both channels by
-paginating the Releases API for the newest matching prefix (`stable-*` full release,
-`bleeding-edge-*` prerelease) — not GitHub’s “latest” flag. Pinned `v*` Releases omit
-`version.txt` — the tag **is** the version:
+CI uploads per-arch bootstrapper artefacts (Linux `.tar.gz`, Windows `.zip`). Rolling
+channels publish a **unique tag per CI run** (`stable-{version}` /
+`bleeding-edge-{version}`, where `{version}` is the InformationalVersion stamp) because
+the repo uses immutable releases — fixed tag names cannot be republished. `update-self`
+resolves both channels by paginating the Releases API for the newest matching prefix
+(`stable-*` full release, `bleeding-edge-*` prerelease) — not GitHub’s “latest” flag —
+then verifies downloads against each asset’s Releases API `digest` (no `SHA256SUMS` /
+`version.txt` assets). Pinned `v*` tags **are** the version:
 
 | Arch | Linux | Windows |
 |---|---|---|
@@ -147,7 +148,7 @@ deploy/
 
 `update-self` flags:
 
-- `--channel stable|bleeding-edge|vX.Y.Z` — release channel or pin tag (defaults to `deployment.update.bootstrapper.channel`). Pins compare the local binary to the tag itself (no `version.txt`).
+- `--channel stable|bleeding-edge|vX.Y.Z` — release channel or pin tag (defaults to `deployment.update.bootstrapper.channel`). Rolling versions come from the tag suffix; pins compare the local binary to the pin tag.
 - `--check` — exit 0 when up to date, exit 2 when a newer release is available (no write).
 - `--force` — re-download even when versions match (repair a corrupt binary).
 - `--rollback` — restore `{binary}.old` over the live binary.

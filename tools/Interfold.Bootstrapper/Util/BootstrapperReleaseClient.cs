@@ -36,6 +36,10 @@ internal sealed class BootstrapperReleaseClient : IDisposable
         return new BootstrapperReleaseClient(http);
     }
 
+    private static bool UsesReleaseMirror
+        => !string.IsNullOrWhiteSpace(
+            Environment.GetEnvironmentVariable("INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL"));
+
     /// <summary>
     /// Sync URL helper for pins and <c>INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL</c> mirrors.
     /// Live rolling channels resolve a unique tag via <see cref="ResolveReleaseTagAsync"/> first.
@@ -47,34 +51,31 @@ internal sealed class BootstrapperReleaseClient : IDisposable
     internal Uri TarballUrl(BootstrapperReleaseChannel channel, string rid)
         => ReleaseAssetUrl(channel, rid);
 
-    internal Uri ChecksumsUrl(BootstrapperReleaseChannel channel)
-        => ReleaseAssetUri(channel.ToGitHubReleaseTag(), "SHA256SUMS");
-
-    internal Uri VersionUrl(BootstrapperReleaseChannel channel)
-        => ReleaseAssetUri(channel.ToGitHubReleaseTag(), "version.txt");
-
     private static Uri ReleaseAssetUri(string tag, string fileName)
     {
+        // Version stamps embed `+` build metadata in rolling tags; encode so download
+        // URLs don't treat `+` as a space.
+        var encodedTag = Uri.EscapeDataString(tag);
         var overrideBase = Environment.GetEnvironmentVariable("INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL");
         if (!string.IsNullOrWhiteSpace(overrideBase))
         {
-            return new Uri($"{overrideBase.TrimEnd('/')}/{tag}/{fileName}");
+            return new Uri($"{overrideBase.TrimEnd('/')}/{encodedTag}/{fileName}");
         }
 
         return new Uri(
-            $"https://github.com/{GitHubOwner}/{GitHubRepo}/releases/download/{tag}/{fileName}");
+            $"https://github.com/{GitHubOwner}/{GitHubRepo}/releases/download/{encodedTag}/{fileName}");
     }
 
     /// <summary>
     /// Resolves the GitHub Release tag for <paramref name="channel"/>.
-    /// Pins use the tag as-is; rolling channels query the Releases API (unique per-run tags
-    /// under immutable releases). Test mirrors keep using <see cref="BootstrapperReleaseChannel.ToGitHubReleaseTag"/>.
+    /// Pins use the tag as-is; rolling channels query the Releases API for the newest
+    /// <c>stable-{version}</c> / <c>bleeding-edge-{version}</c> tag. Test mirrors keep using
+    /// <see cref="BootstrapperReleaseChannel.ToGitHubReleaseTag"/>.
     /// </summary>
     internal async Task<string> ResolveReleaseTagAsync(
         BootstrapperReleaseChannel channel, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(
-                Environment.GetEnvironmentVariable("INTERFOLD_BOOTSTRAP_RELEASE_BASE_URL")))
+        if (UsesReleaseMirror)
         {
             return channel.ToGitHubReleaseTag();
         }
@@ -106,17 +107,45 @@ internal sealed class BootstrapperReleaseClient : IDisposable
             $"Unknown bootstrapper release channel '{channel.ToWireValue()}'.");
     }
 
+    /// <summary>
+    /// Remote version identity. Live releases encode it in the tag
+    /// (<c>stable-{version}</c> / <c>bleeding-edge-{version}</c> / pin <c>v*</c>);
+    /// test mirrors still serve <c>version.txt</c>.
+    /// </summary>
     internal async Task<string> FetchRemoteVersionAsync(BootstrapperReleaseChannel channel, CancellationToken ct)
     {
         if (channel.IsPinned)
         {
-            throw new InvalidOperationException(
-                $"Pinned channel '{channel.ToWireValue()}' has no version.txt; the release tag is the version.");
+            return channel.ToWireValue();
         }
 
         var tag = await ResolveReleaseTagAsync(channel, ct).ConfigureAwait(false);
-        var bytes = await DownloadBytesAsync(ReleaseAssetUri(tag, "version.txt"), ct).ConfigureAwait(false);
-        return Encoding.UTF8.GetString(bytes).Trim();
+        if (UsesReleaseMirror)
+        {
+            var bytes = await DownloadBytesAsync(ReleaseAssetUri(tag, "version.txt"), ct)
+                .ConfigureAwait(false);
+            return Encoding.UTF8.GetString(bytes).Trim();
+        }
+
+        return VersionFromReleaseTag(tag);
+    }
+
+    /// <summary>
+    /// Strips the rolling channel prefix from a live release tag. Pins return the tag as-is.
+    /// </summary>
+    internal static string VersionFromReleaseTag(string tag)
+    {
+        if (tag.StartsWith(StableRollingTagPrefix, StringComparison.Ordinal))
+        {
+            return tag[StableRollingTagPrefix.Length..];
+        }
+
+        if (tag.StartsWith(BleedingEdgeRollingTagPrefix, StringComparison.Ordinal))
+        {
+            return tag[BleedingEdgeRollingTagPrefix.Length..];
+        }
+
+        return tag;
     }
 
     internal async Task DownloadVerifiedReleaseAssetAsync(
@@ -127,9 +156,9 @@ internal sealed class BootstrapperReleaseClient : IDisposable
     {
         var tag = await ResolveReleaseTagAsync(channel, ct).ConfigureAwait(false);
         var assetName = BootstrapperRid.ReleaseAssetName(rid);
-        var sumsText = Encoding.UTF8.GetString(
-            await DownloadBytesAsync(ReleaseAssetUri(tag, "SHA256SUMS"), ct).ConfigureAwait(false));
-        var expectedHash = ParseSha256Sum(sumsText, assetName);
+        var expectedHash = UsesReleaseMirror
+            ? await FetchMirrorSha256Async(tag, assetName, ct).ConfigureAwait(false)
+            : await FetchGitHubAssetSha256Async(tag, assetName, ct).ConfigureAwait(false);
 
         var assetBytes = await DownloadBytesAsync(ReleaseAssetUri(tag, assetName), ct).ConfigureAwait(false);
         var actualHash = Convert.ToHexString(SHA256.HashData(assetBytes)).ToLowerInvariant();
@@ -151,11 +180,69 @@ internal sealed class BootstrapperReleaseClient : IDisposable
         CancellationToken ct)
         => DownloadVerifiedReleaseAssetAsync(channel, rid, destinationPath, ct);
 
+    private async Task<string> FetchMirrorSha256Async(string tag, string assetName, CancellationToken ct)
+    {
+        var sumsText = Encoding.UTF8.GetString(
+            await DownloadBytesAsync(ReleaseAssetUri(tag, "SHA256SUMS"), ct).ConfigureAwait(false));
+        return ParseSha256Sum(sumsText, assetName);
+    }
+
+    private async Task<string> FetchGitHubAssetSha256Async(string tag, string assetName, CancellationToken ct)
+    {
+        var url = new Uri(
+            $"https://api.github.com/repos/{GitHubOwner}/{GitHubRepo}/releases/tags/{Uri.EscapeDataString(tag)}");
+        using var doc = await DownloadJsonAsync(url, ct).ConfigureAwait(false);
+        if (!doc.RootElement.TryGetProperty("assets", out var assets)
+            || assets.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidOperationException(
+                $"GitHub release '{tag}' response did not include an assets array.");
+        }
+
+        foreach (var asset in assets.EnumerateArray())
+        {
+            if (!asset.TryGetProperty("name", out var nameEl)
+                || !string.Equals(nameEl.GetString(), assetName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!asset.TryGetProperty("digest", out var digestEl)
+                || digestEl.GetString() is not { Length: > 0 } digest)
+            {
+                throw new InvalidOperationException(
+                    $"GitHub asset '{assetName}' on release '{tag}' has no digest (immutable releases required).");
+            }
+
+            return ParseAssetDigestSha256(digest);
+        }
+
+        throw new InvalidOperationException(
+            $"GitHub release '{tag}' does not list asset '{assetName}'.");
+    }
+
+    /// <summary>Parses a Releases API <c>digest</c> value (<c>sha256:&lt;hex&gt;</c>) to lowercase hex.</summary>
+    internal static string ParseAssetDigestSha256(string digest)
+    {
+        const string prefix = "sha256:";
+        if (!digest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Unsupported asset digest '{digest}'. Expected '{prefix}<hex>'.");
+        }
+
+        var hex = digest[prefix.Length..].Trim();
+        if (hex.Length == 0)
+        {
+            throw new InvalidOperationException($"Empty sha256 digest in '{digest}'.");
+        }
+
+        return hex.ToLowerInvariant();
+    }
+
     /// <summary>
     /// Walks GitHub Releases pages (newest first) until a non-draft release whose tag starts
     /// with <paramref name="tagPrefix"/> matches the prerelease filter.
-    /// Does not use <c>/releases/latest</c> — that flag tracks whichever release was last
-    /// marked latest (often not main when develop publishes more often).
     /// </summary>
     private async Task<string> FetchNewestRollingTagAsync(
         string tagPrefix,
@@ -341,6 +428,7 @@ internal sealed class BootstrapperReleaseClient : IDisposable
         return await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
     }
 
+    /// <summary>Parses a classic <c>sha256sum</c> file (test mirrors only).</summary>
     internal static string ParseSha256Sum(string sumsText, string fileName)
     {
         foreach (var rawLine in sumsText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -354,7 +442,6 @@ internal sealed class BootstrapperReleaseClient : IDisposable
 
             var hash = line[..space].Trim();
             var name = line[(space + 1)..].Trim();
-            // sha256sum -b may prefix the name with '*'.
             if (name.StartsWith('*'))
             {
                 name = name[1..];

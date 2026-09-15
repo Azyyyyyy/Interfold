@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches: [ main, develop ]
-    # Immutable bootstrapper pins (tag IS the version; no version.txt on the Release).
+    # Immutable bootstrapper pins (tag IS the version).
     tags: [ 'v*' ]
   # Manual safety-net for validating arm cross-builds from a PR head branch -
   # dispatch against the branch with `bootstrapper-full-rids` on (default) to
@@ -662,24 +662,6 @@ jobs:
           merge-multiple: true
           path: bootstrap-release
 
-      - name: Download bootstrapper release metadata
-        uses: actions/download-artifact@v4
-        with:
-          name: interfold-bootstrap-release-meta-${{ github.sha }}
-          path: bootstrap-release
-
-      - name: Append Windows zip checksums to SHA256SUMS
-        shell: bash
-        working-directory: bootstrap-release
-        run: |
-          set -euo pipefail
-          for zip in interfold-bootstrap-win-*.zip; do
-            [[ -f "$zip" ]] || continue
-            sha256sum "$zip" >> SHA256SUMS
-          done
-          echo "--- SHA256SUMS ---"
-          cat SHA256SUMS
-
       - name: Resolve bootstrapper image version stamp
         id: boot_ver
         shell: bash
@@ -695,21 +677,23 @@ jobs:
         run: |
           set -euo pipefail
           # Unique tag per run: immutable releases lock tags after publish, so fixed
-          # rolling names (latest / bleeding-edge) cannot be reused. Clients resolve
-          # both channels by paginating Releases for the newest matching prefix
-          # (stable-* full release, bleeding-edge-* prerelease) — not /releases/latest.
-          short_sha="$(echo '${{ github.sha }}' | cut -c1-12)"
+          # rolling names cannot be reused. The InformationalVersion stamp is part of
+          # the tag (stable-{version} / bleeding-edge-{version}); clients strip the
+          # prefix for update comparison and verify assets via the Releases API
+          # `digest` field — no version.txt / SHA256SUMS assets.
+          version='${{ steps.boot_ver.outputs.version }}'
+          if [ -z "$version" ]; then
+            echo "boot_ver.outputs.version was empty" >&2
+            exit 1
+          fi
           if [ '${{ github.ref }}' = 'refs/heads/develop' ]; then
-            echo "tag=bleeding-edge-${{ github.run_number }}-${short_sha}" >> "$GITHUB_OUTPUT"
+            echo "tag=bleeding-edge-${version}" >> "$GITHUB_OUTPUT"
             echo "prefix=bleeding-edge-" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
-            echo "make_latest=false" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=stable-${{ github.run_number }}-${short_sha}" >> "$GITHUB_OUTPUT"
+            echo "tag=stable-${version}" >> "$GITHUB_OUTPUT"
             echo "prefix=stable-" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
-            # Still mark for the GitHub UI; update-self does not rely on this flag.
-            echo "make_latest=true" >> "$GITHUB_OUTPUT"
           fi
 
       # Draft first so assets attach before immutability locks the release (required for
@@ -730,8 +714,6 @@ jobs:
             bootstrap-release/interfold-bootstrap-linux-arm64.tar.gz
             bootstrap-release/interfold-bootstrap-win-x64.zip
             bootstrap-release/interfold-bootstrap-win-arm64.zip
-            bootstrap-release/SHA256SUMS
-            bootstrap-release/version.txt
 
       - name: Finalize rolling GitHub Release
         if: github.ref_type != 'tag'
@@ -764,8 +746,8 @@ jobs:
             gh release delete "$tag" --yes --cleanup-tag
           done
 
-      # Pin Releases omit version.txt — the tag is the version for update-self.
-      # Also draft-then-publish so assets land before immutability locks the release.
+      # Pin tag is the version identity (v* → InformationalVersion without leading v).
+      # Draft-then-publish so assets land before immutability locks the release.
       - name: Publish pinned GitHub Release (draft)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -782,7 +764,6 @@ jobs:
             bootstrap-release/interfold-bootstrap-linux-arm64.tar.gz
             bootstrap-release/interfold-bootstrap-win-x64.zip
             bootstrap-release/interfold-bootstrap-win-arm64.zip
-            bootstrap-release/SHA256SUMS
 
       - name: Finalize pinned GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
