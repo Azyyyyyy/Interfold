@@ -17,7 +17,8 @@ public sealed class SystemdUnitRenderingTests
         ComposeFile: "/srv/interfold/deploy/docker-compose.yaml",
         ConfigPath: "/srv/interfold/deploy/interfold.bootstrap.json",
         BinaryPath: "/opt/interfold/interfold-bootstrap",
-        OnCalendar: "daily");
+        OnCalendar: "daily",
+        ExecStart: "/opt/interfold/interfold-bootstrap update-images --config /srv/interfold/deploy/interfold.bootstrap.json --output-dir /srv/interfold/deploy");
 
     [Test]
     public async Task InterfoldServiceContainsExpectedExecStart()

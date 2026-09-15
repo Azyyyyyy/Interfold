@@ -1,14 +1,14 @@
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using Interfold.Bootstrapper.Cli;
 
 namespace Interfold.Bootstrapper.Util;
 
 /// <summary>
-/// Cross-platform wrapper around <c>libc chmod(2)</c> for the "restrict / relax file
-/// permissions after writing" pattern the certificate + secrets phases both need.
-/// No-op on Windows (where ACLs don't translate cleanly to a Unix mode) — we expect
-/// Linux for production self-hosting; the Windows path is exercised only by developer
-/// workstations and CI runners for round-tripping test fixtures.
+/// Restrict / relax file permissions after writing. Linux/macOS: <c>libc chmod(2)</c>.
+/// Windows: matching NTFS ACL (owner-only / inherited-read / world-writable).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -43,8 +43,8 @@ internal static partial class UnixFilePermissions
     private const int S_777 = 0x1FF; // 0o777 - world read/write/execute (bind-mount dirs)
 
     /// <summary>
-    /// Applies <c>0600</c> (owner read/write only). Windows: no-op. Failures logged
-    /// as a warning; the caller continues.
+    /// Applies <c>0600</c> (owner read/write only). Failures logged as a warning; the
+    /// caller continues.
     /// </summary>
     /// <param name="path">The file path to chmod.</param>
     /// <param name="logger">Where the warning goes when the chmod call returns non-zero.</param>
@@ -54,8 +54,8 @@ internal static partial class UnixFilePermissions
         => Apply(path, S_600, "0600", logger, artifactLabel);
 
     /// <summary>
-    /// Applies <c>0644</c> (owner read/write, group + other read). Windows: no-op.
-    /// Failures logged as a warning; the caller continues.
+    /// Applies <c>0644</c> (owner read/write, group + other read). Failures logged as a
+    /// warning; the caller continues.
     /// </summary>
     /// <param name="path">The file path to chmod.</param>
     /// <param name="logger">Where the warning goes when the chmod call returns non-zero.</param>
@@ -65,14 +65,27 @@ internal static partial class UnixFilePermissions
         => Apply(path, S_644, "0644", logger, artifactLabel);
 
     /// <summary>
-    /// Applies <c>0777</c> (world-writable). Windows: no-op. Used for the avatar host
-    /// directory so the non-root API container can create upload files.
+    /// Applies <c>0777</c> (world-writable). Used for the avatar host directory so the
+    /// non-root API container can create upload files.
     /// </summary>
     public static void SetWorldWritable(string path, PhaseLogger logger, string artifactLabel = "directory")
         => Apply(path, S_777, "0777", logger, artifactLabel);
 
     private static void Apply(string path, int mode, string modeDisplay, PhaseLogger logger, string artifactLabel)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                ApplyWindowsAcl(path, mode);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn($"SetAccessControl({path}, {modeDisplay}) failed: {ex.Message} ({artifactLabel} written but permissions not adjusted)");
+            }
+            return;
+        }
+
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
             !RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
@@ -85,6 +98,48 @@ internal static partial class UnixFilePermissions
             var err = Marshal.GetLastPInvokeError();
             logger.Warn($"chmod({path}, {modeDisplay}) failed: errno={err} ({artifactLabel} written but permissions not adjusted)");
         }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void ApplyWindowsAcl(string path, int mode)
+    {
+        var identity = WindowsIdentity.GetCurrent().User
+            ?? throw new InvalidOperationException("current Windows identity has no User SID");
+        var world = new SecurityIdentifier(WellKnownSidType.WorldSid, null);
+
+        if (Directory.Exists(path))
+        {
+            var info = new DirectoryInfo(path);
+            var security = new DirectorySecurity();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            security.AddAccessRule(new FileSystemAccessRule(
+                identity, FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None, AccessControlType.Allow));
+            if (mode != S_600)
+            {
+                var worldRights = mode == S_777 ? FileSystemRights.FullControl : FileSystemRights.ReadAndExecute;
+                security.AddAccessRule(new FileSystemAccessRule(
+                    world, worldRights,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                    PropagationFlags.None, AccessControlType.Allow));
+            }
+            info.SetAccessControl(security);
+            return;
+        }
+
+        var file = new FileInfo(path);
+        var fileSecurity = new FileSecurity();
+        fileSecurity.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        fileSecurity.AddAccessRule(new FileSystemAccessRule(
+            identity, FileSystemRights.FullControl, AccessControlType.Allow));
+        if (mode != S_600)
+        {
+            var worldRights = mode == S_777 ? FileSystemRights.FullControl : FileSystemRights.ReadAndExecute;
+            fileSecurity.AddAccessRule(new FileSystemAccessRule(
+                world, worldRights, AccessControlType.Allow));
+        }
+        file.SetAccessControl(fileSecurity);
     }
 
     private static partial class NativeMethods

@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [ main, develop ]
+    # Immutable bootstrapper pins (tag IS the version; no version.txt on the Release).
+    tags: [ 'v*' ]
   # Manual safety-net for validating arm cross-builds from a PR head branch -
   # dispatch against the branch with `bootstrapper-full-rids` on (default) to
   # run the full RID matrix a PR run otherwise skips.
@@ -71,6 +73,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Need full history + tags so rolling stamps can use `git describe` for the last v* tag.
+          fetch-depth: 0
 
       # Cache-key = csproj + global.json hashes (no packages.lock.json here);
       # any csproj edit busts it, still cheaper than a cold restore.
@@ -93,6 +98,17 @@ jobs:
       - name: Build (Release)
         run: dotnet build Interfold.slnx --configuration Release --no-restore
 
+      # Tag pins stamp InformationalVersion without the leading `v` so
+      # System.Version / pin compare treat `v0.0.1` and `0.0.1` as the same.
+      # Rolling builds use `{last v* tag}+{short commit id}` (see resolve script).
+      - name: Resolve bootstrapper version stamp
+        id: boot_ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(bash .github/scripts/resolve-bootstrapper-version.sh)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
       - name: Build & upload multi-RID bootstrapper artefacts
         uses: ./.github/actions/build-bootstrapper-multi-rid
         with:
@@ -100,6 +116,7 @@ jobs:
           rids: ${{ env.FULL_BOOTSTRAPPER_BUILD == 'true' && env.BOOTSTRAPPER_RIDS || 'linux-x64' }}
           dockerfile: ${{ env.BOOTSTRAPPER_DOCKERFILE_PATH }}
           artifact-suffix: ${{ github.sha }}
+          bootstrapper-version: ${{ steps.boot_ver.outputs.version }}
 
       # tar.gz preserves +x that upload-artifact@v4's zip strips. Ships test-
       # project bins (direct-DLL launch) and `tools/*/bin` because
@@ -209,7 +226,8 @@ jobs:
       #   - Bootstrapper.IntegrationTests: every test class is [Explicit] (see the
       #     assembly's AssemblyInfo.cs); a `/*/*/*/*` treenode filter matches all
       #     tests, all explicit, so TUnit runs the full suite. Default (unfiltered)
-      #     invocation would skip everything.
+      #     invocation would skip everything. Native Windows tests ([RequiresWindows])
+      #     skip here; `test-int-bootstrapper-windows` runs them.
       #   - Infrastructure.IntegrationTests: MultiNodeScyllaTests alone is [Explicit]
       #     (7-DC ring, GB-scale RAM). Runs in two passes because TUnit's rule is
       #     "explicit only runs when every filtered test is explicit" — a single
@@ -269,6 +287,120 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # Native Windows: multi-RID publish (win-x64 / win-arm64) + zip
+  # artefacts, size guard, Task Scheduler install-service tests, and a thin
+  # publish smoke. (No win-arm — .NET has no Windows 32-bit ARM RID; linux-arm
+  # has no peer.) DinD/systemd stays on the ubuntu Bootstrapper matrix leg.
+  test-int-bootstrapper-windows:
+    runs-on: windows-latest
+    needs: build
+    name: test-int (Bootstrapper Windows multi-RID)
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup test runner
+        uses: ./.github/actions/setup-test-runner
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          build-artifact-name: dotnet-build-${{ github.sha }}
+
+      - name: Resolve bootstrapper version stamp
+        id: boot_ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(bash .github/scripts/resolve-bootstrapper-version.sh)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Windows bootstrapper RIDs (zip + size guard)
+        shell: pwsh
+        env:
+          BOOTSTRAPPER_VERSION: ${{ steps.boot_ver.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rids = @('win-x64', 'win-arm64')
+          $base = Join-Path $env:RUNNER_TEMP 'interfold-bootstrap-win'
+          $maxBytes = 75L * 1024 * 1024
+          $version = $env:BOOTSTRAPPER_VERSION
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'BOOTSTRAPPER_VERSION was empty' }
+          New-Item -ItemType Directory -Force -Path $base | Out-Null
+
+          foreach ($rid in $rids) {
+            $out = Join-Path $base $rid
+            New-Item -ItemType Directory -Force -Path $out | Out-Null
+            Write-Host "Publishing $rid -> $out (InformationalVersion=$version)"
+            dotnet publish tools/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj `
+              /p:PublishProfile=$rid `
+              /p:Version=$version `
+              /p:InformationalVersion=$version `
+              -o $out
+            $exe = Join-Path $out 'interfold-bootstrap.exe'
+            if (-not (Test-Path $exe)) {
+              throw "$rid publish missing interfold-bootstrap.exe under $out"
+            }
+            $len = (Get-Item -LiteralPath $exe).Length
+            Write-Host ("{0} size: {1:N1} MiB" -f $rid, ($len / 1MB))
+            if ($len -ge $maxBytes) {
+              throw ("{0} PE is {1:N1} MiB (limit {2:N0} MiB)" -f $rid, ($len / 1MB), ($maxBytes / 1MB))
+            }
+            $zip = Join-Path $env:RUNNER_TEMP "interfold-bootstrap-$rid.zip"
+            if (Test-Path $zip) { Remove-Item -LiteralPath $zip -Force }
+            Compress-Archive -Path (Join-Path $out '*') -DestinationPath $zip -Force
+          }
+
+          # Stage win-x64 for native tests + INTERFOLD_BOOTSTRAPPER_WIN_PUBLISH_DIR.
+          $stage = 'tools/Interfold.Bootstrapper/bin/Release/net10.0/win-x64/publish'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item -Path (Join-Path $base 'win-x64\*') -Destination $stage -Force
+          $winX64Out = Join-Path $base 'win-x64'
+          "INTERFOLD_BOOTSTRAPPER_WIN_PUBLISH_DIR=$winX64Out" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload bootstrapper artifact (win-x64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: interfold-bootstrap-win-x64-${{ github.sha }}
+          path: ${{ runner.temp }}/interfold-bootstrap-win-x64.zip
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload bootstrapper artifact (win-arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: interfold-bootstrap-win-arm64-${{ github.sha }}
+          path: ${{ runner.temp }}/interfold-bootstrap-win-arm64.zip
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Test (Windows install-service + publish smoke)
+        shell: pwsh
+        env:
+          TUNIT_AGGREGATE_REPORTS: defer
+        run: |
+          $dll = "tests/integration/Interfold.Bootstrapper.IntegrationTests/bin/Release/net10.0/Interfold.Bootstrapper.IntegrationTests.dll"
+          dotnet $dll `
+            --treenode-filter '/*/*/*Windows*/*' `
+            --coverage --coverage-output-format cobertura
+
+      - name: Upload TUnit report sidecar (Bootstrapper Windows)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunit-sidecar-Interfold.Bootstrapper.IntegrationTests-windows-${{ github.sha }}
+          path: 'tests/integration/Interfold.Bootstrapper.IntegrationTests/**/*.tunit-report.json'
+          retention-days: 1
+          if-no-files-found: warn
+
+      - name: Upload coverage (Bootstrapper Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-int-Interfold.Bootstrapper.IntegrationTests-windows-${{ github.sha }}
+          path: 'tests/integration/Interfold.Bootstrapper.IntegrationTests/**/TestResults/**/*.cobertura.xml'
+          retention-days: 1
+          if-no-files-found: error
+
   # test-int-summary: renders one native TUnit aggregated block from every
   # matrix leg's sidecar. `tunit-report merge --github-summary` splices the
   # block into $GITHUB_STEP_SUMMARY between HTML-comment markers so foreign
@@ -276,7 +408,7 @@ jobs:
   # renders top-level, not nested under `coverage`.
   test-int-summary:
     runs-on: ubuntu-latest
-    needs: test-int
+    needs: [ test-int, test-int-bootstrapper-windows ]
     if: always()
     steps:
       - name: Setup .NET
@@ -324,7 +456,7 @@ jobs:
   # is visible at a glance.
   coverage:
     runs-on: ubuntu-latest
-    needs: [ test-unit, test-int ]
+    needs: [ test-unit, test-int, test-int-bootstrapper-windows ]
     if: always()
     steps:
       - name: Checkout code
@@ -381,7 +513,7 @@ jobs:
   # with the bootstrapper buildx in `build`.
   publish:
     runs-on: ubuntu-latest
-    needs: [ test-unit, test-int ]
+    needs: [ test-unit, test-int, test-int-bootstrapper-windows ]
     if: >-
       github.event_name == 'push' &&
       (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
@@ -431,5 +563,138 @@ jobs:
           sbom: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=interfold-dotnet
+          cache-to: type=gha,mode=max,scope=interfold-dotnet
+
+  # publish-bootstrapper: GitHub Releases tarballs + ghcr.io image for the bootstrapper CLI.
+  # Rolling tags (latest / bleeding-edge) on main/develop; immutable v* pins on tag push.
+  publish-bootstrapper:
+    runs-on: ubuntu-latest
+    needs: [ test-unit, test-int, test-int-bootstrapper-windows, build ]
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+       github.ref == 'refs/heads/develop' ||
+       startsWith(github.ref, 'refs/tags/v'))
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download bootstrapper tarballs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: interfold-bootstrap-linux-*-${{ github.sha }}
+          merge-multiple: true
+          path: bootstrap-release
+
+      - name: Download bootstrapper Windows zips
+        uses: actions/download-artifact@v4
+        with:
+          pattern: interfold-bootstrap-win-*-${{ github.sha }}
+          merge-multiple: true
+          path: bootstrap-release
+
+      - name: Download bootstrapper release metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: interfold-bootstrap-release-meta-${{ github.sha }}
+          path: bootstrap-release
+
+      - name: Append Windows zip checksums to SHA256SUMS
+        shell: bash
+        working-directory: bootstrap-release
+        run: |
+          set -euo pipefail
+          for zip in interfold-bootstrap-win-*.zip; do
+            [[ -f "$zip" ]] || continue
+            sha256sum "$zip" >> SHA256SUMS
+          done
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+
+      - name: Resolve bootstrapper image version stamp
+        id: boot_ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(bash .github/scripts/resolve-bootstrapper-version.sh)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish rolling GitHub Release
+        if: github.ref_type != 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref == 'refs/heads/develop' && 'bleeding-edge' || 'latest' }}
+          name: ${{ github.ref == 'refs/heads/develop' && 'bleeding-edge' || 'latest' }}
+          prerelease: ${{ github.ref == 'refs/heads/develop' }}
+          files: |
+            bootstrap-release/interfold-bootstrap-linux-x64.tar.gz
+            bootstrap-release/interfold-bootstrap-linux-arm.tar.gz
+            bootstrap-release/interfold-bootstrap-linux-arm64.tar.gz
+            bootstrap-release/interfold-bootstrap-win-x64.zip
+            bootstrap-release/interfold-bootstrap-win-arm64.zip
+            bootstrap-release/SHA256SUMS
+            bootstrap-release/version.txt
+          make_latest: ${{ github.ref != 'refs/heads/develop' }}
+
+      # Pin Releases omit version.txt — the tag is the version for update-self.
+      - name: Publish pinned GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          prerelease: false
+          make_latest: false
+          files: |
+            bootstrap-release/interfold-bootstrap-linux-x64.tar.gz
+            bootstrap-release/interfold-bootstrap-linux-arm.tar.gz
+            bootstrap-release/interfold-bootstrap-linux-arm64.tar.gz
+            bootstrap-release/interfold-bootstrap-win-x64.zip
+            bootstrap-release/interfold-bootstrap-win-arm64.zip
+            bootstrap-release/SHA256SUMS
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata (bootstrapper image)
+        id: bootstrapper_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/interfold-bootstrap
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=raw,value=bleeding-edge,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=${{ github.ref_name }},enable=${{ github.ref_type == 'tag' }}
+
+      - name: Build and push bootstrapper container image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ env.BOOTSTRAPPER_DOCKERFILE_PATH }}
+          target: runtime
+          push: true
+          platforms: ${{ env.BUILD_PLATFORMS }}
+          provenance: false
+          sbom: false
+          tags: ${{ steps.bootstrapper_meta.outputs.tags }}
+          labels: ${{ steps.bootstrapper_meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.boot_ver.outputs.version }}
           cache-from: type=gha,scope=interfold-dotnet
           cache-to: type=gha,mode=max,scope=interfold-dotnet

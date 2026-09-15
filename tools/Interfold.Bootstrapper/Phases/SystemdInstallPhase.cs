@@ -17,7 +17,6 @@ internal static class SystemdInstallPhase
     private static readonly string Phase = BootstrapCommand.InstallService.ToPhaseLogName();
 
     private const string DefaultUnitDir = "/etc/systemd/system";
-    private const string DefaultBinaryName = "interfold-bootstrap";
 
     /// <summary>Minimum systemd for <c>OnSuccess=</c> (Ubuntu 22.04+, Debian 12+, Fedora 35+).</summary>
     internal const int MinSystemdVersionForOnSuccess = 249;
@@ -48,7 +47,8 @@ internal static class SystemdInstallPhase
             ComposeFile: composeFile,
             ConfigPath: Path.GetFullPath(configPath),
             BinaryPath: binaryPath,
-            OnCalendar: config.Deployment.Backup.Schedule);
+            OnCalendar: config.Deployment.Backup.Schedule,
+            ExecStart: BuildUpdateExecStart(config, binaryPath, configPath, options.OutputDir));
 
         logger.Info($"    rendering units to {unitDir}");
         Directory.CreateDirectory(unitDir);
@@ -127,7 +127,8 @@ internal static class SystemdInstallPhase
         string ComposeFile,
         string ConfigPath,
         string BinaryPath,
-        string OnCalendar);
+        string OnCalendar,
+        string ExecStart);
 
     /// <summary>Reads the embedded template, substitutes every <c>{{TOKEN}}</c>, and returns
     /// the rendered text. Internal so tests can drive the renderer without touching disk.</summary>
@@ -153,7 +154,8 @@ internal static class SystemdInstallPhase
         sb.Replace("{{CONFIG_PATH}}", input.ConfigPath);
         sb.Replace("{{BINARY_PATH}}", input.BinaryPath);
         sb.Replace("{{ON_CALENDAR}}", input.OnCalendar);
-        var rendered = sb.ToString();
+        sb.Replace("{{EXEC_START}}", input.ExecStart);
+        var rendered = sb.ToString().Replace("\r", "", StringComparison.Ordinal);
 
         if (rendered.Contains("{{", StringComparison.Ordinal))
         {
@@ -172,17 +174,27 @@ internal static class SystemdInstallPhase
     }
 
     private static string ResolveBinaryPath(BootstrapOptions options)
-    {
-        if (!string.IsNullOrWhiteSpace(options.BinaryPathOverride))
-        {
-            return Path.GetFullPath(options.BinaryPathOverride);
-        }
-        // Canonical install layout the README documents.
-        return Path.Combine(AppContext.BaseDirectory, DefaultBinaryName);
-    }
+        => HostPaths.ResolveBootstrapperBinary(options.BinaryPathOverride);
 
     private static string ResolveComposeFile(BootstrapOptions options)
         => BootstrapArtifactPaths.ResolveComposeFileOrConventional(options.OutputDir);
+
+    internal static string BuildUpdateExecStart(
+        BootstrapConfig config,
+        string binaryPath,
+        string configPath,
+        string outputDir)
+    {
+        var fullConfig = Path.GetFullPath(configPath);
+        var imageUpdate = $"{binaryPath} update-images --config {fullConfig} --output-dir {outputDir}";
+        if (!config.Deployment.Update.Bootstrapper.Enabled)
+        {
+            return imageUpdate;
+        }
+
+        var channel = config.Deployment.Update.Bootstrapper.Channel.ToWireValue();
+        return $"/bin/sh -c '{binaryPath} update-self --non-interactive --channel {channel} && exec {imageUpdate}'";
+    }
 
     private static async Task VerifyAllUnitsAsync(string unitDir, PhaseLogger logger, CancellationToken ct)
     {
@@ -273,7 +285,7 @@ internal static class SystemdInstallPhase
                 $"Embedded template '{resourceName}' missing. " +
                 "Check Interfold.Bootstrapper.csproj's <EmbeddedResource> entries.");
         using var reader = new StreamReader(stream, Encoding.UTF8);
-        return reader.ReadToEnd();
+        return reader.ReadToEnd().Replace("\r", "", StringComparison.Ordinal);
     }
 
     /// <summary>Fails if the running systemd is older than

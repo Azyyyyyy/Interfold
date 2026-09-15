@@ -1,3 +1,5 @@
+using Interfold.Bootstrapper.Configuration;
+
 namespace Interfold.Bootstrapper.Cli;
 
 /// <summary>
@@ -57,7 +59,12 @@ public sealed record BootstrapOptions(
     bool RestoreLatest = false,
     bool RestoreForce = false,
     bool Reconfigure = false,
-    bool SkipCloudflareTunnel = false);
+    bool SkipCloudflareTunnel = false,
+    bool SkipSelfUpdate = false,
+    BootstrapperReleaseChannel? SelfUpdateChannelOverride = null,
+    bool SelfUpdateCheckOnly = false,
+    bool SelfUpdateForce = false,
+    bool SelfUpdateRollback = false);
 
 public enum BootstrapCommand
 {
@@ -106,6 +113,13 @@ public enum BootstrapCommand
     /// recreating any container.
     /// </summary>
     UpdateImages,
+
+    /// <summary>
+    /// Downloads and installs a newer bootstrapper release from GitHub Releases for the
+    /// current host RID (Linux tarball or Windows zip). Supports <c>--check</c>,
+    /// <c>--rollback</c>, and channel override.
+    /// </summary>
+    UpdateSelf,
 
     /// <summary>
     /// Restores the database state from backup archives on disk. Postgres restores

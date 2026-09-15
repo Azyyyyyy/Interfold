@@ -676,9 +676,7 @@ internal sealed class CloudflareTunnelClient : IDisposable
 
         return string.Join("; ", errors.Select(err =>
         {
-            var code = err.Code is { ValueKind: not JsonValueKind.Undefined and not JsonValueKind.Null } el
-                ? el.ToString()
-                : "?";
+            var code = err.Code?.ToString() ?? "?";
             return $"{code}: {err.Message}";
         }));
     }

@@ -1,6 +1,5 @@
 using System.Formats.Asn1;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -93,13 +92,14 @@ internal static partial class CertificatePhase
         rootKey.Dispose();
         leafKey.Dispose();
 
-        if (config.Edge.Certificates.TrustStoreInstall && RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        if (config.Edge.Certificates.TrustStoreInstall
+            && (OperatingSystem.IsLinux() || OperatingSystem.IsWindows()))
         {
             await InstallToTrustStoreAsync(rootCrtPath, logger, ct).ConfigureAwait(false);
         }
         else
         {
-            logger.Info("    skipping trust-store install (trustStoreInstall=false or non-Linux host)");
+            logger.Info("    skipping trust-store install (trustStoreInstall=false or unsupported host)");
         }
 
         PrintTrustInfo(rootCrtPath, rootFingerprintPath, logger);
@@ -341,9 +341,13 @@ internal static partial class CertificatePhase
         logger.Info($"      Not after:   {cert.NotAfter.ToUniversalTime():yyyy-MM-dd HH:mm:ss} UTC");
         logger.Info($"      Distribute:  curl -fSL https://<host>[:edgeHttps]/.well-known/interfold-root-ca.crt -o rootCA.crt");
         logger.Info($"      Verify:      openssl x509 -in rootCA.crt -noout -fingerprint -sha256");
+        logger.Info($"                   {WindowsCertutilVerifyHint}");
         logger.Info($"                   (compare the printed SHA256 Fingerprint to the value above)");
         logger.Info("");
     }
+
+    /// <summary>Windows verify recipe line in <see cref="PrintTrustInfo"/> (operator-facing).</summary>
+    internal const string WindowsCertutilVerifyHint = "certutil -dump rootCA.crt   (Windows)";
 
     /// <summary>Upgrades an older install in-place: backfills the SHA-256 fingerprint file and
     /// re-tightens rootCA.key to 0600. Both idempotent.</summary>
@@ -365,6 +369,12 @@ internal static partial class CertificatePhase
 
     private static async Task InstallToTrustStoreAsync(string rootCrtPath, PhaseLogger logger, CancellationToken ct)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            InstallToWindowsTrustStore(rootCrtPath, logger);
+            return;
+        }
+
         if (Directory.Exists(DebianAnchorsDir))
         {
             var dst = Path.Combine(DebianAnchorsDir, TrustAnchorFileName);
@@ -399,5 +409,15 @@ internal static partial class CertificatePhase
                 "no known trust-store path found (looked for /usr/local/share/ca-certificates and " +
                 "/etc/pki/ca-trust/source/anchors). Install the generated rootCA.crt manually.");
         }
+    }
+
+    /// <summary>CurrentUser Root — no admin; matches a single-user Windows dev host.</summary>
+    internal static void InstallToWindowsTrustStore(string rootCrtPath, PhaseLogger logger)
+    {
+        using var cert = X509CertificateLoader.LoadCertificateFromFile(rootCrtPath);
+        using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
+        store.Open(OpenFlags.ReadWrite);
+        store.Add(cert);
+        logger.Info($"    root CA installed into CurrentUser\\Root ({cert.Subject})");
     }
 }

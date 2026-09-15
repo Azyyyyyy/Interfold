@@ -14,8 +14,10 @@ using Interfold.Bootstrapper.IntegrationTests.Fixtures;
 // Manual: `dotnet <this.dll> --treenode-filter '/*/*/*/*'` runs every test — the filter
 //   matches all tests, all are explicit, so TUnit runs them (see
 //   https://tunit.dev/docs/writing-tests/explicit).
-// CI: the `test-int` leg for this project invokes the DLL with the same treenode filter
-//   so every leg still runs the full matrix.
+// CI Linux: the `test-int` Bootstrapper leg uses the same treenode filter; Windows-only
+//   tests ([RequiresWindows]) are skipped there.
+// CI Windows: `test-int-bootstrapper-windows` filters `/*/*/*Windows*/*` on windows-latest
+//   (install-service + publish smoke) and uploads win-x64 / win-arm64 zips.
 //
 // TUnit does not support an assembly-level [Explicit]; the attribute has to sit on every
 // test class. New test classes in this project MUST add [Explicit] at the class level.

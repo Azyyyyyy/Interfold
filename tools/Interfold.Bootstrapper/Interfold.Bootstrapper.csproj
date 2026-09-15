@@ -17,6 +17,8 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- LibraryImportAttribute (geteuid P/Invoke in PrerequisitesPhase) requires unsafe blocks. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>0.0.0-dev</Version>
+    <InformationalVersion>0.0.0-dev</InformationalVersion>
     <!-- Bootstrapper never calls the AppHost's own Main, so the NETSDK1150 self-contained-mismatch guard doesn't apply. -->
     <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
     <!-- PublishTrimmed already disables reflection STJ; set explicitly so Debug/`dotnet run`
@@ -44,6 +46,7 @@
     <PackageReference Include="System.CommandLine" />
     <!-- Interactive prompt surface only (ConfigPhase.PromptForConfig); CLI parsing stays on System.CommandLine. -->
     <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="System.IO.FileSystem.AccessControl" />
   </ItemGroup>
 
   <ItemGroup>
@@ -80,6 +83,10 @@
     <!-- Drop-in for interfold-backup.service.d/; SystemdInstallPhase only writes it when config.update.enabled=true. -->
     <EmbeddedResource Include="Phases\SystemdTemplates\interfold-backup-onsuccess.conf"
                       LogicalName="systemd/interfold-backup-onsuccess.conf" />
+    <EmbeddedResource Include="Phases\WindowsTaskTemplates\interfold.xml"
+                      LogicalName="windows-task/interfold.xml" />
+    <EmbeddedResource Include="Phases\WindowsTaskTemplates\interfold-backup.xml"
+                      LogicalName="windows-task/interfold-backup.xml" />
   </ItemGroup>
 
 </Project>

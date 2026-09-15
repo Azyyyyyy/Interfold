@@ -17,20 +17,64 @@ This repository contains the backend code for Octocon, which is structured into 
 
 ## Self-hosting (production)
 
-Interfold ships a single bootstrapper binary that brings a fresh Linux box from `git clone` to a
+Interfold ships a single bootstrapper binary that brings a fresh Linux or Windows host from `git clone` to a
 running stack. The bootstrapper IS an Aspire AppHost — it reuses the same resource graph as the
 dev `aspire run` flow, with a Docker Compose publisher and a host-side prep wrapper around it.
 
 ### One-shot install
 
-1. Download the latest release tarball (TO BE CREATED) and unpack it on a fresh Ubuntu 22.04+/Debian 12+/Fedora 40+/RHEL 9+ box:
+CI uploads per-arch bootstrapper artefacts (Linux `.tar.gz`, Windows `.zip`), plus
+`SHA256SUMS` on every GitHub Release. Rolling channels (`latest` / `bleeding-edge`)
+also ship `version.txt` for `update-self`; pinned `v*` Releases omit it — the tag
+**is** the version:
 
-   ```bash
-   tar -xzf interfold-bootstrap-linux-x64.tar.gz
-   cd interfold-bootstrap
-   ```
+| Arch | Linux | Windows |
+|---|---|---|
+| x64 | `interfold-bootstrap-linux-x64.tar.gz` | `interfold-bootstrap-win-x64.zip` |
+| arm64 | `interfold-bootstrap-linux-arm64.tar.gz` | `interfold-bootstrap-win-arm64.zip` |
+| arm (32-bit) | `interfold-bootstrap-linux-arm.tar.gz` | *(none — .NET has no `win-arm` RID)* |
 
-2. Author `interfold.bootstrap.json` (or run the binary with no arguments to be prompted):
+**Linux** — download a release tarball (or use a CI artefact) on Ubuntu 22.04+/Debian 12+/Fedora 40+/RHEL 9+:
+
+```bash
+# Stable (tracks main)
+curl -fsSL -o interfold-bootstrap-linux-x64.tar.gz \
+  https://github.com/Azyyyyyy/Interfold/releases/latest/download/interfold-bootstrap-linux-x64.tar.gz
+tar -xzf interfold-bootstrap-linux-x64.tar.gz
+chmod +x interfold-bootstrap
+
+# Bleeding-edge (tracks develop)
+curl -fsSL -o interfold-bootstrap-linux-x64.tar.gz \
+  https://github.com/Azyyyyyy/Interfold/releases/download/bleeding-edge/interfold-bootstrap-linux-x64.tar.gz
+tar -xzf interfold-bootstrap-linux-x64.tar.gz
+chmod +x interfold-bootstrap
+
+# Pinned (immutable tag — cut with `git tag v0.0.1 && git push --tags`)
+curl -fsSL -o interfold-bootstrap-linux-x64.tar.gz \
+  https://github.com/Azyyyyyy/Interfold/releases/download/v0.0.1/interfold-bootstrap-linux-x64.tar.gz
+tar -xzf interfold-bootstrap-linux-x64.tar.gz
+chmod +x interfold-bootstrap
+```
+
+Replace `linux-x64` with `linux-arm64` or `linux-arm` as needed. The archive unpacks a
+single flat `interfold-bootstrap` ELF.
+
+**Container install** (initial install only — ongoing binary updates use GitHub Releases
+via `update-self`):
+
+```bash
+docker run --rm -v /opt/interfold:/opt/interfold ghcr.io/azyyyyyy/interfold-bootstrap:latest \
+  bootstrap --config /opt/interfold/interfold.bootstrap.json --output-dir /opt/interfold/deploy
+```
+
+**Windows** — unpack a release zip on a Docker Desktop host (x64 / ARM64):
+
+```powershell
+Expand-Archive interfold-bootstrap-win-x64.zip -DestinationPath .\interfold-bootstrap
+cd .\interfold-bootstrap
+```
+
+1. Author `interfold.bootstrap.json` (or run the binary with no arguments to be prompted):
 
    ```json
    {
@@ -51,10 +95,18 @@ dev `aspire run` flow, with a Docker Compose publisher and a host-side prep wrap
    }
    ```
 
-3. Run the bootstrapper as root:
+2. Run the bootstrapper:
+
+   Linux (as root):
 
    ```bash
    sudo ./interfold-bootstrap bootstrap --config interfold.bootstrap.json
+   ```
+
+   Windows (elevated only if Docker Desktop still needs installing):
+
+   ```powershell
+   .\interfold-bootstrap.exe bootstrap --config interfold.bootstrap.json
    ```
 
    This walks through six phases — prereqs → config → secrets → certs → publish → launch —
@@ -80,6 +132,24 @@ deploy/
 | `interfold-bootstrap up` | Run only `docker compose up -d` + health wait against an already-generated compose file. |
 | `interfold-bootstrap rotate-secrets` | Regenerate DB/admin passwords + encryption keypair + pepper, re-emit compose, restart the API. Certs unchanged. |
 | `interfold-bootstrap rotate-certs` | Regenerate root CA + leaf cert, re-install into the trust store, re-emit compose. Secrets unchanged. |
+| `interfold-bootstrap update-self` | Download and atomically replace the running bootstrapper binary from GitHub Releases (`stable`, `bleeding-edge`, or a pin like `v0.0.1`). |
+| `interfold-bootstrap update-images` | Pull newer compose images, optionally recreate services, and health-check the stack. |
+| `interfold-bootstrap backup` | Snapshot Postgres + Scylla to `{outputDir}/backups/`. |
+| `interfold-bootstrap restore` | Restore from a prior backup archive. |
+| `interfold-bootstrap install-service` | Render and install systemd units (`interfold.service`, backup timer, update service). |
+
+`update-self` flags:
+
+- `--channel stable|bleeding-edge|vX.Y.Z` — release channel or pin tag (defaults to `deployment.update.bootstrapper.channel`). Pins compare the local binary to the tag itself (no `version.txt`).
+- `--check` — exit 0 when up to date, exit 2 when a newer release is available (no write).
+- `--force` — re-download even when versions match (repair a corrupt binary).
+- `--rollback` — restore `{binary}.old` over the live binary.
+
+When `deployment.update.bootstrapper.enabled=true`, Linux `interfold-update.service` and the
+Windows backup-task update Actions chain `update-self` before `update-images` (Linux uses
+`exec` so the post-swap binary runs the image pull).
+When `deployment.update.bootstrapper.updateOnBootstrap=true`, `bootstrap` checks for a newer
+bootstrapper before prerequisites (skip with `--skip-self-update`).
 
 Common flags:
 
@@ -88,6 +158,7 @@ Common flags:
 - `--output-dir <path>` — override the artifact root (default `./deploy`).
 - `--skip-prereqs` — skip the Docker/openssl/AIO install. Use on re-runs where the host is
   already configured.
+- `--skip-self-update` — skip the optional bootstrapper self-update at the start of `bootstrap`.
 - `--non-interactive` — fail rather than prompt when config values are missing.
 
 ### Local dev (Aspire)

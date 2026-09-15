@@ -72,6 +72,8 @@
     <PackageVersion Include="Spectre.Console.Testing" Version="0.*" />
     <!-- Preview-only until System.CommandLine 3.0 stabilises. -->
     <PackageVersion Include="System.CommandLine" Version="3.*-*" />
+    <!-- Windows NTFS ACL counterpart to libc chmod in UnixFilePermissions. -->
+    <PackageVersion Include="System.IO.FileSystem.AccessControl" Version="5.0.0" />
 
     <!-- TUnit trio floats together on 1.61.* so ci-cd.yml `test-int-summary`
          can merge per-leg `*.tunit-report.json` sidecars (TUnit PR #6415).

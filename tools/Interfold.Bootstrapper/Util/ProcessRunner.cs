@@ -78,6 +78,11 @@ internal static class ProcessRunner
 
     public static async Task<bool> ExistsOnPathAsync(string command, CancellationToken ct = default)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            return PathLookup.ExistsOnWindowsPath(command);
+        }
+
         try
         {
             var which = await RunAsync("/bin/sh", ["-c", $"command -v {command}"], ct: ct).ConfigureAwait(false);
