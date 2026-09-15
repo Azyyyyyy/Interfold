@@ -225,7 +225,9 @@ public static class RootCli
 
         // ---------- install-service ----------
         var installServiceCmd = new Command("install-service",
-            "Install autostart + scheduled backup (Linux: systemd units in /etc/systemd/system/; Windows: Task Scheduler Interfold / InterfoldBackup).");
+            OperatingSystem.IsWindows()
+                ? "Install autostart + scheduled backup (Task Scheduler Interfold / InterfoldBackup)."
+                : "Install autostart + scheduled backup (systemd units in /etc/systemd/system/).");
         AddSharedOptions(installServiceCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         installServiceCmd.Options.Add(enableAutostartOpt);
         installServiceCmd.Options.Add(enableBackupTimerOpt);
