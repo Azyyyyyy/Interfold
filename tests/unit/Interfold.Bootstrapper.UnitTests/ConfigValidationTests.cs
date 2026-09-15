@@ -488,6 +488,7 @@ public sealed class ConfigValidationTests
         cfg.Api.Storage.AvatarStorageRoot = string.Empty;
         cfg.Api.Storage.AvatarPublicBase = string.Empty;
         cfg.Observability.OtlpEndpoint = string.Empty;
+        cfg.Observability.ClientOtlpHttpEndpoint = string.Empty;
         cfg.Api.BatchBytesThreshold = null;
 
         ConfigPhase.Validate(cfg);
@@ -506,6 +507,10 @@ public sealed class ConfigValidationTests
     [Test]
     public Task NonHttpOtlpEndpointFailsValidation()
         => AssertInvalidAsync(c => c.Observability.OtlpEndpoint = "grpc://otel-collector:4317", "otlpEndpoint");
+
+    [Test]
+    public Task NonHttpClientOtlpHttpEndpointFailsValidation()
+        => AssertInvalidAsync(c => c.Observability.ClientOtlpHttpEndpoint = "grpc://otel-collector:4318", "clientOtlpHttpEndpoint");
 
     [Test]
     public Task ZeroDbRetryAttemptsFailsValidation()

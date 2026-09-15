@@ -166,6 +166,8 @@ internal static class PublishPhase
         yield return (AppHostParameterKeys.NodeGroup, "NODE_GROUP", config.Api.NodeGroup.ToWire());
         yield return (AppHostParameterKeys.AvatarPublicBase, "AVATAR_PUBLIC_BASE", config.Api.Storage.AvatarPublicBase ?? string.Empty);
         yield return (AppHostParameterKeys.OtlpEndpoint, "OTLP_ENDPOINT", config.Observability.OtlpEndpoint ?? string.Empty);
+        yield return (AppHostParameterKeys.AdvertiseOtlpToClients, "ADVERTISE_OTLP_TO_CLIENTS", config.Observability.AdvertiseOtlpToClients ? "true" : "false");
+        yield return (AppHostParameterKeys.ClientOtlpHttpEndpoint, "CLIENT_OTLP_HTTP_ENDPOINT", config.Observability.ClientOtlpHttpEndpoint ?? string.Empty);
         yield return (AppHostParameterKeys.SocketBatchBytesThreshold, "SOCKET_BATCH_BYTES_THRESHOLD", config.Api.BatchBytesThreshold?.ToString() ?? string.Empty);
         yield return (AppHostParameterKeys.DbRetryAttempts, "DB_RETRY_ATTEMPTS", config.Api.Resilience.DbRetryAttempts.ToString());
         yield return (AppHostParameterKeys.DbRetryInitialDelayMs, "DB_RETRY_INITIAL_DELAY_MS", config.Api.Resilience.DbRetryInitialDelayMs.ToString());
