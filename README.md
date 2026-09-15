@@ -32,7 +32,8 @@ assembly metadata (`interfold-bootstrap --version` shows it). `update-self`
 resolves both channels by paginating the Releases API for the newest matching prefix
 (`stable-*` full release, `bleeding-edge-*` prerelease) — not GitHub’s “latest” flag —
 then verifies downloads against each asset’s Releases API `digest` (no `SHA256SUMS` /
-`version.txt` assets). Pinned `v*` tags **are** the version:
+`version.txt` assets). Pinned `bootstrap-v*` tags **are** the version (distinct from
+API image releases tagged `api-v*`):
 
 | Arch | Linux | Windows |
 |---|---|---|
@@ -59,9 +60,9 @@ curl -fsSL -o interfold-bootstrap-linux-x64.tar.gz \
 tar -xzf interfold-bootstrap-linux-x64.tar.gz
 chmod +x interfold-bootstrap
 
-# Pinned (immutable tag — cut with `git tag v0.0.1 && git push --tags`)
+# Pinned (immutable tag — cut with `git tag bootstrap-v0.0.1 && git push --tags`)
 curl -fsSL -o interfold-bootstrap-linux-x64.tar.gz \
-  https://github.com/Azyyyyyy/Interfold/releases/download/v0.0.1/interfold-bootstrap-linux-x64.tar.gz
+  https://github.com/Azyyyyyy/Interfold/releases/download/bootstrap-v0.0.1/interfold-bootstrap-linux-x64.tar.gz
 tar -xzf interfold-bootstrap-linux-x64.tar.gz
 chmod +x interfold-bootstrap
 ```
@@ -142,7 +143,7 @@ deploy/
 | `interfold-bootstrap up` | Run only `docker compose up -d` + health wait against an already-generated compose file. |
 | `interfold-bootstrap rotate-secrets` | Regenerate DB/admin passwords + encryption keypair + pepper, re-emit compose, restart the API. Certs unchanged. |
 | `interfold-bootstrap rotate-certs` | Regenerate root CA + leaf cert, re-install into the trust store, re-emit compose. Secrets unchanged. |
-| `interfold-bootstrap update-self` | Download and atomically replace the running bootstrapper binary from GitHub Releases (`stable`, `bleeding-edge`, or a pin like `v0.0.1`). |
+| `interfold-bootstrap update-self` | Download and atomically replace the running bootstrapper binary from GitHub Releases (`stable`, `bleeding-edge`, or a pin like `bootstrap-v0.0.1`). |
 | `interfold-bootstrap update-images` | Pull newer compose images, optionally recreate services, and health-check the stack. |
 | `interfold-bootstrap backup` | Snapshot Postgres + Scylla to `{outputDir}/backups/`. |
 | `interfold-bootstrap restore` | Restore from a prior backup archive. |
@@ -150,10 +151,26 @@ deploy/
 
 `update-self` flags:
 
-- `--channel stable|bleeding-edge|vX.Y.Z` — release channel or pin tag (defaults to `deployment.update.bootstrapper.channel`). Rolling versions come from the tag suffix; pins compare the local binary to the pin tag.
+- `--channel stable|bleeding-edge|bootstrap-vX.Y.Z` — release channel or pin tag (defaults to `deployment.update.bootstrapper.channel`). Rolling versions come from the tag suffix; pins compare the local binary to the SemVer core after `bootstrap-v`.
 - `--check` — exit 0 when up to date, exit 2 when a newer release is available (no write).
 - `--force` — re-download even when versions match (repair a corrupt binary).
 - `--rollback` — restore `{binary}.old` over the live binary.
+
+API container images are selected via `api.image` in bootstrap config (not the bootstrapper
+channel). CI publishes `ghcr.io/azyyyyyy/interfold-api` with:
+
+| Tag | Meaning |
+| --- | --- |
+| `latest` | Rolling stable (default branch) |
+| `bleeding-edge` | Rolling develop |
+| `1.2.3` | Exact patch from git tag `api-v1.2.3` |
+| `1.2` / `1` | Floating minor / major (moved on each matching `api-v*` release) |
+
+Examples: `ghcr.io/azyyyyyy/interfold-api:1.2`, `…:1.2.3`. Responses include
+`X-Interfold-Api-Version` (product SemVer) separately from `X-Interfold-Contract` (wire
+freeze). App clients use unversioned `/api/...` routes; breaking changes ship as new
+endpoints. GitHub release tags stay namespaced: `api-v*` (API image) vs `bootstrap-v*`
+(bootstrapper pin) vs `stable-*` / `bleeding-edge-*` (bootstrapper rolling).
 
 When `deployment.update.bootstrapper.enabled=true`, Linux `interfold-update.service` and the
 Windows backup-task update Actions chain `update-self` before `update-images` (Linux uses

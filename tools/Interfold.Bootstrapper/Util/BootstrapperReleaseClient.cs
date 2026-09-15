@@ -109,14 +109,14 @@ internal sealed class BootstrapperReleaseClient : IDisposable
 
     /// <summary>
     /// Remote version identity. Live releases encode it in the tag
-    /// (<c>stable-{version}</c> / <c>bleeding-edge-{version}</c> / pin <c>v*</c>);
+    /// (<c>stable-{version}</c> / <c>bleeding-edge-{version}</c> / pin <c>bootstrap-v*</c>);
     /// test mirrors still serve <c>version.txt</c>.
     /// </summary>
     internal async Task<string> FetchRemoteVersionAsync(BootstrapperReleaseChannel channel, CancellationToken ct)
     {
         if (channel.IsPinned)
         {
-            return channel.ToWireValue();
+            return VersionFromReleaseTag(channel.ToWireValue());
         }
 
         var tag = await ResolveReleaseTagAsync(channel, ct).ConfigureAwait(false);
@@ -131,7 +131,7 @@ internal sealed class BootstrapperReleaseClient : IDisposable
     }
 
     /// <summary>
-    /// Strips the rolling channel prefix from a live release tag. Pins return the tag as-is.
+    /// Strips the rolling channel or pin prefix from a release tag.
     /// </summary>
     internal static string VersionFromReleaseTag(string tag)
     {
@@ -143,6 +143,11 @@ internal sealed class BootstrapperReleaseClient : IDisposable
         if (tag.StartsWith(BleedingEdgeRollingTagPrefix, StringComparison.Ordinal))
         {
             return tag[BleedingEdgeRollingTagPrefix.Length..];
+        }
+
+        if (tag.StartsWith(BootstrapperReleaseChannel.PinTagPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return tag[BootstrapperReleaseChannel.PinTagPrefix.Length..];
         }
 
         return tag;

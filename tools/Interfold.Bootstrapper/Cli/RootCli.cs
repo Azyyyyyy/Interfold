@@ -69,7 +69,7 @@ public static class RootCli
         // --- update-self-specific options ---
         var selfUpdateChannelOpt = new Option<string?>("--channel")
         {
-            Description = "Release channel for `update-self`: stable, bleeding-edge, or a pin tag (vX.Y.Z). Overrides config.deployment.update.bootstrapper.channel."
+            Description = "Release channel for `update-self`: stable, bleeding-edge, or a pin tag (bootstrap-vX.Y.Z). Overrides config.deployment.update.bootstrapper.channel."
         };
         var selfUpdateCheckOpt = new Option<bool>("--check")
         {

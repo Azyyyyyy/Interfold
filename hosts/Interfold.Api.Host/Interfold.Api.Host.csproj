@@ -4,6 +4,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>d42494f5-0e2a-4d45-9ba3-b1750919ff1b</UserSecretsId>
+    <!-- Local / unstamped builds. CI and Dockerfile pass InformationalVersion. -->
+    <InformationalVersion Condition="'$(InformationalVersion)' == ''">0.0.0-dev</InformationalVersion>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Interfold.IntegrationTests.Shared" />

@@ -587,9 +587,9 @@ internal static class ConfigPhase
             return BootstrapperReleaseChannel.ParseWire(choice);
         }
 
-        var pinDefault = fallback.IsPinned ? fallback.ToWireValue() : "v0.0.1";
+        var pinDefault = fallback.IsPinned ? fallback.ToWireValue() : "bootstrap-v0.0.1";
         var tag = console.Prompt(
-            new TextPrompt<string>("Pin to release tag (e.g. v0.0.1):")
+            new TextPrompt<string>("Pin to release tag (e.g. bootstrap-v0.0.1):")
                 .DefaultValue(pinDefault)
                 .Validate(raw =>
                 {
@@ -598,7 +598,8 @@ internal static class ConfigPhase
                         var parsed = BootstrapperReleaseChannel.ParseWire(raw);
                         return parsed.IsPinned
                             ? ValidationResult.Success()
-                            : ValidationResult.Error("Enter a pin tag like v0.0.1 (not stable/bleeding-edge).");
+                            : ValidationResult.Error(
+                                "Enter a pin tag like bootstrap-v0.0.1 (not stable/bleeding-edge).");
                     }
                     catch (InvalidOperationException ex)
                     {

@@ -20,17 +20,17 @@ public sealed class BootstrapperReleaseChannelTests
     [Test]
     public async Task ParseWireAcceptsPinTags()
     {
-        var pin = BootstrapperReleaseChannel.ParseWire("v0.0.1");
+        var pin = BootstrapperReleaseChannel.ParseWire("bootstrap-v0.0.1");
         await Assert.That(pin.IsPinned).IsTrue();
-        await Assert.That(pin.ToWireValue()).IsEqualTo("v0.0.1");
-        await Assert.That(pin.ToGitHubReleaseTag()).IsEqualTo("v0.0.1");
+        await Assert.That(pin.ToWireValue()).IsEqualTo("bootstrap-v0.0.1");
+        await Assert.That(pin.ToGitHubReleaseTag()).IsEqualTo("bootstrap-v0.0.1");
     }
 
     [Test]
     public async Task ParseWireNormalizesPinCase()
     {
-        var pin = BootstrapperReleaseChannel.ParseWire("V1.2.3-rc.1");
-        await Assert.That(pin.ToWireValue()).IsEqualTo("v1.2.3-rc.1");
+        var pin = BootstrapperReleaseChannel.ParseWire("Bootstrap-V1.2.3-rc.1");
+        await Assert.That(pin.ToWireValue()).IsEqualTo("bootstrap-v1.2.3-rc.1");
     }
 
     [Test]
@@ -49,6 +49,10 @@ public sealed class BootstrapperReleaseChannelTests
             .Throws<InvalidOperationException>();
         await Assert.That(() => BootstrapperReleaseChannel.ParseWire("0.0.1"))
             .Throws<InvalidOperationException>();
+        await Assert.That(() => BootstrapperReleaseChannel.ParseWire("v0.0.1"))
+            .Throws<InvalidOperationException>();
+        await Assert.That(() => BootstrapperReleaseChannel.ParseWire("bootstrap-v"))
+            .Throws<InvalidOperationException>();
         await Assert.That(() => BootstrapperReleaseChannel.ParseWire("v"))
             .Throws<InvalidOperationException>();
     }
@@ -56,7 +60,7 @@ public sealed class BootstrapperReleaseChannelTests
     [Test]
     public async Task JsonRoundTripsPinAndRolling()
     {
-        foreach (var wire in new[] { "stable", "bleeding-edge", "v0.0.1" })
+        foreach (var wire in new[] { "stable", "bleeding-edge", "bootstrap-v0.0.1" })
         {
             var config = new BootstrapConfig
             {

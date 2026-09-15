@@ -29,7 +29,7 @@ public sealed class SelfUpdatePhaseTests
     {
         var config = TestSupport.MakeConfig();
         config.Deployment.Update.Bootstrapper.Enabled = true;
-        config.Deployment.Update.Bootstrapper.Channel = BootstrapperReleaseChannel.ParseWire("v0.0.1");
+        config.Deployment.Update.Bootstrapper.Channel = BootstrapperReleaseChannel.ParseWire("bootstrap-v0.0.1");
 
         var exec = SystemdInstallPhase.BuildUpdateExecStart(
             config,
@@ -37,7 +37,7 @@ public sealed class SelfUpdatePhaseTests
             "/opt/interfold/interfold.bootstrap.json",
             "/opt/interfold/deploy");
 
-        await Assert.That(exec).Contains("update-self --non-interactive --channel v0.0.1");
+        await Assert.That(exec).Contains("update-self --non-interactive --channel bootstrap-v0.0.1");
     }
 
     [Test]

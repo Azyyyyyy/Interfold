@@ -24,7 +24,7 @@ inputs:
     required: false
     default: '0.0.0-dev'
   bootstrapper-channel:
-    description: 'Release channel stamped into the binary (stable, bleeding-edge, or pin tag). Empty for unstamped PR/local builds.'
+    description: 'Release channel stamped into the binary (stable, bleeding-edge, or bootstrap-v* pin). Empty for unstamped PR/local builds.'
     required: false
     default: ''
 

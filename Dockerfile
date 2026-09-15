@@ -7,6 +7,7 @@
 
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG TARGETARCH
+ARG VERSION=0.0.0-dev
 WORKDIR /src
 COPY . .
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
@@ -21,6 +22,8 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
         --runtime "$RID" \
         --self-contained false \
         -p:UseAppHost=false \
+        /p:Version="$VERSION" \
+        /p:InformationalVersion="$VERSION" \
         --output /publish
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final

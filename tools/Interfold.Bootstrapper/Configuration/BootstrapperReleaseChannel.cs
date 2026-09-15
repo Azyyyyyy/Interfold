@@ -4,11 +4,14 @@ using System.Text.Json.Serialization;
 namespace Interfold.Bootstrapper.Configuration;
 
 /// <summary>
-/// Rolling channel (<c>stable</c> / <c>bleeding-edge</c>) or an immutable pin tag (<c>vX.Y.Z</c>).
+/// Rolling channel (<c>stable</c> / <c>bleeding-edge</c>) or an immutable pin tag
+/// (<c>bootstrap-vX.Y.Z</c>).
 /// </summary>
 [JsonConverter(typeof(BootstrapperReleaseChannelJsonConverter))]
 public readonly struct BootstrapperReleaseChannel : IEquatable<BootstrapperReleaseChannel>
 {
+    public const string PinTagPrefix = "bootstrap-v";
+
     public static BootstrapperReleaseChannel Stable { get; } = new("stable");
     public static BootstrapperReleaseChannel BleedingEdge { get; } = new("bleeding-edge");
 
@@ -18,14 +21,7 @@ public readonly struct BootstrapperReleaseChannel : IEquatable<BootstrapperRelea
 
     private string Wire => _wire ?? "stable";
 
-    public bool IsPinned
-    {
-        get
-        {
-            var w = Wire;
-            return w.Length > 0 && w[0] == 'v';
-        }
-    }
+    public bool IsPinned => IsPinTag(Wire);
 
     public string ToWireValue() => Wire;
 
@@ -58,19 +54,24 @@ public readonly struct BootstrapperReleaseChannel : IEquatable<BootstrapperRelea
             "bleeding-edge" or "bleedingedge" => BleedingEdge,
             _ when IsPinTag(lower) => new BootstrapperReleaseChannel(lower),
             _ => throw new InvalidOperationException(
-                $"Unknown bootstrapper release channel '{wire}'. Expected 'stable', 'bleeding-edge', or a pin tag like 'v0.0.1'."),
+                $"Unknown bootstrapper release channel '{wire}'. Expected 'stable', 'bleeding-edge', or a pin tag like 'bootstrap-v0.0.1'."),
         };
     }
 
-    /// <summary>Pin tags are <c>v</c> + digit-led semver-ish (<c>v0.0.1</c>, <c>v1.2.3-rc.1</c>).</summary>
+    /// <summary>
+    /// Pin tags are <c>bootstrap-v</c> + digit-led semver-ish
+    /// (<c>bootstrap-v0.0.1</c>, <c>bootstrap-v1.2.3-rc.1</c>).
+    /// </summary>
     internal static bool IsPinTag(string wire)
     {
-        if (wire.Length < 2 || wire[0] != 'v' || !char.IsAsciiDigit(wire[1]))
+        if (!wire.StartsWith(PinTagPrefix, StringComparison.Ordinal)
+            || wire.Length <= PinTagPrefix.Length
+            || !char.IsAsciiDigit(wire[PinTagPrefix.Length]))
         {
             return false;
         }
 
-        for (var i = 2; i < wire.Length; i++)
+        for (var i = PinTagPrefix.Length + 1; i < wire.Length; i++)
         {
             var c = wire[i];
             if (char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '+' or '_')

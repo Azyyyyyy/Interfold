@@ -96,9 +96,9 @@ public sealed class WindowsTaskRenderingTests
     {
         var rendered = WindowsScheduledTaskPhase.RenderTask(
             WindowsScheduledTaskPhase.BackupTemplate,
-            MakeInput(includeUpdate: true, includeSelfUpdate: true, channel: "v0.0.1"));
+            MakeInput(includeUpdate: true, includeSelfUpdate: true, channel: "bootstrap-v0.0.1"));
 
-        await Assert.That(rendered).Contains("update-self --non-interactive --channel v0.0.1");
+        await Assert.That(rendered).Contains("update-self --non-interactive --channel bootstrap-v0.0.1");
     }
 
     [Test]
