@@ -78,19 +78,27 @@ public static class RootCli
         // via the System.CommandLine bool option's "specified" check on the parse result.
         var enableAutostartOpt = new Option<bool>("--enable-autostart")
         {
-            Description = "After writing units/tasks, enable autostart (Linux: systemctl enable --now interfold.service; Windows: logon trigger + docker compose up -d). Overrides config.deployment.autostartServer."
+            Description = OperatingSystem.IsWindows()
+                ? "After writing tasks, enable autostart (logon trigger + docker compose up -d). Overrides config.deployment.autostartServer."
+                : "After writing units, enable autostart (systemctl enable --now interfold.service). Overrides config.deployment.autostartServer."
         };
         var enableBackupTimerOpt = new Option<bool>("--enable-backup-timer")
         {
-            Description = "After writing units/tasks, enable the backup schedule (Linux: systemctl enable --now interfold-backup.timer; Windows: calendar trigger on InterfoldBackup). Overrides config.deployment.backup.enabled."
+            Description = OperatingSystem.IsWindows()
+                ? "After writing tasks, enable the backup schedule (calendar trigger on InterfoldBackup). Overrides config.deployment.backup.enabled."
+                : "After writing units, enable the backup schedule (systemctl enable --now interfold-backup.timer). Overrides config.deployment.backup.enabled."
         };
         var systemdUnitDirOpt = new Option<string?>("--systemd-unit-dir")
         {
-            Description = "Write units/XML here and skip registration. Linux default: /etc/systemd/system. Windows: skip schtasks (test mode)."
+            Description = OperatingSystem.IsWindows()
+                ? "Write task XML here and skip schtasks registration (test mode)."
+                : "Write units here and skip systemctl registration. Default: /etc/systemd/system."
         };
         var binaryPathOpt = new Option<string?>("--binary-path")
         {
-            Description = "Override the bootstrapper binary path baked into backup/update jobs (default: AppContext.BaseDirectory/interfold-bootstrap[.exe])."
+            Description = OperatingSystem.IsWindows()
+                ? "Override the bootstrapper binary path baked into backup/update jobs (default: AppContext.BaseDirectory/interfold-bootstrap.exe)."
+                : "Override the bootstrapper binary path baked into backup/update jobs (default: AppContext.BaseDirectory/interfold-bootstrap)."
         };
 
         // --- update-images-specific options ---
