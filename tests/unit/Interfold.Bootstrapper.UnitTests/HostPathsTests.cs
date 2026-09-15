@@ -1,3 +1,4 @@
+using Interfold.Bootstrapper.UnitTests.Attributes;
 using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -63,13 +64,9 @@ public sealed class HostPathsTests
     }
 
     [Test]
+    [RequiresWindows]
     public async Task FindDockerDesktopExecutableMatchesCandidatesWhenPresent()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var found = HostPaths.FindDockerDesktopExecutable();
         if (found is null)
         {

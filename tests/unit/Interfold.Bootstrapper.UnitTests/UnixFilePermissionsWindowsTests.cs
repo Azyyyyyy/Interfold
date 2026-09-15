@@ -2,21 +2,18 @@ using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using Interfold.Bootstrapper.Cli;
+using Interfold.Bootstrapper.UnitTests.Attributes;
 using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
+[RequiresWindows]
 [SupportedOSPlatform("windows")]
 public sealed class UnixFilePermissionsWindowsTests
 {
     [Test]
     public async Task SetOwnerOnlyRemovesWorldAccess()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         using var scratch = TestSupport.NewScratchDir("acl-0600");
         var path = Path.Combine(scratch.Path, "secret.key");
         await File.WriteAllTextAsync(path, "x");
@@ -31,11 +28,6 @@ public sealed class UnixFilePermissionsWindowsTests
     [Test]
     public async Task SetWorldReadableGrantsWorldReadAndExecute()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         using var scratch = TestSupport.NewScratchDir("acl-0644");
         var path = Path.Combine(scratch.Path, "cert.crt");
         await File.WriteAllTextAsync(path, "x");
@@ -51,11 +43,6 @@ public sealed class UnixFilePermissionsWindowsTests
     [Test]
     public async Task SetWorldWritableGrantsWorldFullControlOnDirectory()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         using var scratch = TestSupport.NewScratchDir("acl-0777");
         var path = Path.Combine(scratch.Path, "avatars");
         Directory.CreateDirectory(path);

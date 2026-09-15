@@ -1,5 +1,6 @@
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Cli;
+using Interfold.Bootstrapper.UnitTests.Attributes;
 using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -42,25 +43,17 @@ public sealed class MdnsAvailabilityTests
     }
 
     [Test]
+    [RequiresWindows]
     public async Task WindowsProbeResolvesLocalhost()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var result = await MdnsAvailability.IsHostnameResolvableAsync("localhost", CancellationToken.None);
         await Assert.That(result).IsTrue();
     }
 
     [Test]
+    [RequiresWindows]
     public async Task WindowsProbeRejectsNonsenseHostname()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var result = await MdnsAvailability.IsHostnameResolvableAsync(
             $"no-such-host-{Guid.NewGuid():N}.invalid",
             CancellationToken.None);
@@ -68,13 +61,9 @@ public sealed class MdnsAvailabilityTests
     }
 
     [Test]
+    [RequiresWindows]
     public async Task TryInstallAvahiReturnsFalseOnWindows()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var logger = new PhaseLogger(TestSupport.MakeOptions(outputDir: Path.GetTempPath()));
         var distro = new DistroInfo(
             Id: "windows",

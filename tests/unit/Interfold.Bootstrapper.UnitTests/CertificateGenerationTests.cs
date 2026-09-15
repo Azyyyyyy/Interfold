@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Bootstrapper.UnitTests.Attributes;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
@@ -208,13 +209,9 @@ public sealed class CertificateGenerationTests
     // opt in with --treenode-filter or the IDE "Run Explicit" path.
     [Test]
     [Explicit]
+    [RequiresWindows]
     public async Task WindowsTrustStoreInstallAddsCurrentUserRoot()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         using var artifacts = await RunPhaseAsync(trustStoreInstall: false);
         using var generated = LoadCert(artifacts.CertPath("rootCA.crt"));
         var thumbprint = generated.Thumbprint;

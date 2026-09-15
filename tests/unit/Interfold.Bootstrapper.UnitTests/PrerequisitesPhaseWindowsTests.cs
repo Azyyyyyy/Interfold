@@ -1,5 +1,6 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Bootstrapper.UnitTests.Attributes;
 using Interfold.Bootstrapper.Util;
 using TUnit.Core.Exceptions;
 
@@ -17,13 +18,9 @@ public sealed class PrerequisitesPhaseWindowsTests
     }
 
     [Test]
+    [RequiresWindows]
     public async Task EnsureAdministratorNoopsWhenElevated()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var logger = new PhaseLogger(TestSupport.MakeOptions(outputDir: Path.GetTempPath()));
 #pragma warning disable CA1416
         PrerequisitesPhase.EnsureAdministrator(logger, isAdministrator: () => true);
@@ -32,13 +29,9 @@ public sealed class PrerequisitesPhaseWindowsTests
     }
 
     [Test]
+    [RequiresWindows]
     public async Task EnsureAdministratorFailsWithNonAdminWhenNotElevated()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var logger = new PhaseLogger(TestSupport.MakeOptions(outputDir: Path.GetTempPath()));
 #pragma warning disable CA1416
         var ex = Assert.Throws<InvalidOperationException>(
@@ -49,13 +42,9 @@ public sealed class PrerequisitesPhaseWindowsTests
     }
 
     [Test]
+    [RequiresWindows]
     public async Task DockerComposeReadyAsyncDoesNotThrow()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         _ = await PrerequisitesPhase.DockerComposeReadyAsync();
     }
 
@@ -99,13 +88,9 @@ public sealed class PrerequisitesPhaseWindowsTests
     // Needs a reachable Docker Desktop daemon + alpine pull. Opt in via Explicit.
     [Test]
     [Explicit]
+    [RequiresWindows]
     public async Task ProbeContainerAioReadsAioMaxNrFromDockerDesktopVm()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         if (!await PrerequisitesPhase.DockerComposeReadyAsync())
         {
             throw new SkipTestException("Docker Desktop not on PATH / compose not ready.");

@@ -31,7 +31,9 @@ public static class RootCli
         };
         var skipPrereqsOpt = new Option<bool>("--skip-prereqs")
         {
-            Description = "Skip the prerequisites phase (Docker/openssl install, AIO sysctl, or Windows Docker Desktop). Use on re-runs."
+            Description = OperatingSystem.IsWindows()
+                ? "Skip the prerequisites phase (Docker Desktop install / elevation). Use on re-runs."
+                : "Skip the prerequisites phase (Docker/openssl install, AIO sysctl). Use on re-runs."
         };
         var nonInteractiveOpt = new Option<bool>("--non-interactive")
         {
