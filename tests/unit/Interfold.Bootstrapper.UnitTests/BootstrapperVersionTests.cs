@@ -35,4 +35,19 @@ public sealed class BootstrapperVersionTests
             await Assert.That(BootstrapperVersion.IsUpdateAvailable("v" + core, force: false)).IsFalse();
         }
     }
+
+    [Test]
+    public async Task SameSemVerCoreDifferentBuildMetadataIsAnUpdate()
+    {
+        var local = BootstrapperVersion.InformationalVersion;
+        var plus = local.IndexOf('+');
+        var core = (plus >= 0 ? local[..plus] : local).Trim();
+        if (core.Length >= 2 && (core[0] is 'v' or 'V') && char.IsAsciiDigit(core[1]))
+        {
+            core = core[1..];
+        }
+
+        // Rolling stamps share a SemVer core; differing +commit metadata must still update.
+        await Assert.That(BootstrapperVersion.IsUpdateAvailable($"{core}+deadbeef", force: false)).IsTrue();
+    }
 }

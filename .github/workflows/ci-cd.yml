@@ -73,6 +73,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Need full history + tags so rolling stamps can use `git describe` for the last v* tag.
+          fetch-depth: 0
 
       # Cache-key = csproj + global.json hashes (no packages.lock.json here);
       # any csproj edit busts it, still cheaper than a cold restore.
@@ -97,17 +100,14 @@ jobs:
 
       # Tag pins stamp InformationalVersion without the leading `v` so
       # System.Version / pin compare treat `v0.0.1` and `0.0.1` as the same.
+      # Rolling builds use `{last v* tag}+{short commit id}` (see resolve script).
       - name: Resolve bootstrapper version stamp
         id: boot_ver
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            v="${{ github.ref_name }}"
-            echo "version=${v#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=0.0.0+sha.${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          fi
+          version="$(bash .github/scripts/resolve-bootstrapper-version.sh)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Build & upload multi-RID bootstrapper artefacts
         uses: ./.github/actions/build-bootstrapper-multi-rid
@@ -298,6 +298,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup test runner
         uses: ./.github/actions/setup-test-runner
@@ -305,17 +307,25 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           build-artifact-name: dotnet-build-${{ github.sha }}
 
+      - name: Resolve bootstrapper version stamp
+        id: boot_ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(bash .github/scripts/resolve-bootstrapper-version.sh)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
       - name: Publish Windows bootstrapper RIDs (zip + size guard)
         shell: pwsh
+        env:
+          BOOTSTRAPPER_VERSION: ${{ steps.boot_ver.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
           $rids = @('win-x64', 'win-arm64')
           $base = Join-Path $env:RUNNER_TEMP 'interfold-bootstrap-win'
           $maxBytes = 75L * 1024 * 1024
-          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') {
-            $n = $env:GITHUB_REF_NAME
-            if ($n.StartsWith('v') -or $n.StartsWith('V')) { $n.Substring(1) } else { $n }
-          } else { "0.0.0+sha.$($env:GITHUB_SHA)" }
+          $version = $env:BOOTSTRAPPER_VERSION
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'BOOTSTRAPPER_VERSION was empty' }
           New-Item -ItemType Directory -Force -Path $base | Out-Null
 
           foreach ($rid in $rids) {
@@ -572,6 +582,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download bootstrapper tarballs
         uses: actions/download-artifact@v4
@@ -610,12 +622,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            v="${{ github.ref_name }}"
-            echo "version=${v#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=0.0.0+sha.${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          fi
+          version="$(bash .github/scripts/resolve-bootstrapper-version.sh)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Publish rolling GitHub Release
         if: github.ref_type != 'tag'

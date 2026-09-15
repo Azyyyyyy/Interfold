@@ -26,23 +26,11 @@ public sealed class SelfUpdateIntegrationTests(UbuntuDinDFixture dinD)
         var privateBootstrapper = $"{scratch.OutputDir}/interfold-bootstrap";
         var releaseRoot = "/tmp/interfold-fake-release";
         var port = 19876;
+        var pidPath = "/tmp/fake-release-http.pid";
 
-        var setup = await dinD.ExecAsync(["sh", "-c", $$"""
-            set -e
-            cp -f {{sharedBootstrapper}} {{privateBootstrapper}}
-            chmod +x {{privateBootstrapper}}
-            rm -rf {{releaseRoot}}
-            mkdir -p {{releaseRoot}}/latest
-            echo '9.9.9-test' > {{releaseRoot}}/latest/version.txt
-            # Real ELF payload so a subsequent update-self --rollback remains runnable.
-            cp -f {{sharedBootstrapper}} /tmp/interfold-bootstrap
-            chmod +x /tmp/interfold-bootstrap
-            tar -czf {{releaseRoot}}/latest/interfold-bootstrap-linux-x64.tar.gz -C /tmp interfold-bootstrap
-            hash=$(sha256sum {{releaseRoot}}/latest/interfold-bootstrap-linux-x64.tar.gz | awk '{print $1}')
-            echo "$hash  interfold-bootstrap-linux-x64.tar.gz" > {{releaseRoot}}/latest/SHA256SUMS
-            python3 -m http.server {{port}} --directory {{releaseRoot}} >/tmp/fake-release-http.log 2>&1 &
-            echo $! > /tmp/fake-release-http.pid
-            """]);
+        var setup = await FakeReleaseMirror.StartAsync(
+            dinD, sharedBootstrapper, privateBootstrapper, releaseRoot, port,
+            pidPath, "/tmp/fake-release-http.log");
         await Assert.That(setup.ExitCode).IsEqualTo(0L).Because(setup.Stderr);
 
         var sharedBefore = await dinD.ExecAsync(["sh", "-c", $"sha256sum {sharedBootstrapper} | awk '{{print $1}}'"]);
@@ -66,7 +54,7 @@ public sealed class SelfUpdateIntegrationTests(UbuntuDinDFixture dinD)
         await Assert.That(sharedAfter.Stdout.Trim()).IsEqualTo(sharedBefore.Stdout.Trim())
             .Because("session-shared mount binary must not be mutated by update-self");
 
-        await dinD.ExecAsync(["sh", "-c", "kill $(cat /tmp/fake-release-http.pid) 2>/dev/null || true"]);
+        await FakeReleaseMirror.StopAsync(dinD, pidPath);
     }
 
     [Test]
@@ -77,22 +65,11 @@ public sealed class SelfUpdateIntegrationTests(UbuntuDinDFixture dinD)
         var privateBootstrapper = $"{scratch.OutputDir}/interfold-bootstrap";
         var releaseRoot = "/tmp/interfold-fake-release-rollback";
         var port = 19877;
+        var pidPath = "/tmp/fake-release-http-rollback.pid";
 
-        var setup = await dinD.ExecAsync(["sh", "-c", $$"""
-            set -e
-            cp -f {{sharedBootstrapper}} {{privateBootstrapper}}
-            chmod +x {{privateBootstrapper}}
-            rm -rf {{releaseRoot}}
-            mkdir -p {{releaseRoot}}/latest
-            echo '9.9.9-test' > {{releaseRoot}}/latest/version.txt
-            cp -f {{sharedBootstrapper}} /tmp/interfold-bootstrap
-            chmod +x /tmp/interfold-bootstrap
-            tar -czf {{releaseRoot}}/latest/interfold-bootstrap-linux-x64.tar.gz -C /tmp interfold-bootstrap
-            hash=$(sha256sum {{releaseRoot}}/latest/interfold-bootstrap-linux-x64.tar.gz | awk '{print $1}')
-            echo "$hash  interfold-bootstrap-linux-x64.tar.gz" > {{releaseRoot}}/latest/SHA256SUMS
-            python3 -m http.server {{port}} --directory {{releaseRoot}} >/tmp/fake-release-http-rollback.log 2>&1 &
-            echo $! > /tmp/fake-release-http-rollback.pid
-            """]);
+        var setup = await FakeReleaseMirror.StartAsync(
+            dinD, sharedBootstrapper, privateBootstrapper, releaseRoot, port,
+            pidPath, "/tmp/fake-release-http-rollback.log");
         await Assert.That(setup.ExitCode).IsEqualTo(0L).Because(setup.Stderr);
 
         var beforeHash = await dinD.ExecAsync(["sh", "-c", $"sha256sum {privateBootstrapper} | awk '{{print $1}}'"]);
@@ -119,6 +96,6 @@ public sealed class SelfUpdateIntegrationTests(UbuntuDinDFixture dinD)
         var oldGone = await dinD.ExecAsync(["sh", "-c", $"test ! -f {privateBootstrapper}.old"]);
         await Assert.That(oldGone.ExitCode).IsEqualTo(0L);
 
-        await dinD.ExecAsync(["sh", "-c", "kill $(cat /tmp/fake-release-http-rollback.pid) 2>/dev/null || true"]);
+        await FakeReleaseMirror.StopAsync(dinD, pidPath);
     }
 }

@@ -41,21 +41,45 @@ internal static class BootstrapperVersion
             return true;
         }
 
-        var local = StripBuildMetadata(InformationalVersion);
-        var remote = StripBuildMetadata(remoteVersion);
-
-        if (string.Equals(remote, local, StringComparison.OrdinalIgnoreCase))
+        var localFull = NormalizeIdentity(InformationalVersion);
+        var remoteFull = NormalizeIdentity(remoteVersion);
+        if (string.Equals(remoteFull, localFull, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        if (TryParseComparable(local, out var localVer)
-            && TryParseComparable(remote, out var remoteVer))
+        var localCore = StripBuildMetadata(InformationalVersion);
+        var remoteCore = StripBuildMetadata(remoteVersion);
+
+        if (TryParseComparable(localCore, out var localVer)
+            && TryParseComparable(remoteCore, out var remoteVer))
         {
-            return remoteVer > localVer;
+            if (remoteVer != localVer)
+            {
+                return remoteVer > localVer;
+            }
+
+            // Same SemVer core: rolling stamps (`1.2.3+abc` vs `1.2.3+def`) update when
+            // both sides carry build metadata. One-sided metadata (SDK SourceRevisionId
+            // vs a clean remote, or pin tag without +meta) is not an update.
+            var localMeta = GetBuildMetadata(InformationalVersion);
+            var remoteMeta = GetBuildMetadata(remoteVersion);
+            return localMeta.Length > 0
+                   && remoteMeta.Length > 0
+                   && !string.Equals(localMeta, remoteMeta, StringComparison.OrdinalIgnoreCase);
         }
 
-        return !string.Equals(remote, local, StringComparison.OrdinalIgnoreCase);
+        return !string.Equals(remoteCore, localCore, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeIdentity(string version)
+        => StripLeadingV(version.Trim());
+
+    private static string GetBuildMetadata(string version)
+    {
+        var trimmed = version.Trim();
+        var plus = trimmed.IndexOf('+');
+        return plus >= 0 ? trimmed[(plus + 1)..].Trim() : string.Empty;
     }
 
     private static string StripBuildMetadata(string version)
@@ -77,6 +101,13 @@ internal static class BootstrapperVersion
     {
         parsed = default!;
         var core = StripLeadingV(version.Split('+', 2)[0].Trim());
+        // Allow pre-release-ish local stamps like 0.0.0-dev by taking the numeric prefix.
+        var dash = core.IndexOf('-');
+        if (dash > 0)
+        {
+            core = core[..dash];
+        }
+
         if (Version.TryParse(core, out var v))
         {
             parsed = v;
