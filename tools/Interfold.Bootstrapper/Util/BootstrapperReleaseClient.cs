@@ -12,8 +12,8 @@ internal sealed class BootstrapperReleaseClient : IDisposable
 {
     internal const string GitHubOwner = "Azyyyyyy";
     internal const string GitHubRepo = "Interfold";
-    internal const string StableRollingTagPrefix = "stable-";
-    internal const string BleedingEdgeRollingTagPrefix = "bleeding-edge-";
+    internal const string StableRollingTagPrefix = "bootstrap-stable-";
+    internal const string BleedingEdgeRollingTagPrefix = "bootstrap-bleeding-edge-";
 
     private readonly HttpClient _http;
 
@@ -69,7 +69,8 @@ internal sealed class BootstrapperReleaseClient : IDisposable
     /// <summary>
     /// Resolves the GitHub Release tag for <paramref name="channel"/>.
     /// Pins use the tag as-is; rolling channels query the Releases API for the newest
-    /// <c>stable-{version}</c> / <c>bleeding-edge-{version}</c> tag. Test mirrors keep using
+    /// <c>bootstrap-stable-{version}</c> / <c>bootstrap-bleeding-edge-{version}</c> tag.
+    /// Test mirrors keep using
     /// <see cref="BootstrapperReleaseChannel.ToGitHubReleaseTag"/>.
     /// </summary>
     internal async Task<string> ResolveReleaseTagAsync(
@@ -109,7 +110,8 @@ internal sealed class BootstrapperReleaseClient : IDisposable
 
     /// <summary>
     /// Remote version identity. Live releases encode it in the tag
-    /// (<c>stable-{version}</c> / <c>bleeding-edge-{version}</c> / pin <c>bootstrap-v*</c>);
+    /// (<c>bootstrap-stable-{version}</c> / <c>bootstrap-bleeding-edge-{version}</c> /
+    /// pin <c>bootstrap-v*</c>);
     /// test mirrors still serve <c>version.txt</c>.
     /// </summary>
     internal async Task<string> FetchRemoteVersionAsync(BootstrapperReleaseChannel channel, CancellationToken ct)
