@@ -32,9 +32,9 @@ public sealed class BootstrapperReleaseClientTests
     [Test]
     public async Task VersionFromReleaseTagStripsRollingPrefixes()
     {
-        await Assert.That(BootstrapperReleaseClient.VersionFromReleaseTag("stable-0.0.1+abc1234"))
+        await Assert.That(BootstrapperReleaseClient.VersionFromReleaseTag("bootstrap-stable-0.0.1+abc1234"))
             .IsEqualTo("0.0.1+abc1234");
-        await Assert.That(BootstrapperReleaseClient.VersionFromReleaseTag("bleeding-edge-0.0.1+deadbee"))
+        await Assert.That(BootstrapperReleaseClient.VersionFromReleaseTag("bootstrap-bleeding-edge-0.0.1+deadbee"))
             .IsEqualTo("0.0.1+deadbee");
         await Assert.That(BootstrapperReleaseClient.VersionFromReleaseTag("bootstrap-v0.0.1"))
             .IsEqualTo("0.0.1");
@@ -62,11 +62,11 @@ public sealed class BootstrapperReleaseClientTests
         using var doc = JsonDocument.Parse(
             """
             [
-              { "tag_name": "bleeding-edge-0.0.1+ffff", "draft": false, "prerelease": true },
-              { "tag_name": "stable-0.0.1+draft", "draft": true, "prerelease": false },
-              { "tag_name": "v1.0.0", "draft": false, "prerelease": false },
-              { "tag_name": "stable-0.0.1+cafebabe", "draft": false, "prerelease": false },
-              { "tag_name": "stable-0.0.1+older", "draft": false, "prerelease": false }
+              { "tag_name": "bootstrap-bleeding-edge-0.0.1+ffff", "draft": false, "prerelease": true },
+              { "tag_name": "bootstrap-stable-0.0.1+draft", "draft": true, "prerelease": false },
+              { "tag_name": "api-v1.0.0", "draft": false, "prerelease": false },
+              { "tag_name": "bootstrap-stable-0.0.1+cafebabe", "draft": false, "prerelease": false },
+              { "tag_name": "bootstrap-stable-0.0.1+older", "draft": false, "prerelease": false }
             ]
             """);
 
@@ -74,7 +74,7 @@ public sealed class BootstrapperReleaseClientTests
             doc.RootElement,
             BootstrapperReleaseClient.StableRollingTagPrefix,
             requirePrerelease: false);
-        await Assert.That(tag).IsEqualTo("stable-0.0.1+cafebabe");
+        await Assert.That(tag).IsEqualTo("bootstrap-stable-0.0.1+cafebabe");
     }
 
     [Test]
@@ -83,11 +83,11 @@ public sealed class BootstrapperReleaseClientTests
         using var doc = JsonDocument.Parse(
             """
             [
-              { "tag_name": "v1.0.0", "draft": false, "prerelease": false },
-              { "tag_name": "stable-0.0.1+aaaa", "draft": false, "prerelease": false },
-              { "tag_name": "bleeding-edge-0.0.1+deadbeef", "draft": true, "prerelease": true },
-              { "tag_name": "bleeding-edge-0.0.1+cafebabe", "draft": false, "prerelease": true },
-              { "tag_name": "bleeding-edge-0.0.1+older", "draft": false, "prerelease": true }
+              { "tag_name": "api-v1.0.0", "draft": false, "prerelease": false },
+              { "tag_name": "bootstrap-stable-0.0.1+aaaa", "draft": false, "prerelease": false },
+              { "tag_name": "bootstrap-bleeding-edge-0.0.1+deadbeef", "draft": true, "prerelease": true },
+              { "tag_name": "bootstrap-bleeding-edge-0.0.1+cafebabe", "draft": false, "prerelease": true },
+              { "tag_name": "bootstrap-bleeding-edge-0.0.1+older", "draft": false, "prerelease": true }
             ]
             """);
 
@@ -95,7 +95,7 @@ public sealed class BootstrapperReleaseClientTests
             doc.RootElement,
             BootstrapperReleaseClient.BleedingEdgeRollingTagPrefix,
             requirePrerelease: true);
-        await Assert.That(tag).IsEqualTo("bleeding-edge-0.0.1+cafebabe");
+        await Assert.That(tag).IsEqualTo("bootstrap-bleeding-edge-0.0.1+cafebabe");
     }
 
     [Test]
@@ -104,7 +104,7 @@ public sealed class BootstrapperReleaseClientTests
         using var doc = JsonDocument.Parse(
             """
             [
-              { "tag_name": "bleeding-edge-0.0.1+aaaa", "draft": false, "prerelease": true },
+              { "tag_name": "bootstrap-bleeding-edge-0.0.1+aaaa", "draft": false, "prerelease": true },
               { "tag_name": "bootstrap-v0.0.1", "draft": false, "prerelease": false }
             ]
             """);

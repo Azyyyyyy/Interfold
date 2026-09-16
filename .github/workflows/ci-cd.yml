@@ -789,21 +789,21 @@ jobs:
           set -euo pipefail
           # Unique tag per run: immutable releases lock tags after publish, so fixed
           # rolling names cannot be reused. The InformationalVersion stamp is part of
-          # the tag (stable-{version} / bleeding-edge-{version}); clients strip the
-          # prefix for update comparison and verify assets via the Releases API
-          # `digest` field — no version.txt / SHA256SUMS assets.
+          # the tag (bootstrap-stable-{version} / bootstrap-bleeding-edge-{version});
+          # clients strip the prefix for update comparison and verify assets via the
+          # Releases API `digest` field — no version.txt / SHA256SUMS assets.
           version='${{ steps.boot_ver.outputs.version }}'
           if [ -z "$version" ]; then
             echo "boot_ver.outputs.version was empty" >&2
             exit 1
           fi
           if [ '${{ github.ref }}' = 'refs/heads/develop' ]; then
-            echo "tag=bleeding-edge-${version}" >> "$GITHUB_OUTPUT"
-            echo "prefix=bleeding-edge-" >> "$GITHUB_OUTPUT"
+            echo "tag=bootstrap-bleeding-edge-${version}" >> "$GITHUB_OUTPUT"
+            echo "prefix=bootstrap-bleeding-edge-" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=stable-${version}" >> "$GITHUB_OUTPUT"
-            echo "prefix=stable-" >> "$GITHUB_OUTPUT"
+            echo "tag=bootstrap-stable-${version}" >> "$GITHUB_OUTPUT"
+            echo "prefix=bootstrap-stable-" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 

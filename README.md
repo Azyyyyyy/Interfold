@@ -24,13 +24,13 @@ dev `aspire run` flow, with a Docker Compose publisher and a host-side prep wrap
 ### One-shot install
 
 CI uploads per-arch bootstrapper artefacts (Linux `.tar.gz`, Windows `.zip`). Rolling
-channels publish a **unique tag per CI run** (`stable-{version}` /
-`bleeding-edge-{version}`, where `{version}` is the InformationalVersion stamp) because
+channels publish a **unique tag per CI run** (`bootstrap-stable-{version}` /
+`bootstrap-bleeding-edge-{version}`, where `{version}` is the InformationalVersion stamp) because
 the repo uses immutable releases — fixed tag names cannot be republished. Published
 binaries also embed the release channel (`stable` / `bleeding-edge` / pin tag) as
 assembly metadata (`interfold-bootstrap --version` shows it). `update-self`
 resolves both channels by paginating the Releases API for the newest matching prefix
-(`stable-*` full release, `bleeding-edge-*` prerelease) — not GitHub’s “latest” flag —
+(`bootstrap-stable-*` full release, `bootstrap-bleeding-edge-*` prerelease) — not GitHub’s “latest” flag —
 then verifies downloads against each asset’s Releases API `digest` (no `SHA256SUMS` /
 `version.txt` assets). Pinned `bootstrap-v*` tags **are** the version (distinct from
 API image releases tagged `api-v*`):
@@ -44,17 +44,17 @@ API image releases tagged `api-v*`):
 **Linux** — download a release tarball (or use a CI artefact) on Ubuntu 22.04+/Debian 12+/Fedora 40+/RHEL 9+:
 
 ```bash
-# Stable (tracks main — newest non-prerelease stable-* tag)
+# Stable (tracks main — newest non-prerelease bootstrap-stable-* tag)
 tag=$(curl -fsSL 'https://api.github.com/repos/Azyyyyyy/Interfold/releases?per_page=100' \
-  | jq -r '[.[] | select((.prerelease|not) and (.draft|not) and (.tag_name | startswith("stable-")))][0].tag_name')
+  | jq -r '[.[] | select((.prerelease|not) and (.draft|not) and (.tag_name | startswith("bootstrap-stable-")))][0].tag_name')
 curl -fsSL -o interfold-bootstrap-linux-x64.tar.gz \
   "https://github.com/Azyyyyyy/Interfold/releases/download/${tag}/interfold-bootstrap-linux-x64.tar.gz"
 tar -xzf interfold-bootstrap-linux-x64.tar.gz
 chmod +x interfold-bootstrap
 
-# Bleeding-edge (tracks develop — newest bleeding-edge-* prerelease)
+# Bleeding-edge (tracks develop — newest bootstrap-bleeding-edge-* prerelease)
 tag=$(curl -fsSL 'https://api.github.com/repos/Azyyyyyy/Interfold/releases?per_page=100' \
-  | jq -r '[.[] | select(.prerelease and (.draft|not) and (.tag_name | startswith("bleeding-edge-")))][0].tag_name')
+  | jq -r '[.[] | select(.prerelease and (.draft|not) and (.tag_name | startswith("bootstrap-bleeding-edge-")))][0].tag_name')
 curl -fsSL -o interfold-bootstrap-linux-x64.tar.gz \
   "https://github.com/Azyyyyyy/Interfold/releases/download/${tag}/interfold-bootstrap-linux-x64.tar.gz"
 tar -xzf interfold-bootstrap-linux-x64.tar.gz
@@ -170,7 +170,7 @@ Examples: `ghcr.io/azyyyyyy/interfold-api:1.2`, `…:1.2.3`. Responses include
 `X-Interfold-Api-Version` (product SemVer) separately from `X-Interfold-Contract` (wire
 freeze). App clients use unversioned `/api/...` routes; breaking changes ship as new
 endpoints. GitHub release tags stay namespaced: `api-v*` (API image) vs `bootstrap-v*`
-(bootstrapper pin) vs `stable-*` / `bleeding-edge-*` (bootstrapper rolling).
+(bootstrapper pin) vs `bootstrap-stable-*` / `bootstrap-bleeding-edge-*` (bootstrapper rolling).
 
 When `deployment.update.bootstrapper.enabled=true`, Linux `interfold-update.service` and the
 Windows backup-task update Actions chain `update-self` before `update-images` (Linux uses
