@@ -27,7 +27,8 @@ public readonly struct BootstrapperReleaseChannel : IEquatable<BootstrapperRelea
 
     /// <summary>
     /// Mirror-folder / pin tag for direct download URLs.
-    /// Live rolling channels publish unique <c>stable-*</c> / <c>bleeding-edge-*</c> tags and
+    /// Live rolling channels publish unique <c>bootstrap-stable-*</c> /
+    /// <c>bootstrap-bleeding-edge-*</c> tags and
     /// resolve via the Releases API — these wire names remain the local fake-mirror folders.
     /// </summary>
     public string ToGitHubReleaseTag() => IsPinned
