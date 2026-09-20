@@ -82,6 +82,7 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
   "deployment": {
     "outputDir": "./deploy",
     "includeWeb": false,
+    "webImage": "ghcr.io/azyyyyyy/interfold-web:latest",
     "autostartServer": false,
     "backup": {
       "enabled": false,
@@ -248,6 +249,12 @@ The running host stamps `X-Interfold-Api-Version` on responses (product SemVer).
 
 GitHub tag namespaces: `api-v*` (API image SemVer releases), `bootstrap-v*` (bootstrapper pins), `bootstrap-stable-*` / `bootstrap-bleeding-edge-*` (bootstrapper rolling).
 
+#### `deployment.webImage` (web container pin)
+
+| Field | Default | Notes |
+| ----- | ------- | ----- |
+| `webImage` | `ghcr.io/azyyyyyy/interfold-web:latest` | Full image reference for the `interfold-web` compose service when `deployment.includeWeb` is `true`. Consumed by `publish` / `update-images`. Independent of bootstrapper `deployment.update.bootstrapper.channel`. |
+
 First-time operators don't need to hand-author this file — running `interfold-bootstrap` on
 a real TTY without an existing `interfold.bootstrap.json` drops into a Spectre.Console
 navigable form: every field on `BootstrapConfig` is shown as a menu row with its current
@@ -332,8 +339,9 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 > does not join `edge-api`. When `cloudflare.enabled`, edge has no host-published ports —
 > `cloudflared` reaches `edge-nginx:80` on the compose network only.
 >
-> - `deployment.includeWeb` (default `false`) — when `true`, ship `octocon-web` on the
+> - `deployment.includeWeb` (default `false`) — when `true`, ship `interfold-web` on the
 >   `edge-web` network. Nginx routes `/` (path mode) or `webHost` (subdomain mode) to it.
+>   Pin the image with `deployment.webImage` (default `ghcr.io/azyyyyyy/interfold-web:latest`).
 > - `edge.tlsMode` — `none` (plaintext HTTP on `edge.ports.http` only) or
 >   `privateCa` (bootstrapper mints certs; HTTP + HTTPS ports). Public TLS is Cloudflare
 >   Tunnel when `cloudflare.enabled` (origin coerced to `none`).

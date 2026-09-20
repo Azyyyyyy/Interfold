@@ -9,8 +9,8 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory={{OUTPUT_DIR}}
-ExecStart=/usr/bin/docker compose -f {{COMPOSE_FILE}} up -d
-ExecStop=/usr/bin/docker compose -f {{COMPOSE_FILE}} down
+ExecStart=/usr/bin/docker compose -f {{COMPOSE_FILE}} up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f {{COMPOSE_FILE}} down --remove-orphans
 TimeoutStartSec=300
 TimeoutStopSec=120
 

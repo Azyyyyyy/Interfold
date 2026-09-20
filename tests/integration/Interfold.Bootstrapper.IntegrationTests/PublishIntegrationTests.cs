@@ -88,6 +88,23 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
     }
 
     [Test]
+    public async Task CustomWebImageAppearsInGeneratedCompose()
+    {
+        var (scratch, _) = await dinD.PublishAsync(
+            nameof(CustomWebImageAppearsInGeneratedCompose), TestConfigPaths.EdgeConfig);
+
+        var composeBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/docker-compose.yaml");
+        var compose = Encoding.UTF8.GetString(composeBytes);
+
+        await Assert.That(compose).Contains("interfold-web:test")
+            .Because("the custom webImage from the edge fixture should appear in the emitted compose");
+        await Assert.That(compose).DoesNotContain("ghcr.io/azyyyyyy/interfold-web:latest")
+            .Because("the default web image tag must not appear when webImage is overridden");
+        await Assert.That(compose).DoesNotContain("ghcr.io/azyyyyyy/octocon-wasm")
+            .Because("the legacy octocon-wasm image must not be hardcoded when webImage is set");
+    }
+
+    [Test]
     public async Task EnvFileContainsAllRequiredKeys()
     {
         var (scratch, _) = await dinD.PublishAsync(nameof(EnvFileContainsAllRequiredKeys), TestConfigPaths.DefaultConfig);

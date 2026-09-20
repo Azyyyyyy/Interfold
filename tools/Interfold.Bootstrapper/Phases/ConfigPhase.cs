@@ -208,8 +208,10 @@ internal static class ConfigPhase
             Group("Deployment",
                 ("Output directory",                () => c.Deployment.OutputDir,
                                                     () => c.Deployment.OutputDir = PromptStr("Output directory", c.Deployment.OutputDir)),
-                ("Include octocon-web container",   () => c.Deployment.IncludeWeb.ToString(),
-                                                    () => c.Deployment.IncludeWeb = PromptBool("Include the octocon-web (Kotlin/Wasm UI) container", c.Deployment.IncludeWeb)),
+                ("Include interfold-web container", () => c.Deployment.IncludeWeb.ToString(),
+                                                    () => c.Deployment.IncludeWeb = PromptBool("Include the interfold-web (Kotlin/Wasm UI) container", c.Deployment.IncludeWeb)),
+                ("Pre-built Interfold web image",   () => c.Deployment.WebImage,
+                                                    () => c.Deployment.WebImage = PromptStr("Pre-built Interfold web image reference", c.Deployment.WebImage)),
                 ("Autostart server on boot",        () => c.Deployment.AutostartServer.ToString(),
                                                     () => c.Deployment.AutostartServer = PromptBool("Autostart the server on host boot (installs interfold.service)", c.Deployment.AutostartServer))),
 
@@ -558,7 +560,8 @@ internal static class ConfigPhase
                     var parts = s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                     foreach (var part in parts)
                     {
-                        if (!ValidUpdateServices.Contains(part, StringComparer.Ordinal))
+                        var canonical = ComposeServices.CanonicalizeUpdateService(part);
+                        if (!ValidUpdateServices.Contains(canonical, StringComparer.Ordinal))
                         {
                             return ValidationResult.Error(
                                 $"[red]'{part}' is not a known compose service. Expected one of: {string.Join(", ", ValidUpdateServices)}[/]");
@@ -568,7 +571,9 @@ internal static class ConfigPhase
                 }));
 
         if (string.IsNullOrWhiteSpace(raw)) return [];
-        return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToArray();
+        return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(ComposeServices.CanonicalizeUpdateService)
+            .ToArray();
     }
 
     private static BootstrapperReleaseChannel PromptBootstrapperChannel(
@@ -1028,6 +1033,13 @@ internal static class ConfigPhase
 
         ValidateEdge(config, parsedHosts);
 
+        if (string.IsNullOrWhiteSpace(config.Deployment.WebImage))
+        {
+            throw new InvalidOperationException(
+                "config.deployment.webImage must be a non-empty container image reference " +
+                $"(default: '{DefaultContainerImages.Web}').");
+        }
+
         // Postgres-safe identifier: quoting-free at both bind sites (connection string +
         // CREATE DATABASE) within the 63-byte NAMEDATALEN budget.
         if (string.IsNullOrWhiteSpace(config.Datastores.Postgres.Database))
@@ -1158,6 +1170,9 @@ internal static class ConfigPhase
             "config.deployment.update.healthCheckTimeoutSeconds");
 
         // Empty = every service (valid default); only non-empty entries are checked.
+        config.Deployment.Update.Services = config.Deployment.Update.Services
+            .Select(ComposeServices.CanonicalizeUpdateService)
+            .ToArray();
         foreach (var svc in config.Deployment.Update.Services)
         {
             if (string.IsNullOrWhiteSpace(svc))

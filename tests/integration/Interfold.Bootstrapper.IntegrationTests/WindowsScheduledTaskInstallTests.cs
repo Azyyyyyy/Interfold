@@ -43,7 +43,7 @@ public sealed class WindowsScheduledTaskInstallTests
 
         var boot = await WindowsInstallScratch.ReadUtf16Async(Path.Combine(scratch.TaskXmlDir, "interfold.xml"));
         await Assert.That(boot).Contains("compose -f");
-        await Assert.That(boot).Contains("up -d");
+        await Assert.That(boot).Contains("up -d --remove-orphans");
         await Assert.That(boot).Contains("<LogonTrigger>");
         await Assert.That(boot).Contains("<RunLevel>LeastPrivilege</RunLevel>");
         await Assert.That(boot).Contains("<UserId>");

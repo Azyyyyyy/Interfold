@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Interfold.Bootstrapper.Util;
 using Interfold.Settings.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Configuration;
@@ -36,6 +37,9 @@ public sealed class DeploymentSection
 
     [JsonPropertyName("includeWeb")]
     public bool IncludeWeb { get; set; }
+
+    [JsonPropertyName("webImage")]
+    public string WebImage { get; set; } = DefaultContainerImages.Web;
 
     [JsonPropertyName("autostartServer")]
     public bool AutostartServer { get; set; }
@@ -158,7 +162,7 @@ public sealed class CqlDatastoreSection
 public sealed class ApiSection
 {
     [JsonPropertyName("image")]
-    public string Image { get; set; } = "ghcr.io/azyyyyyy/interfold-api:latest";
+    public string Image { get; set; } = DefaultContainerImages.Api;
 
     [JsonPropertyName("nodeGroup")]
     public NodeGroup NodeGroup { get; set; } = NodeGroup.Auxiliary;

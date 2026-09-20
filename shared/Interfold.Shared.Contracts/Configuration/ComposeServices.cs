@@ -41,8 +41,8 @@ public static class ComposeServices
     /// <summary>API container. Emits OCTOCON_* env, hosts the WebSocket endpoint.</summary>
     public const string InterfoldApi = "interfold-api";
 
-    /// <summary>Static octocon wasm UI (HTTP). Public TLS is terminated by <see cref="EdgeNginx"/> when enabled.</summary>
-    public const string OctoconWeb = "octocon-web";
+    /// <summary>Static interfold-web wasm UI (HTTP). Public TLS is terminated by <see cref="EdgeNginx"/> when enabled.</summary>
+    public const string InterfoldWeb = "interfold-web";
 
     /// <summary>Public edge reverse proxy for HTTP/HTTPS in front of API (+ web).</summary>
     public const string EdgeNginx = "edge-nginx";
@@ -66,7 +66,7 @@ public static class ComposeServices
         ScyllaEas, ScyllaOcn, ScyllaGdpr,
         Cassandra,
         InterfoldApi,
-        OctoconWeb,
+        InterfoldWeb,
         EdgeNginx,
         Cloudflared,
     ];
@@ -78,4 +78,10 @@ public static class ComposeServices
 
     public static string ToScyllaNodeName(Enums.ScyllaKeyspace keyspace, bool multiNode)
         => ToScyllaNodeName(keyspace.ToWire(), multiNode);
+
+    /// <summary>Accepts <c>octocon-web</c> as <see cref="InterfoldWeb"/> in --service filters.</summary>
+    public static string CanonicalizeUpdateService(string service)
+        => string.Equals(service, "octocon-web", StringComparison.Ordinal)
+            ? InterfoldWeb
+            : service;
 }

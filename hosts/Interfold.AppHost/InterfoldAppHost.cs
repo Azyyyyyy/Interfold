@@ -670,8 +670,12 @@ public static class InterfoldAppHost
             : BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludeWeb], fallback: true);
         if (includeWeb)
         {
-            var web = builder.AddContainer(ComposeServices.OctoconWeb, "ghcr.io/azyyyyyy/octocon-wasm", "latest")
-                .WithContainerNetworkAlias(ComposeServices.OctoconWeb)
+            var webImageRef = builder.Configuration[AppHostParameterKeys.WebImage];
+            if (string.IsNullOrWhiteSpace(webImageRef))
+                webImageRef = DefaultContainerImages.Web;
+            var webImage = ImageRef.Parse(webImageRef);
+            var web = builder.AddContainer(ComposeServices.InterfoldWeb, webImage.Image, webImage.Tag)
+                .WithContainerNetworkAlias(ComposeServices.InterfoldWeb)
                 .WithHttpEndpoint(targetPort: 8080, name: HttpEndpointName)
                 .WithHttpHealthCheck("/", endpointName: HttpEndpointName);
 
@@ -732,7 +736,7 @@ public static class InterfoldAppHost
                     ComposeServices.InterfoldApi + ":" + apiContainerHttpPort.ToString())
                 .WithEnvironment(
                     ContainerEnvNames.NginxWebUpstream,
-                    ComposeServices.OctoconWeb + ":8080")
+                    ComposeServices.InterfoldWeb + ":8080")
                 .WithEnvironment(
                     ContainerEnvNames.NginxIncludeWeb,
                     includeWebUpstream ? "1" : string.Empty)

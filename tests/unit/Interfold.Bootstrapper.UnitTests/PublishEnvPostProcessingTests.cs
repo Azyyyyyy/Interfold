@@ -16,7 +16,7 @@ public sealed class PublishEnvPostProcessingTests
     {
         var config = new BootstrapConfig
         {
-            Api = { Image = apiImage ?? "ghcr.io/azyyyyyy/interfold-api:latest" },
+            Api = { Image = apiImage ?? DefaultContainerImages.Api },
             Datastores = { Cql = { Backend = backend } },
         };
         // Edge.Hosts has no placeholder; without a seed ResolveDerivedDefaults has
@@ -490,6 +490,37 @@ public sealed class PublishEnvPostProcessingTests
         // ApiImage flows via Aspire Parameters:api-image into compose YAML, not .env.
         var (configA, secretsA) = MakeInputs(apiImage: "ghcr.io/azyyyyyy/interfold-api:v1.2.3");
         var (configB, secretsB) = MakeInputs(apiImage: "private-registry.example.com/api:custom-tag");
+        secretsB.PostgresPassword = secretsA.PostgresPassword;
+        secretsB.PostgresInitPassword = secretsA.PostgresInitPassword;
+        secretsB.PostgresAdminPassword = secretsA.PostgresAdminPassword;
+        secretsB.ScyllaPassword = secretsA.ScyllaPassword;
+        secretsB.ScyllaAdminPassword = secretsA.ScyllaAdminPassword;
+        secretsB.EncryptionPrivateKeyB64 = secretsA.EncryptionPrivateKeyB64;
+
+        var a = PublishPhase.BuildEnvReplacements(configA, secretsA, "/base", "/out");
+        var b = PublishPhase.BuildEnvReplacements(configB, secretsB, "/base", "/out");
+
+        await Assert.That(a.Parameters.Count).IsEqualTo(b.Parameters.Count);
+        foreach (var kv in a.Parameters)
+        {
+            await Assert.That(b.Parameters.ContainsKey(kv.Key)).IsTrue();
+            await Assert.That(b.Parameters[kv.Key]).IsEqualTo(kv.Value);
+        }
+
+        foreach (var key in a.Parameters.Keys)
+        {
+            await Assert.That(key.Contains("IMAGE", StringComparison.OrdinalIgnoreCase)).IsFalse()
+                .Because($"unexpected image-related key '{key}' leaked into env replacements");
+        }
+    }
+
+    [Test]
+    public async Task WebImageOverrideDoesNotLeakIntoEnvReplacements()
+    {
+        var (configA, secretsA) = MakeInputs();
+        configA.Deployment.WebImage = "ghcr.io/azyyyyyy/interfold-web:v1.2.3";
+        var (configB, secretsB) = MakeInputs();
+        configB.Deployment.WebImage = "private-registry.example.com/web:custom-tag";
         secretsB.PostgresPassword = secretsA.PostgresPassword;
         secretsB.PostgresInitPassword = secretsA.PostgresInitPassword;
         secretsB.PostgresAdminPassword = secretsA.PostgresAdminPassword;

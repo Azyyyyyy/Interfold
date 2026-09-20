@@ -65,7 +65,7 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
         await Assert.That(result.ExitCode).IsEqualTo(0).Because($"install-service failed: {result.Stderr}");
 
         var bootService = await dinD.CopyOutAsTextAsync($"{unitDir}/interfold.service");
-        await Assert.That(bootService).Contains($"ExecStart=/usr/bin/docker compose -f {scratch.OutputDir}/docker-compose.yaml up -d");
+        await Assert.That(bootService).Contains($"ExecStart=/usr/bin/docker compose -f {scratch.OutputDir}/docker-compose.yaml up -d --remove-orphans");
         await Assert.That(bootService).Contains("WantedBy=multi-user.target");
 
         var backupService = await dinD.CopyOutAsTextAsync($"{unitDir}/interfold-backup.service");

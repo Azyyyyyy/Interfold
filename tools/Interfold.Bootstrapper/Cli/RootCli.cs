@@ -147,7 +147,7 @@ public static class RootCli
         };
         var updateServicesOpt = new Option<string[]>("--service")
         {
-            Description = "Compose services to pull + recreate. Repeatable; e.g. --service interfold-api --service octocon-web. Empty (the default) means every service.",
+            Description = "Compose services to pull + recreate. Repeatable; e.g. --service interfold-api --service interfold-web. Empty (the default) means every service.",
             AllowMultipleArgumentsPerToken = true,
         };
         var healthCheckTimeoutOpt = new Option<int?>("--health-check-timeout")

@@ -28,8 +28,8 @@ public sealed class SystemdUnitRenderingTests
         // The boot-time autostart is deliberately a direct `docker compose up -d` rather
         // than `interfold-bootstrap up` — the bootstrapper's up path waits up to 5 minutes
         // on /health/ready, which would block the boot critical path.
-        await Assert.That(rendered).Contains("ExecStart=/usr/bin/docker compose -f /srv/interfold/deploy/docker-compose.yaml up -d");
-        await Assert.That(rendered).Contains("ExecStop=/usr/bin/docker compose -f /srv/interfold/deploy/docker-compose.yaml down");
+        await Assert.That(rendered).Contains("ExecStart=/usr/bin/docker compose -f /srv/interfold/deploy/docker-compose.yaml up -d --remove-orphans");
+        await Assert.That(rendered).Contains("ExecStop=/usr/bin/docker compose -f /srv/interfold/deploy/docker-compose.yaml down --remove-orphans");
         await Assert.That(rendered).Contains("WorkingDirectory=/srv/interfold/deploy");
         await Assert.That(rendered).Contains("Type=oneshot");
         await Assert.That(rendered).Contains("RemainAfterExit=yes");

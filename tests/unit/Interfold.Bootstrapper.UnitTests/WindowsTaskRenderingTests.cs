@@ -30,7 +30,7 @@ public sealed class WindowsTaskRenderingTests
             WindowsScheduledTaskPhase.InterfoldTemplate, MakeInput());
 
         await Assert.That(rendered).Contains(@"<Command>C:\Program Files\Docker\Docker\resources\bin\docker.exe</Command>");
-        await Assert.That(rendered).Contains(@"compose -f ""C:\srv\interfold\deploy\docker-compose.yaml"" up -d");
+        await Assert.That(rendered).Contains(@"compose -f ""C:\srv\interfold\deploy\docker-compose.yaml"" up -d --remove-orphans");
         await Assert.That(rendered).Contains(@"<WorkingDirectory>C:\srv\interfold\deploy</WorkingDirectory>");
         await Assert.That(rendered).Contains("<LogonTrigger>");
         await Assert.That(rendered).Contains("<RunLevel>LeastPrivilege</RunLevel>");

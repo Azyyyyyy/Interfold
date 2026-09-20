@@ -160,7 +160,10 @@ internal static class UpdateImagesPhase
     {
         if (options.UpdateServices is { Length: > 0 })
         {
-            var unknown = options.UpdateServices
+            var canonical = options.UpdateServices
+                .Select(ComposeServices.CanonicalizeUpdateService)
+                .ToArray();
+            var unknown = canonical
                 .Where(svc => !ComposeServices.AllValidUpdateServices.Contains(svc, StringComparer.Ordinal))
                 .ToArray();
             if (unknown.Length > 0)
@@ -170,9 +173,12 @@ internal static class UpdateImagesPhase
                     $"Expected one of: {string.Join(", ", ComposeServices.AllValidUpdateServices)}.");
             }
 
-            return options.UpdateServices;
+            return canonical;
         }
-        return config.Deployment.Update.Services;
+
+        return config.Deployment.Update.Services
+            .Select(ComposeServices.CanonicalizeUpdateService)
+            .ToArray();
     }
 
     /// <summary>Only cassandra mode, and only when <c>cassandra</c> is in scope; otherwise
@@ -462,7 +468,7 @@ internal static class UpdateImagesPhase
         logger.Error($"health check failed: {healthErr}");
 
         // Best-effort log dump so operators don't have to shell in for a diagnosis.
-        var suspects = new[] { ComposeServices.Postgres, ComposeServices.ScyllaSingle, ComposeServices.ScyllaNam, ComposeServices.Cassandra, ComposeServices.InterfoldApi, ComposeServices.OctoconWeb };
+        var suspects = new[] { ComposeServices.Postgres, ComposeServices.ScyllaSingle, ComposeServices.ScyllaNam, ComposeServices.Cassandra, ComposeServices.InterfoldApi, ComposeServices.InterfoldWeb };
         await ComposeLogDumper.DumpAsync(composeFile, suspects, tailLines: 200, logger, ct).ConfigureAwait(false);
 
         // Clean stopped state so a restore/retry doesn't fight half-recreated containers.

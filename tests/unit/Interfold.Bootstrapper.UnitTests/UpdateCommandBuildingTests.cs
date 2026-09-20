@@ -90,6 +90,20 @@ public sealed class UpdateCommandBuildingTests
     }
 
     [Test]
+    public async Task ResolveServiceWhitelistCanonicalizesOctoconWeb()
+    {
+        var options = TestSupport.MakeOptions(updateServices: ["octocon-web"]);
+        var config = new BootstrapConfig { Deployment = { Update = { Services = ["octocon-web"] } } };
+
+        var fromCli = UpdateImagesPhase.ResolveServiceWhitelist(options, config);
+        var fromConfig = UpdateImagesPhase.ResolveServiceWhitelist(
+            TestSupport.MakeOptions(updateServices: null), config);
+
+        await Assert.That(fromCli).IsEquivalentTo(new[] { "interfold-web" });
+        await Assert.That(fromConfig).IsEquivalentTo(new[] { "interfold-web" });
+    }
+
+    [Test]
     public async Task DiffDigestsReturnsChangedServicesOnly()
     {
         // Only the services whose image ID changed appear in the diff. Unchanged
@@ -203,7 +217,7 @@ public sealed class UpdateCommandBuildingTests
         var config = new BootstrapConfig { Datastores = { Cql = { Backend = CqlBackend.Cassandra } } };
 
         await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["msg-db"])).IsFalse();
-        await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["interfold-api", "octocon-web"])).IsFalse();
+        await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["interfold-api", "interfold-web"])).IsFalse();
     }
 }
 
