@@ -483,6 +483,7 @@ internal static class PublishPhase
         injected[AppHostParameterKeys.ScyllaTopology] = scyllaTopology.ToWireValue();
         // Bootstrapper always uses a pre-built API image; this switches off the AddProject<> path.
         injected[AppHostParameterKeys.ApiImage] = config.Api.Image;
+        injected[AppHostParameterKeys.WebImage] = config.Deployment.WebImage;
         // Aspire dev dashboard would pull an MCR-nightly image at compose-up — unwanted in prod.
         injected[AppHostParameterKeys.IncludeDashboard] = BoolWire.FalseValue;
         injected[AppHostParameterKeys.IncludeWeb] = BoolWire.ToWireValue(config.Deployment.IncludeWeb);

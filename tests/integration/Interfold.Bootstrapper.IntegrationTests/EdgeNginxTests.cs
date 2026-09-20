@@ -50,8 +50,8 @@ public class EdgeNginxTests(UbuntuDinDFixture dinD)
 
         await Assert.That(compose).Contains("edge-nginx")
             .Because("edge-nginx is always emitted");
-        await Assert.That(compose).Contains("octocon-web")
-            .Because("octocon-web ships when includeWeb=true");
+        await Assert.That(compose).Contains("interfold-web")
+            .Because("interfold-web ships when includeWeb=true");
         await Assert.That(compose).Contains("/etc/nginx/templates/default.conf.template")
             .Because("edge-nginx must bind-mount the nginx envsubst template");
         await Assert.That(compose).Contains("/etc/nginx/proxy_params_interfold.conf")

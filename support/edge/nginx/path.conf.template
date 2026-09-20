@@ -7,7 +7,7 @@
 #   NGINX_SSL_KEY_FILE        TLS key path inside the container
 #   NGINX_HTTPS_PORT_SUFFIX   ":<port>" or empty when edgeHttps is 443
 #   NGINX_API_UPSTREAM        host:port for interfold-api (e.g. interfold-api:5100)
-#   NGINX_WEB_UPSTREAM        host:port for octocon-web (e.g. octocon-web:8080)
+#   NGINX_WEB_UPSTREAM        host:port for interfold-web (e.g. interfold-web:8080)
 #   NGINX_INCLUDE_WEB         "1" to proxy / to web; empty → 404 on /
 #   NGINX_ACME_ROOT           ACME webroot (HTTP-01); empty disables the location body
 

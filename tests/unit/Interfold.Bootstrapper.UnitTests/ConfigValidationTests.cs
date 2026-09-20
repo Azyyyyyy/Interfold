@@ -295,6 +295,10 @@ public sealed class ConfigValidationTests
         => AssertInvalidAsync(c => c.Api.OAuth.JwtAudience = "", "jwtAudience");
 
     [Test]
+    public Task EmptyWebImageFailsValidation()
+        => AssertInvalidAsync(c => c.Deployment.WebImage = "", "webImage");
+
+    [Test]
     public Task NonHttpCorsOriginFailsValidation()
         => AssertInvalidAsync(c => c.Api.CorsAllowedOrigins = ["https://app.example.com", "not-a-url"],
             "corsAllowedOrigins");
@@ -662,6 +666,17 @@ public sealed class ConfigValidationTests
             ConfigPhase.Validate(cfg);
         }
         await Task.CompletedTask;
+    }
+
+    [Test]
+    public async Task UpdateServicesOctoconWebCanonicalizesToInterfoldWeb()
+    {
+        var cfg = MakeValid();
+        cfg.Deployment.Update.Services = ["interfold-api", "octocon-web"];
+
+        ConfigPhase.Validate(cfg);
+
+        await Assert.That(cfg.Deployment.Update.Services).IsEquivalentTo(["interfold-api", "interfold-web"]);
     }
 
     [Test]

@@ -2,7 +2,8 @@
   "schemaVersion": 2,
   "deployment": {
     "outputDir": "/opt/deploy",
-    "includeWeb": true
+    "includeWeb": true,
+    "webImage": "interfold-web:test"
   },
   "edge": {
     "hosts": ["web.test.local", "127.0.0.1"],

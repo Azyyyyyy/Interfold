@@ -33,7 +33,7 @@
   <Actions Context="Author">
     <Exec>
       <Command>{{DOCKER_PATH}}</Command>
-      <Arguments>compose -f "{{COMPOSE_FILE}}" up -d</Arguments>
+      <Arguments>compose -f "{{COMPOSE_FILE}}" up -d --remove-orphans</Arguments>
       <WorkingDirectory>{{OUTPUT_DIR}}</WorkingDirectory>
     </Exec>
   </Actions>

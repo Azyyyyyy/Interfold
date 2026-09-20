@@ -45,6 +45,7 @@ public static class AppHostParameterKeys
     public const string EdgeIncludeWebUpstream = "Parameters:edge-include-web-upstream";
     public const string EdgeServerName = "Parameters:edge-server-name";
     public const string ApiImage = "Parameters:api-image";
+    public const string WebImage = "Parameters:web-image";
     /// <summary>Absolute host path to the Cloudflare Tunnel connector token file (0600).</summary>
     public const string EdgeCloudflareTunnelTokenPath = "Parameters:edge-cloudflare-tunnel-token-path";
 
