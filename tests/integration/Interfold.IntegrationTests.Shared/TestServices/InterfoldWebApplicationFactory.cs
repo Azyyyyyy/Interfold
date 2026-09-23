@@ -207,8 +207,8 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
         }
     }
 
-    /// <summary>Captured outbound URI + Host header (TestHost's inner Request.Host isn't reliable).</summary>
-    public sealed record RecordedHttpCall(Uri Uri, string? HostHeader);
+    /// <summary>Captured outbound URI + Host + forwarded proto (TestHost's inner Request.Host isn't reliable).</summary>
+    public sealed record RecordedHttpCall(Uri Uri, string? HostHeader, string? ForwardedProto = null);
 
     /// <summary>Records outbound URI + Host header before TestServer dispatches.</summary>
     private sealed class RecordingDelegatingHandler(
@@ -219,7 +219,11 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
         {
             if (request.RequestUri is not null)
             {
-                sink.Enqueue(new RecordedHttpCall(request.RequestUri, request.Headers.Host));
+                request.Headers.TryGetValues("X-Forwarded-Proto", out var proto);
+                sink.Enqueue(new RecordedHttpCall(
+                    request.RequestUri,
+                    request.Headers.Host,
+                    proto?.FirstOrDefault()));
             }
             return base.SendAsync(request, cancellationToken);
         }
