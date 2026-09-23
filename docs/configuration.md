@@ -257,6 +257,8 @@ GitHub tag namespaces: `api-v*` (API image SemVer releases), `bootstrap-v*` (boo
 | ----- | ------- | ----- |
 | `webImage` | `ghcr.io/azyyyyyy/interfold-wasm:latest` | Full image reference for the `interfold-web` compose service when `deployment.includeWeb` is `true`. Consumed by `publish` / `update-images`. Independent of bootstrapper `deployment.update.bootstrapper.channel`. |
 
+When `includeWeb` is true, AppHost sets `INTERFOLD_DEFAULT_API_ENDPOINT` on `interfold-web` from the public API origin it already builds for the edge (scheme and host only; wasm paths already include `/api/…`). The image renders that into `runtime-config.js` at container start. A browser with no saved server URL uses it; a saved URL is left unchanged. Publish uses `routing.apiHost` when set, otherwise `edge` server name. Cloudflare tunnel is `https` with no port; other modes follow `tlsMode` and omit the default port. `_` leaves the variable empty, which keeps the client's built-in endpoint.
+
 First-time operators don't need to hand-author this file — running `interfold-bootstrap` on
 a real TTY without an existing `interfold.bootstrap.json` drops into a Spectre.Console
 navigable form: every field on `BootstrapConfig` is shown as a menu row with its current

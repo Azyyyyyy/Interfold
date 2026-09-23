@@ -842,6 +842,36 @@ internal static class ConfigPhase
     private const int DefaultHttpPort = 80;
     private const int DefaultHttpsPort = 443;
 
+    private static bool IsSubdomainPair(BootstrapConfig config)
+        => config.Edge.Routing.Mode == EdgeRoutingMode.Subdomain
+           && !string.IsNullOrWhiteSpace(config.Edge.Routing.ApiHost)
+           && !string.IsNullOrWhiteSpace(config.Edge.Routing.WebHost);
+
+    private static string FormatPublicApiOrigin(BootstrapConfig config, HostEntry primary)
+    {
+        var host = IsSubdomainPair(config)
+            ? config.Edge.Routing.ApiHost.Trim()
+            : HostParser.ToUrlHost(primary);
+
+        if (config.Edge.Cloudflare.Enabled)
+        {
+            return $"https://{host}";
+        }
+
+        if (config.Edge.TlsMode == EdgeTlsMode.None)
+        {
+            var httpSuffix = config.Edge.Ports.Http == DefaultHttpPort
+                ? string.Empty
+                : $":{config.Edge.Ports.Http}";
+            return $"http://{host}{httpSuffix}";
+        }
+
+        var httpsSuffix = config.Edge.Ports.Https == DefaultHttpsPort
+            ? string.Empty
+            : $":{config.Edge.Ports.Https}";
+        return $"https://{host}{httpsSuffix}";
+    }
+
     /// <summary>Fills empty OAuth/CORS fields from <see cref="EdgeSection"/>. Non-empty values win;
     /// idempotent; mutates in place. Called from <see cref="Validate"/> so JSON-load configs
     /// derive identically to prompted ones.</summary>
@@ -874,7 +904,7 @@ internal static class ConfigPhase
             return;
         }
 
-        string apiDerivedBaseUrl;
+        var apiDerivedBaseUrl = FormatPublicApiOrigin(config, primary);
         string corsScheme;
         int corsPort;
         int corsDefaultPort;
@@ -883,11 +913,8 @@ internal static class ConfigPhase
         // Tunnel terminates public HTTPS at Cloudflare; OAuth/JWT/CORS use bare https://{host}.
         if (config.Edge.Cloudflare.Enabled)
         {
-            if (config.Edge.Routing.Mode == EdgeRoutingMode.Subdomain
-                && !string.IsNullOrWhiteSpace(config.Edge.Routing.ApiHost)
-                && !string.IsNullOrWhiteSpace(config.Edge.Routing.WebHost))
+            if (IsSubdomainPair(config))
             {
-                apiDerivedBaseUrl = $"https://{config.Edge.Routing.ApiHost.Trim()}";
                 corsScheme = "https";
                 corsPort = DefaultHttpsPort;
                 corsDefaultPort = DefaultHttpsPort;
@@ -895,7 +922,6 @@ internal static class ConfigPhase
             }
             else
             {
-                apiDerivedBaseUrl = $"https://{HostParser.ToUrlHost(primary)}";
                 corsScheme = "https";
                 corsPort = DefaultHttpsPort;
                 corsDefaultPort = DefaultHttpsPort;
@@ -904,15 +930,8 @@ internal static class ConfigPhase
         }
         else if (config.Edge.TlsMode == EdgeTlsMode.None)
         {
-            var edgePortSuffix = config.Edge.Ports.Http == DefaultHttpPort
-                ? string.Empty
-                : $":{config.Edge.Ports.Http}";
-
-            if (config.Edge.Routing.Mode == EdgeRoutingMode.Subdomain
-                && !string.IsNullOrWhiteSpace(config.Edge.Routing.ApiHost)
-                && !string.IsNullOrWhiteSpace(config.Edge.Routing.WebHost))
+            if (IsSubdomainPair(config))
             {
-                apiDerivedBaseUrl = $"http://{config.Edge.Routing.ApiHost.Trim()}{edgePortSuffix}";
                 corsScheme = "http";
                 corsPort = config.Edge.Ports.Http;
                 corsDefaultPort = DefaultHttpPort;
@@ -920,7 +939,6 @@ internal static class ConfigPhase
             }
             else
             {
-                apiDerivedBaseUrl = $"http://{HostParser.ToUrlHost(primary)}{edgePortSuffix}";
                 corsScheme = "http";
                 corsPort = config.Edge.Ports.Http;
                 corsDefaultPort = DefaultHttpPort;
@@ -929,15 +947,8 @@ internal static class ConfigPhase
         }
         else
         {
-            var edgePortSuffix = config.Edge.Ports.Https == DefaultHttpsPort
-                ? string.Empty
-                : $":{config.Edge.Ports.Https}";
-
-            if (config.Edge.Routing.Mode == EdgeRoutingMode.Subdomain
-                && !string.IsNullOrWhiteSpace(config.Edge.Routing.ApiHost)
-                && !string.IsNullOrWhiteSpace(config.Edge.Routing.WebHost))
+            if (IsSubdomainPair(config))
             {
-                apiDerivedBaseUrl = $"https://{config.Edge.Routing.ApiHost.Trim()}{edgePortSuffix}";
                 corsScheme = "https";
                 corsPort = config.Edge.Ports.Https;
                 corsDefaultPort = DefaultHttpsPort;
@@ -945,7 +956,6 @@ internal static class ConfigPhase
             }
             else
             {
-                apiDerivedBaseUrl = $"https://{HostParser.ToUrlHost(primary)}{edgePortSuffix}";
                 corsScheme = "https";
                 corsPort = config.Edge.Ports.Https;
                 corsDefaultPort = DefaultHttpsPort;
