@@ -498,16 +498,11 @@ public static class InterfoldAppHost
 
                 if (previousNode is null)
                 {
-                    if (!hostPublishDbPorts)
-                    {
-                        node = node.WithEndpoint(targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
-                    }
-                    else
-                    {
-                        node = node.WithEndpoint(port: scyllaPort, targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
-                    }
-                    // Native CQL cannot traverse DCP's HTTP endpoint proxy. DevSeed and the
-                    // API project both connect from the host process.
+                    node = node.WithEndpoint(port: scyllaPort, targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
+                    // Native CQL cannot traverse DCP's HTTP endpoint proxy. DevSeed, the API
+                    // project, and in-process fixtures connect from the host. Proxyless publish
+                    // uses `port` as the host mapping — omit it and DCP binds 9042 for every
+                    // CQL backend (SharedDbFixture runs Scylla + Cassandra together).
                     node.WithEndpoint(CqlEndpointName, e => e.IsProxied = false);
                     cqlEndpointOwners.Add(node);
                 }
@@ -544,14 +539,8 @@ public static class InterfoldAppHost
                 .WithEnvironment(ContainerEnvNames.HeapNewSize, "256M")
                 .WithEnvironment(ContainerEnvNames.CqlshUser, scyllaUser)
                 .WithEnvironment(ContainerEnvNames.CqlshPassword, scyllaPassword);
-            if (!hostPublishDbPorts)
-            {
-                cassandra = cassandra.WithEndpoint(targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
-            }
-            else
-            {
-                cassandra = cassandra.WithEndpoint(port: cassandraEndpointPort, targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
-            }
+            cassandra = cassandra.WithEndpoint(
+                port: cassandraEndpointPort, targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
 
             cassandra = cassandra
                 .PublishAsDockerComposeService((_, service) =>
