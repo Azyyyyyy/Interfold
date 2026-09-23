@@ -18,6 +18,8 @@ internal static class CloudflareAccessPhase
     internal const string ServiceTokenPolicyName = "interfold-service-token";
     internal const string HealthBypassPolicyName = "interfold-health-bypass";
 
+    internal const string LoginMethodsPath = "/auth/login-methods";
+
     internal static string StatePath(string outputDir)
         => Path.Combine(outputDir, ".cloudflare-access.json");
 
@@ -161,16 +163,26 @@ internal static class CloudflareAccessPhase
             [new CloudflareAccessPolicyRule(CloudflareAccessPolicyRuleKind.Everyone)],
             []);
 
+        var apiHost = hostnames[0];
         foreach (var host in hostnames)
         {
-            var app = await client.EnsureSelfHostedAppAsync(accountId, host, idpId, ct).ConfigureAwait(false);
+            var isApiHost = string.Equals(host, apiHost, StringComparison.OrdinalIgnoreCase);
+            var app = await client.EnsureSelfHostedAppAsync(
+                    accountId, host, idpId, ct, optionsPreflightBypass: isApiHost)
+                .ConfigureAwait(false);
             appIds[host] = app.Id;
             primaryAud ??= app.Aud;
             logger.Info($"    cloudflare Access app {host} id={app.Id} aud={app.Aud}");
             await client.ReplaceAppPoliciesAsync(accountId, app.Id, [allowPolicy, servicePolicy], ct)
                 .ConfigureAwait(false);
 
-            foreach (var path in new[] { $"{host}/health", $"{host}/health/ready" })
+            // A cross-origin fetch cannot follow the Access login redirect. login-methods is
+            // anonymous discovery, so it has to reach the API the same way health does.
+            var bypassPaths = new List<string> { $"{host}/health", $"{host}/health/ready" };
+            if (isApiHost)
+                bypassPaths.Add($"{host}{LoginMethodsPath}");
+
+            foreach (var path in bypassPaths)
             {
                 var healthApp = await client.EnsureSelfHostedAppAsync(accountId, path, idpId, ct)
                     .ConfigureAwait(false);

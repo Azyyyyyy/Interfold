@@ -45,6 +45,11 @@ public static class InterfoldAppHost
     private const int DefaultEdgeHttpPort = 80;
     private const int DefaultEdgeHttpsPort = 443;
 
+    // Browsers resolve *.localhost to loopback, so aspire run can exercise subdomain
+    // routing without bootstrapper DNS. Parameters:edge-api-host / edge-web-host override.
+    private const string DefaultDevSubdomainApiHost = "api.localhost";
+    private const string DefaultDevSubdomainWebHost = "web.localhost";
+
     /// <summary>CQL cluster-name fallback for dev `aspire run`; the bootstrapper always overrides.</summary>
     private const string DefaultClusterName = "InterfoldCluster";
 
@@ -79,38 +84,52 @@ public static class InterfoldAppHost
         var edgeUsesPlainHttp = string.Equals(edgeTlsMode, "none", StringComparison.OrdinalIgnoreCase);
         var edgeCloudflareTunnel = BoolWire.ParseToggle(
             builder.Configuration[AppHostParameterKeys.EdgeCloudflareTunnel], fallback: false);
-        var runModeSubdomain = string.Equals(
-            builder.Configuration[AppHostParameterKeys.EdgeRouting],
-            "subdomain",
-            StringComparison.OrdinalIgnoreCase);
+        // Same key PublishPhase injects. Off in publish so those hosts are left alone.
+        var runModeSubdomain = !builder.ExecutionContext.IsPublishMode
+            && string.Equals(
+                builder.Configuration[AppHostParameterKeys.EdgeRouting],
+                "subdomain",
+                StringComparison.OrdinalIgnoreCase);
+        static string HostOr(string? configured, string fallback) =>
+            string.IsNullOrWhiteSpace(configured) ? fallback : configured.Trim();
+        var devApiHost = HostOr(
+            builder.Configuration[AppHostParameterKeys.EdgeApiHost],
+            runModeSubdomain ? DefaultDevSubdomainApiHost : "localhost");
+        var devWebHost = HostOr(
+            builder.Configuration[AppHostParameterKeys.EdgeWebHost],
+            runModeSubdomain ? DefaultDevSubdomainWebHost : "localhost");
         // Run mode without leaf certs uses the plaintext nginx template (see includeEdge).
         // JWT / CORS / OAuth callback must match that browser origin, not tlsMode=privateCa.
         var runModeMissingLeafCerts = !builder.ExecutionContext.IsPublishMode
             && !edgeUsesPlainHttp
             && !File.Exists(Path.Combine(AppHostRepoPaths.ResolveRepoRoot(), "certs", "leaf.crt"));
         var publicEdgeIsHttp = edgeUsesPlainHttp || runModeMissingLeafCerts;
-        string publicEdgeOrigin;
-        if (publicEdgeIsHttp)
+        string PublicOrigin(string host)
         {
-            var suffix = edgeHttpPort == DefaultEdgeHttpPort ? string.Empty : $":{edgeHttpPort}";
-            publicEdgeOrigin = $"http://localhost{suffix}";
+            if (publicEdgeIsHttp)
+            {
+                var suffix = edgeHttpPort == DefaultEdgeHttpPort ? string.Empty : $":{edgeHttpPort}";
+                return $"http://{host}{suffix}";
+            }
+
+            var httpsSuffix = edgeHttpsPort == DefaultEdgeHttpsPort ? string.Empty : $":{edgeHttpsPort}";
+            return $"https://{host}{httpsSuffix}";
         }
-        else
-        {
-            var suffix = edgeHttpsPort == DefaultEdgeHttpsPort ? string.Empty : $":{edgeHttpsPort}";
-            publicEdgeOrigin = $"https://localhost{suffix}";
-        }
-        // Wasm/mobile paths already include /api/... and /auth/.... Path-mode edge
-        // shares the SPA origin; appending /api here produced /api/api/socket/websocket.
-        var publicApiBase = publicEdgeOrigin;
+
+        // Wasm/mobile paths already include /api/... and /auth/.... Path mode is one host.
+        // Subdomain splits them: JWT and OAuth callbacks use the API host; CORS and OTLP
+        // follow the web host the page is actually on.
+        var publicApiBase = PublicOrigin(devApiHost);
+        var publicWebOrigin = PublicOrigin(devWebHost);
 
         if (!builder.ExecutionContext.IsPublishMode)
         {
             // Browser OTLP into this dashboard. Wasm discovery only returns a URL
             // (no x-otlp-api-key), so OTLP ingest is unsecured for aspire run.
-            var otlpCorsOrigins = publicEdgeOrigin.Contains("localhost", StringComparison.OrdinalIgnoreCase)
-                ? $"{publicEdgeOrigin},{publicEdgeOrigin.Replace("localhost", "127.0.0.1", StringComparison.OrdinalIgnoreCase)}"
-                : publicEdgeOrigin;
+            // Match the host, not a subdomain of localhost (web.localhost must not become web.127.0.0.1).
+            var otlpCorsOrigins = publicWebOrigin.Contains("://localhost", StringComparison.OrdinalIgnoreCase)
+                ? $"{publicWebOrigin},{publicWebOrigin.Replace("localhost", "127.0.0.1", StringComparison.OrdinalIgnoreCase)}"
+                : publicWebOrigin;
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Aspire:Dashboard:Otlp:Cors:AllowedOrigins"] = otlpCorsOrigins,
@@ -625,16 +644,15 @@ public static class InterfoldAppHost
             }
 
             // Dev-project path only. ConfigureApiSelfHostEnv covers the container path via the
-            // operator-provided Parameters:jwt-authority etc.; the dev path has no operator so
-            // we stamp localhost-derived defaults driven by the AppHost's own port allocation.
-            // Empty CORS falls back to "any origin" in the API — noisy in browser devtools but
-            // functional; we still narrow it here so socket + fetch calls behave the same as prod.
+            // operator-provided Parameters:jwt-authority etc. Run mode has no operator, so these
+            // follow the edge origin the browser actually uses (one localhost host in path mode;
+            // API host for JWT/callbacks and web host for CORS when edge-routing=subdomain).
             void ConfigureApiDevEnv(IResourceBuilder<IResourceWithEnvironment> api)
             {
                 api.WithEnvironment(OctoconEnvKeys.JwtAuthority, publicApiBase)
                    .WithEnvironment(OctoconEnvKeys.JwtAudience, "octocon")
                    .WithEnvironment(OctoconEnvKeys.AuthCallbackBaseUrl, publicApiBase)
-                   .WithEnvironment(OctoconEnvKeys.CorsAllowedOrigins, publicEdgeOrigin)
+                   .WithEnvironment(OctoconEnvKeys.CorsAllowedOrigins, publicWebOrigin)
                    .WithEnvironment(OctoconEnvKeys.ScyllaKeyspace, ScyllaKeyspace.Nam.ToWire());
 
                 var clientOtlpOverride = builder.Configuration[AppHostParameterKeys.ClientOtlpHttpEndpoint];
@@ -738,6 +756,8 @@ public static class InterfoldAppHost
                 .WithContainerNetworkAlias(ComposeServices.InterfoldWeb)
                 .WithHttpEndpoint(targetPort: 8080, name: HttpEndpointName)
                 .WithHttpHealthCheck("/", endpointName: HttpEndpointName);
+            if (!builder.ExecutionContext.IsPublishMode)
+                web.WithUrl(publicWebOrigin, "edge");
 
             web.PublishAsDockerComposeService((_, service) =>
             {
@@ -752,8 +772,14 @@ public static class InterfoldAppHost
         {
             var edgeServerName = builder.Configuration[AppHostParameterKeys.EdgeServerName];
             if (string.IsNullOrWhiteSpace(edgeServerName)) edgeServerName = "_";
-            var edgeApiHost = builder.Configuration[AppHostParameterKeys.EdgeApiHost] ?? edgeServerName;
-            var edgeWebHost = builder.Configuration[AppHostParameterKeys.EdgeWebHost] ?? edgeServerName;
+            // Publish keeps bootstrapper-injected hosts. Path mode stays on nginx's `_`
+            // catch-all so 127.0.0.1 still matches. Subdomain run mode uses the resolved hosts.
+            var edgeApiHost = runModeSubdomain
+                ? devApiHost
+                : builder.Configuration[AppHostParameterKeys.EdgeApiHost] ?? edgeServerName;
+            var edgeWebHost = runModeSubdomain
+                ? devWebHost
+                : builder.Configuration[AppHostParameterKeys.EdgeWebHost] ?? edgeServerName;
             var includeWebUpstream = BoolWire.ParseToggle(
                 builder.Configuration[AppHostParameterKeys.EdgeIncludeWebUpstream], fallback: includeWeb);
 
@@ -865,7 +891,8 @@ public static class InterfoldAppHost
                     ?? throw new InvalidOperationException(
                         $"Missing configuration for '{AppHostParameterKeys.EdgeCloudflareTunnelTokenPath}'.");
 
-                var cloudflared = builder.AddContainer(ComposeServices.Cloudflared, "cloudflare/cloudflared", "2025.2.1")
+                // --token-file landed in cloudflared 2025.4.0.
+                var cloudflared = builder.AddContainer(ComposeServices.Cloudflared, "cloudflare/cloudflared", "2026.9.1")
                     .PullAlwaysInRunMode()
                     .WithArgs(
                         "tunnel", "--no-autoupdate", "run",

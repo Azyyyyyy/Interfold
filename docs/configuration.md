@@ -179,19 +179,21 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
 | Field | Default | Notes |
 | ----- | ------- | ----- |
 | `enabled` | `false` | When `true`, origin stays private (no host-published edge ports). Publish creates/reuses a remotely-managed tunnel; Launch starts `cloudflared`; a post-launch phase registers hostnames + proxied DNS CNAMEs. |
-| `apiToken` | `""` | Cloudflare API token with **Account → Cloudflare Tunnel Edit**, **Zone → DNS Edit**, **Access: Apps and Policies Edit**, **Access: Service Tokens Edit**, and organization read. Used only by the bootstrapper — never passed to `cloudflared`. |
+| `apiToken` | `""` | Cloudflare API token with **Account → Cloudflare Tunnel Edit**, **Zone → Zone Edit**, **Zone → DNS Edit**, **Zone → SSL and Certificates Edit**, **Access: Apps and Policies Edit**, **Access: Service Tokens Edit**, and organization read. Scope the token to one account: a missing zone is created there. Used only by the bootstrapper — never passed to `cloudflared`. |
 | `tunnelName` | `interfold` | Stable name for create-or-reuse of the tunnel object. |
 | `access.enabled` | `false` | When `true`, Cloudflare Access gates public hostnames. Requires tunnel enabled, Interfold Google client id **and** secret, and at least one of `allowedEmails` / `allowedEmailDomains`. |
 | `access.allowedEmails` | `[]` | Exact Google addresses allowed through Access (AND with the Interfold Google IdP). Enforced at Access only — the API does not re-check the list. |
 | `access.allowedEmailDomains` | `[]` | Google email domains (e.g. `example.com`) allowed through Access. At least one email or domain is required when Access is on. |
 
-Account ID is resolved from the primary hostname’s zone (`GET /zones?name=`). The connector token is written to `{outputDir}/secrets/cloudflare-tunnel.token` (mode 0600). Skip hostname registration with `--skip-cloudflare-tunnel` (also skips Access).
+Account ID is resolved from the primary hostname’s zone (`GET /zones?name=`). If that zone is missing, publish creates it (`POST /zones`, full setup, no jump-start import) on the token’s account and logs the assigned nameservers — public DNS stays down until the registrar points at them. Hostnames more than one label under the zone are outside Universal SSL. Launch enables Total TLS for those names. An advanced certificate (Advanced Certificate Manager) is ordered only after an interactive yes; the prompt defaults to no, and `--non-interactive` never orders one. Total TLS does not issue for Tunnel hostnames, so that pack is what covers them. Issuance is asynchronous. The connector token is written to `{outputDir}/secrets/cloudflare-tunnel.token` (mode 0600). Skip hostname registration with `--skip-cloudflare-tunnel` (also skips Access).
 
-When Access is enabled, the bootstrapper creates/reuses a Zero Trust Google IdP named `interfold-google` from the same Interfold Google OAuth client, one self-hosted app per public hostname, allow + service-token policies, and bypass apps for `/health` and `/health/ready`. Persist `{ teamDomain, aud, appIds, identityProviderId }` in `{outputDir}/.cloudflare-access.json`. The Access service token (`interfold-bootstrap`) is written to `{outputDir}/secrets/cloudflare-access-service.token` (mode 0600).
+When Access is enabled, the bootstrapper creates/reuses a Zero Trust Google IdP named `interfold-google` from the same Interfold Google OAuth client, one self-hosted app per public hostname, allow + service-token policies, and bypass apps for `/health`, `/health/ready`, and (API host only) `/auth/login-methods`. The API app also sets `options_preflight_bypass` so browser OPTIONS reach the API, which already enforces CORS. A cross-origin `fetch` cannot follow the Access login redirect. Persist `{ teamDomain, aud, appIds, identityProviderId }` in `{outputDir}/.cloudflare-access.json`. The Access service token (`interfold-bootstrap`) is written to `{outputDir}/secrets/cloudflare-access-service.token` (mode 0600).
 
 **Google redirect URI (operator must add this — Google Cloud Console only):**  
 `https://{team}.cloudflareaccess.com/cdn-cgi/access/callback`  
 The bootstrapper prints this URI on every Access run (phase log and interactive table). The same Google client as Interfold OAuth is reused.
+
+Publish also appends `https://{team}.cloudflareaccess.com` to `OCTOCON_CORS_ALLOWED_ORIGINS` when `{outputDir}/.cloudflare-access.json` is present. The Access login page calls the API from that origin. `api.corsAllowedOrigins` in the JSON is left as the operator wrote it.
 
 ##### Client contract (Access on)
 
@@ -597,7 +599,7 @@ reads them.
 
 | Env var                        | Default                | Notes                                                                                                                                                                                              |
 | ------------------------------ | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OCTOCON_CORS_ALLOWED_ORIGINS` | *empty* (= allow any in dev only) | Comma-separated allow-list of origin URLs. The API still falls back to "allow any origin" when this is unset/empty, but the bootstrapper never emits a stack with an unset value — `BootstrapConfig.api.corsAllowedOrigins` defaults to one `{scheme}://host` entry per non-CIDR `edge.hosts` entry (joined with `,`), routed through Aspire parameter `cors-allowed-origins`. Operators that want a different allow-list edit the list in the interactive form or the JSON. (bootstrapper-managed) |
+| `OCTOCON_CORS_ALLOWED_ORIGINS` | *empty* (= allow any in dev only) | Comma-separated allow-list of origin URLs. The API still falls back to "allow any origin" when this is unset/empty, but the bootstrapper never emits a stack with an unset value — `BootstrapConfig.api.corsAllowedOrigins` defaults to one `{scheme}://host` entry per non-CIDR `edge.hosts` entry (joined with `,`), routed through Aspire parameter `cors-allowed-origins`. Operators that want a different allow-list edit the list in the interactive form or the JSON. When Cloudflare Access state is present, publish also appends `https://{team}.cloudflareaccess.com`. (bootstrapper-managed) |
 
 `OCTOCON_FRONTEND`, `OCTOCON_BETA_FRONTEND`, and `OCTOCON_DEEPLINK_ADDRESS` have all been
 removed. Their CORS allow-list use moved to `OCTOCON_CORS_ALLOWED_ORIGINS`; their

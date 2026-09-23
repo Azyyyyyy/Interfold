@@ -118,6 +118,8 @@ using (var probeProvider = probeServices.BuildServiceProvider(validateScopes: fa
 }
 
 // Allow-list from OCTOCON_CORS_ALLOWED_ORIGINS; blank = allow-any (dev-only).
+// Credentials only on the explicit list: the browser will not attach the Access cookie
+// cross-origin without them, and the allow-any branch is a wildcard.
 var configuredCorsOrigins = corsOptions.AllowedOrigins.ToArray();
 
 builder.Services.AddCors(options =>
@@ -128,7 +130,8 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(configuredCorsOrigins)
                 .AllowAnyHeader()
-                .AllowAnyMethod();
+                .AllowAnyMethod()
+                .AllowCredentials();
             return;
         }
 

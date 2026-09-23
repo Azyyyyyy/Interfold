@@ -47,34 +47,39 @@ internal sealed class CloudflareTunnelClient : IDisposable
 
     internal async Task<CloudflareZoneAccount> ResolveZoneAndAccountAsync(string hostname, CancellationToken ct)
     {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var candidate in EnumerateZoneCandidates(hostname))
         {
-            using var response = await _http
-                .GetAsync($"zones?name={Uri.EscapeDataString(candidate)}", ct)
-                .ConfigureAwait(false);
-            var zones = await ReadResultAsync(
-                    response,
-                    CloudflareApiJsonContext.Default.CloudflareApiResponseListCloudflareZoneResult,
-                    ct)
-                .ConfigureAwait(false);
-            if (zones is null || zones.Count == 0)
+            if (!seen.Add(candidate))
                 continue;
 
-            var zone = zones[0];
-            var zoneId = zone.Id;
-            var accountId = zone.Account?.Id;
-            if (string.IsNullOrWhiteSpace(zoneId) || string.IsNullOrWhiteSpace(accountId))
-            {
-                throw new InvalidOperationException(
-                    $"Cloudflare zone '{candidate}' response missing id/account.id.");
-            }
-
-            return new CloudflareZoneAccount(zoneId, accountId, zone.Name ?? candidate);
+            var existing = await FindZoneByNameAsync(candidate, ct).ConfigureAwait(false);
+            if (existing is not null)
+                return ToZoneAccount(existing, candidate, created: false);
         }
 
-        throw new InvalidOperationException(
-            $"No Cloudflare zone found for hostname '{hostname}'. " +
-            "Confirm the domain is on Cloudflare and the API token has Zone:DNS:Edit.");
+        // Tunnel CNAMEs need a zone. Add the registrable name when lookup misses;
+        // a pending zone still accepts DNS writes before the registrar points at Cloudflare.
+        var zoneName = ApexZoneName(hostname)
+            ?? throw new InvalidOperationException(
+                $"Hostname '{hostname}' is not a domain that can be added as a Cloudflare zone.");
+
+        var account = await ResolveSingleAccountAsync(ct).ConfigureAwait(false);
+        var created = await CreateZoneAsync(account.Id, zoneName, ct).ConfigureAwait(false);
+        return ToZoneAccount(created, zoneName, created: true, fallbackAccountId: account.Id);
+    }
+
+    // Last dotted candidate. For api.example.com that is example.com, which lookup already tried.
+    internal static string? ApexZoneName(string hostname)
+    {
+        string? apex = null;
+        foreach (var candidate in EnumerateZoneCandidates(hostname))
+        {
+            if (candidate.Contains('.', StringComparison.Ordinal))
+                apex = candidate;
+        }
+
+        return apex;
     }
 
     internal async Task<CloudflareTunnelCredentials> EnsureTunnelAsync(
@@ -222,6 +227,163 @@ internal sealed class CloudflareTunnelClient : IDisposable
             .ConfigureAwait(false);
     }
 
+    // orderAdvancedCertificate is the operator's explicit yes. False never places an order.
+    internal async Task<EdgeCertificateResult> EnsureEdgeCertificatesAsync(
+        CloudflareZoneAccount zone,
+        IReadOnlyList<string> hostnames,
+        bool orderAdvancedCertificate,
+        CancellationToken ct)
+    {
+        var deep = SelectDeepHostnames(zone.ZoneName, hostnames);
+        if (deep.Count == 0)
+            return new EdgeCertificateResult(false, false, []);
+
+        try
+        {
+            var enabledNow = await EnsureTotalTlsEnabledAsync(zone.ZoneId, ct).ConfigureAwait(false);
+            var missing = await HostsMissingCertificateAsync(zone.ZoneId, deep, ct).ConfigureAwait(false);
+            if (missing.Count == 0 || !orderAdvancedCertificate)
+                return new EdgeCertificateResult(enabledNow, false, missing);
+
+            var packHosts = new List<string>(missing.Count + 1) { NormalizeHost(zone.ZoneName) };
+            packHosts.AddRange(missing);
+            if (packHosts.Count > 50)
+            {
+                throw new InvalidOperationException(
+                    $"Zone '{zone.ZoneName}' has {missing.Count} multi-level hostnames; an advanced certificate pack holds at most 50 names including the apex.");
+            }
+
+            await OrderAdvancedCertificateAsync(zone.ZoneId, packHosts, ct).ConfigureAwait(false);
+            return new EdgeCertificateResult(enabledNow, true, missing);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("1450", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Multi-level hostnames need Advanced Certificate Manager on this Cloudflare zone. " +
+                "Universal SSL only covers one subdomain level. " + ex.Message,
+                ex);
+        }
+    }
+
+    internal static IReadOnlyList<string> SelectDeepHostnames(string zoneName, IEnumerable<string> hostnames)
+    {
+        var zone = NormalizeHost(zoneName);
+        return hostnames
+            .Select(NormalizeHost)
+            .Where(host => IsDeeperThanUniversalSsl(host, zone))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    internal static bool CertificateCoversHost(IEnumerable<string> packHosts, string hostname)
+    {
+        var host = NormalizeHost(hostname);
+        foreach (var raw in packHosts)
+        {
+            var entry = NormalizeHost(raw);
+            if (entry.Length == 0)
+                continue;
+            if (string.Equals(entry, host, StringComparison.Ordinal))
+                return true;
+            if (!entry.StartsWith("*.", StringComparison.Ordinal))
+                continue;
+
+            var suffix = entry[1..];
+            if (!host.EndsWith(suffix, StringComparison.Ordinal) || host.Length <= suffix.Length)
+                continue;
+            var prefix = host[..^suffix.Length];
+            if (!prefix.Contains('.', StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsDeeperThanUniversalSsl(string host, string zone)
+    {
+        if (host.Length == 0 || zone.Length == 0 || string.Equals(host, zone, StringComparison.Ordinal))
+            return false;
+        var parent = "." + zone;
+        if (!host.EndsWith(parent, StringComparison.Ordinal))
+            return false;
+        var prefix = host[..^parent.Length];
+        return prefix.Contains('.', StringComparison.Ordinal);
+    }
+
+    private static bool CertificateStatusCovers(string? status) => status is
+        "active" or "initializing" or "pending_validation" or "pending_issuance"
+        or "pending_deployment" or "staging_deployment" or "staging_active"
+        or "backup_issued" or "holding_deployment";
+
+    private static string NormalizeHost(string hostname) =>
+        hostname.Trim().TrimEnd('.').ToLowerInvariant();
+
+    private async Task<bool> EnsureTotalTlsEnabledAsync(string zoneId, CancellationToken ct)
+    {
+        using var response = await _http
+            .GetAsync($"zones/{zoneId}/acm/total_tls", ct)
+            .ConfigureAwait(false);
+        var settings = await ReadResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareTotalTlsSettings,
+                ct)
+            .ConfigureAwait(false);
+        if (settings?.Enabled == true)
+            return false;
+
+        using var content = JsonBody(
+            new CloudflareTotalTlsSettings { Enabled = true },
+            CloudflareApiJsonContext.Default.CloudflareTotalTlsSettings);
+        using var update = await _http
+            .PostAsync($"zones/{zoneId}/acm/total_tls", content, ct)
+            .ConfigureAwait(false);
+        _ = await ReadEnvelopeAsync(
+                update,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareTotalTlsSettings,
+                ct)
+            .ConfigureAwait(false);
+        return true;
+    }
+
+    private async Task<IReadOnlyList<string>> HostsMissingCertificateAsync(
+        string zoneId,
+        IReadOnlyList<string> hostnames,
+        CancellationToken ct)
+    {
+        using var response = await _http
+            .GetAsync($"zones/{zoneId}/ssl/certificate_packs?per_page=50", ct)
+            .ConfigureAwait(false);
+        var packs = await ReadResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseListCloudflareCertificatePackResult,
+                ct)
+            .ConfigureAwait(false) ?? [];
+
+        var covering = packs.Where(pack => CertificateStatusCovers(pack.Status)).ToArray();
+        return hostnames
+            .Where(host => !covering.Any(pack => CertificateCoversHost(pack.Hosts ?? [], host)))
+            .ToArray();
+    }
+
+    private async Task OrderAdvancedCertificateAsync(
+        string zoneId,
+        IReadOnlyList<string> hosts,
+        CancellationToken ct)
+    {
+        using var content = JsonBody(
+            new CloudflareCertificatePackOrderRequest { Hosts = [.. hosts] },
+            CloudflareApiJsonContext.Default.CloudflareCertificatePackOrderRequest);
+        using var response = await _http
+            .PostAsync($"zones/{zoneId}/ssl/certificate_packs/order", content, ct)
+            .ConfigureAwait(false);
+        _ = await ReadRequiredResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareCertificatePackResult,
+                ct)
+            .ConfigureAwait(false);
+    }
+
     internal static IEnumerable<string> EnumerateZoneCandidates(string hostname)
     {
         var host = hostname.Trim().TrimEnd('.').ToLowerInvariant();
@@ -241,10 +403,10 @@ internal sealed class CloudflareTunnelClient : IDisposable
         => $"https://{hostname.Trim().TrimEnd('.')}{HealthEndpoints.Ready}";
 
     internal static string GoogleAccessCallbackUri(string teamDomain)
-    {
-        var host = NormalizeTeamHost(teamDomain);
-        return $"https://{host}/cdn-cgi/access/callback";
-    }
+        => $"{AccessTeamOrigin(teamDomain)}/cdn-cgi/access/callback";
+
+    internal static string AccessTeamOrigin(string teamDomain)
+        => $"https://{NormalizeTeamHost(teamDomain)}";
 
     internal static string NormalizeTeamHost(string teamDomain)
     {
@@ -321,7 +483,8 @@ internal sealed class CloudflareTunnelClient : IDisposable
         string accountId,
         string hostname,
         string identityProviderId,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool optionsPreflightBypass = false)
     {
         var existing = await FindAppByDomainAsync(accountId, hostname, ct).ConfigureAwait(false);
         using var content = JsonBody(
@@ -331,6 +494,7 @@ internal sealed class CloudflareTunnelClient : IDisposable
                 Domain = hostname,
                 AutoRedirectToIdentity = true,
                 AllowedIdps = [identityProviderId],
+                OptionsPreflightBypass = optionsPreflightBypass,
             },
             CloudflareApiJsonContext.Default.CloudflareSelfHostedAppRequest);
 
@@ -549,6 +713,96 @@ internal sealed class CloudflareTunnelClient : IDisposable
             Require = [.. policy.Require.Select(CloudflareAccessPolicyCondition.From)],
         };
 
+    private async Task<CloudflareZoneResult?> FindZoneByNameAsync(string name, CancellationToken ct)
+    {
+        using var response = await _http
+            .GetAsync($"zones?name={Uri.EscapeDataString(name)}", ct)
+            .ConfigureAwait(false);
+        var zones = await ReadResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseListCloudflareZoneResult,
+                ct)
+            .ConfigureAwait(false);
+        if (zones is null || zones.Count == 0)
+            return null;
+
+        return zones[0];
+    }
+
+    private async Task<(string Id, string Name)> ResolveSingleAccountAsync(CancellationToken ct)
+    {
+        using var response = await _http
+            .GetAsync("accounts?per_page=50", ct)
+            .ConfigureAwait(false);
+        var accounts = await ReadResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseListCloudflareAccountResult,
+                ct)
+            .ConfigureAwait(false);
+        var usable = accounts?
+            .Where(account => !string.IsNullOrWhiteSpace(account.Id))
+            .ToList() ?? [];
+        if (usable.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "Cloudflare token returned no accounts. Zone create needs a token scoped to one account.");
+        }
+
+        if (usable.Count > 1)
+        {
+            var names = string.Join(", ", usable.Select(account => account.Name ?? account.Id));
+            throw new InvalidOperationException(
+                $"Cloudflare token can see multiple accounts ({names}). " +
+                "Scope it to one account so a missing zone is created there.");
+        }
+
+        return (usable[0].Id!, usable[0].Name ?? usable[0].Id!);
+    }
+
+    private async Task<CloudflareZoneResult> CreateZoneAsync(string accountId, string zoneName, CancellationToken ct)
+    {
+        using var content = JsonBody(
+            new CloudflareCreateZoneRequest
+            {
+                Name = zoneName,
+                Account = new CloudflareAccountRef { Id = accountId },
+            },
+            CloudflareApiJsonContext.Default.CloudflareCreateZoneRequest);
+        using var response = await _http
+            .PostAsync("zones", content, ct)
+            .ConfigureAwait(false);
+        return await ReadRequiredResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareZoneResult,
+                ct)
+            .ConfigureAwait(false);
+    }
+
+    private static CloudflareZoneAccount ToZoneAccount(
+        CloudflareZoneResult zone,
+        string fallbackName,
+        bool created,
+        string? fallbackAccountId = null)
+    {
+        var zoneId = zone.Id;
+        var accountId = zone.Account?.Id ?? fallbackAccountId;
+        if (string.IsNullOrWhiteSpace(zoneId) || string.IsNullOrWhiteSpace(accountId))
+        {
+            throw new InvalidOperationException(
+                $"Cloudflare zone '{fallbackName}' response missing id/account.id.");
+        }
+
+        IReadOnlyList<string>? nameServers = null;
+        if (created)
+        {
+            nameServers = (zone.NameServers ?? [])
+                .Where(ns => !string.IsNullOrWhiteSpace(ns))
+                .ToArray();
+        }
+
+        return new CloudflareZoneAccount(zoneId, accountId, zone.Name ?? fallbackName, created, nameServers);
+    }
+
     private async Task<(string Id, string Name)?> FindTunnelByNameAsync(
         string accountId,
         string name,
@@ -687,7 +941,17 @@ internal sealed class CloudflareTunnelClient : IDisposable
     private readonly record struct TunnelStatus(string Status, int ConnectionCount, bool IsHealthy);
 }
 
-internal sealed record CloudflareZoneAccount(string ZoneId, string AccountId, string ZoneName);
+internal readonly record struct EdgeCertificateResult(
+    bool EnabledTotalTls,
+    bool OrderedAdvancedCertificate,
+    IReadOnlyList<string> AdvancedHosts);
+
+internal sealed record CloudflareZoneAccount(
+    string ZoneId,
+    string AccountId,
+    string ZoneName,
+    bool Created = false,
+    IReadOnlyList<string>? NameServers = null);
 
 internal sealed record CloudflareTunnelCredentials(string TunnelId, string Name, string ConnectorToken);
 

@@ -7,6 +7,9 @@ namespace Interfold.Bootstrapper.Util;
     PropertyNameCaseInsensitive = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(CloudflareApiResponse<List<CloudflareZoneResult>>))]
+[JsonSerializable(typeof(CloudflareApiResponse<CloudflareZoneResult>))]
+[JsonSerializable(typeof(CloudflareApiResponse<List<CloudflareAccountResult>>))]
+[JsonSerializable(typeof(CloudflareCreateZoneRequest))]
 [JsonSerializable(typeof(CloudflareApiResponse<CloudflareTunnelResult>))]
 [JsonSerializable(typeof(CloudflareApiResponse<List<CloudflareTunnelResult>>))]
 [JsonSerializable(typeof(CloudflareApiResponse<string>))]
@@ -29,4 +32,9 @@ namespace Interfold.Bootstrapper.Util;
 [JsonSerializable(typeof(CloudflareSelfHostedAppRequest))]
 [JsonSerializable(typeof(CloudflareAccessPolicyRequest))]
 [JsonSerializable(typeof(CloudflareServiceTokenRequest))]
+[JsonSerializable(typeof(CloudflareApiResponse<CloudflareTotalTlsSettings>))]
+[JsonSerializable(typeof(CloudflareTotalTlsSettings))]
+[JsonSerializable(typeof(CloudflareCertificatePackOrderRequest))]
+[JsonSerializable(typeof(CloudflareApiResponse<CloudflareCertificatePackResult>))]
+[JsonSerializable(typeof(CloudflareApiResponse<List<CloudflareCertificatePackResult>>))]
 internal sealed partial class CloudflareApiJsonContext : JsonSerializerContext;

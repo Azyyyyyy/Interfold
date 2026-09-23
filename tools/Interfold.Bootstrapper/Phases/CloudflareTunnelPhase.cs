@@ -66,11 +66,48 @@ internal static class CloudflareTunnelPhase
         await client.PutIngressAsync(state.AccountId, state.TunnelId, hostnames, OriginService, ct)
             .ConfigureAwait(false);
 
+        var hostsByZone = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var zoneById = new Dictionary<string, CloudflareZoneAccount>(StringComparer.Ordinal);
         foreach (var host in hostnames)
         {
             var zone = await client.ResolveZoneAndAccountAsync(host, ct).ConfigureAwait(false);
+            LogResolvedZone(logger, zone, always: false);
             logger.Info($"    upserting DNS CNAME {host} → {state.TunnelId}.cfargotunnel.com (zone {zone.ZoneName})");
             await client.UpsertDnsCnameAsync(zone.ZoneId, host, state.TunnelId, ct).ConfigureAwait(false);
+            if (!hostsByZone.TryGetValue(zone.ZoneId, out var zoneHosts))
+            {
+                zoneHosts = [];
+                hostsByZone[zone.ZoneId] = zoneHosts;
+                zoneById[zone.ZoneId] = zone;
+            }
+
+            zoneHosts.Add(host);
+        }
+
+        foreach (var (zoneId, zoneHosts) in hostsByZone)
+        {
+            var zone = zoneById[zoneId];
+            var uncovered = await client.EnsureEdgeCertificatesAsync(zone, zoneHosts, orderAdvancedCertificate: false, ct)
+                .ConfigureAwait(false);
+            if (uncovered.EnabledTotalTls)
+                logger.Info($"    enabled Total TLS on {zone.ZoneName}");
+            if (uncovered.AdvancedHosts is not { Count: > 0 })
+                continue;
+
+            if (!ConfirmAdvancedCertificateOrder(options, zone.ZoneName, uncovered.AdvancedHosts))
+            {
+                logger.Warn(
+                    $"    skipped advanced certificate for {string.Join(", ", uncovered.AdvancedHosts)}");
+                continue;
+            }
+
+            var ordered = await client.EnsureEdgeCertificatesAsync(zone, zoneHosts, orderAdvancedCertificate: true, ct)
+                .ConfigureAwait(false);
+            if (ordered.OrderedAdvancedCertificate)
+            {
+                logger.Info(
+                    $"    ordered advanced certificate for {string.Join(", ", ordered.AdvancedHosts)} (issuance is asynchronous)");
+            }
         }
 
         if (config.Edge.Cloudflare.Access.Enabled)
@@ -87,6 +124,35 @@ internal static class CloudflareTunnelPhase
         await WaitForPublicReadyAsync(readyUrl, serviceToken, logger, ct).ConfigureAwait(false);
 
         logger.PhaseDone(Phase);
+    }
+
+    private static bool ConfirmAdvancedCertificateOrder(
+        BootstrapOptions options,
+        string zoneName,
+        IReadOnlyList<string> hostnames)
+    {
+        if (options.NonInteractive)
+            return false;
+
+        var table = new Table().AddColumn("Zone").AddColumn("Hostnames");
+        table.AddRow(zoneName, string.Join(", ", hostnames));
+        AnsiConsole.Write(table);
+        AnsiConsole.MarkupLine(
+            "[yellow]Universal SSL does not cover these names. Ordering uses Advanced Certificate Manager.[/]");
+        return AnsiConsole.Confirm(
+            "Order an advanced certificate for these hostnames?",
+            defaultValue: false);
+    }
+
+    private static void LogResolvedZone(PhaseLogger logger, CloudflareZoneAccount zone, bool always)
+    {
+        if (always || zone.Created)
+            logger.Info($"    cloudflare zone={zone.ZoneName} account={zone.AccountId}");
+        if (zone.Created && zone.NameServers is { Count: > 0 })
+        {
+            logger.Info(
+                $"    created zone {zone.ZoneName}; point registrar nameservers at {string.Join(", ", zone.NameServers)}");
+        }
     }
 
     internal static IReadOnlyList<string> ResolvePublicHostnames(BootstrapConfig config)
@@ -144,7 +210,7 @@ internal static class CloudflareTunnelPhase
 
         using var client = CloudflareTunnelClient.Create(config.Edge.Cloudflare.ApiToken);
         var zone = await client.ResolveZoneAndAccountAsync(hostnames[0], ct).ConfigureAwait(false);
-        logger.Info($"    cloudflare zone={zone.ZoneName} account={zone.AccountId}");
+        LogResolvedZone(logger, zone, always: true);
 
         var tunnelName = config.Edge.Cloudflare.TunnelName.Trim();
         var creds = await client.EnsureTunnelAsync(zone.AccountId, tunnelName, ct).ConfigureAwait(false);

@@ -156,7 +156,11 @@ internal static class PublishPhase
         yield return (AppHostParameterKeys.OAuthCallbackBaseUrl, "OAUTH_CALLBACK_BASE_URL", config.Api.OAuth.CallbackBaseUrl);
         yield return (AppHostParameterKeys.JwtAuthority, "JWT_AUTHORITY", config.Api.OAuth.JwtAuthority);
         yield return (AppHostParameterKeys.JwtAudience, "JWT_AUDIENCE", config.Api.OAuth.JwtAudience);
-        yield return (AppHostParameterKeys.CorsAllowedOrigins, "CORS_ALLOWED_ORIGINS", string.Join(",", config.Api.CorsAllowedOrigins));
+        var access = outputDir is null ? null : CloudflareAccessPhase.TryLoadState(outputDir);
+        // Access login calls the API from https://{team}.cloudflareaccess.com. That origin
+        // is not one of the public hosts, so the operator CORS list never contains it.
+        yield return (AppHostParameterKeys.CorsAllowedOrigins, "CORS_ALLOWED_ORIGINS",
+            CorsOriginsWithAccessCallback(config.Api.CorsAllowedOrigins, access?.TeamDomain));
 
         // Non-secret operator tuning knobs. Nullable/disabled-when-empty fields serialise as
         // "" — the API's binders normalise empty → null, matching the "env var unset" branch.
@@ -174,9 +178,20 @@ internal static class PublishPhase
         yield return (AppHostParameterKeys.DbRetryMaxDelayMs, "DB_RETRY_MAX_DELAY_MS", config.Api.Resilience.DbRetryMaxDelayMs.ToString());
         yield return (AppHostParameterKeys.HydrationMaxConcurrency, "HYDRATION_MAX_CONCURRENCY", config.Api.Resilience.HydrationMaxConcurrency.ToString());
 
-        var access = outputDir is null ? null : CloudflareAccessPhase.TryLoadState(outputDir);
         yield return (AppHostParameterKeys.CfAccessTeamDomain, "CF_ACCESS_TEAM_DOMAIN", access?.TeamDomain ?? string.Empty);
         yield return (AppHostParameterKeys.CfAccessAud, "CF_ACCESS_AUD", access?.Aud ?? string.Empty);
+    }
+
+    internal static string CorsOriginsWithAccessCallback(IReadOnlyList<string> origins, string? teamDomain)
+    {
+        if (string.IsNullOrWhiteSpace(teamDomain))
+            return string.Join(',', origins);
+
+        var accessOrigin = CloudflareTunnelClient.AccessTeamOrigin(teamDomain);
+        if (origins.Any(origin => string.Equals(origin.TrimEnd('/'), accessOrigin, StringComparison.OrdinalIgnoreCase)))
+            return string.Join(',', origins);
+
+        return origins.Count == 0 ? accessOrigin : $"{string.Join(',', origins)},{accessOrigin}";
     }
 
     internal static EnvReplacements BuildEnvReplacements(
