@@ -756,8 +756,17 @@ public static class InterfoldAppHost
                 .WithContainerNetworkAlias(ComposeServices.InterfoldWeb)
                 .WithHttpEndpoint(targetPort: 8080, name: HttpEndpointName)
                 .WithHttpHealthCheck("/", endpointName: HttpEndpointName);
-            if (!builder.ExecutionContext.IsPublishMode)
+            if (builder.ExecutionContext.IsPublishMode)
+            {
+                var defaultApiEndpoint = builder.AddConfiguredParameter(
+                    AppHostParameterKeys.DefaultApiEndpoint, publishValueAsDefault: true);
+                web.WithEnvironment(ContainerEnvNames.InterfoldDefaultApiEndpoint, defaultApiEndpoint);
+            }
+            else
+            {
+                web.WithEnvironment(ContainerEnvNames.InterfoldDefaultApiEndpoint, publicApiBase);
                 web.WithUrl(publicWebOrigin, "edge");
+            }
 
             web.PublishAsDockerComposeService((_, service) =>
             {

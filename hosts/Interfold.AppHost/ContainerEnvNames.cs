@@ -49,4 +49,7 @@ internal static class ContainerEnvNames
     public const string NginxApiUpstream = "NGINX_API_UPSTREAM";
     public const string NginxWebUpstream = "NGINX_WEB_UPSTREAM";
     public const string NginxIncludeWeb = "NGINX_INCLUDE_WEB";
+
+    // Web image (nginx envsubst into runtime-config.js). Name is fixed by the image.
+    public const string InterfoldDefaultApiEndpoint = "INTERFOLD_DEFAULT_API_ENDPOINT";
 }
