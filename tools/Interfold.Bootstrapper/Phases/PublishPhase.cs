@@ -122,7 +122,7 @@ internal static class PublishPhase
     /// an Aspire rename is a one-line edit — round-trip asserted in
     /// <c>PublishSharedAspireParametersTests</c>. Nullable inputs collapse to empty to reproduce
     /// the API's "unset env var" branch. Absent by design: graph-only knobs
-    /// (cluster/topology/image/dashboard/include-web/ports) that don't round-trip through .env, plus
+    /// (cluster/topology/image/dashboard/web/ports) that don't round-trip through .env, plus
     /// <c>CASSANDRA_IMAGE</c> which flows in via <see cref="CassandraImagePhase"/>.</summary>
     internal static IEnumerable<(string ConfigKey, string EnvKey, string Value)>
         EnumerateSharedAspireParameters(BootstrapConfig config, GeneratedSecrets secrets, string? outputDir = null)
@@ -180,14 +180,6 @@ internal static class PublishPhase
 
         yield return (AppHostParameterKeys.CfAccessTeamDomain, "CF_ACCESS_TEAM_DOMAIN", access?.TeamDomain ?? string.Empty);
         yield return (AppHostParameterKeys.CfAccessAud, "CF_ACCESS_AUD", access?.Aud ?? string.Empty);
-
-        // Only the web service references this parameter. The image writes it into
-        // runtime-config.js; an empty value keeps the client's built-in public endpoint.
-        if (config.Deployment.IncludeWeb)
-        {
-            ConfigPhase.TryResolvePublicApiOrigin(config, out var defaultApiEndpoint);
-            yield return (AppHostParameterKeys.DefaultApiEndpoint, "INTERFOLD_DEFAULT_API_ENDPOINT", defaultApiEndpoint);
-        }
     }
 
     internal static string CorsOriginsWithAccessCallback(IReadOnlyList<string> origins, string? teamDomain)

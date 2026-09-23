@@ -842,40 +842,6 @@ internal static class ConfigPhase
     private const int DefaultHttpPort = 80;
     private const int DefaultHttpsPort = 443;
 
-    /// <summary>Public API origin for the web client's <c>INTERFOLD_DEFAULT_API_ENDPOINT</c>.
-    /// Scheme and host only — client paths already include <c>/api/</c>. Same host rules as the
-    /// OAuth/JWT default; an operator override of those fields does not change this value.</summary>
-    internal static bool TryResolvePublicApiOrigin(BootstrapConfig config, out string origin)
-    {
-        origin = string.Empty;
-        if (config.Edge.Hosts.Count == 0)
-        {
-            return false;
-        }
-
-        var parsed = new List<HostEntry>(config.Edge.Hosts.Count);
-        foreach (var raw in config.Edge.Hosts)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) continue;
-            try
-            {
-                parsed.Add(HostParser.Parse(raw));
-            }
-            catch (FormatException)
-            {
-            }
-        }
-
-        var primary = HostParser.PickPrimary(parsed);
-        if (primary is null)
-        {
-            return false;
-        }
-
-        origin = FormatPublicApiOrigin(config, primary);
-        return true;
-    }
-
     private static bool IsSubdomainPair(BootstrapConfig config)
         => config.Edge.Routing.Mode == EdgeRoutingMode.Subdomain
            && !string.IsNullOrWhiteSpace(config.Edge.Routing.ApiHost)

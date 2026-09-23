@@ -220,86 +220,6 @@ public sealed class PublishEnvPostProcessingTests
     }
 
     [Test]
-    public async Task BuildEnvReplacementsOmitsDefaultApiEndpointWhenWebIsOff()
-    {
-        var (config, secrets) = MakeInputs();
-
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
-
-        await Assert.That(replacements.Parameters.ContainsKey("INTERFOLD_DEFAULT_API_ENDPOINT")).IsFalse();
-    }
-
-    [Test]
-    public async Task BuildEnvReplacementsSetsDefaultApiEndpointToPublicOrigin()
-    {
-        var (config, secrets) = MakeInputs();
-        config.Deployment.IncludeWeb = true;
-        config.Api.OAuth.CallbackBaseUrl = "https://callback.example.com";
-        config.Api.OAuth.JwtAuthority = "https://issuer.example.com";
-
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
-
-        await Assert.That(replacements.Parameters["INTERFOLD_DEFAULT_API_ENDPOINT"])
-            .IsEqualTo("https://api.example.com");
-    }
-
-    [Test]
-    public async Task BuildEnvReplacementsUsesApiHostForSubdomainWebDefault()
-    {
-        var (config, secrets) = MakeInputs();
-        config.Deployment.IncludeWeb = true;
-        config.Edge.Routing.Mode = EdgeRoutingMode.Subdomain;
-        config.Edge.Routing.ApiHost = "api.example.com";
-        config.Edge.Routing.WebHost = "web.example.com";
-
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
-
-        await Assert.That(replacements.Parameters["INTERFOLD_DEFAULT_API_ENDPOINT"])
-            .IsEqualTo("https://api.example.com");
-    }
-
-    [Test]
-    public async Task BuildEnvReplacementsIncludesNonDefaultPortOnWebDefault()
-    {
-        var (config, secrets) = MakeInputs();
-        config.Deployment.IncludeWeb = true;
-        config.Edge.TlsMode = EdgeTlsMode.None;
-        config.Edge.Ports.Http = 8080;
-
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
-
-        await Assert.That(replacements.Parameters["INTERFOLD_DEFAULT_API_ENDPOINT"])
-            .IsEqualTo("http://api.example.com:8080");
-    }
-
-    [Test]
-    public async Task BuildEnvReplacementsOmitsPortWhenCloudflareFrontsWebDefault()
-    {
-        var (config, secrets) = MakeInputs();
-        config.Deployment.IncludeWeb = true;
-        config.Edge.Cloudflare.Enabled = true;
-        config.Edge.Ports.Https = 8443;
-
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
-
-        await Assert.That(replacements.Parameters["INTERFOLD_DEFAULT_API_ENDPOINT"])
-            .IsEqualTo("https://api.example.com");
-    }
-
-    [Test]
-    public async Task BuildEnvReplacementsLeavesDefaultApiEndpointEmptyWithoutAHost()
-    {
-        var (config, secrets) = MakeInputs();
-        config.Deployment.IncludeWeb = true;
-        config.Edge.Hosts = [];
-
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
-
-        await Assert.That(replacements.Parameters.ContainsKey("INTERFOLD_DEFAULT_API_ENDPOINT")).IsTrue();
-        await Assert.That(replacements.Parameters["INTERFOLD_DEFAULT_API_ENDPOINT"]).IsEqualTo(string.Empty);
-    }
-
-    [Test]
     public async Task BuildEnvReplacementsDerivesApiRuntimeFromDeploymentWhenUnset()
     {
         var config = new BootstrapConfig
@@ -783,14 +703,5 @@ public sealed class PublishEnvPostProcessingTests
         // Spec-frozen at 27 — bump this AND the enumerator together.
         await Assert.That(seenConfigKeys.Count).IsEqualTo(27)
             .Because("shared-parameter count is spec-frozen at 27; update BOTH the enumerator AND this assertion together");
-
-        config.Deployment.IncludeWeb = true;
-        var withWeb = PublishPhase.EnumerateSharedAspireParameters(config, secrets).ToList();
-        var webDefault = withWeb.Single(p => p.ConfigKey == AppHostParameterKeys.DefaultApiEndpoint);
-        var webEnvKey = AppHostParameterKeys.ToParameterName(webDefault.ConfigKey)
-            .Replace('-', '_')
-            .ToUpperInvariant();
-        await Assert.That(webDefault.EnvKey).IsEqualTo(webEnvKey);
-        await Assert.That(withWeb.Count).IsEqualTo(28);
     }
 }

@@ -48,9 +48,6 @@ public static class AppHostParameterKeys
     public const string EdgeServerName = "Parameters:edge-server-name";
     public const string ApiImage = "Parameters:api-image";
     public const string WebImage = "Parameters:web-image";
-    /// <summary>Public API origin passed to <c>interfold-web</c> as
-    /// <c>INTERFOLD_DEFAULT_API_ENDPOINT</c>. Empty keeps the client's built-in default.</summary>
-    public const string DefaultApiEndpoint = "Parameters:interfold-default-api-endpoint";
     /// <summary>Absolute host path to the Cloudflare Tunnel connector token file (0600).</summary>
     public const string EdgeCloudflareTunnelTokenPath = "Parameters:edge-cloudflare-tunnel-token-path";
 

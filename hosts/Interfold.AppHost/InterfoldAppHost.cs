@@ -84,6 +84,8 @@ public static class InterfoldAppHost
         var edgeUsesPlainHttp = string.Equals(edgeTlsMode, "none", StringComparison.OrdinalIgnoreCase);
         var edgeCloudflareTunnel = BoolWire.ParseToggle(
             builder.Configuration[AppHostParameterKeys.EdgeCloudflareTunnel], fallback: false);
+        var edgeServerName = builder.Configuration[AppHostParameterKeys.EdgeServerName];
+        if (string.IsNullOrWhiteSpace(edgeServerName)) edgeServerName = "_";
         // Same key PublishPhase injects. Off in publish so those hosts are left alone.
         var runModeSubdomain = !builder.ExecutionContext.IsPublishMode
             && string.Equals(
@@ -121,6 +123,25 @@ public static class InterfoldAppHost
         // follow the web host the page is actually on.
         var publicApiBase = PublicOrigin(devApiHost);
         var publicWebOrigin = PublicOrigin(devWebHost);
+
+        // Publish stamps the web image from the hosts nginx already received. Path mode
+        // has no api host, so the server name is the origin. Tunnel TLS is public https
+        // even though the origin itself is plaintext.
+        string DeploymentApiOrigin()
+        {
+            if (!builder.ExecutionContext.IsPublishMode)
+                return publicApiBase;
+
+            var host = HostOr(builder.Configuration[AppHostParameterKeys.EdgeApiHost], edgeServerName);
+            if (host == "_")
+                return string.Empty;
+            // server_name keeps a bare IPv6 literal; the client URL needs brackets.
+            if (host.Contains(':'))
+                host = $"[{host.Trim().TrimStart('[').TrimEnd(']')}]";
+            if (edgeCloudflareTunnel)
+                return $"https://{host}";
+            return PublicOrigin(host);
+        }
 
         if (!builder.ExecutionContext.IsPublishMode)
         {
@@ -756,17 +777,9 @@ public static class InterfoldAppHost
                 .WithContainerNetworkAlias(ComposeServices.InterfoldWeb)
                 .WithHttpEndpoint(targetPort: 8080, name: HttpEndpointName)
                 .WithHttpHealthCheck("/", endpointName: HttpEndpointName);
-            if (builder.ExecutionContext.IsPublishMode)
-            {
-                var defaultApiEndpoint = builder.AddConfiguredParameter(
-                    AppHostParameterKeys.DefaultApiEndpoint, publishValueAsDefault: true);
-                web.WithEnvironment(ContainerEnvNames.InterfoldDefaultApiEndpoint, defaultApiEndpoint);
-            }
-            else
-            {
-                web.WithEnvironment(ContainerEnvNames.InterfoldDefaultApiEndpoint, publicApiBase);
+            web.WithEnvironment(ContainerEnvNames.InterfoldDefaultApiEndpoint, DeploymentApiOrigin());
+            if (!builder.ExecutionContext.IsPublishMode)
                 web.WithUrl(publicWebOrigin, "edge");
-            }
 
             web.PublishAsDockerComposeService((_, service) =>
             {
@@ -779,8 +792,6 @@ public static class InterfoldAppHost
 
         if (includeEdge)
         {
-            var edgeServerName = builder.Configuration[AppHostParameterKeys.EdgeServerName];
-            if (string.IsNullOrWhiteSpace(edgeServerName)) edgeServerName = "_";
             // Publish keeps bootstrapper-injected hosts. Path mode stays on nginx's `_`
             // catch-all so 127.0.0.1 still matches. Subdomain run mode uses the resolved hosts.
             var edgeApiHost = runModeSubdomain
