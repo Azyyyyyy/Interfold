@@ -27,7 +27,7 @@ namespace Interfold.AppHost.DevSeed;
 internal sealed class DevSeedHostedService(
     DevSeedContext context,
     ResourceNotificationService notifications,
-    ILogger<DevSeedHostedService> logger)
+    ResourceLoggerService resourceLoggers)
     : BackgroundService
 {
     // The msg-db / scylla containers can be slow to reach Running on a fresh image pull.
@@ -37,6 +37,8 @@ internal sealed class DevSeedHostedService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var logger = resourceLoggers.GetLogger(context.SeedResource);
+        var seedLog = new ResourceInitLogger(logger);
         using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         budgetCts.CancelAfter(SeedBudget);
         var ct = budgetCts.Token;
@@ -78,20 +80,33 @@ internal sealed class DevSeedHostedService(
             var pgOptions = await BuildPostgresSeedOptionsAsync(cqlEndpoint, initPassword, ct);
             logger.LogInformation("Dev seed: bootstrapping Postgres roles + internal.secrets");
             var pgExecutor = new NpgsqlPostgresExecutor(initConnectionString);
-            await PostgresSeeder.BootstrapAsync(pgExecutor, pgOptions, NoOpDatabaseInitLogger.Instance, ct);
+            await PostgresSeeder.BootstrapAsync(pgExecutor, pgOptions, seedLog, ct);
 
             if (cqlEndpoint is not null)
             {
-                logger.LogInformation("Dev seed: waiting for CQL backend at {Host}:{Port}",
-                    cqlEndpoint.Host, cqlEndpoint.Port);
-                await InProcessSeedWaits.WaitForScyllaAsync(cqlEndpoint.Host, cqlEndpoint.Port, ct);
-
+                var (cqlHost, cqlPort) = ForHostProcess(cqlEndpoint);
                 var scyllaOptions = await BuildScyllaSeedOptionsAsync(ct);
+                logger.LogInformation(
+                    "Dev seed: waiting for CQL backend at {Host}:{Port} (scheme={Scheme}, allocated={AllocatedHost}:{AllocatedPort})",
+                    cqlHost, cqlPort, cqlEndpoint.Scheme, cqlEndpoint.Host, cqlEndpoint.Port);
+                // Persistent volumes already have cassandra/cassandra locked; try the
+                // minted app/admin pair as well. See ScyllaSeeder.LockDefaultCassandra.
+                await InProcessSeedWaits.WaitForScyllaAsync(
+                    cqlHost,
+                    cqlPort,
+                    extraCredentials:
+                    [
+                        (scyllaOptions.AppUser, scyllaOptions.AppPassword),
+                        (scyllaOptions.AdminUser, scyllaOptions.AdminPassword),
+                    ],
+                    logger: seedLog,
+                    ct);
+
                 logger.LogInformation("Dev seed: bootstrapping CQL roles");
                 // ScyllaSeeder works against Cassandra too — same CREATE ROLE / ALTER ROLE surface,
                 // and Cassandra ships with the same cassandra/cassandra bootstrap superuser.
-                var scyllaExecutor = new DataStaxScyllaExecutor(cqlEndpoint.Host, cqlEndpoint.Port);
-                await ScyllaSeeder.BootstrapAsync(scyllaExecutor, scyllaOptions, NoOpDatabaseInitLogger.Instance, ct);
+                var scyllaExecutor = new DataStaxScyllaExecutor(cqlHost, cqlPort);
+                await ScyllaSeeder.BootstrapAsync(scyllaExecutor, scyllaOptions, seedLog, ct);
             }
 
             await notifications.PublishUpdateAsync(context.SeedResource,
@@ -130,6 +145,12 @@ internal sealed class DevSeedHostedService(
         return endpoint;
     }
 
+    /// <summary>AppHost runs on the host; native CQL from this process always uses the
+    /// Docker-published loopback mapping. Container DNS, DCP proxy hosts, and IPv6
+    /// <c>localhost</c> all hang the DataStax driver.</summary>
+    private static (string Host, int Port) ForHostProcess(EndpointReference endpoint)
+        => ("127.0.0.1", endpoint.Port);
+
     private static string BuildInitConnectionString(string host, int port, string initPassword)
     {
         // db_init is the transient bootstrap superuser the msg-db container starts with. We
@@ -164,6 +185,9 @@ internal sealed class DevSeedHostedService(
             ?? throw new InvalidOperationException("Encryption pepper parameter resolved to null.");
         var deepLinkSecret = await context.DeepLinkSecret.GetValueAsync(ct)
             ?? throw new InvalidOperationException("Deep-link secret parameter resolved to null.");
+        var googleOAuthClientSecret = await context.GoogleOAuthClientSecret.GetValueAsync(ct) ?? string.Empty;
+        var discordOAuthClientSecret = await context.DiscordOAuthClientSecret.GetValueAsync(ct) ?? string.Empty;
+        var appleOAuthClientSecret = await context.AppleOAuthClientSecret.GetValueAsync(ct) ?? string.Empty;
 
         // JWT PEMs regenerate on every AppHost start — the seeder short-circuits on subsequent
         // runs so only the first run actually writes them into internal.secrets. Wiping msg-db
@@ -184,9 +208,9 @@ internal sealed class DevSeedHostedService(
             AdminUser: $"{appUser}_admin",
             AdminPassword: postgresAdminPassword,
             DefaultDatabase: defaultDb,
-            GoogleOAuthClientSecret: string.Empty,
-            DiscordOAuthClientSecret: string.Empty,
-            AppleOAuthClientSecret: string.Empty,
+            GoogleOAuthClientSecret: googleOAuthClientSecret,
+            DiscordOAuthClientSecret: discordOAuthClientSecret,
+            AppleOAuthClientSecret: appleOAuthClientSecret,
             EncryptionPepper: encryptionPepper,
             ScyllaContactPoints: cqlEndpoint?.Host ?? "127.0.0.1",
             ScyllaLocalDatacenter: ScyllaKeyspace.Nam.ToWire(),
@@ -232,5 +256,12 @@ internal sealed class DevSeedHostedService(
         using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var esPem = ecdsa.ExportPkcs8PrivateKeyPem();
         return (rsaPem, esPem);
+    }
+
+    private sealed class ResourceInitLogger(ILogger logger) : IDatabaseInitLogger
+    {
+        public void Info(string message) => logger.LogInformation("{Message}", message);
+        public void Warn(string message) => logger.LogWarning("{Message}", message);
+        public void Error(string message) => logger.LogError("{Message}", message);
     }
 }

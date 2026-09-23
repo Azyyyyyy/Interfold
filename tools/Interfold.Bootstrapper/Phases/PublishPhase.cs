@@ -486,6 +486,8 @@ internal static class PublishPhase
         injected[AppHostParameterKeys.WebImage] = config.Deployment.WebImage;
         // Aspire dev dashboard would pull an MCR-nightly image at compose-up — unwanted in prod.
         injected[AppHostParameterKeys.IncludeDashboard] = BoolWire.FalseValue;
+        // Named DB volumes must land in compose regardless of the run-mode default.
+        injected[AppHostParameterKeys.PersistentContainers] = BoolWire.TrueValue;
         injected[AppHostParameterKeys.IncludeWeb] = BoolWire.ToWireValue(config.Deployment.IncludeWeb);
         injected[AppHostParameterKeys.EdgeTlsMode] = config.Edge.Cloudflare.Enabled
             ? EdgeTlsMode.None.ToWire()

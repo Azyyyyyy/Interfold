@@ -64,39 +64,80 @@ public static class InProcessSeedWaits
     }
 
     /// <summary>
-    /// Waits until the built-in <c>cassandra</c> account answers a <c>system.local</c> query.
-    /// Fixed 5-minute budget — gossip-bootstrap is the slow phase and 5min is already generous
-    /// on cold-start DinD hosts.
+    /// Waits until any of the candidate CQL accounts answers a <c>system.local</c> query.
+    /// Always tries the built-in <c>cassandra</c> pair first (fresh volume); <paramref name="extraCredentials"/>
+    /// covers persistent reruns after <see cref="ScyllaSeeder"/> has locked that account.
     /// </summary>
-    public static async Task WaitForScyllaAsync(string host, int port, CancellationToken ct)
+    public static Task WaitForScyllaAsync(string host, int port, CancellationToken ct)
+        => WaitForScyllaAsync(host, port, extraCredentials: null, logger: null, ct);
+
+    /// <inheritdoc cref="WaitForScyllaAsync(string, int, CancellationToken)"/>
+    public static async Task WaitForScyllaAsync(
+        string host,
+        int port,
+        IReadOnlyList<(string User, string Password)>? extraCredentials,
+        IDatabaseInitLogger? logger,
+        CancellationToken ct)
     {
+        var candidates = BuildCqlWaitCandidates(extraCredentials);
         var deadline = DateTime.UtcNow.AddMinutes(5);
         var attempt = 0;
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
             attempt++;
-            try
+            foreach (var (user, password) in candidates)
             {
-                using var cluster = Cluster.Builder()
-                    .AddContactPoint(host)
-                    .WithPort(port)
-                    .WithCredentials(ScyllaDefaultUser, ScyllaDefaultPassword)
-                    .WithSocketOptions(new SocketOptions().SetConnectTimeoutMillis(10000))
-                    .Build();
-                using var session = await cluster.ConnectAsync().ConfigureAwait(false);
-                var rs = await session.ExecuteAsync(new SimpleStatement("SELECT cluster_name FROM system.local"))
-                    .ConfigureAwait(false);
-                if (rs.GetRows().Any()) return;
-            }
-            // DataStax wraps gossip / auth / socket faults in a handful of exception types;
-            // any startup-phase throw is transient until the deadline.
-            catch (Exception) when (DateTime.UtcNow < deadline)
-            {
+                try
+                {
+                    using var cluster = DataStaxScyllaExecutor.CreateCluster(host, port, user, password);
+                    using var session = await cluster.ConnectAsync()
+                        .WaitAsync(TimeSpan.FromSeconds(8), ct).ConfigureAwait(false);
+                    var rs = await session.ExecuteAsync(new SimpleStatement("SELECT cluster_name FROM system.local"))
+                        .WaitAsync(TimeSpan.FromSeconds(8), ct).ConfigureAwait(false);
+                    if (rs.GetRows().Any())
+                    {
+                        logger?.Info($"    cql ready as '{user}' after {attempt} attempt(s)");
+                        return;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (DateTime.UtcNow < deadline)
+                {
+                    logger?.Info(
+                        $"    cql wait attempt {attempt} as '{user}': {ex.GetType().Name}: {OneLine(ex.Message)}");
+                }
             }
             await Task.Delay(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
         }
         throw new TimeoutException(
             $"scylla/cassandra at {host}:{port} did not become ready within 5 minutes ({attempt} probes).");
+    }
+
+    private static List<(string User, string Password)> BuildCqlWaitCandidates(
+        IReadOnlyList<(string User, string Password)>? extraCredentials)
+    {
+        var candidates = new List<(string User, string Password)>
+        {
+            (ScyllaDefaultUser, ScyllaDefaultPassword),
+        };
+        if (extraCredentials is null) return candidates;
+
+        foreach (var (user, password) in extraCredentials)
+        {
+            if (string.IsNullOrWhiteSpace(user)) continue;
+            if (string.Equals(user, ScyllaDefaultUser, StringComparison.Ordinal)) continue;
+            candidates.Add((user, password));
+        }
+        return candidates;
+    }
+
+    private static string OneLine(string message)
+    {
+        var trimmed = message.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return trimmed.Length <= 200 ? trimmed : trimmed[..200];
     }
 }

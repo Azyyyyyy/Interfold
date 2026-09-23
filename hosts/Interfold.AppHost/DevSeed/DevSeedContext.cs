@@ -27,6 +27,9 @@ internal sealed class DevSeedContext(
     ParameterResource deepLinkSecret,
     ParameterResource postgresAdminPassword,
     ParameterResource scyllaAdminPassword,
+    ParameterResource googleOAuthClientSecret,
+    ParameterResource discordOAuthClientSecret,
+    ParameterResource appleOAuthClientSecret,
     IConfiguration configuration)
 {
     public DevSeedResource SeedResource { get; } = seedResource;
@@ -42,5 +45,8 @@ internal sealed class DevSeedContext(
     public ParameterResource DeepLinkSecret { get; } = deepLinkSecret;
     public ParameterResource PostgresAdminPassword { get; } = postgresAdminPassword;
     public ParameterResource ScyllaAdminPassword { get; } = scyllaAdminPassword;
+    public ParameterResource GoogleOAuthClientSecret { get; } = googleOAuthClientSecret;
+    public ParameterResource DiscordOAuthClientSecret { get; } = discordOAuthClientSecret;
+    public ParameterResource AppleOAuthClientSecret { get; } = appleOAuthClientSecret;
     public IConfiguration Configuration { get; } = configuration;
 }

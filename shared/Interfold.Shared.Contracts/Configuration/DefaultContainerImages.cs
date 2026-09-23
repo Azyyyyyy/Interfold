@@ -4,5 +4,5 @@ namespace Interfold.Shared.Contracts.Configuration;
 public static class DefaultContainerImages
 {
     public const string Api = "ghcr.io/azyyyyyy/interfold-api:latest";
-    public const string Web = "ghcr.io/azyyyyyy/interfold-web:latest";
+    public const string Web = "ghcr.io/azyyyyyy/interfold-wasm:latest";
 }

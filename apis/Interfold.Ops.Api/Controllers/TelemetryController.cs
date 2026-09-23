@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Interfold.Shared.Api.Controllers.Base;
 using Interfold.Shared.Contracts.Configuration;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -24,6 +25,8 @@ public sealed class TelemetryController : InterfoldControllerBase
     /// <see cref="ObservabilityConfiguration.AdvertiseOtlpToClients"/> is true.
     /// Bare JSON (not the <c>{ data }</c> envelope). Unavailable → 404.
     /// </summary>
+    /// <remarks>Anonymous so wasm/mobile can discover the collector before a session exists.</remarks>
+    [AllowAnonymous]
     [HttpGet("otlp")]
     public IActionResult GetOtlpDiscovery()
     {

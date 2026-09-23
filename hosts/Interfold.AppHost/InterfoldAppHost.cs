@@ -2,6 +2,7 @@ using Aspire.Hosting.Docker.Resources.ComposeNodes;
 using Interfold.AppHost.DevSeed;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 // Aspire.Hosting.ApplicationModel also defines PersistenceMode; alias to disambiguate.
 using PersistenceMode = Interfold.Shared.Contracts.PersistenceMode;
@@ -78,6 +79,46 @@ public static class InterfoldAppHost
         var edgeUsesPlainHttp = string.Equals(edgeTlsMode, "none", StringComparison.OrdinalIgnoreCase);
         var edgeCloudflareTunnel = BoolWire.ParseToggle(
             builder.Configuration[AppHostParameterKeys.EdgeCloudflareTunnel], fallback: false);
+        var runModeSubdomain = string.Equals(
+            builder.Configuration[AppHostParameterKeys.EdgeRouting],
+            "subdomain",
+            StringComparison.OrdinalIgnoreCase);
+        // Run mode without leaf certs uses the plaintext nginx template (see includeEdge).
+        // JWT / CORS / OAuth callback must match that browser origin, not tlsMode=privateCa.
+        var runModeMissingLeafCerts = !builder.ExecutionContext.IsPublishMode
+            && !edgeUsesPlainHttp
+            && !File.Exists(Path.Combine(AppHostRepoPaths.ResolveRepoRoot(), "certs", "leaf.crt"));
+        var publicEdgeIsHttp = edgeUsesPlainHttp || runModeMissingLeafCerts;
+        string publicEdgeOrigin;
+        if (publicEdgeIsHttp)
+        {
+            var suffix = edgeHttpPort == DefaultEdgeHttpPort ? string.Empty : $":{edgeHttpPort}";
+            publicEdgeOrigin = $"http://localhost{suffix}";
+        }
+        else
+        {
+            var suffix = edgeHttpsPort == DefaultEdgeHttpsPort ? string.Empty : $":{edgeHttpsPort}";
+            publicEdgeOrigin = $"https://localhost{suffix}";
+        }
+        // Wasm/mobile paths already include /api/... and /auth/.... Path-mode edge
+        // shares the SPA origin; appending /api here produced /api/api/socket/websocket.
+        var publicApiBase = publicEdgeOrigin;
+
+        if (!builder.ExecutionContext.IsPublishMode)
+        {
+            // Browser OTLP into this dashboard. Wasm discovery only returns a URL
+            // (no x-otlp-api-key), so OTLP ingest is unsecured for aspire run.
+            var otlpCorsOrigins = publicEdgeOrigin.Contains("localhost", StringComparison.OrdinalIgnoreCase)
+                ? $"{publicEdgeOrigin},{publicEdgeOrigin.Replace("localhost", "127.0.0.1", StringComparison.OrdinalIgnoreCase)}"
+                : publicEdgeOrigin;
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Aspire:Dashboard:Otlp:Cors:AllowedOrigins"] = otlpCorsOrigins,
+                ["Aspire:Dashboard:Otlp:Cors:AllowedHeaders"] = "*",
+                ["Aspire:Dashboard:Otlp:AuthMode"] = "Unsecured",
+            });
+        }
+
         // Host-published DB ports are how an operator-supplied (external) DB is reached.
         // Test-bench is the only current caller.
         var hostPublishDbPorts = testBenchMode;
@@ -85,9 +126,11 @@ public static class InterfoldAppHost
         var includeApi = testBenchMode
             ? false
             : BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludeApi], fallback: true);
-        var persistentContainers = testBenchMode
-            ? true
-            : BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.PersistentContainers], fallback: true);
+        // Session-lifetime is the run-mode default so a leftover Scylla/Postgres volume
+        // cannot skip seed. Publish and test-bench keep named volumes; set
+        // Parameters:persistent-containers to opt in locally.
+        var persistentContainers = testBenchMode || builder.ExecutionContext.IsPublishMode
+            || BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.PersistentContainers], fallback: false);
 
         // Both CQL backends can be on simultaneously (SharedDbFixture uses this to
         // exercise Scylla + Cassandra under one Aspire host). scylla-topology only
@@ -179,7 +222,7 @@ public static class InterfoldAppHost
 
         var postgresUser = builder.AddParameter(ParamName(AppHostParameterKeys.PostgresUser));
         var postgresPassword = builder.AddParameter(ParamName(AppHostParameterKeys.PostgresPassword), secret: true);
-        var postgresDb = builder.AddParameter(ParamName(AppHostParameterKeys.PostgresDb), "interfold", publishValueAsDefault: true);
+        var postgresDb = builder.AddConfiguredParameter(AppHostParameterKeys.PostgresDb, "interfold", publishValueAsDefault: true);
         // Transient init credential. db_init is a disposable cluster-owner that
         // DatabaseInitPhase uses once to mint the real roles, then scrambles. The .env value
         // is intentionally stale by the time the API starts. Default via
@@ -200,36 +243,46 @@ public static class InterfoldAppHost
             new GenerateParameterDefault { MinLength = 32 }, secret: true, persist: true);
 
         // Public OAuth client IDs — empty default disables the corresponding provider (see
-        // OAuthChallengeServiceCollectionExtensions). Attached to the container path only so
-        // the dev project path keeps reading them from launchSettings.json / user-secrets.
-        var googleOAuthClientId = builder.AddParameter(ParamName(AppHostParameterKeys.GoogleOAuthClientId), "", publishValueAsDefault: true);
-        var discordOAuthClientId = builder.AddParameter(ParamName(AppHostParameterKeys.DiscordOAuthClientId), "", publishValueAsDefault: true);
-        var appleOAuthClientId = builder.AddParameter(ParamName(AppHostParameterKeys.AppleOAuthClientId), "", publishValueAsDefault: true);
+        // OAuthChallengeServiceCollectionExtensions). Secrets are run-mode only: publish
+        // keeps them in internal.secrets via DatabaseInitPhase, never compose .env.
+        var googleOAuthClientId = builder.AddConfiguredParameter(AppHostParameterKeys.GoogleOAuthClientId, publishValueAsDefault: true);
+        var discordOAuthClientId = builder.AddConfiguredParameter(AppHostParameterKeys.DiscordOAuthClientId, publishValueAsDefault: true);
+        var appleOAuthClientId = builder.AddConfiguredParameter(AppHostParameterKeys.AppleOAuthClientId, publishValueAsDefault: true);
+
+        IResourceBuilder<ParameterResource>? googleOAuthClientSecret = null;
+        IResourceBuilder<ParameterResource>? discordOAuthClientSecret = null;
+        IResourceBuilder<ParameterResource>? appleOAuthClientSecret = null;
+        if (!builder.ExecutionContext.IsPublishMode)
+        {
+            googleOAuthClientSecret = builder.AddConfiguredParameter(AppHostParameterKeys.GoogleOAuthClientSecret, secret: true);
+            discordOAuthClientSecret = builder.AddConfiguredParameter(AppHostParameterKeys.DiscordOAuthClientSecret, secret: true);
+            appleOAuthClientSecret = builder.AddConfiguredParameter(AppHostParameterKeys.AppleOAuthClientSecret, secret: true);
+        }
 
         // API runtime parameters managed end-to-end by the bootstrapper (ConfigPhase prompts,
         // ConfigureApiSelfHostEnv pipes to the container as OCTOCON_*).
-        var scyllaKeyspace = builder.AddParameter(ParamName(AppHostParameterKeys.ScyllaKeyspace), ScyllaKeyspace.Nam.ToWire(), publishValueAsDefault: true);
-        var oauthCallbackBaseUrl = builder.AddParameter(ParamName(AppHostParameterKeys.OAuthCallbackBaseUrl), "", publishValueAsDefault: true);
-        var jwtAuthority = builder.AddParameter(ParamName(AppHostParameterKeys.JwtAuthority), "", publishValueAsDefault: true);
-        var jwtAudience = builder.AddParameter(ParamName(AppHostParameterKeys.JwtAudience), "octocon", publishValueAsDefault: true);
-        var corsAllowedOrigins = builder.AddParameter(ParamName(AppHostParameterKeys.CorsAllowedOrigins), "", publishValueAsDefault: true);
+        var scyllaKeyspace = builder.AddConfiguredParameter(AppHostParameterKeys.ScyllaKeyspace, ScyllaKeyspace.Nam.ToWire(), publishValueAsDefault: true);
+        var oauthCallbackBaseUrl = builder.AddConfiguredParameter(AppHostParameterKeys.OAuthCallbackBaseUrl, publishValueAsDefault: true);
+        var jwtAuthority = builder.AddConfiguredParameter(AppHostParameterKeys.JwtAuthority, publishValueAsDefault: true);
+        var jwtAudience = builder.AddConfiguredParameter(AppHostParameterKeys.JwtAudience, "octocon", publishValueAsDefault: true);
+        var corsAllowedOrigins = builder.AddConfiguredParameter(AppHostParameterKeys.CorsAllowedOrigins, publishValueAsDefault: true);
 
         // Operator tuning — every default matches the API's compile-time fallback so a
         // fresh bootstrap reproduces "env var unset" behaviour. Empty for the nullable
         // knobs (avatars, OTLP, socket threshold) — ApplyStorage / ApplyObservability
         // normalise empty → null.
-        var nodeGroup = builder.AddParameter(ParamName(AppHostParameterKeys.NodeGroup), "auxiliary", publishValueAsDefault: true);
-        var avatarPublicBase = builder.AddParameter(ParamName(AppHostParameterKeys.AvatarPublicBase), "", publishValueAsDefault: true);
-        var otlpEndpoint = builder.AddParameter(ParamName(AppHostParameterKeys.OtlpEndpoint), "", publishValueAsDefault: true);
-        var advertiseOtlpToClients = builder.AddParameter(ParamName(AppHostParameterKeys.AdvertiseOtlpToClients), "false", publishValueAsDefault: true);
-        var clientOtlpHttpEndpoint = builder.AddParameter(ParamName(AppHostParameterKeys.ClientOtlpHttpEndpoint), "", publishValueAsDefault: true);
-        var socketBatchBytesThreshold = builder.AddParameter(ParamName(AppHostParameterKeys.SocketBatchBytesThreshold), "", publishValueAsDefault: true);
-        var dbRetryAttempts = builder.AddParameter(ParamName(AppHostParameterKeys.DbRetryAttempts), "3", publishValueAsDefault: true);
-        var dbRetryInitialDelayMs = builder.AddParameter(ParamName(AppHostParameterKeys.DbRetryInitialDelayMs), "100", publishValueAsDefault: true);
-        var dbRetryMaxDelayMs = builder.AddParameter(ParamName(AppHostParameterKeys.DbRetryMaxDelayMs), "1500", publishValueAsDefault: true);
-        var hydrationMaxConcurrency = builder.AddParameter(ParamName(AppHostParameterKeys.HydrationMaxConcurrency), "8", publishValueAsDefault: true);
-        var cfAccessTeamDomain = builder.AddParameter(ParamName(AppHostParameterKeys.CfAccessTeamDomain), "", publishValueAsDefault: true);
-        var cfAccessAud = builder.AddParameter(ParamName(AppHostParameterKeys.CfAccessAud), "", publishValueAsDefault: true);
+        var nodeGroup = builder.AddConfiguredParameter(AppHostParameterKeys.NodeGroup, "auxiliary", publishValueAsDefault: true);
+        var avatarPublicBase = builder.AddConfiguredParameter(AppHostParameterKeys.AvatarPublicBase, publishValueAsDefault: true);
+        var otlpEndpoint = builder.AddConfiguredParameter(AppHostParameterKeys.OtlpEndpoint, publishValueAsDefault: true);
+        var advertiseOtlpToClients = builder.AddConfiguredParameter(AppHostParameterKeys.AdvertiseOtlpToClients, "false", publishValueAsDefault: true);
+        var clientOtlpHttpEndpoint = builder.AddConfiguredParameter(AppHostParameterKeys.ClientOtlpHttpEndpoint, publishValueAsDefault: true);
+        var socketBatchBytesThreshold = builder.AddConfiguredParameter(AppHostParameterKeys.SocketBatchBytesThreshold, publishValueAsDefault: true);
+        var dbRetryAttempts = builder.AddConfiguredParameter(AppHostParameterKeys.DbRetryAttempts, "3", publishValueAsDefault: true);
+        var dbRetryInitialDelayMs = builder.AddConfiguredParameter(AppHostParameterKeys.DbRetryInitialDelayMs, "100", publishValueAsDefault: true);
+        var dbRetryMaxDelayMs = builder.AddConfiguredParameter(AppHostParameterKeys.DbRetryMaxDelayMs, "1500", publishValueAsDefault: true);
+        var hydrationMaxConcurrency = builder.AddConfiguredParameter(AppHostParameterKeys.HydrationMaxConcurrency, "8", publishValueAsDefault: true);
+        var cfAccessTeamDomain = builder.AddConfiguredParameter(AppHostParameterKeys.CfAccessTeamDomain, publishValueAsDefault: true);
+        var cfAccessAud = builder.AddConfiguredParameter(AppHostParameterKeys.CfAccessAud, publishValueAsDefault: true);
 
         // Reject well-known default passwords in dev mode. Each check is gated on the
         // matching include-* toggle so opt-out fixtures don't need placeholder creds. Publish
@@ -292,6 +345,7 @@ public static class InterfoldAppHost
         if (includePostgres)
         {
             msgDb = builder.AddContainer(ComposeServices.Postgres, "timescale/timescaledb", "latest-pg18")
+                .PullAlwaysInRunMode()
                 .WithContainerNetworkAlias(ComposeServices.Postgres)
                 .WithEnvironment(ContainerEnvNames.PostgresUser, PostgresRoles.Init)
                 .WithEnvironment(ContainerEnvNames.PostgresPassword, postgresInitPassword)
@@ -401,6 +455,7 @@ public static class InterfoldAppHost
                 }
 
                 var node = builder.AddContainer(name, "scylladb/scylla", "2026.1")
+                    .PullAlwaysInRunMode()
                     .WithContainerNetworkAlias(name)
                     .WithArgs([.. nodeArgs])
                     .WithBindMount($"../../db/scylla/cassandra-rackdc.{regionWire}.properties", "/etc/scylla/cassandra-rackdc.properties", isReadOnly: true)
@@ -435,11 +490,7 @@ public static class InterfoldAppHost
                 // includeApi/Web/Dashboard off; scylla-topology stays single). Pin the
                 // container name so cross-process reuse works on the fixed 19042 port.
                 if (testBenchMode && !isMultiScyllaNode)
-                {
                     node.WithContainerName(TestBenchContainerNames.Scylla);
-                    // Proxyless — see the Postgres branch above.
-                    node.WithEndpoint(CqlEndpointName, e => e.IsProxied = false);
-                }
 
                 // HealthCheckAnnotation flips WaitFor(previousNode) from "Running" to
                 // "Healthy" — serialises multi-DC joins so Raft doesn't ban concurrent joiners.
@@ -455,6 +506,9 @@ public static class InterfoldAppHost
                     {
                         node = node.WithEndpoint(port: scyllaPort, targetPort: 9042, name: CqlEndpointName, scheme: TcpScheme);
                     }
+                    // Native CQL cannot traverse DCP's HTTP endpoint proxy. DevSeed and the
+                    // API project both connect from the host process.
+                    node.WithEndpoint(CqlEndpointName, e => e.IsProxied = false);
                     cqlEndpointOwners.Add(node);
                 }
                 else
@@ -523,11 +577,9 @@ public static class InterfoldAppHost
                 cassandra.AsPersistent(ComposeVolumes.CassandraData, ContainerMountPaths.CassandraData);
             }
             if (testBenchMode)
-            {
                 cassandra.WithContainerName(TestBenchContainerNames.Cassandra);
-                // Proxyless — see the Postgres branch above.
-                cassandra.WithEndpoint(CqlEndpointName, e => e.IsProxied = false);
-            }
+
+            cassandra.WithEndpoint(CqlEndpointName, e => e.IsProxied = false);
 
             cqlEndpointOwners.Add(cassandra);
         }
@@ -549,11 +601,14 @@ public static class InterfoldAppHost
             // value via GetValueAsync in both first-run and subsequent-run cases.
             devSeedResource = builder.AddDevSeedPipeline(
                 msgDb!, firstCqlBackend,
-                postgresInitPassword, postgresPassword, scyllaPassword);
+                postgresInitPassword, postgresPassword, scyllaPassword,
+                googleOAuthClientSecret!, discordOAuthClientSecret!, appleOAuthClientSecret!);
         }
 
         // Interfold API: pre-built image for self-hosting (Parameters:api-image), csproj build
         // for dev (`aspire run`).
+        IResourceBuilder<IResourceWithEndpoints>? apiResource = null;
+        var apiIsContainer = false;
         if (includeApi)
         {
             // Guaranteed non-null by the includeApi && !includePostgres guard above.
@@ -566,7 +621,18 @@ public static class InterfoldAppHost
                    .WithEnvironment(OctoconEnvKeys.SingleScyllaInstance, BoolWire.ToWireValue(!isMultiScylla))
                    .WithEnvironment(OctoconEnvKeys.PostgresConnection,
                        ReferenceExpression.Create($"Host={pgEndpoint.Property(EndpointProperty.Host)};Port={pgEndpoint.Property(EndpointProperty.Port)};Database={postgresDb};Username={postgresUser};Password={postgresPassword}"))
-                   .WithEnvironment(ContainerEnvNames.EncryptionPrivateKey, encryptionPrivateKey);
+                   .WithEnvironment(ContainerEnvNames.EncryptionPrivateKey, encryptionPrivateKey)
+                   .WithEnvironment(OctoconEnvKeys.GoogleOAuthClientId, googleOAuthClientId)
+                   .WithEnvironment(OctoconEnvKeys.DiscordOAuthClientId, discordOAuthClientId)
+                   .WithEnvironment(OctoconEnvKeys.AppleOAuthClientId, appleOAuthClientId);
+                // Run-mode only — publish seeds these via DatabaseInitPhase into internal.secrets
+                // and must not leak them into compose .env.
+                if (googleOAuthClientSecret is not null)
+                {
+                    api.WithEnvironment(OctoconEnvKeys.GoogleOAuthClientSecret, googleOAuthClientSecret)
+                       .WithEnvironment(OctoconEnvKeys.DiscordOAuthClientSecret, discordOAuthClientSecret!)
+                       .WithEnvironment(OctoconEnvKeys.AppleOAuthClientSecret, appleOAuthClientSecret!);
+                }
             }
 
             // Dev-project path only. ConfigureApiSelfHostEnv covers the container path via the
@@ -576,23 +642,22 @@ public static class InterfoldAppHost
             // functional; we still narrow it here so socket + fetch calls behave the same as prod.
             void ConfigureApiDevEnv(IResourceBuilder<IResourceWithEnvironment> api)
             {
-                string publicOrigin;
-                if (edgeUsesPlainHttp)
-                {
-                    var suffix = edgeHttpPort == DefaultEdgeHttpPort ? string.Empty : $":{edgeHttpPort}";
-                    publicOrigin = $"http://localhost{suffix}";
-                }
-                else
-                {
-                    var suffix = edgeHttpsPort == DefaultEdgeHttpsPort ? string.Empty : $":{edgeHttpsPort}";
-                    publicOrigin = $"https://localhost{suffix}";
-                }
-
-                api.WithEnvironment(OctoconEnvKeys.JwtAuthority, publicOrigin)
+                api.WithEnvironment(OctoconEnvKeys.JwtAuthority, publicApiBase)
                    .WithEnvironment(OctoconEnvKeys.JwtAudience, "octocon")
-                   .WithEnvironment(OctoconEnvKeys.AuthCallbackBaseUrl, publicOrigin)
-                   .WithEnvironment(OctoconEnvKeys.CorsAllowedOrigins, publicOrigin)
+                   .WithEnvironment(OctoconEnvKeys.AuthCallbackBaseUrl, publicApiBase)
+                   .WithEnvironment(OctoconEnvKeys.CorsAllowedOrigins, publicEdgeOrigin)
                    .WithEnvironment(OctoconEnvKeys.ScyllaKeyspace, ScyllaKeyspace.Nam.ToWire());
+
+                var clientOtlpOverride = builder.Configuration[AppHostParameterKeys.ClientOtlpHttpEndpoint];
+                var dashboardOtlpHttp = builder.Configuration["ASPIRE_DASHBOARD_OTLP_HTTP_ENDPOINT_URL"];
+                var clientOtlp = !string.IsNullOrWhiteSpace(clientOtlpOverride)
+                    ? clientOtlpOverride
+                    : dashboardOtlpHttp ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(clientOtlp))
+                {
+                    api.WithEnvironment(OctoconEnvKeys.ClientOtlpHttpEndpoint, clientOtlp)
+                       .WithEnvironment(OctoconEnvKeys.AdvertiseOtlpToClients, "true");
+                }
             }
 
             // Self-hosting only. Avatars always bind-mounted; /certs when private CA material
@@ -601,9 +666,6 @@ public static class InterfoldAppHost
             {
                 api.WithBindMount(AvatarsPaths.HostDir, AvatarsPaths.ContainerDir, isReadOnly: false)
                    .WithEnvironment(ContainerEnvNames.AspNetCoreHttpPorts, apiContainerHttpPort.ToString())
-                   .WithEnvironment(OctoconEnvKeys.GoogleOAuthClientId, googleOAuthClientId)
-                   .WithEnvironment(OctoconEnvKeys.DiscordOAuthClientId, discordOAuthClientId)
-                   .WithEnvironment(OctoconEnvKeys.AppleOAuthClientId, appleOAuthClientId)
                    .WithEnvironment(OctoconEnvKeys.ScyllaKeyspace, scyllaKeyspace)
                    .WithEnvironment(OctoconEnvKeys.AuthCallbackBaseUrl, oauthCallbackBaseUrl)
                    .WithEnvironment(OctoconEnvKeys.JwtAuthority, jwtAuthority)
@@ -637,11 +699,16 @@ public static class InterfoldAppHost
             {
                 var apiImage = ImageRef.Parse(apiImageRef);
                 var apiContainer = builder.AddContainer(ComposeServices.InterfoldApi, apiImage.Image, apiImage.Tag)
+                    .PullAlwaysInRunMode(apiImage)
                     .WaitFor(msgDbResource)
+                    .WithContainerNetworkAlias(ComposeServices.InterfoldApi)
                     .WithHttpEndpoint(targetPort: apiContainerHttpPort, name: HttpEndpointName)
                     .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
                     .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort));
 
+                apiResource = apiContainer;
+                apiIsContainer = true;
+                apiContainer.WithUrl(publicApiBase, "edge");
                 ConfigureApiCommon(apiContainer);
                 ConfigureApiSelfHostEnv(apiContainer);
                 foreach (var owner in cqlEndpointOwners)
@@ -656,6 +723,8 @@ public static class InterfoldAppHost
                     .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
                     .WaitFor(msgDbResource)
                     .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort));
+                apiResource = apiProject;
+                apiProject.WithUrl(publicApiBase, "edge");
                 ConfigureApiCommon(apiProject);
                 ConfigureApiDevEnv(apiProject);
                 foreach (var owner in cqlEndpointOwners)
@@ -668,13 +737,15 @@ public static class InterfoldAppHost
         var includeWeb = testBenchMode
             ? false
             : BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludeWeb], fallback: true);
+        IResourceBuilder<ContainerResource>? web = null;
         if (includeWeb)
         {
             var webImageRef = builder.Configuration[AppHostParameterKeys.WebImage];
             if (string.IsNullOrWhiteSpace(webImageRef))
                 webImageRef = DefaultContainerImages.Web;
             var webImage = ImageRef.Parse(webImageRef);
-            var web = builder.AddContainer(ComposeServices.InterfoldWeb, webImage.Image, webImage.Tag)
+            web = builder.AddContainer(ComposeServices.InterfoldWeb, webImage.Image, webImage.Tag)
+                .PullAlwaysInRunMode(webImage)
                 .WithContainerNetworkAlias(ComposeServices.InterfoldWeb)
                 .WithHttpEndpoint(targetPort: 8080, name: HttpEndpointName)
                 .WithHttpHealthCheck("/", endpointName: HttpEndpointName);
@@ -701,21 +772,27 @@ public static class InterfoldAppHost
             // edge HTTP, and HTTPS + leaf certs when tlsMode is privateCa.
             var edge = edgeCloudflareTunnel
                 ? builder.AddContainer(ComposeServices.EdgeNginx, "nginx", "1.27-alpine")
+                    .PullAlwaysInRunMode()
                     .WithHttpEndpoint(targetPort: 80, name: HttpEndpointName)
                 : builder.AddContainer(ComposeServices.EdgeNginx, "nginx", "1.27-alpine")
+                    .PullAlwaysInRunMode()
                     .WithHttpEndpoint(port: edgeHttpPort, targetPort: 80, name: HttpEndpointName);
 
-            edge = edge
-                .WithBindMount(
-                    $"{EdgePaths.HostSupportDir}/default.conf.template",
-                    EdgePaths.ContainerNginxTemplate,
-                    isReadOnly: true)
-                .WithBindMount(
-                    $"{EdgePaths.HostSupportDir}/proxy_params.conf",
-                    EdgePaths.ContainerProxyParams,
-                    isReadOnly: true);
+            var nginxTemplateSource = $"{EdgePaths.HostSupportDir}/default.conf.template";
+            var nginxProxyParamsSource = $"{EdgePaths.HostSupportDir}/proxy_params.conf";
+            if (!builder.ExecutionContext.IsPublishMode)
+            {
+                var repoRoot = AppHostRepoPaths.ResolveRepoRoot();
+                nginxTemplateSource = EdgePaths.SourceTemplate(
+                    repoRoot, runModeSubdomain, publicEdgeIsHttp);
+                nginxProxyParamsSource = EdgePaths.SourceProxyParams(repoRoot);
+            }
 
-            if (!edgeCloudflareTunnel && !edgeUsesPlainHttp)
+            edge = edge
+                .WithBindMount(nginxTemplateSource, EdgePaths.ContainerNginxTemplate, isReadOnly: true)
+                .WithBindMount(nginxProxyParamsSource, EdgePaths.ContainerProxyParams, isReadOnly: true);
+
+            if (!edgeCloudflareTunnel && !edgeUsesPlainHttp && !runModeMissingLeafCerts)
             {
                 edge = edge
                     .WithHttpsEndpoint(port: edgeHttpsPort, targetPort: 443, name: HttpsEndpointName)
@@ -732,16 +809,50 @@ public static class InterfoldAppHost
                 .WithEnvironment(ContainerEnvNames.NginxApiServerName, edgeApiHost)
                 .WithEnvironment(ContainerEnvNames.NginxWebServerName, edgeWebHost)
                 .WithEnvironment(
-                    ContainerEnvNames.NginxApiUpstream,
-                    ComposeServices.InterfoldApi + ":" + apiContainerHttpPort.ToString())
-                .WithEnvironment(
-                    ContainerEnvNames.NginxWebUpstream,
-                    ComposeServices.InterfoldWeb + ":8080")
-                .WithEnvironment(
                     ContainerEnvNames.NginxIncludeWeb,
                     includeWebUpstream ? "1" : string.Empty)
                 .WithEnvironment(ContainerEnvNames.NginxEnvsubstFilter, "^NGINX_")
                 .WithHttpHealthCheck("/nginx-health", endpointName: HttpEndpointName);
+
+            if (apiResource is not null)
+            {
+                var apiEndpoint = apiResource.GetEndpoint(HttpEndpointName);
+                // Container→container: TargetPort is the listen port on the docker network.
+                // Container→host project: DCP rewrites Host to aspire.dev.internal (the
+                // tunnel proxy), which does not listen on Kestrel's TargetPort — use Port.
+                var apiPortProperty = apiIsContainer
+                    ? EndpointProperty.TargetPort
+                    : EndpointProperty.Port;
+                edge = edge
+                    .WithEnvironment(
+                        ContainerEnvNames.NginxApiUpstream,
+                        ReferenceExpression.Create(
+                            $"{apiEndpoint.Property(EndpointProperty.Host)}:{apiEndpoint.Property(apiPortProperty)}"))
+                    .WaitFor(apiResource);
+            }
+            else
+            {
+                edge = edge.WithEnvironment(
+                    ContainerEnvNames.NginxApiUpstream,
+                    ComposeServices.InterfoldApi + ":" + apiContainerHttpPort.ToString());
+            }
+
+            if (web is not null)
+            {
+                var webEndpoint = web.GetEndpoint(HttpEndpointName);
+                edge = edge
+                    .WithEnvironment(
+                        ContainerEnvNames.NginxWebUpstream,
+                        ReferenceExpression.Create(
+                            $"{webEndpoint.Property(EndpointProperty.Host)}:{webEndpoint.Property(EndpointProperty.TargetPort)}"))
+                    .WaitFor(web);
+            }
+            else
+            {
+                edge = edge.WithEnvironment(
+                    ContainerEnvNames.NginxWebUpstream,
+                    ComposeServices.InterfoldWeb + ":8080");
+            }
 
             if (!edgeCloudflareTunnel)
                 edge = edge.WithExternalHttpEndpoints();
@@ -766,6 +877,7 @@ public static class InterfoldAppHost
                         $"Missing configuration for '{AppHostParameterKeys.EdgeCloudflareTunnelTokenPath}'.");
 
                 var cloudflared = builder.AddContainer(ComposeServices.Cloudflared, "cloudflare/cloudflared", "2025.2.1")
+                    .PullAlwaysInRunMode()
                     .WithArgs(
                         "tunnel", "--no-autoupdate", "run",
                         "--token-file", EdgePaths.ContainerCloudflareTunnelToken)
