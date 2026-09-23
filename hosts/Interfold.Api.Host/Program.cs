@@ -26,6 +26,7 @@ using Interfold.Socket.Api.DependencyInjection;
 using Interfold.Systems.Api.DependencyInjection;
 using Interfold.Tags.Api.DependencyInjection;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 
@@ -33,6 +34,15 @@ var builder = WebApplication.CreateBuilder(args);
 
 // --- Aspire ServiceDefaults (OTel, resilience, service discovery) ---
 builder.AddServiceDefaults();
+
+// edge-nginx overwrites X-Forwarded-Proto (Cloudflare https → compose http). Without
+// this, Request.Scheme stays http and avatar URLs trip mixed content on the https SPA.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // Fetches every internal.secrets row the API's PostConfigure patchers need before host build.
 var secretsSnapshot = SecretsPreBuildLoader.Load(builder.Configuration);
@@ -275,6 +285,7 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
 app.UseExceptionHandler("/error");
 
 // Buffer avatar multipart PUTs so source-validation can re-read Request.Body post-bind;
