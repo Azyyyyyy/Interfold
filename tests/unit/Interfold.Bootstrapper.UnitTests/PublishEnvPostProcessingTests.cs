@@ -210,6 +210,13 @@ public sealed class PublishEnvPostProcessingTests
 
         await Assert.That(replacements.Parameters["CF_ACCESS_TEAM_DOMAIN"]).IsEqualTo("team.cloudflareaccess.com");
         await Assert.That(replacements.Parameters["CF_ACCESS_AUD"]).IsEqualTo("aud-from-state");
+        await Assert.That(replacements.Parameters["CORS_ALLOWED_ORIGINS"])
+            .IsEqualTo("https://api.example.com,https://team.cloudflareaccess.com");
+
+        config.Api.CorsAllowedOrigins.Add("https://team.cloudflareaccess.com/");
+        var again = PublishPhase.BuildEnvReplacements(config, secrets, "/base", scratch.Path);
+        await Assert.That(again.Parameters["CORS_ALLOWED_ORIGINS"])
+            .IsEqualTo("https://api.example.com,https://team.cloudflareaccess.com/");
     }
 
     [Test]

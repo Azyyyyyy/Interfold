@@ -35,6 +35,34 @@ internal sealed class CloudflareZoneResult
 
     [JsonPropertyName("account")]
     public CloudflareAccountRef? Account { get; set; }
+
+    [JsonPropertyName("name_servers")]
+    public List<string> NameServers { get; set; } = [];
+}
+
+internal sealed class CloudflareAccountResult
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+}
+
+internal sealed class CloudflareCreateZoneRequest
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("account")]
+    public CloudflareAccountRef Account { get; set; } = new();
+
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "full";
+
+    // Default true would import the registrar's current records into the new zone.
+    [JsonPropertyName("jump_start")]
+    public bool JumpStart { get; set; }
 }
 
 internal sealed class CloudflareAccountRef
@@ -180,6 +208,10 @@ internal sealed class CloudflareSelfHostedAppRequest
 
     [JsonPropertyName("allowed_idps")]
     public List<string> AllowedIdps { get; set; } = [];
+
+    // Browser preflight omits cookies, so Access would 403 OPTIONS before the API's CORS policy runs.
+    [JsonPropertyName("options_preflight_bypass")]
+    public bool OptionsPreflightBypass { get; set; }
 }
 
 internal sealed class CloudflareAccessAppResult
@@ -291,4 +323,49 @@ internal sealed class CloudflareAccessPolicyConditionJsonConverter : JsonConvert
 
         writer.WriteEndObject();
     }
+}
+
+internal sealed class CloudflareTotalTlsSettings
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    [JsonPropertyName("certificate_authority")]
+    public string? CertificateAuthority { get; set; }
+}
+
+internal sealed class CloudflareCertificatePackOrderRequest
+{
+    [JsonPropertyName("certificate_authority")]
+    public string CertificateAuthority { get; set; } = "lets_encrypt";
+
+    [JsonPropertyName("hosts")]
+    public List<string> Hosts { get; set; } = [];
+
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "advanced";
+
+    [JsonPropertyName("validation_method")]
+    public string ValidationMethod { get; set; } = "txt";
+
+    [JsonPropertyName("validity_days")]
+    public int ValidityDays { get; set; } = 90;
+
+    [JsonPropertyName("cloudflare_branding")]
+    public bool CloudflareBranding { get; set; }
+}
+
+internal sealed class CloudflareCertificatePackResult
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("hosts")]
+    public List<string> Hosts { get; set; } = [];
+
+    [JsonPropertyName("status")]
+    public string? Status { get; set; }
+
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
 }

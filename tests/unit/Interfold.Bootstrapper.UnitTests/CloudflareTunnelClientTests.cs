@@ -71,6 +71,78 @@ public sealed class CloudflareTunnelClientTests
     }
 
     [Test]
+    public async Task ResolveZoneAndAccountCreatesApexWhenMissing()
+    {
+        string? postBody = null;
+        var handler = new StubCloudflareHandler();
+        handler.OnGet = (path, _) =>
+        {
+            if (path == "zones")
+                return Json("""{"success":true,"result":[],"errors":[]}""");
+            if (path == "accounts")
+                return Json("""{"success":true,"result":[{"id":"acct-1","name":"Interfold"}],"errors":[]}""");
+            return Fail();
+        };
+        handler.OnPost = (path, body) =>
+        {
+            postBody = body;
+            return Json("""{"success":true,"result":{"id":"zone-new","name":"test.api","account":{"id":"acct-1"},"name_servers":["ns1.cloudflare.com","ns2.cloudflare.com"]},"errors":[]}""");
+        };
+
+        using var client = CreateClient(handler);
+        var zone = await client.ResolveZoneAndAccountAsync("test.api", CancellationToken.None);
+        await Assert.That(zone.ZoneId).IsEqualTo("zone-new");
+        await Assert.That(zone.AccountId).IsEqualTo("acct-1");
+        await Assert.That(zone.ZoneName).IsEqualTo("test.api");
+        await Assert.That(zone.Created).IsTrue();
+        await Assert.That(zone.NameServers).IsNotNull();
+        await Assert.That(zone.NameServers!).Contains("ns1.cloudflare.com");
+
+        using var doc = JsonDocument.Parse(postBody!);
+        await Assert.That(doc.RootElement.GetProperty("name").GetString()).IsEqualTo("test.api");
+        await Assert.That(doc.RootElement.GetProperty("type").GetString()).IsEqualTo("full");
+        await Assert.That(doc.RootElement.GetProperty("jump_start").GetBoolean()).IsFalse();
+        await Assert.That(doc.RootElement.GetProperty("account").GetProperty("id").GetString()).IsEqualTo("acct-1");
+    }
+
+    [Test]
+    public async Task ResolveZoneAndAccountRefusesToPickAmongAccounts()
+    {
+        var handler = new StubCloudflareHandler();
+        handler.OnGet = (path, _) =>
+        {
+            if (path == "zones")
+                return Json("""{"success":true,"result":[],"errors":[]}""");
+            if (path == "accounts")
+            {
+                return Json(
+                    """{"success":true,"result":[{"id":"acct-1","name":"One"},{"id":"acct-2","name":"Two"}],"errors":[]}""");
+            }
+
+            return Fail();
+        };
+
+        using var client = CreateClient(handler);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.ResolveZoneAndAccountAsync("api.example.com", CancellationToken.None));
+        await Assert.That(ex!.Message).Contains("multiple accounts");
+        await Assert.That(handler.PostCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task ResolveZoneAndAccountRejectsSingleLabelHostname()
+    {
+        var handler = new StubCloudflareHandler();
+        handler.OnGet = (_, _) => Json("""{"success":true,"result":[],"errors":[]}""");
+
+        using var client = CreateClient(handler);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.ResolveZoneAndAccountAsync("localhost", CancellationToken.None));
+        await Assert.That(ex!.Message).Contains("not a domain");
+        await Assert.That(handler.PostCount).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task EnsureTunnelCreatesWhenMissing()
     {
         string? postBody = null;
@@ -215,6 +287,8 @@ public sealed class CloudflareTunnelClientTests
         await Assert.That(org.AuthDomain).IsEqualTo("team.cloudflareaccess.com");
         await Assert.That(CloudflareTunnelClient.GoogleAccessCallbackUri(org.AuthDomain))
             .IsEqualTo("https://team.cloudflareaccess.com/cdn-cgi/access/callback");
+        await Assert.That(CloudflareTunnelClient.AccessTeamOrigin(org.AuthDomain))
+            .IsEqualTo("https://team.cloudflareaccess.com");
     }
 
     [Test]
@@ -265,6 +339,12 @@ public sealed class CloudflareTunnelClientTests
         using var doc = JsonDocument.Parse(postBody!);
         await Assert.That(doc.RootElement.GetProperty("domain").GetString()).IsEqualTo("api.example.com");
         await Assert.That(doc.RootElement.GetProperty("type").GetString()).IsEqualTo("self_hosted");
+        await Assert.That(doc.RootElement.GetProperty("options_preflight_bypass").GetBoolean()).IsFalse();
+
+        await client.EnsureSelfHostedAppAsync(
+            "acct-1", "api.example.com", "idp-1", CancellationToken.None, optionsPreflightBypass: true);
+        using var bypass = JsonDocument.Parse(postBody!);
+        await Assert.That(bypass.RootElement.GetProperty("options_preflight_bypass").GetBoolean()).IsTrue();
     }
 
     [Test]
