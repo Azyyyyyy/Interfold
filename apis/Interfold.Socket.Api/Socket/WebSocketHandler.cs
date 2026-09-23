@@ -496,6 +496,10 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     // origin, not the loopback dial target — anything reading `Request.Host` for URL
     // qualification (`QualifyAvatar`, OAuth callbacks) would otherwise emit unreachable URLs.
     request.Headers.Host = websocketContext.Request.Host.Value;
+    // Inner dial is loopback HTTP; QualifyAvatar reads Request.Scheme after
+    // UseForwardedHeaders. Copy the upgrade's public scheme so relayed Show
+    // keeps https:// on local avatar URLs. see AvatarUrlQualifier
+    request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", websocketContext.Request.Scheme);
     // Wire-format unwrap: this is the single site in the file (paired with the JWT
     // framework calls in IsSocketJoinTokenAuthorizedAsync) where SocketToken.Value is
     // exposed. Interpolating the wrapper itself would emit the redacted `abcd…` form and
