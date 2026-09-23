@@ -126,7 +126,8 @@ internal static class UpdateImagesPhase
         }
 
         // Failure never leaves the stack half-updated without operator-facing recovery.
-        var healthErr = await CheckStackHealthAsync(composeFile, config, healthTimeout, logger, ct).ConfigureAwait(false);
+        var healthErr = await CheckStackHealthAsync(
+            composeFile, config, options.OutputDir, healthTimeout, logger, ct).ConfigureAwait(false);
         if (healthErr is not null)
         {
             logger.PhaseFail(Phase, PhaseFailureReasons.HealthCheckFailed);
@@ -406,7 +407,7 @@ internal static class UpdateImagesPhase
     /// and the API (<c>GET /health/ready</c>). Returns null on success, else an operator-facing
     /// message. Shared deadline so no single tier can starve the others.</summary>
     private static async Task<string?> CheckStackHealthAsync(
-        string composeFile, BootstrapConfig config, TimeSpan totalTimeout,
+        string composeFile, BootstrapConfig config, string outputDir, TimeSpan totalTimeout,
         PhaseLogger logger, CancellationToken ct)
     {
         var deadline = DateTime.UtcNow + totalTimeout;
@@ -422,7 +423,7 @@ internal static class UpdateImagesPhase
         var scErr = await WaitForScyllaReadyAsync(composeFile, scyllaService, deadline, logger, ct).ConfigureAwait(false);
         if (scErr is not null) return scErr;
 
-        var apiErr = await WaitForApiReadyAsync(config, deadline, logger, ct).ConfigureAwait(false);
+        var apiErr = await WaitForApiReadyAsync(config, outputDir, deadline, logger, ct).ConfigureAwait(false);
         if (apiErr is not null) return apiErr;
 
         logger.Info("    health-check: all three tiers ready");
@@ -457,8 +458,8 @@ internal static class UpdateImagesPhase
     }
 
     private static Task<string?> WaitForApiReadyAsync(
-        BootstrapConfig config, DateTime deadline, PhaseLogger logger, CancellationToken ct)
-        => ApiReadinessProbe.TryWaitUntilAsync(config, deadline, logger, ct);
+        BootstrapConfig config, string outputDir, DateTime deadline, PhaseLogger logger, CancellationToken ct)
+        => ApiReadinessProbe.TryWaitUntilAsync(config, deadline, logger, ct, outputDir);
 
     private static async Task OnHealthCheckFailedAsync(
         BootstrapOptions options, BootstrapConfig config, string composeFile,
