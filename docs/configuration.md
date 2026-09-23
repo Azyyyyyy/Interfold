@@ -82,7 +82,7 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
   "deployment": {
     "outputDir": "./deploy",
     "includeWeb": false,
-    "webImage": "ghcr.io/azyyyyyy/interfold-web:latest",
+    "webImage": "ghcr.io/azyyyyyy/interfold-wasm:latest",
     "autostartServer": false,
     "backup": {
       "enabled": false,
@@ -253,7 +253,7 @@ GitHub tag namespaces: `api-v*` (API image SemVer releases), `bootstrap-v*` (boo
 
 | Field | Default | Notes |
 | ----- | ------- | ----- |
-| `webImage` | `ghcr.io/azyyyyyy/interfold-web:latest` | Full image reference for the `interfold-web` compose service when `deployment.includeWeb` is `true`. Consumed by `publish` / `update-images`. Independent of bootstrapper `deployment.update.bootstrapper.channel`. |
+| `webImage` | `ghcr.io/azyyyyyy/interfold-wasm:latest` | Full image reference for the `interfold-web` compose service when `deployment.includeWeb` is `true`. Consumed by `publish` / `update-images`. Independent of bootstrapper `deployment.update.bootstrapper.channel`. |
 
 First-time operators don't need to hand-author this file — running `interfold-bootstrap` on
 a real TTY without an existing `interfold.bootstrap.json` drops into a Spectre.Console
@@ -341,12 +341,14 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 >
 > - `deployment.includeWeb` (default `false`) — when `true`, ship `interfold-web` on the
 >   `edge-web` network. Nginx routes `/` (path mode) or `webHost` (subdomain mode) to it.
->   Pin the image with `deployment.webImage` (default `ghcr.io/azyyyyyy/interfold-web:latest`).
+>   Pin the image with `deployment.webImage` (default `ghcr.io/azyyyyyy/interfold-wasm:latest`).
 > - `edge.tlsMode` — `none` (plaintext HTTP on `edge.ports.http` only) or
 >   `privateCa` (bootstrapper mints certs; HTTP + HTTPS ports). Public TLS is Cloudflare
 >   Tunnel when `cloudflare.enabled` (origin coerced to `none`).
-> - `edge.routing.mode` — `path` (`/api/` → API, `/` → web) or `subdomain`
->   (separate `routing.apiHost` / `routing.webHost`).
+> - `edge.routing.mode` — `path` (`/api/` and `/auth/` → API, `/` → web) or `subdomain`
+>   (separate `routing.apiHost` / `routing.webHost`). The SPA keeps `/auth/token`
+>   (OAuth `redirect_uri?token=&id=` landing). Client API origin is the edge host, not
+>   `origin/api` — wasm/mobile paths already include `/api/…`.
 >
 > **Schema versions.** `schemaVersion` is major.minor, stored as an integer (no decimal
 > in the file): `1` / `2` mean 1.0 / 2.0; additive field additions bump the minor and
@@ -557,9 +559,9 @@ encryption pepper, and the API refuses to boot without it). If the value is stil
 | `OCTOCON_GOOGLE_OAUTH_CLIENT_ID`      | *empty*         | Sourced from `BootstrapConfig.oauth.googleClientId` via Aspire parameter `google-oauth-client-id`; empty value disables the Google scheme. (bootstrapper-managed) |
 | `OCTOCON_DISCORD_OAUTH_CLIENT_ID`     | *empty*         | Same handling, sourced from `oauth.discordClientId`. (bootstrapper-managed)                                                                           |
 | `OCTOCON_APPLE_OAUTH_CLIENT_ID`       | *empty*         | Same handling, sourced from `oauth.appleClientId`. (bootstrapper-managed)                                                                             |
-| `OCTOCON_GOOGLE_OAUTH_CLIENT_SECRET`  | *null*          | Placeholder only; overwritten at startup from `internal.secrets:oauth:google:client_secret`. **Do not rely on the env value.** (bootstrapper-managed) |
-| `OCTOCON_DISCORD_OAUTH_CLIENT_SECRET` | *null*          | Same handling. (bootstrapper-managed)                                                                                                                 |
-| `OCTOCON_APPLE_OAUTH_CLIENT_SECRET`   | *null*          | Same handling. (bootstrapper-managed)                                                                                                                 |
+| `OCTOCON_GOOGLE_OAUTH_CLIENT_SECRET`  | *null*          | Self-host: `internal.secrets:oauth:google:client_secret` only — **not** compose `.env`. `aspire run`: AppHost parameter `google-oauth-client-secret` is seeded into that row and forwarded as this env var. Empty disables token exchange even if the client ID is set. |
+| `OCTOCON_DISCORD_OAUTH_CLIENT_SECRET` | *null*          | Same handling for Discord (`discord-oauth-client-secret`).                                                                                                                                                                                                              |
+| `OCTOCON_APPLE_OAUTH_CLIENT_SECRET`   | *null*          | Same handling for Apple (`apple-oauth-client-secret`).                                                                                                                                                                                                                  |
 | `OCTOCON_CF_ACCESS_TEAM_DOMAIN`       | *empty*         | Cloudflare Access team host (e.g. `myteam.cloudflareaccess.com`). Empty disables `GET/POST /auth/cloudflare`. Sourced from `{outputDir}/.cloudflare-access.json` via Aspire parameter `cf-access-team-domain`. (bootstrapper-managed) |
 | `OCTOCON_CF_ACCESS_AUD`               | *empty*         | Access application AUD used to validate `Cf-Access-Jwt-Assertion`. Empty disables the exchange. Sourced from `.cloudflare-access.json` via `cf-access-aud`. (bootstrapper-managed) |
 
@@ -622,7 +624,7 @@ your `.env`, they are dead values — the API no longer reads them.
 | ----------------------- | ------- | ------------------------------------------------------------ |
 | `OCTOCON_OTLP_ENDPOINT` | *empty* (= OTLP exporter not registered) | OTLP endpoint for the API's own traces/metrics, e.g. `http://localhost:4317`. Sourced from `BootstrapConfig.observability.otlpEndpoint` via Aspire parameter `otlp-endpoint`; empty normalised to `null` by `ApplyObservability` so the OTLP exporter is not registered. Non-empty values must parse as absolute http(s) URIs. (bootstrapper-managed) |
 | `OCTOCON_ADVERTISE_OTLP_TO_CLIENTS` | `false` | Opt-in: when `true`, `GET /api/telemetry/otlp` may advertise `OCTOCON_OTLP_ENDPOINT` if no client override is set. Off by default so configuring the API exporter does not expose it to clients. Sourced from `BootstrapConfig.observability.advertiseOtlpToClients` via Aspire parameter `advertise-otlp-to-clients`. (bootstrapper-managed) |
-| `OCTOCON_CLIENT_OTLP_HTTP_ENDPOINT` | *empty* | Optional dedicated OTLP/HTTP URL for `GET /api/telemetry/otlp`. When set, always wins over the server endpoint. Use when clients need a different URL than the API exporter. Empty + advertise off → discovery 404. Sourced from `BootstrapConfig.observability.clientOtlpHttpEndpoint` via Aspire parameter `client-otlp-http-endpoint`. Non-empty values must parse as absolute http(s) URIs. The API does **not** ingest OTLP. (bootstrapper-managed) |
+| `OCTOCON_CLIENT_OTLP_HTTP_ENDPOINT` | *empty* | Optional dedicated OTLP/HTTP URL for `GET /api/telemetry/otlp`. When set, always wins over the server endpoint. Use when clients need a different URL than the API exporter. Empty + advertise off → discovery 404. Sourced from `BootstrapConfig.observability.clientOtlpHttpEndpoint` via Aspire parameter `client-otlp-http-endpoint`. Non-empty values must parse as absolute http(s) URIs. The API does **not** ingest OTLP. **`aspire run`:** AppHost stamps this with `ASPIRE_DASHBOARD_OTLP_HTTP_ENDPOINT_URL` (`http://localhost:21247`) and turns advertise on, so the wasm client’s `GET /api/telemetry/otlp` points at the Aspire dashboard. Dashboard OTLP CORS is the edge origin; OTLP auth is unsecured because the client only sends the URL (no `x-otlp-api-key`). Override with `Parameters:client-otlp-http-endpoint`. |
 
 
 #### Cluster
@@ -1067,16 +1069,18 @@ followed by an API restart. The bootstrapper will catch up on the next run.
 | Deep-link secret  | `Parameters:dev-deep-link-secret` (`GenerateParameterDefault`, persisted to AppHost user-secrets) → `internal.secrets:auth:deep_link_secret` via dev-seed hook | `GeneratedSecrets.DeepLinkSecret` → `internal.secrets:auth:deep_link_secret`  | `TestDbCredentials.DeepLinkSecret` via `PostgresSeedOptions`                                                                              |
 | Admin passwords   | `Parameters:dev-postgres-admin-password` / `Parameters:dev-scylla-admin-password` (both `GenerateParameterDefault`, persisted to AppHost user-secrets)     | `GeneratedSecrets.PostgresAdminPassword` / `ScyllaAdminPassword`              | `TestDbCredentials.Postgres/Scylla AdminPassword`                                                                                         |
 | Leaf PFX password | *no leaf PFX in dev* (ASP.NET dev cert)                                                                                                                     | `internal.secrets:certs:leaf_pfx_password`, loaded by `SecretsPreBuildLoader` | not exercised                                                                                                                             |
-| OAuth secrets     | Empty in the dev-seed row (`OAuthChallenge` extensions disable the provider for that row)                                                                   | `internal.secrets:oauth:*:client_secret`                                      | empty / `"TEST"`                                                                                                                          |
+| OAuth secrets     | `Parameters:google/discord/apple-oauth-client-id` and `-client-secret` (AppHost user-secrets). IDs become `OCTOCON_*_OAUTH_CLIENT_ID`; secrets seed `internal.secrets:oauth:*:client_secret` and `OCTOCON_*_OAUTH_CLIENT_SECRET`. Empty skips the provider. | `internal.secrets:oauth:*:client_secret`                                      | empty / `"TEST"`                                                                                                                          |
 
 The `Parameters:dev-*` names above are AppHost-private (declared in
 [`DevSeedParameterNames`](../hosts/Interfold.AppHost/DevSeed/DevSeedParameterNames.cs)) —
 they never round-trip through the bootstrapper's `PublishPhase.BuildEnvReplacements` so
-they can't leak into the emitted `.env`. To rotate any of them, run
-`dotnet user-secrets clear --project hosts/Interfold.AppHost` and wipe the persistent
-Postgres volume; a fresh AppHost run will re-generate and re-seed. Wiping user-secrets
-without wiping the DB leaves stale-encrypted data behind — the same trade-off
-`rotate-secrets` documents for prod (see `docs/ROADMAP.md`).
+they can't leak into the emitted `.env`. Run-mode AppHost defaults to session-lifetime
+DB containers (`Parameters:persistent-containers`, off). Opt in when you want volumes to
+survive `aspire run` restarts; then rotating the `dev-*` secrets also means wiping those
+volumes (`dotnet user-secrets clear --project hosts/Interfold.AppHost` plus the
+Postgres/Scylla named volumes). Wiping user-secrets without wiping a persistent DB
+leaves stale-encrypted data behind — the same trade-off `rotate-secrets` documents for
+prod (see `docs/ROADMAP.md`).
 
 
 Tests centralise the test-only material in

@@ -2,6 +2,7 @@ using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
 using Interfold.Bootstrapper.IntegrationTests.TestServices;
+using Interfold.Shared.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.IntegrationTests;
 
@@ -98,7 +99,7 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
 
         await Assert.That(compose).Contains("interfold-web:test")
             .Because("the custom webImage from the edge fixture should appear in the emitted compose");
-        await Assert.That(compose).DoesNotContain("ghcr.io/azyyyyyy/interfold-web:latest")
+        await Assert.That(compose).DoesNotContain(DefaultContainerImages.Web)
             .Because("the default web image tag must not appear when webImage is overridden");
         await Assert.That(compose).DoesNotContain("ghcr.io/azyyyyyy/octocon-wasm")
             .Because("the legacy octocon-wasm image must not be hardcoded when webImage is set");

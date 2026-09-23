@@ -80,7 +80,7 @@ public class TelemetryControllerTests : BaseEndpointTest
     }
 
     [Test]
-    public async Task GetOtlp_Unauthenticated_IsRejected()
+    public async Task GetOtlp_Unauthenticated_ReturnsEndpoint()
     {
         await using var factory = new InterfoldWebApplicationFactory(PersistenceMode.InMemory)
             .WithConfiguration("OCTOCON_CLIENT_OTLP_HTTP_ENDPOINT", "http://otel-collector:4318");
@@ -88,8 +88,9 @@ public class TelemetryControllerTests : BaseEndpointTest
 
         using var res = await client.GetAsync("/api/telemetry/otlp");
 
-        await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized)
-            .Or.IsEqualTo(HttpStatusCode.Forbidden);
+        await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        var dto = JsonSerializer.Deserialize<OtlpDiscoveryResponse>(await res.Content.ReadAsStringAsync());
+        await Assert.That(dto!.OtlpHttpEndpoint).IsEqualTo("http://otel-collector:4318");
     }
 
     [Test]

@@ -9,4 +9,4 @@ namespace Interfold.AppHost.DevSeed;
 /// <see cref="KnownResourceStates.Starting"/>/<see cref="KnownResourceStates.Running"/>/
 /// <see cref="KnownResourceStates.FailedToStart"/> transitions on this resource.
 /// </summary>
-internal sealed class DevSeedResource(string name) : Resource(name);
+internal sealed class DevSeedResource(string name) : Resource(name), IResourceWithWaitSupport;

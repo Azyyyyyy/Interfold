@@ -34,6 +34,8 @@ public static class AppHostParameterKeys
     public const string IncludeCassandra = "Parameters:include-cassandra";
     public const string IncludeDashboard = "Parameters:include-dashboard";
     public const string IncludeWeb = "Parameters:include-web";
+    /// <summary>Run-mode named DB volumes + Persistent lifetime. Off by default;
+    /// publish and test-bench force this on.</summary>
     public const string PersistentContainers = "Parameters:persistent-containers";
     public const string ScyllaTopology = "Parameters:scylla-topology";
     public const string ClusterName = "Parameters:cluster-name";
@@ -67,6 +69,13 @@ public static class AppHostParameterKeys
     public const string GoogleOAuthClientId = "Parameters:google-oauth-client-id";
     public const string DiscordOAuthClientId = "Parameters:discord-oauth-client-id";
     public const string AppleOAuthClientId = "Parameters:apple-oauth-client-id";
+    /// <summary>Run-mode only. Seeded into <c>internal.secrets</c> and forwarded as
+    /// <c>OCTOCON_GOOGLE_OAUTH_CLIENT_SECRET</c>. Never emitted into publish <c>.env</c>.</summary>
+    public const string GoogleOAuthClientSecret = "Parameters:google-oauth-client-secret";
+    /// <summary>Run-mode only. Same path as <see cref="GoogleOAuthClientSecret"/> for Discord.</summary>
+    public const string DiscordOAuthClientSecret = "Parameters:discord-oauth-client-secret";
+    /// <summary>Run-mode only. Same path as <see cref="GoogleOAuthClientSecret"/> for Apple.</summary>
+    public const string AppleOAuthClientSecret = "Parameters:apple-oauth-client-secret";
 
     // --- API runtime ---
     public const string ScyllaKeyspace = "Parameters:scylla-keyspace";

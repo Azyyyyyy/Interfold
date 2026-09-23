@@ -64,6 +64,28 @@ server {
         include /etc/nginx/proxy_params_interfold.conf;
     }
 
+    # SPA OAuth landing (redirect_uri?token=&id=). The rest of /auth is Kestrel.
+    location = /auth/token {
+        set $include_web "${NGINX_INCLUDE_WEB}";
+        if ($include_web = "") {
+            return 404;
+        }
+        set $web_upstream http://${NGINX_WEB_UPSTREAM};
+        proxy_pass $web_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    location /auth/ {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    # Fold a leftover origin+/api client base onto the real /api/ prefix.
+    location /api/api/ {
+        rewrite ^/api/api/(.*)$ /api/$1 last;
+    }
+
     location /api/ {
         set $api_upstream http://${NGINX_API_UPSTREAM};
         proxy_pass $api_upstream;
@@ -120,6 +142,28 @@ server {
         set $api_upstream http://${NGINX_API_UPSTREAM};
         proxy_pass $api_upstream;
         include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    # SPA OAuth landing (redirect_uri?token=&id=). The rest of /auth is Kestrel.
+    location = /auth/token {
+        set $include_web "${NGINX_INCLUDE_WEB}";
+        if ($include_web = "") {
+            return 404;
+        }
+        set $web_upstream http://${NGINX_WEB_UPSTREAM};
+        proxy_pass $web_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    location /auth/ {
+        set $api_upstream http://${NGINX_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        include /etc/nginx/proxy_params_interfold.conf;
+    }
+
+    # Fold a leftover origin+/api client base onto the real /api/ prefix.
+    location /api/api/ {
+        rewrite ^/api/api/(.*)$ /api/$1 last;
     }
 
     location /api/ {
