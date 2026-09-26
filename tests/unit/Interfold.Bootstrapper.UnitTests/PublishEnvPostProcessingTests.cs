@@ -165,9 +165,9 @@ public sealed class PublishEnvPostProcessingTests
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, baseDir, outputDir);
 
         var total = replacements.Parameters.Count + replacements.BindMounts.Count;
-        // Single mode: 27 shared env parameters + 6 bind mounts (avatar, API certs, edge
-        // nginx template + proxy_params, edge certs, scylla rackdc) = 33.
-        await Assert.That(total).IsEqualTo(33);
+        // Single mode: 28 shared env parameters + 6 bind mounts (avatar, API certs, edge
+        // nginx template + proxy_params, edge certs, scylla rackdc) = 34.
+        await Assert.That(total).IsEqualTo(34);
     }
 
     [Test]
@@ -194,6 +194,7 @@ public sealed class PublishEnvPostProcessingTests
             .IsEqualTo("https://app.example.com,https://admin.example.com");
         await Assert.That(replacements.Parameters["CF_ACCESS_TEAM_DOMAIN"]).IsEqualTo(string.Empty);
         await Assert.That(replacements.Parameters["CF_ACCESS_AUD"]).IsEqualTo(string.Empty);
+        await Assert.That(replacements.Parameters["CF_ACCESS_DISCORD_IDP_ID"]).IsEqualTo(string.Empty);
     }
 
     [Test]
@@ -204,12 +205,13 @@ public sealed class PublishEnvPostProcessingTests
         Directory.CreateDirectory(scratch.Path);
         await File.WriteAllTextAsync(
             Path.Combine(scratch.Path, ".cloudflare-access.json"),
-            """{"teamDomain":"team.cloudflareaccess.com","aud":"aud-from-state","identityProviderId":"idp-1","appIds":{}}""");
+            """{"teamDomain":"team.cloudflareaccess.com","aud":"aud-from-state","identityProviderId":"idp-1","discordIdentityProviderId":"idp-discord","appIds":{}}""");
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", scratch.Path);
 
         await Assert.That(replacements.Parameters["CF_ACCESS_TEAM_DOMAIN"]).IsEqualTo("team.cloudflareaccess.com");
         await Assert.That(replacements.Parameters["CF_ACCESS_AUD"]).IsEqualTo("aud-from-state");
+        await Assert.That(replacements.Parameters["CF_ACCESS_DISCORD_IDP_ID"]).IsEqualTo("idp-discord");
         await Assert.That(replacements.Parameters["CORS_ALLOWED_ORIGINS"])
             .IsEqualTo("https://api.example.com,https://team.cloudflareaccess.com");
 

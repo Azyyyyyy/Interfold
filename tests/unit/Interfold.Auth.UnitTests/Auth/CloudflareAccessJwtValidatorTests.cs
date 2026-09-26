@@ -61,6 +61,20 @@ public sealed class CloudflareAccessJwtValidatorTests
     }
 
     [Test]
+    public async Task GetIdentitySendsCfAuthorizationCookie()
+    {
+        var rsa = Rsa();
+        var token = Mint(rsa, email: "ops@example.com");
+        var handler = new StubCfAccessHandler(JsonWebKeySetJson(rsa), """{"idp":{"type":"google"}}""");
+        var validator = new CloudflareAccessJwtValidator(
+            new StaticOptions(EnabledConfig()),
+            new HttpClient(handler) { BaseAddress = new Uri("https://team.cloudflareaccess.com/") },
+            TimeProvider.System);
+        await validator.ValidateAsync(token, CancellationToken.None);
+        await Assert.That(handler.IdentityCookie).IsEqualTo($"CF_Authorization={token}");
+    }
+
+    [Test]
     public async Task UnsupportedIdentityProviderDoesNotMap()
     {
         var rsa = Rsa();
@@ -72,6 +86,97 @@ public sealed class CloudflareAccessJwtValidatorTests
         var result = await validator.ValidateAsync(token, CancellationToken.None);
         await Assert.That(result.Succeeded).IsTrue();
         await Assert.That(result.IdentityProvider).IsEqualTo("github");
+        await Assert.That(result.TryToProviderIdentity(out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task DiscordIdpIdFromIdentityMapsToDiscord()
+    {
+        var rsa = Rsa();
+        var token = Mint(rsa, email: "shared@example.com");
+        var validator = CreateValidator(
+            EnabledConfig(discordIdpId: "idp-discord-1"),
+            JsonWebKeySetJson(rsa),
+            identityJson: """{"idp":{"id":"idp-discord-1","type":"oidc","name":"interfold-discord"},"oidc_fields":{"id":"123456789012345678"}}""");
+        var result = await validator.ValidateAsync(token, CancellationToken.None);
+        await Assert.That(result.Succeeded).IsTrue();
+        await Assert.That(result.IdentityProviderId).IsEqualTo("idp-discord-1");
+        await Assert.That(result.TryToProviderIdentity(out var identity)).IsTrue();
+        await Assert.That(identity.Discord?.Value).IsEqualTo("123456789012345678");
+        await Assert.That(identity.Google).IsNull();
+    }
+
+    [Test]
+    public async Task OtherOidcIdpDoesNotMapToDiscord()
+    {
+        var rsa = Rsa();
+        var token = Mint(rsa, email: "shared@example.com");
+        var validator = CreateValidator(
+            EnabledConfig(discordIdpId: "idp-discord-1"),
+            JsonWebKeySetJson(rsa),
+            identityJson: """{"idp":{"id":"idp-other","type":"oidc"},"oidc_fields":{"id":"123456789012345678"}}""");
+        var result = await validator.ValidateAsync(token, CancellationToken.None);
+        await Assert.That(result.TryToProviderIdentity(out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task OidcCustomClaimSnowflakeMapsToDiscord()
+    {
+        var rsa = Rsa();
+        var token = Mint(
+            rsa,
+            email: "ops@example.com",
+            extra: [("custom", """{"id":"555666777888999000"}""")]);
+        var validator = CreateValidator(
+            EnabledConfig(discordIdpId: "idp-discord-1"),
+            JsonWebKeySetJson(rsa),
+            identityJson: """{"idp":{"id":"idp-discord-1","type":"oidc"}}""");
+        var result = await validator.ValidateAsync(token, CancellationToken.None);
+        await Assert.That(result.TryToProviderIdentity(out var identity)).IsTrue();
+        await Assert.That(identity.Discord?.Value).IsEqualTo("555666777888999000");
+    }
+
+    [Test]
+    public async Task DigitShapedJwtIdWithoutDiscordIdpUsesGoogleEmail()
+    {
+        var rsa = Rsa();
+        var token = Mint(rsa, email: "shared@example.com", extra: [("id", "123456789012345678")]);
+        var validator = CreateValidator(
+            EnabledConfig(),
+            JsonWebKeySetJson(rsa),
+            identityJson: """{"email":"shared@example.com","idp":{"type":"google"}}""");
+        var result = await validator.ValidateAsync(token, CancellationToken.None);
+        await Assert.That(result.TryToProviderIdentity(out var identity)).IsTrue();
+        await Assert.That(identity.Google?.Value).IsEqualTo("shared@example.com");
+        await Assert.That(identity.Discord).IsNull();
+    }
+
+    [Test]
+    public async Task OidcFieldsSubMapsToDiscordWhenIdpIsOurs()
+    {
+        var rsa = Rsa();
+        var token = Mint(rsa, email: "shared@example.com");
+        var validator = CreateValidator(
+            EnabledConfig(discordIdpId: "idp-discord-1"),
+            JsonWebKeySetJson(rsa),
+            identityJson: """{"idp":{"id":"idp-discord-1","type":"oidc"},"oidc_fields":{"sub":"987654321098765432"}}""");
+        var result = await validator.ValidateAsync(token, CancellationToken.None);
+        await Assert.That(result.TryToProviderIdentity(out var identity)).IsTrue();
+        await Assert.That(identity.Discord?.Value).IsEqualTo("987654321098765432");
+        await Assert.That(identity.Google).IsNull();
+    }
+
+    [Test]
+    public async Task DiscordIdpWithoutSnowflakeDoesNotMap()
+    {
+        var rsa = Rsa();
+        var token = Mint(rsa, email: "ops@example.com");
+        var validator = CreateValidator(
+            EnabledConfig(discordIdpId: "idp-discord-1"),
+            JsonWebKeySetJson(rsa),
+            identityJson: """{"idp":{"id":"idp-discord-1","type":"oidc"}}""");
+        var result = await validator.ValidateAsync(token, CancellationToken.None);
+        await Assert.That(result.Succeeded).IsTrue();
         await Assert.That(result.TryToProviderIdentity(out _)).IsFalse();
     }
 
@@ -118,10 +223,11 @@ public sealed class CloudflareAccessJwtValidatorTests
         await Assert.That(handler.JwksRequests).IsEqualTo(2);
     }
 
-    private static CloudflareAccessConfiguration EnabledConfig() => new()
+    private static CloudflareAccessConfiguration EnabledConfig(string? discordIdpId = null) => new()
     {
         TeamDomain = "team.cloudflareaccess.com",
         Audience = "app-aud",
+        DiscordIdentityProviderId = discordIdpId ?? string.Empty,
     };
 
     private static CloudflareAccessJwtValidator CreateValidator(
@@ -138,7 +244,12 @@ public sealed class CloudflareAccessJwtValidatorTests
 
     private static RSA Rsa() => RSA.Create(2048);
 
-    private static string Mint(RSA rsa, string? email, string? commonName = null, string aud = "app-aud")
+    private static string Mint(
+        RSA rsa,
+        string? email,
+        string? commonName = null,
+        string aud = "app-aud",
+        params (string Type, string Value)[] extra)
     {
         var key = new RsaSecurityKey(rsa);
         var creds = new SigningCredentials(key, SecurityAlgorithms.RsaSha256);
@@ -147,6 +258,8 @@ public sealed class CloudflareAccessJwtValidatorTests
             claims.Add(new Claim("email", email));
         if (commonName is not null)
             claims.Add(new Claim("common_name", commonName));
+        foreach (var (type, value) in extra)
+            claims.Add(new Claim(type, value));
 
         var token = new JwtSecurityToken(
             issuer: "https://team.cloudflareaccess.com",
@@ -175,12 +288,16 @@ public sealed class CloudflareAccessJwtValidatorTests
     private sealed class StubCfAccessHandler(string jwks, string? identityJson = null) : HttpMessageHandler
     {
         public int JwksRequests { get; private set; }
+        public string? IdentityCookie { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri?.AbsolutePath ?? "";
             if (path.Contains("get-identity", StringComparison.Ordinal))
             {
+                IdentityCookie = request.Headers.TryGetValues("Cookie", out var cookies)
+                    ? string.Join("; ", cookies)
+                    : null;
                 var body = identityJson ?? """{"idp":{"type":"google"}}""";
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {

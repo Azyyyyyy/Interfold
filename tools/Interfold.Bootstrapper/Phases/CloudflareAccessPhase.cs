@@ -7,14 +7,18 @@ using Spectre.Console;
 namespace Interfold.Bootstrapper.Phases;
 
 /// <summary>
-/// Cloudflare Access (Zero Trust) on public tunnel hostnames: Google IdP, allowlist, health bypass,
-/// service token. Runs during publish so team domain + AUD land in compose env on first boot.
+/// Cloudflare Access (Zero Trust) on public tunnel hostnames: Google IdP, optional Discord
+/// OIDC IdP, allowlist, health bypass, service token. Runs during publish so team domain + AUD
+/// land in compose env on first boot.
 /// </summary>
 internal static class CloudflareAccessPhase
 {
     internal const string GoogleIdpName = "interfold-google";
+    internal const string DiscordIdpName = "interfold-discord";
+    internal const string DiscordWorkerName = "interfold-discord-oidc";
+    internal const string DiscordKvNamespaceTitle = "interfold-discord-oidc-keys";
     internal const string ServiceTokenName = "interfold-bootstrap";
-    internal const string AllowPolicyName = "interfold-allow-google";
+    internal const string AllowPolicyName = "interfold-allow";
     internal const string ServiceTokenPolicyName = "interfold-service-token";
     internal const string HealthBypassPolicyName = "interfold-health-bypass";
 
@@ -105,7 +109,7 @@ internal static class CloudflareAccessPhase
         var teamDomain = CloudflareTunnelClient.NormalizeTeamHost(org.AuthDomain);
         var callbackUri = BuildGoogleCallbackUri(teamDomain);
         logger.Info($"    cloudflare Access team={teamDomain}");
-        logger.Info($"    add this Google OAuth redirect URI on the same client: {callbackUri}");
+        logger.Info($"    add this OAuth redirect URI on Google (and Discord, when used): {callbackUri}");
 
         var hostnames = CloudflareTunnelPhase.ResolvePublicHostnames(config);
         if (hostnames.Count == 0)
@@ -116,14 +120,16 @@ internal static class CloudflareAccessPhase
         var emails = config.Edge.Cloudflare.Access.AllowedEmails;
         var domains = config.Edge.Cloudflare.Access.AllowedEmailDomains;
 
+        var discordReady = HasDiscordOAuth(config.Api.OAuth);
         if (confirm)
         {
             var table = new Table().AddColumn("Hostname").AddColumn("IdP").AddColumn("Allowlist");
             var allowlist = string.Join(", ", emails.Concat(domains.Select(d => $"@{d}")));
+            var idpLabel = discordReady ? $"{GoogleIdpName}, {DiscordIdpName}" : GoogleIdpName;
             foreach (var host in hostnames)
-                table.AddRow(host, GoogleIdpName, allowlist);
+                table.AddRow(host, idpLabel, allowlist);
             AnsiConsole.Write(table);
-            AnsiConsole.MarkupLine($"[yellow]Google Access callback URI (add in Google Cloud Console):[/] {callbackUri}");
+            AnsiConsole.MarkupLine($"[yellow]Access callback URI (add on Google and Discord OAuth clients):[/] {callbackUri}");
             if (!AnsiConsole.Confirm("Apply Cloudflare Access apps and policies?", defaultValue: true))
             {
                 logger.Warn("operator declined Cloudflare Access configuration");
@@ -131,13 +137,19 @@ internal static class CloudflareAccessPhase
             }
         }
 
-        var idpId = await client.EnsureGoogleIdentityProviderAsync(
+        var googleIdpId = await client.EnsureGoogleIdentityProviderAsync(
                 accountId,
                 config.Api.OAuth.GoogleClientId.Trim(),
                 config.Api.OAuth.GoogleClientSecret.Trim(),
                 ct)
             .ConfigureAwait(false);
-        logger.Info($"    cloudflare Access Google IdP id={idpId} ({GoogleIdpName})");
+        logger.Info($"    cloudflare Access Google IdP id={googleIdpId} ({GoogleIdpName})");
+
+        var discord = await TryEnsureDiscordAccessAsync(
+                client, config, accountId, outputDir, callbackUri, logger, ct)
+            .ConfigureAwait(false);
+        var allowedIdps = discord is null ? new[] { googleIdpId } : [googleIdpId, discord.IdpId];
+        var autoRedirect = discord is null;
 
         var priorToken = TryLoadServiceToken(outputDir);
         var serviceToken = await client.EnsureServiceTokenAsync(
@@ -151,7 +163,7 @@ internal static class CloudflareAccessPhase
 
         var appIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         string? primaryAud = null;
-        var allowPolicy = BuildAllowPolicy(emails, domains, idpId);
+        var allowPolicy = BuildAllowPolicy(emails, domains);
         var servicePolicy = new CloudflareAccessPolicySpec(
             ServiceTokenPolicyName,
             "non_identity",
@@ -168,7 +180,7 @@ internal static class CloudflareAccessPhase
         {
             var isApiHost = string.Equals(host, apiHost, StringComparison.OrdinalIgnoreCase);
             var app = await client.EnsureSelfHostedAppAsync(
-                    accountId, host, idpId, ct, optionsPreflightBypass: isApiHost)
+                    accountId, host, allowedIdps, autoRedirect, ct, optionsPreflightBypass: isApiHost)
                 .ConfigureAwait(false);
             appIds[host] = app.Id;
             primaryAud ??= app.Aud;
@@ -184,7 +196,7 @@ internal static class CloudflareAccessPhase
 
             foreach (var path in bypassPaths)
             {
-                var healthApp = await client.EnsureSelfHostedAppAsync(accountId, path, idpId, ct)
+                var healthApp = await client.EnsureSelfHostedAppAsync(accountId, path, allowedIdps, autoRedirect, ct)
                     .ConfigureAwait(false);
                 appIds[path] = healthApp.Id;
                 await client.ReplaceAppPoliciesAsync(accountId, healthApp.Id, [bypassPolicy], ct)
@@ -199,19 +211,26 @@ internal static class CloudflareAccessPhase
         {
             TeamDomain = teamDomain,
             Aud = primaryAud,
-            IdentityProviderId = idpId,
+            IdentityProviderId = googleIdpId,
+            DiscordIdentityProviderId = discord?.IdpId ?? string.Empty,
+            DiscordWorkerName = discord is null ? string.Empty : DiscordWorkerName,
+            DiscordKvNamespaceId = discord?.KvNamespaceId ?? string.Empty,
+            DiscordWorkerUrl = discord?.WorkerUrl ?? string.Empty,
             AppIds = appIds,
         };
         var json = JsonSerializer.Serialize(state, BootstrapJsonContext.Default.CloudflareAccessState);
         await File.WriteAllTextAsync(StatePath(outputDir), json, ct).ConfigureAwait(false);
         logger.Info($"    persisted Access state team={teamDomain} aud={primaryAud}");
-        logger.Info($"    Google Access callback URI: {callbackUri}");
+        logger.Info($"    Access callback URI: {callbackUri}");
     }
+
+    internal static bool HasDiscordOAuth(ApiOAuthSection oauth)
+        => !string.IsNullOrWhiteSpace(oauth.DiscordClientId)
+           && !string.IsNullOrWhiteSpace(oauth.DiscordClientSecret);
 
     internal static CloudflareAccessPolicySpec BuildAllowPolicy(
         IReadOnlyList<string> emails,
-        IReadOnlyList<string> domains,
-        string identityProviderId)
+        IReadOnlyList<string> domains)
     {
         var include = new List<CloudflareAccessPolicyRule>();
         foreach (var email in emails)
@@ -226,12 +245,70 @@ internal static class CloudflareAccessPhase
                 include.Add(new CloudflareAccessPolicyRule(CloudflareAccessPolicyRuleKind.EmailDomain, domain.Trim()));
         }
 
-        return new CloudflareAccessPolicySpec(
-            AllowPolicyName,
-            "allow",
-            include,
-            [new CloudflareAccessPolicyRule(CloudflareAccessPolicyRuleKind.LoginMethod, identityProviderId)]);
+        return new CloudflareAccessPolicySpec(AllowPolicyName, "allow", include, []);
     }
+
+    private static async Task<DiscordAccessArtifacts?> TryEnsureDiscordAccessAsync(
+        CloudflareTunnelClient client,
+        BootstrapConfig config,
+        string accountId,
+        string outputDir,
+        string callbackUri,
+        PhaseLogger logger,
+        CancellationToken ct)
+    {
+        if (!HasDiscordOAuth(config.Api.OAuth))
+        {
+            logger.Info("    discord Access skipped (api.oauth.discordClientId/secret not both set)");
+            return null;
+        }
+
+        try
+        {
+            using var http = DiscordOidcWorkerSource.CreateHttp();
+            var workDir = await DiscordOidcWorkerSource.EnsureWorkDirectoryAsync(outputDir, http, logger, ct)
+                .ConfigureAwait(false);
+            DiscordOidcWorkerSource.WriteConfig(
+                workDir,
+                config.Api.OAuth.DiscordClientId.Trim(),
+                config.Api.OAuth.DiscordClientSecret.Trim(),
+                callbackUri);
+            var bundlePath = await DiscordOidcWorkerBundler.BundleAsync(workDir, logger, ct)
+                .ConfigureAwait(false);
+            var configPath = Path.Combine(workDir, DiscordOidcWorkerSource.ConfigFileName);
+
+            var kvId = await client.EnsureKvNamespaceAsync(accountId, DiscordKvNamespaceTitle, ct)
+                .ConfigureAwait(false);
+            var subdomain = await client.EnsureWorkersSubdomainAsync(accountId, ct)
+                .ConfigureAwait(false);
+            var workerUrl = await client.EnsureDiscordOidcWorkerAsync(
+                    accountId,
+                    DiscordWorkerName,
+                    bundlePath,
+                    configPath,
+                    kvId,
+                    subdomain,
+                    ct)
+                .ConfigureAwait(false);
+            var idpId = await client.EnsureOidcIdentityProviderAsync(
+                    accountId,
+                    DiscordIdpName,
+                    config.Api.OAuth.DiscordClientId.Trim(),
+                    config.Api.OAuth.DiscordClientSecret.Trim(),
+                    workerUrl,
+                    ct)
+                .ConfigureAwait(false);
+            logger.Info($"    cloudflare Access Discord IdP id={idpId} ({DiscordIdpName}) url={workerUrl}");
+            return new DiscordAccessArtifacts(idpId, kvId, workerUrl);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.Warn($"discord Access not applied; Google Access left in place: {ex.Message}");
+            return null;
+        }
+    }
+
+    private sealed record DiscordAccessArtifacts(string IdpId, string KvNamespaceId, string WorkerUrl);
 
     private static async Task PersistServiceTokenAsync(
         string outputDir,

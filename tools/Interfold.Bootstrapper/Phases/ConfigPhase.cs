@@ -247,7 +247,7 @@ internal static class ConfigPhase
                                                         "Enable Cloudflare Tunnel (public hostname → private origin)", c.Edge.Cloudflare.Enabled)),
                 ("Cloudflare API token",            () => Mask(c.Edge.Cloudflare.ApiToken),
                                                     () => c.Edge.Cloudflare.ApiToken = PromptOAuth(
-                                                        "Cloudflare API token (Tunnel + DNS + Access Apps/Policies + Service Tokens)",
+                                                        "Cloudflare API token (Tunnel + DNS + Access + Workers Scripts/KV)",
                                                         c.Edge.Cloudflare.ApiToken)),
                 ("Cloudflare tunnel name",          () => c.Edge.Cloudflare.TunnelName,
                                                     () => c.Edge.Cloudflare.TunnelName = PromptStr(
@@ -255,7 +255,7 @@ internal static class ConfigPhase
                                                         string.IsNullOrEmpty(c.Edge.Cloudflare.TunnelName) ? "interfold" : c.Edge.Cloudflare.TunnelName)),
                 ("Cloudflare Access",               () => c.Edge.Cloudflare.Access.Enabled.ToString(),
                                                     () => c.Edge.Cloudflare.Access.Enabled = PromptBool(
-                                                        "Enable Cloudflare Access (Google allowlist + single login)",
+                                                        "Enable Cloudflare Access (email allowlist; Google, plus Discord when configured)",
                                                         c.Edge.Cloudflare.Access.Enabled)),
                 ("Access allowed emails",           () => string.Join(",", c.Edge.Cloudflare.Access.AllowedEmails),
                                                     () => c.Edge.Cloudflare.Access.AllowedEmails = PromptCsv(

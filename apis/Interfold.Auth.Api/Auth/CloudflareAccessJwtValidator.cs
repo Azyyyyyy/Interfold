@@ -90,9 +90,19 @@ public sealed class CloudflareAccessJwtValidator
                     "Access token is not a user identity (service tokens cannot be exchanged).");
             }
 
-            var identityProvider = ReadIdpTypeFromJwt(jwt)
-                ?? await TryFetchIdentityProviderAsync(cfg.TeamDomain, assertion, ct).ConfigureAwait(false);
-            return CloudflareAccessJwtResult.Ok(email.Trim(), identityProvider);
+            var hints = ReadIdentityHintsFromJwt(jwt);
+            if (NeedsIdentityFetch(hints, cfg.DiscordIdentityProviderId))
+            {
+                var fetched = await TryFetchIdentityHintsAsync(cfg.TeamDomain, assertion, ct).ConfigureAwait(false);
+                hints = MergeHints(hints, fetched);
+            }
+
+            return CloudflareAccessJwtResult.Ok(
+                email.Trim(),
+                hints.Label,
+                hints.DiscordId,
+                hints.IdpId,
+                cfg.DiscordIdentityProviderId);
         }
         catch (SecurityTokenException)
         {
@@ -152,41 +162,85 @@ public sealed class CloudflareAccessJwtValidator
         return keys;
     }
 
-    private async Task<string?> TryFetchIdentityProviderAsync(string teamDomain, string assertion, CancellationToken ct)
+    private async Task<AccessIdentityHints> TryFetchIdentityHintsAsync(string teamDomain, string assertion, CancellationToken ct)
     {
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, BuildIdentityUrl(teamDomain));
-            req.Headers.TryAddWithoutValidation(InterfoldHeaders.CfAccessJwtAssertion, assertion);
+            req.Headers.TryAddWithoutValidation("Cookie", $"CF_Authorization={assertion}");
             using var response = await _http.SendAsync(req, ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
-                return null;
+                return default;
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
-            return ReadIdpType(doc.RootElement);
+            return ReadIdentityHints(doc.RootElement);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
-            // JWT already proved the user; Google is the only Access IdP we mint today.
-            return null;
+            return default;
         }
     }
 
-    private static string? ReadIdpTypeFromJwt(JwtSecurityToken jwt)
+    private static AccessIdentityHints ReadIdentityHintsFromJwt(JwtSecurityToken jwt)
     {
-        var raw = jwt.Claims.FirstOrDefault(c => c.Type is "idp" or "identity_provider")?.Value;
-        if (string.IsNullOrWhiteSpace(raw))
-            return null;
+        var hints = default(AccessIdentityHints);
+        var idpRaw = jwt.Claims.FirstOrDefault(c => c.Type is "idp" or "identity_provider")?.Value;
+        if (!string.IsNullOrWhiteSpace(idpRaw))
+        {
+            var raw = idpRaw.Trim();
+            if (raw.StartsWith('{'))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(raw);
+                    hints = ReadIdentityHints(doc.RootElement);
+                }
+                catch (JsonException)
+                {
+                    // malformed idp JSON; leave unset and fall through to get-identity
+                }
+            }
+            else
+            {
+                hints = hints with { IdpName = raw, IdpType = raw };
+            }
+        }
 
-        raw = raw.Trim();
-        if (!raw.StartsWith('{'))
-            return raw;
+        var fromCustom = ReadDiscordSnowflakeFromCustomClaim(jwt);
+        if (fromCustom is not null)
+            hints = hints with { DiscordId = hints.DiscordId ?? fromCustom };
+
+        return hints;
+    }
+
+    private static bool NeedsIdentityFetch(AccessIdentityHints hints, string? expectedDiscordIdpId)
+    {
+        if (!string.IsNullOrWhiteSpace(expectedDiscordIdpId))
+            return true;
+
+        return string.IsNullOrWhiteSpace(hints.IdpId)
+            && string.IsNullOrWhiteSpace(hints.IdpType)
+            && string.IsNullOrWhiteSpace(hints.IdpName);
+    }
+
+    private static AccessIdentityHints MergeHints(AccessIdentityHints primary, AccessIdentityHints fallback)
+        => new(
+            string.IsNullOrWhiteSpace(primary.IdpId) ? fallback.IdpId : primary.IdpId,
+            string.IsNullOrWhiteSpace(primary.IdpType) ? fallback.IdpType : primary.IdpType,
+            string.IsNullOrWhiteSpace(primary.IdpName) ? fallback.IdpName : primary.IdpName,
+            string.IsNullOrWhiteSpace(primary.DiscordId) ? fallback.DiscordId : primary.DiscordId);
+
+    private static string? ReadDiscordSnowflakeFromCustomClaim(JwtSecurityToken jwt)
+    {
+        var custom = jwt.Claims.FirstOrDefault(c => c.Type == "custom")?.Value;
+        if (string.IsNullOrWhiteSpace(custom) || !custom.TrimStart().StartsWith('{'))
+            return null;
 
         try
         {
-            using var doc = JsonDocument.Parse(raw);
-            return ReadIdpType(doc.RootElement);
+            using var doc = JsonDocument.Parse(custom);
+            return ReadDiscordIdFromOidcClaims(doc.RootElement);
         }
         catch (JsonException)
         {
@@ -194,18 +248,80 @@ public sealed class CloudflareAccessJwtValidator
         }
     }
 
-    private static string? ReadIdpType(JsonElement root)
+    private static AccessIdentityHints ReadIdentityHints(JsonElement root)
     {
-        if (root.ValueKind == JsonValueKind.String)
-            return root.GetString();
+        string? id = null;
+        string? type = null;
+        string? name = null;
+        var idp = root;
+        if (root.TryGetProperty("idp", out var nested) && nested.ValueKind is JsonValueKind.Object or JsonValueKind.String)
+            idp = nested;
 
-        if (root.TryGetProperty("type", out var typeEl))
-            return typeEl.GetString();
+        if (idp.ValueKind == JsonValueKind.String)
+        {
+            type = idp.GetString();
+            name = type;
+        }
+        else if (idp.ValueKind == JsonValueKind.Object)
+        {
+            if (idp.TryGetProperty("id", out var idEl))
+                id = idEl.GetString();
+            if (idp.TryGetProperty("type", out var typeEl))
+                type = typeEl.GetString();
+            if (idp.TryGetProperty("name", out var nameEl))
+                name = nameEl.GetString();
+        }
 
-        if (root.TryGetProperty("idp", out var idpEl))
-            return ReadIdpType(idpEl);
+        return new AccessIdentityHints(id, type, name, ReadDiscordIdFromOidcClaims(root));
+    }
 
-        return null;
+    private static string? ReadDiscordIdFromOidcClaims(JsonElement root)
+    {
+        if (root.TryGetProperty("oidc_fields", out var fields) && fields.ValueKind == JsonValueKind.Object)
+        {
+            var fromFields = ReadSnowflakeProperty(fields, "id") ?? ReadSnowflakeProperty(fields, "sub");
+            if (fromFields is not null)
+                return fromFields;
+        }
+
+        if (root.TryGetProperty("custom", out var custom) && custom.ValueKind == JsonValueKind.Object)
+            return ReadSnowflakeProperty(custom, "id") ?? ReadSnowflakeProperty(custom, "sub");
+
+        return ReadSnowflakeProperty(root, "id");
+    }
+
+    private static string? ReadSnowflakeProperty(JsonElement obj, string name)
+    {
+        if (!obj.TryGetProperty(name, out var el))
+            return null;
+
+        return ReadDiscordSnowflake(el.ValueKind == JsonValueKind.String ? el.GetString() : el.ToString());
+    }
+
+    internal static bool IsDiscordAccessIdp(string? idpId, string? expectedIdpId)
+        => !string.IsNullOrWhiteSpace(expectedIdpId)
+           && !string.IsNullOrWhiteSpace(idpId)
+           && expectedIdpId.Equals(idpId, StringComparison.OrdinalIgnoreCase);
+
+    internal static string? ReadDiscordSnowflake(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+
+        var value = raw.Trim();
+        if (value.Length < 5 || !value.All(char.IsAsciiDigit))
+            return null;
+
+        return value;
+    }
+
+    private readonly record struct AccessIdentityHints(
+        string? IdpId,
+        string? IdpType,
+        string? IdpName,
+        string? DiscordId)
+    {
+        public string? Label => IdpType ?? IdpName;
     }
 }
 
@@ -214,24 +330,58 @@ public readonly record struct CloudflareAccessJwtResult
     public bool Succeeded { get; init; }
     public string? Email { get; init; }
     public string? IdentityProvider { get; init; }
+    public string? IdentityProviderId { get; init; }
+    public string? ExpectedDiscordIdentityProviderId { get; init; }
+    public string? DiscordId { get; init; }
     public ErrorCode? Error { get; init; }
     public string? Message { get; init; }
 
-    public static CloudflareAccessJwtResult Ok(string email, string? identityProvider = null)
-        => new() { Succeeded = true, Email = email, IdentityProvider = identityProvider };
+    public static CloudflareAccessJwtResult Ok(
+        string email,
+        string? identityProvider = null,
+        string? discordId = null,
+        string? identityProviderId = null,
+        string? expectedDiscordIdentityProviderId = null)
+        => new()
+        {
+            Succeeded = true,
+            Email = email,
+            IdentityProvider = identityProvider,
+            IdentityProviderId = identityProviderId,
+            ExpectedDiscordIdentityProviderId = expectedDiscordIdentityProviderId,
+            DiscordId = discordId,
+        };
 
     public static CloudflareAccessJwtResult Fail(ErrorCode error, string message)
         => new() { Succeeded = false, Error = error, Message = message };
 
-    /// <summary>Maps Google (or an omitted IdP, the bootstrapper default) onto email identity. Other types fail closed.</summary>
+    /// <summary>Discord only when Access IdP id matches the configured Discord IdP.</summary>
     public bool TryToProviderIdentity(out ProviderIdentity identity)
     {
         identity = default;
-        if (!Succeeded || string.IsNullOrWhiteSpace(Email))
+        if (!Succeeded)
+            return false;
+
+        var isDiscord = CloudflareAccessJwtValidator.IsDiscordAccessIdp(
+            IdentityProviderId, ExpectedDiscordIdentityProviderId);
+        if (isDiscord)
+        {
+            if (string.IsNullOrWhiteSpace(DiscordId))
+                return false;
+
+            identity = ProviderIdentity.FromDiscord(new DiscordId(DiscordId));
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(Email))
             return false;
 
         var idp = IdentityProvider;
-        if (string.IsNullOrWhiteSpace(idp) || idp.Equals("google", StringComparison.OrdinalIgnoreCase))
+        var omitted = string.IsNullOrWhiteSpace(idp) && string.IsNullOrWhiteSpace(IdentityProviderId);
+        if (!string.IsNullOrWhiteSpace(ExpectedDiscordIdentityProviderId) && omitted)
+            return false;
+
+        if (omitted || IsGoogleAccessIdp(idp))
         {
             identity = ProviderIdentity.FromGoogle(new Email(Email));
             return true;
@@ -239,4 +389,8 @@ public readonly record struct CloudflareAccessJwtResult
 
         return false;
     }
+
+    private static bool IsGoogleAccessIdp(string? idp)
+        => !string.IsNullOrWhiteSpace(idp)
+           && idp.Equals("google", StringComparison.OrdinalIgnoreCase);
 }

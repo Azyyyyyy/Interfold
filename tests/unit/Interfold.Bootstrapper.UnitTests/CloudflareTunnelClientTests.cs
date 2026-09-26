@@ -368,16 +368,166 @@ public sealed class CloudflareTunnelClientTests
         using var client = CreateClient(handler);
         var policy = CloudflareAccessPhase.BuildAllowPolicy(
             ["ops@example.com"],
-            ["example.com"],
-            "idp-1");
+            ["example.com"]);
         await client.ReplaceAppPoliciesAsync("acct-1", "app-1", [policy], CancellationToken.None);
 
         await Assert.That(handler.DeleteCount).IsEqualTo(1);
         using var doc = JsonDocument.Parse(created!);
         await Assert.That(doc.RootElement.GetProperty("decision").GetString()).IsEqualTo("allow");
+        await Assert.That(doc.RootElement.GetProperty("name").GetString()).IsEqualTo("interfold-allow");
         await Assert.That(doc.RootElement.GetProperty("include").GetArrayLength()).IsEqualTo(2);
-        await Assert.That(doc.RootElement.GetProperty("require")[0].GetProperty("login_method").GetProperty("id").GetString())
-            .IsEqualTo("idp-1");
+        await Assert.That(doc.RootElement.GetProperty("require").GetArrayLength()).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task EnsureOidcIdentityProviderCreatesWhenMissing()
+    {
+        string? postBody = null;
+        var handler = new StubCloudflareHandler();
+        handler.OnGet = (path, _) =>
+        {
+            if (path.Contains("identity_providers", StringComparison.Ordinal))
+                return Json("""{"success":true,"result":[],"errors":[]}""");
+            return Fail();
+        };
+        handler.OnPost = (_, body) =>
+        {
+            postBody = body;
+            return Json("""{"success":true,"result":{"id":"idp-oidc","name":"interfold-discord"},"errors":[]}""");
+        };
+
+        using var client = CreateClient(handler);
+        var id = await client.EnsureOidcIdentityProviderAsync(
+            "acct-1",
+            "interfold-discord",
+            "did",
+            "dsecret",
+            "https://interfold-discord-oidc.test.workers.dev",
+            CancellationToken.None);
+        await Assert.That(id).IsEqualTo("idp-oidc");
+        using var doc = JsonDocument.Parse(postBody!);
+        await Assert.That(doc.RootElement.GetProperty("type").GetString()).IsEqualTo("oidc");
+        await Assert.That(doc.RootElement.GetProperty("name").GetString()).IsEqualTo("interfold-discord");
+        var config = doc.RootElement.GetProperty("config");
+        await Assert.That(config.GetProperty("auth_url").GetString())
+            .IsEqualTo("https://interfold-discord-oidc.test.workers.dev/authorize/email");
+        await Assert.That(config.GetProperty("pkce_enabled").GetBoolean()).IsFalse();
+        await Assert.That(config.GetProperty("claims")[0].GetString()).IsEqualTo("id");
+    }
+
+    [Test]
+    public async Task EnsureSelfHostedAppAllowsMultipleIdpsWithoutAutoRedirect()
+    {
+        string? postBody = null;
+        var handler = new StubCloudflareHandler();
+        handler.OnGet = (path, _) =>
+        {
+            if (path.EndsWith("/access/apps", StringComparison.Ordinal))
+                return Json("""{"success":true,"result":[],"errors":[]}""");
+            return Fail();
+        };
+        handler.OnPost = (_, body) =>
+        {
+            postBody = body;
+            return Json("""{"success":true,"result":{"id":"app-1","domain":"api.example.com","aud":"aud-1"},"errors":[]}""");
+        };
+
+        using var client = CreateClient(handler);
+        _ = await client.EnsureSelfHostedAppAsync(
+            "acct-1",
+            "api.example.com",
+            ["idp-google", "idp-discord"],
+            autoRedirectToIdentity: false,
+            CancellationToken.None);
+
+        using var doc = JsonDocument.Parse(postBody!);
+        await Assert.That(doc.RootElement.GetProperty("auto_redirect_to_identity").GetBoolean()).IsFalse();
+        var idps = doc.RootElement.GetProperty("allowed_idps");
+        await Assert.That(idps.GetArrayLength()).IsEqualTo(2);
+        await Assert.That(idps[0].GetString()).IsEqualTo("idp-google");
+        await Assert.That(idps[1].GetString()).IsEqualTo("idp-discord");
+    }
+
+    [Test]
+    public async Task EnsureKvNamespaceCreatesWhenMissing()
+    {
+        string? postBody = null;
+        var handler = new StubCloudflareHandler();
+        handler.OnGet = (path, _) =>
+        {
+            if (path.Contains("storage/kv/namespaces", StringComparison.Ordinal))
+                return Json("""{"success":true,"result":[],"errors":[]}""");
+            return Fail();
+        };
+        handler.OnPost = (_, body) =>
+        {
+            postBody = body;
+            return Json("""{"success":true,"result":{"id":"kv-1","title":"interfold-discord-oidc-keys"},"errors":[]}""");
+        };
+
+        using var client = CreateClient(handler);
+        var id = await client.EnsureKvNamespaceAsync("acct-1", "interfold-discord-oidc-keys", CancellationToken.None);
+        await Assert.That(id).IsEqualTo("kv-1");
+        using var doc = JsonDocument.Parse(postBody!);
+        await Assert.That(doc.RootElement.GetProperty("title").GetString()).IsEqualTo("interfold-discord-oidc-keys");
+    }
+
+    [Test]
+    public async Task EnsureWorkersSubdomainReadsName()
+    {
+        var handler = new StubCloudflareHandler();
+        handler.OnGet = (path, _) =>
+        {
+            if (path.EndsWith("/workers/subdomain", StringComparison.Ordinal))
+                return Json("""{"success":true,"result":{"subdomain":"azytechness"},"errors":[]}""");
+            return Fail();
+        };
+
+        using var client = CreateClient(handler);
+        var subdomain = await client.EnsureWorkersSubdomainAsync("acct-1", CancellationToken.None);
+        await Assert.That(subdomain).IsEqualTo("azytechness");
+    }
+
+    [Test]
+    public async Task EnsureDiscordOidcWorkerUploadsBundleAndConfig()
+    {
+        using var scratch = TestSupport.NewScratchDir("discord-oidc-upload");
+        var bundlePath = Path.Combine(scratch.Path, "worker.bundle.js");
+        var configPath = Path.Combine(scratch.Path, "config.json");
+        await File.WriteAllTextAsync(bundlePath, "export default {}");
+        await File.WriteAllTextAsync(configPath, """{"clientId":"x"}""");
+
+        string? putPath = null;
+        string? putBody = null;
+        var handler = new StubCloudflareHandler();
+        handler.OnPut = (path, body) =>
+        {
+            putPath = path;
+            putBody = body;
+            return Json("""{"success":true,"result":{},"errors":[]}""");
+        };
+        handler.OnPost = (path, _) =>
+        {
+            if (path.EndsWith("/subdomain", StringComparison.Ordinal))
+                return Json("""{"success":true,"result":{"enabled":true},"errors":[]}""");
+            return Fail();
+        };
+
+        using var client = CreateClient(handler);
+        var url = await client.EnsureDiscordOidcWorkerAsync(
+            "acct-1",
+            "interfold-discord-oidc",
+            bundlePath,
+            configPath,
+            "kv-1",
+            "azytechness",
+            CancellationToken.None);
+        await Assert.That(url).IsEqualTo("https://interfold-discord-oidc.azytechness.workers.dev");
+        await Assert.That(putPath).Contains("workers/scripts/interfold-discord-oidc");
+        await Assert.That(putBody).IsNotNull();
+        await Assert.That(putBody!).Contains("application/javascript+module");
+        await Assert.That(putBody!).Contains("export default json");
+        await Assert.That(putBody!).Contains("export const { clientId");
     }
 
     [Test]
