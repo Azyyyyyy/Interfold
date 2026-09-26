@@ -479,10 +479,190 @@ internal sealed class CloudflareTunnelClient : IDisposable
         return existing;
     }
 
+    internal async Task<string> EnsureOidcIdentityProviderAsync(
+        string accountId,
+        string name,
+        string clientId,
+        string clientSecret,
+        string workerOrigin,
+        CancellationToken ct)
+    {
+        var origin = workerOrigin.TrimEnd('/');
+        var existing = await FindIdentityProviderByNameAsync(accountId, name, ct).ConfigureAwait(false);
+        using var content = JsonBody(
+            new CloudflareOidcIdpRequest
+            {
+                Name = name,
+                Config = new CloudflareOidcIdpConfig
+                {
+                    ClientId = clientId,
+                    ClientSecret = clientSecret,
+                    AuthUrl = $"{origin}/authorize/email",
+                    TokenUrl = $"{origin}/token",
+                    CertsUrl = $"{origin}/jwks.json",
+                    PkceEnabled = false,
+                    EmailClaimName = "email",
+                    Claims = ["id"],
+                    Scopes = ["openid", "email", "profile"],
+                },
+            },
+            CloudflareApiJsonContext.Default.CloudflareOidcIdpRequest);
+
+        if (existing is null)
+        {
+            using var response = await _http
+                .PostAsync($"accounts/{accountId}/access/identity_providers", content, ct)
+                .ConfigureAwait(false);
+            var created = await ReadRequiredResultAsync(
+                    response,
+                    CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareIdentityProviderResult,
+                    ct)
+                .ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(created.Id))
+                throw new InvalidOperationException("Cloudflare Access OIDC IdP create response missing id.");
+            return created.Id;
+        }
+
+        using var put = await _http
+            .PutAsync($"accounts/{accountId}/access/identity_providers/{existing}", content, ct)
+            .ConfigureAwait(false);
+        _ = await ReadEnvelopeAsync(
+                put,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareIdentityProviderResult,
+                ct)
+            .ConfigureAwait(false);
+        return existing;
+    }
+
+    internal async Task<string> EnsureKvNamespaceAsync(
+        string accountId,
+        string title,
+        CancellationToken ct)
+    {
+        var existing = await FindKvNamespaceByTitleAsync(accountId, title, ct).ConfigureAwait(false);
+        if (existing is not null)
+            return existing;
+
+        using var content = JsonBody(
+            new CloudflareKvNamespaceRequest { Title = title },
+            CloudflareApiJsonContext.Default.CloudflareKvNamespaceRequest);
+        using var response = await _http
+            .PostAsync($"accounts/{accountId}/storage/kv/namespaces", content, ct)
+            .ConfigureAwait(false);
+        var created = await ReadRequiredResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareKvNamespaceResult,
+                ct)
+            .ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(created.Id))
+            throw new InvalidOperationException($"Cloudflare KV namespace '{title}' create response missing id.");
+        return created.Id;
+    }
+
+    internal async Task<string> EnsureWorkersSubdomainAsync(string accountId, CancellationToken ct)
+    {
+        using var response = await _http
+            .GetAsync($"accounts/{accountId}/workers/subdomain", ct)
+            .ConfigureAwait(false);
+        var result = await ReadRequiredResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareWorkersSubdomainResult,
+                ct)
+            .ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(result.Subdomain))
+        {
+            throw new InvalidOperationException(
+                "Cloudflare account has no workers.dev subdomain. Enable it under Workers → Settings, then re-run Access.");
+        }
+
+        return result.Subdomain.Trim();
+    }
+
+    internal async Task<string> EnsureDiscordOidcWorkerAsync(
+        string accountId,
+        string scriptName,
+        string bundlePath,
+        string configPath,
+        string kvNamespaceId,
+        string workersSubdomain,
+        CancellationToken ct)
+    {
+        var metadata = new CloudflareWorkerUploadMetadata
+        {
+            MainModule = "worker.js",
+            CompatibilityDate = "2022-12-24",
+            Bindings =
+            [
+                new CloudflareWorkerBinding
+                {
+                    Type = "kv_namespace",
+                    Name = "KV",
+                    NamespaceId = kvNamespaceId,
+                },
+            ],
+        };
+
+        using var form = new MultipartFormDataContent();
+        var metadataJson = JsonSerializer.Serialize(
+            metadata,
+            CloudflareApiJsonContext.Default.CloudflareWorkerUploadMetadata);
+        form.Add(new StringContent(metadataJson, Encoding.UTF8, "application/json"), "metadata");
+
+        var workerBytes = await File.ReadAllBytesAsync(bundlePath, ct).ConfigureAwait(false);
+        var workerContent = new ByteArrayContent(workerBytes);
+        workerContent.Headers.ContentType = new MediaTypeHeaderValue("application/javascript+module");
+        form.Add(workerContent, "worker.js", "worker.js");
+
+        var configJson = await File.ReadAllTextAsync(configPath, ct).ConfigureAwait(false);
+        var configBytes = Encoding.UTF8.GetBytes(DiscordOidcWorkerSource.ToConfigEsModule(configJson));
+        var configContent = new ByteArrayContent(configBytes);
+        configContent.Headers.ContentType = new MediaTypeHeaderValue("application/javascript+module");
+        form.Add(configContent, "config.json", "config.json");
+
+        using var upload = await _http
+            .PutAsync($"accounts/{accountId}/workers/scripts/{scriptName}", form, ct)
+            .ConfigureAwait(false);
+        _ = await ReadEnvelopeAsync(
+                upload,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseJsonElement,
+                ct)
+            .ConfigureAwait(false);
+
+        using var enableContent = JsonBody(
+            new CloudflareWorkersScriptSubdomainRequest { Enabled = true },
+            CloudflareApiJsonContext.Default.CloudflareWorkersScriptSubdomainRequest);
+        using var enable = await _http
+            .PostAsync($"accounts/{accountId}/workers/scripts/{scriptName}/subdomain", enableContent, ct)
+            .ConfigureAwait(false);
+        _ = await ReadEnvelopeAsync(
+                enable,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseJsonElement,
+                ct)
+            .ConfigureAwait(false);
+
+        return $"https://{scriptName}.{workersSubdomain}.workers.dev";
+    }
+
     internal async Task<CloudflareAccessApp> EnsureSelfHostedAppAsync(
         string accountId,
         string hostname,
         string identityProviderId,
+        CancellationToken ct,
+        bool optionsPreflightBypass = false)
+        => await EnsureSelfHostedAppAsync(
+                accountId,
+                hostname,
+                [identityProviderId],
+                autoRedirectToIdentity: true,
+                ct,
+                optionsPreflightBypass)
+            .ConfigureAwait(false);
+
+    internal async Task<CloudflareAccessApp> EnsureSelfHostedAppAsync(
+        string accountId,
+        string hostname,
+        IReadOnlyList<string> allowedIdps,
+        bool autoRedirectToIdentity,
         CancellationToken ct,
         bool optionsPreflightBypass = false)
     {
@@ -492,8 +672,8 @@ internal sealed class CloudflareTunnelClient : IDisposable
             {
                 Name = $"interfold-{hostname.Replace('/', '-')}",
                 Domain = hostname,
-                AutoRedirectToIdentity = true,
-                AllowedIdps = [identityProviderId],
+                AutoRedirectToIdentity = autoRedirectToIdentity,
+                AllowedIdps = [.. allowedIdps],
                 OptionsPreflightBypass = optionsPreflightBypass,
             },
             CloudflareApiJsonContext.Default.CloudflareSelfHostedAppRequest);
@@ -620,6 +800,31 @@ internal sealed class CloudflareTunnelClient : IDisposable
                 && string.Equals(idp.Name, name, StringComparison.OrdinalIgnoreCase))
             {
                 return idp.Id;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<string?> FindKvNamespaceByTitleAsync(string accountId, string title, CancellationToken ct)
+    {
+        using var response = await _http
+            .GetAsync($"accounts/{accountId}/storage/kv/namespaces?per_page=100", ct)
+            .ConfigureAwait(false);
+        var namespaces = await ReadResultAsync(
+                response,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseListCloudflareKvNamespaceResult,
+                ct)
+            .ConfigureAwait(false);
+        if (namespaces is null)
+            return null;
+
+        foreach (var ns in namespaces)
+        {
+            if (!string.IsNullOrWhiteSpace(ns.Id)
+                && string.Equals(ns.Title, title, StringComparison.OrdinalIgnoreCase))
+            {
+                return ns.Id;
             }
         }
 
@@ -1003,6 +1208,18 @@ public sealed class CloudflareAccessState
 
     [JsonPropertyName("identityProviderId")]
     public string IdentityProviderId { get; set; } = string.Empty;
+
+    [JsonPropertyName("discordIdentityProviderId")]
+    public string DiscordIdentityProviderId { get; set; } = string.Empty;
+
+    [JsonPropertyName("discordWorkerName")]
+    public string DiscordWorkerName { get; set; } = string.Empty;
+
+    [JsonPropertyName("discordKvNamespaceId")]
+    public string DiscordKvNamespaceId { get; set; } = string.Empty;
+
+    [JsonPropertyName("discordWorkerUrl")]
+    public string DiscordWorkerUrl { get; set; } = string.Empty;
 
     [JsonPropertyName("appIds")]
     public Dictionary<string, string> AppIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);

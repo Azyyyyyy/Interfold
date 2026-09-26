@@ -180,6 +180,99 @@ internal sealed class CloudflareGoogleIdpConfig
     public string ClientSecret { get; set; } = string.Empty;
 }
 
+internal sealed class CloudflareOidcIdpRequest
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "oidc";
+
+    [JsonPropertyName("config")]
+    public CloudflareOidcIdpConfig Config { get; set; } = new();
+}
+
+internal sealed class CloudflareOidcIdpConfig
+{
+    [JsonPropertyName("client_id")]
+    public string ClientId { get; set; } = string.Empty;
+
+    [JsonPropertyName("client_secret")]
+    public string ClientSecret { get; set; } = string.Empty;
+
+    [JsonPropertyName("auth_url")]
+    public string AuthUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("token_url")]
+    public string TokenUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("certs_url")]
+    public string CertsUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("pkce_enabled")]
+    public bool PkceEnabled { get; set; }
+
+    [JsonPropertyName("email_claim_name")]
+    public string EmailClaimName { get; set; } = "email";
+
+    [JsonPropertyName("claims")]
+    public List<string> Claims { get; set; } = [];
+
+    [JsonPropertyName("scopes")]
+    public List<string> Scopes { get; set; } = [];
+}
+
+internal sealed class CloudflareKvNamespaceRequest
+{
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+}
+
+internal sealed class CloudflareKvNamespaceResult
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("title")]
+    public string? Title { get; set; }
+}
+
+internal sealed class CloudflareWorkersSubdomainResult
+{
+    [JsonPropertyName("subdomain")]
+    public string? Subdomain { get; set; }
+}
+
+internal sealed class CloudflareWorkersScriptSubdomainRequest
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; } = true;
+}
+
+internal sealed class CloudflareWorkerUploadMetadata
+{
+    [JsonPropertyName("main_module")]
+    public string MainModule { get; set; } = "worker.js";
+
+    [JsonPropertyName("compatibility_date")]
+    public string CompatibilityDate { get; set; } = "2022-12-24";
+
+    [JsonPropertyName("bindings")]
+    public List<CloudflareWorkerBinding> Bindings { get; set; } = [];
+}
+
+internal sealed class CloudflareWorkerBinding
+{
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("namespace_id")]
+    public string? NamespaceId { get; set; }
+}
+
 internal sealed class CloudflareIdentityProviderResult
 {
     [JsonPropertyName("id")]

@@ -410,6 +410,22 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
+    public async Task EdgeCloudflareAccessWithIncompleteDiscordStillPasses()
+    {
+        var cfg = MakeValid();
+        cfg.Edge.Cloudflare.Enabled = true;
+        cfg.Edge.Cloudflare.ApiToken = "cf-token";
+        cfg.Edge.Cloudflare.TunnelName = "interfold";
+        cfg.Edge.Cloudflare.Access.Enabled = true;
+        cfg.Edge.Cloudflare.Access.AllowedEmails = ["ops@example.com"];
+        cfg.Api.OAuth.GoogleClientId = "gid";
+        cfg.Api.OAuth.GoogleClientSecret = "gsecret";
+        cfg.Api.OAuth.DiscordClientId = "discord-only-id";
+        ConfigPhase.Validate(cfg);
+        await Assert.That(CloudflareAccessPhase.HasDiscordOAuth(cfg.Api.OAuth)).IsFalse();
+    }
+
+    [Test]
     public Task EdgeSubdomainRequiresHosts()
         => AssertInvalidAsync(c =>
         {

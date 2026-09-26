@@ -7,7 +7,8 @@
 *.timer text eol=lf
 tools/Interfold.Bootstrapper/Phases/SystemdTemplates/*.conf text eol=lf
 
-# Embedded in Interfold.Infrastructure.Scylla.dll; SHA-256 of the file
-# bytes is the schema_migrations checksum, so CRLF on Windows checkouts
-# fails startup against a Linux-built (or restored) ledger.
+# Embedded in the infrastructure assemblies; SHA-256 of LF-normalized
+# bytes is the schema_migrations checksum. CRLF on a Windows checkout or
+# Docker context would fail startup against a Linux-built ledger.
 *.cql text eol=lf
+*.sql text eol=lf

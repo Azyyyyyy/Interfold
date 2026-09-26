@@ -22,7 +22,7 @@ internal static class ProcessRunner
     {
         var psi = new ProcessStartInfo
         {
-            FileName = fileName,
+            FileName = ResolveExecutable(fileName),
             WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -74,6 +74,24 @@ internal static class ProcessRunner
         }
 
         return new ProcessRunResult(process.ExitCode, stdout.ToString(), stderr.ToString());
+    }
+
+    // UseShellExecute=false skips PATHEXT, so npm/npx must become npm.cmd / npx.cmd.
+    internal static string ResolveExecutable(string fileName)
+    {
+        if (!OperatingSystem.IsWindows()
+            || Path.IsPathRooted(fileName)
+            || Path.GetExtension(fileName).Length > 0)
+        {
+            return fileName;
+        }
+
+        return PathLookup.TryFind(
+                fileName,
+                Environment.GetEnvironmentVariable("PATH"),
+                Environment.GetEnvironmentVariable("PATHEXT"),
+                windows: true)
+            ?? fileName;
     }
 
     public static async Task<bool> ExistsOnPathAsync(string command, CancellationToken ct = default)
