@@ -24,7 +24,7 @@ internal static partial class PrerequisitesPhase
     private const string SysctlDropIn = "/etc/sysctl.d/99-interfold.conf";
 
     /// <summary>Raw-string overload for the pre-validation peek in
-    /// <see cref="PeekScyllaNodeCountAsync"/>.</summary>
+    /// <see cref="PeekDatabaseModeAsync"/>.</summary>
     internal static int ResolveScyllaNodeCount(string? cqlBackendWire)
         => ResolveScyllaNodeCount(CqlBackendMapping.ToDatabaseMode(CqlBackendMapping.ParseWire(cqlBackendWire)));
 
@@ -74,7 +74,7 @@ internal static partial class PrerequisitesPhase
         }
         else
         {
-            logger.Info("    databaseMode=sqlite; skipping fs.aio-max-nr Seastar tuning");
+            logger.Info("    persistence=sqlite; skipping fs.aio-max-nr Seastar tuning");
         }
 
         logger.PhaseDone(Phase);
@@ -449,8 +449,15 @@ internal static partial class PrerequisitesPhase
             await EnsureDockerDesktopRunningAsync(logger, ct).ConfigureAwait(false);
         }
 
-        var scyllaNodes = await PeekScyllaNodeCountAsync(options, logger, ct).ConfigureAwait(false);
-        await ProbeContainerAioAsync(scyllaNodes, logger, ct).ConfigureAwait(false);
+        var peekedMode = await PeekDatabaseModeAsync(options, logger, ct).ConfigureAwait(false);
+        if (peekedMode != DatabaseMode.Sqlite)
+        {
+            await ProbeContainerAioAsync(ResolveScyllaNodeCount(peekedMode), logger, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            logger.Info("    persistence=sqlite; skipping container AIO probe");
+        }
     }
 
     internal static async Task<bool> DockerComposeReadyAsync(CancellationToken ct = default)
