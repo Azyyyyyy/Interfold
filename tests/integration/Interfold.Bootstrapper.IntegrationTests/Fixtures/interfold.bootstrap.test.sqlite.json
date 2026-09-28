@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 2,
+  "deployment": {
+    "outputDir": "/opt/deploy"
+  },
+  "edge": {
+    "hosts": ["api.test.local", "alt.test.local", "127.0.0.1"],
+    "tlsMode": "privateCa",
+    "routing": { "mode": "path" },
+    "certificates": {
+      "rootCaName": "Interfold Test Root CA",
+      "certYears": 2,
+      "trustStoreInstall": false
+    }
+  },
+  "datastores": {
+    "persistence": "sqlite"
+  },
+  "api": {
+    "image": "interfold-api:test",
+    "oauth": {
+      "googleClientSecret": "test-google-secret",
+      "discordClientSecret": ""
+    }
+  }
+}

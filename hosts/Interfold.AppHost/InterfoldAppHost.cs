@@ -274,8 +274,11 @@ public static class InterfoldAppHost
             .WithDashboard(includeDashboard)
             .ConfigureComposeFile(compose =>
             {
-                compose.AddNetwork(new Network { Name = ComposeNetworks.Scylla, Driver = "bridge" });
-                compose.AddNetwork(new Network { Name = ComposeNetworks.Postgres, Driver = "bridge" });
+                if (!useSqlite)
+                {
+                    compose.AddNetwork(new Network { Name = ComposeNetworks.Scylla, Driver = "bridge" });
+                    compose.AddNetwork(new Network { Name = ComposeNetworks.Postgres, Driver = "bridge" });
+                }
                 compose.AddNetwork(new Network { Name = ComposeNetworks.EdgeApi, Driver = "bridge" });
                 compose.AddNetwork(new Network { Name = ComposeNetworks.EdgeWeb, Driver = "bridge" });
 
@@ -800,7 +803,7 @@ public static class InterfoldAppHost
                     .WithContainerNetworkAlias(ComposeServices.InterfoldApi)
                     .WithHttpEndpoint(targetPort: apiContainerHttpPort, name: HttpEndpointName)
                     .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
-                    .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort));
+                    .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort, useSqlite));
 
                 apiResource = apiContainer;
                 apiIsContainer = true;
@@ -816,7 +819,7 @@ public static class InterfoldAppHost
                 var apiProject = builder.AddProject<Projects.Interfold_Api_Host>(ComposeServices.InterfoldApi)
                     .WithHttpEndpoint(targetPort: apiContainerHttpPort, name: HttpEndpointName)
                     .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
-                    .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort));
+                    .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort, useSqlite));
                 apiResource = apiProject;
                 apiProject.WithUrl(publicApiBase, "edge");
                 ConfigureApiCommon(apiProject, containerPath: false);
@@ -1023,11 +1026,13 @@ public static class InterfoldAppHost
         }
     }
 
-    private static Action<Aspire.Hosting.Docker.DockerComposeServiceResource, Aspire.Hosting.Docker.Resources.ComposeNodes.Service> ApiComposeServicePublisher(int apiContainerHttpPort)
+    private static Action<Aspire.Hosting.Docker.DockerComposeServiceResource, Aspire.Hosting.Docker.Resources.ComposeNodes.Service> ApiComposeServicePublisher(int apiContainerHttpPort, bool useSqlite)
     {
         return (_, service) =>
         {
-            service.Networks = [ComposeNetworks.Scylla, ComposeNetworks.Postgres, ComposeNetworks.EdgeApi];
+            service.Networks = useSqlite
+                ? [ComposeNetworks.EdgeApi]
+                : [ComposeNetworks.Scylla, ComposeNetworks.Postgres, ComposeNetworks.EdgeApi];
             service.Healthcheck = ComposeHealthcheck.Cmd(
                 interval: "15s", timeout: "5s", retries: 10, startPeriod: "20s",
                 command: ["curl", "-f", $"http://localhost:{apiContainerHttpPort}{HealthEndpoints.Ready}"]);
