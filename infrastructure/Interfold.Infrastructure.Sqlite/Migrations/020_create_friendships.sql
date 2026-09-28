@@ -1,10 +1,10 @@
--- Friendship graph + pending requests (global — normalized system ids, no region prefix).
--- level is FriendshipLevel wire text ("friend" / "trusted_friend"); timestamps are unix-ms.
+-- Friendship graph + pending requests (prefix-stripped system ids, no region).
+-- level is FriendshipLevel smallint ordinal; timestamps are unix-ms.
 
 CREATE TABLE IF NOT EXISTS friendships (
     user_id    TEXT    NOT NULL,
     friend_id  TEXT    NOT NULL,
-    level      TEXT    NOT NULL,
+    level      INTEGER NOT NULL,
     since      INTEGER NOT NULL,
     PRIMARY KEY (user_id, friend_id)
 );

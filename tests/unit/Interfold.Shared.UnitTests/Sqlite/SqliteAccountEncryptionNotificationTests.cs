@@ -49,25 +49,26 @@ public sealed class SqliteAccountRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var region = new SqliteRegionContext(ScyllaKeyspace.Nam);
             var encryption = new SqliteEncryptionStateRepository(SqliteTestDb.Factory(path));
-            var repo = new SqliteAccountRepository(SqliteTestDb.Factory(path), region, encryption);
-            var systemId = new SystemId("bob");
+            var repo = new SqliteAccountRepository(SqliteTestDb.Factory(path), encryption, TimeProvider.System);
 
-            await repo.UpdateUsernameAsync(systemId, new Username("bobbie"));
-            var profile = await repo.GetPublicProfileAsync(systemId);
+            var systemId = await repo.FindOrCreateSystemIdAsync(
+                ProviderIdentity.FromDiscord(new DiscordId("discord-123")));
+            await Assert.That(systemId).IsNotNull();
+            await repo.UpdateUsernameAsync(systemId!.Value, new Username("bobbie"));
+            var profile = await repo.GetPublicProfileAsync(systemId.Value);
             await Assert.That(profile).IsNotNull();
             await Assert.That(profile!.Username?.Value).IsEqualTo("bobbie");
 
-            var token = await repo.GetOrCreateLinkTokenAsync(systemId);
+            var token = await repo.GetOrCreateLinkTokenAsync(systemId.Value);
             await Assert.That(token.Value).IsNotEmpty();
-            var got = await repo.GetLinkTokenAsync(systemId);
+            var got = await repo.GetLinkTokenAsync(systemId.Value);
             await Assert.That(got).IsEqualTo(token);
 
             var resolved = await repo.ResolveSystemIdByLinkTokenAsync(token);
             await Assert.That(resolved).IsNotNull();
             await Assert.That(ScopedSystemId.StripRegionPrefix(resolved!.Value))
-                .IsEqualTo("bob");
+                .IsEqualTo(ScopedSystemId.StripRegionPrefix(systemId.Value));
         }
         finally
         {
@@ -81,9 +82,8 @@ public sealed class SqliteAccountRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var region = new SqliteRegionContext(ScyllaKeyspace.Nam);
             var encryption = new SqliteEncryptionStateRepository(SqliteTestDb.Factory(path));
-            var repo = new SqliteAccountRepository(SqliteTestDb.Factory(path), region, encryption);
+            var repo = new SqliteAccountRepository(SqliteTestDb.Factory(path), encryption, TimeProvider.System);
 
             var created = await repo.FindOrCreateSystemIdAsync(
                 ProviderIdentity.FromDiscord(new DiscordId("discord-123")));
@@ -122,7 +122,7 @@ public sealed class SqliteNotificationTokenRepositoryTests
 
             var groups = await repo.ListTokensForFriendsOfAsync(me);
             await Assert.That(groups.Count).IsEqualTo(1);
-            await Assert.That(groups[0].FriendSystemId.Value).IsEqualTo(friend.Value);
+            await Assert.That(ScopedSystemId.StripRegionPrefix(groups[0].FriendSystemId.Value)).IsEqualTo(friend.Value);
             await Assert.That(groups[0].Tokens.Count).IsEqualTo(1);
             await Assert.That(groups[0].Tokens[0].Value).IsEqualTo(token.Value);
 

@@ -1,5 +1,5 @@
 -- Fronting: active fronts, history, and primary alter.
--- user_id is the scoped "{region}:{rawId}" partition key (same as accounts / journals).
+-- user_id is the prefix-stripped raw id (same as accounts / journals).
 
 CREATE TABLE IF NOT EXISTS current_fronts (
     user_id     TEXT    NOT NULL,

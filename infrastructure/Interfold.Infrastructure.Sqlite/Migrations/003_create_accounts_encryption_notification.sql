@@ -1,13 +1,15 @@
 -- Account / encryption / push-token tables for PersistenceMode.Sqlite.
--- system_id on accounts is the scoped "{region}:{rawId}" key (InMemory ForSystem).
--- encryption_states / notification_tokens use normalized (prefix-stripped) system_id.
+-- system_id is the prefix-stripped raw id (no region). avatar_source is AvatarSource
+-- smallint ordinal. discord_id stays TEXT: SQLite INTEGER is signed 64-bit and Discord
+-- snowflakes overflow long.MaxValue around 2084; Scylla and the DiscordId wrapper are
+-- already string-backed.
 
 CREATE TABLE IF NOT EXISTS accounts (
     system_id              TEXT    PRIMARY KEY,
     username               TEXT,
     description            TEXT,
     avatar_url             TEXT,
-    avatar_source          TEXT,
+    avatar_source          INTEGER,
     discord_id             TEXT,
     email                  TEXT,
     apple_id               TEXT,

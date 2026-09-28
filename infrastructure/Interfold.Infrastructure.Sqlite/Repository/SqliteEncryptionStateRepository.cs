@@ -1,7 +1,7 @@
+using Dapper;
 using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Microsoft.Data.Sqlite;
 
 namespace Interfold.Infrastructure.Sqlite.Repository;
 
@@ -11,28 +11,24 @@ public sealed class SqliteEncryptionStateRepository(ISqliteConnectionFactory con
     public async Task<EncryptionState?> GetAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalized = SqliteStorageKeys.Normalize(systemId).Value;
-
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT encryption_initialized, encryption_key_checksum, salt
+        var row = await connection.QueryFirstOrDefaultAsync<EncryptionStateRow>(
+            """
+            SELECT encryption_initialized AS Initialized, encryption_key_checksum AS Checksum, salt AS Salt
             FROM encryption_states
-            WHERE system_id = $system_id
+            WHERE system_id = @system_id
             LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$system_id", normalized);
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+            """,
+            new { system_id = SqliteStorageKeys.Persist(systemId) });
+        if (row is null)
         {
             return null;
         }
 
         return new EncryptionState(
-            reader.GetInt64(0) != 0,
-            KeyChecksum.FromNullable(reader.IsDBNull(1) ? null : reader.GetString(1)),
-            EncryptionSalt.FromNullable(reader.IsDBNull(2) ? null : reader.GetString(2)));
+            row.Initialized != 0,
+            KeyChecksum.FromNullable(row.Checksum),
+            EncryptionSalt.FromNullable(row.Salt));
     }
 
     public async Task<bool> UpsertAsync(
@@ -43,29 +39,30 @@ public sealed class SqliteEncryptionStateRepository(ISqliteConnectionFactory con
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalized = SqliteStorageKeys.Normalize(systemId).Value;
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        // COALESCE keeps an existing salt when the caller omits one (InMemory Upsert contract).
-        command.CommandText = """
+        await connection.ExecuteAsync(
+            """
             INSERT INTO encryption_states
                 (system_id, encryption_initialized, encryption_key_checksum, salt, updated_at)
             VALUES
-                ($system_id, $initialized, $checksum, $salt, $updated_at)
+                (@system_id, @initialized, @checksum, @salt, @updated_at)
             ON CONFLICT(system_id) DO UPDATE SET
                 encryption_initialized = excluded.encryption_initialized,
                 encryption_key_checksum = excluded.encryption_key_checksum,
                 salt = COALESCE(excluded.salt, encryption_states.salt),
                 updated_at = excluded.updated_at
-            """;
-        command.Parameters.AddWithValue("$system_id", normalized);
-        command.Parameters.AddWithValue("$initialized", initialized ? 1 : 0);
-        command.Parameters.AddWithValue("$checksum", (object?)keyChecksum?.Value ?? DBNull.Value);
-        command.Parameters.AddWithValue("$salt", (object?)salt?.Value ?? DBNull.Value);
-        command.Parameters.AddWithValue("$updated_at", nowMs);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+            """,
+            new
+            {
+                system_id = SqliteStorageKeys.Persist(systemId),
+                initialized = initialized ? 1 : 0,
+                checksum = keyChecksum?.Value,
+                salt = salt?.Value,
+                updated_at = nowMs,
+            });
         return true;
     }
+
+    private sealed record EncryptionStateRow(long Initialized, string? Checksum, string? Salt);
 }

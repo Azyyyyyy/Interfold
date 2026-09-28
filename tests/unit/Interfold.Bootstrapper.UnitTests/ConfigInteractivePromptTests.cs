@@ -56,6 +56,11 @@ public sealed class ConfigInteractivePromptTests
             c.Input.PushTextWithEnter(a);
     }
 
+    /// <summary>CQL rows no-op while persistence is sqlite (the new default). Switch
+    /// first so later field edits actually prompt.</summary>
+    private static void EnableScyllaPostgres(TestConsole c) =>
+        EditField(c, fieldIndex: 20, PersistenceMode.ScyllaPostgres.ToWire());
+
     /// <summary>
     /// Standard wrapper — both probes return null so neither auto-default fires in tests. A
     /// CI runner with a routable NIC would otherwise pre-populate Hosts and break the empty-
@@ -89,7 +94,7 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(config.Edge.Ports.Https).IsEqualTo(443);
 
         // Datastores / API defaults
-        await Assert.That(config.Datastores.Persistence).IsEqualTo(PersistenceMode.ScyllaPostgres);
+        await Assert.That(config.Datastores.Persistence).IsEqualTo(PersistenceMode.Sqlite);
         await Assert.That(config.Datastores.Cql.Backend).IsEqualTo(CqlBackend.ScyllaSingle);
         await Assert.That(config.Datastores.Postgres.Database).IsEqualTo("interfold");
         await Assert.That(config.Datastores.Cql.ClusterName).IsEqualTo("InterfoldCluster");
@@ -473,6 +478,7 @@ public sealed class ConfigInteractivePromptTests
     public async Task CqlBackendPromptEnforcesChoices()
     {
         var console = NewConsole();
+        EnableScyllaPostgres(console);
         EditField(console, fieldIndex: 21, "invalid", "scylla-multi");
         ConfirmForm(console);
 
@@ -486,6 +492,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Happy-path edit; AddChoices enforcement is covered by the rejection test below.
         var console = NewConsole();
+        EnableScyllaPostgres(console);
         EditField(console, fieldIndex: 24, "eur");
         ConfirmForm(console);
 
@@ -499,6 +506,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // AddChoices re-prompts on non-listed values; the eventually-accepted value sticks.
         var console = NewConsole();
+        EnableScyllaPostgres(console);
         EditField(console, fieldIndex: 24, "ant", "gdpr");
         ConfirmForm(console);
 

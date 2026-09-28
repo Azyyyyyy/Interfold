@@ -27,6 +27,7 @@ public static class SqliteServiceCollectionExtensions
         IServiceCollection services,
         PersistenceConfiguration options)
     {
+        _ = options;
         services.TryAddSingleton(TimeProvider.System);
 
         return services
@@ -35,7 +36,6 @@ public static class SqliteServiceCollectionExtensions
             .AddSingleton<IIdempotencyStore, SqliteIdempotencyStore>()
             .AddSingleton<IAuthTokenRevocationRepository, SqliteAuthTokenRevocationRepository>()
             .AddHostedService<SqliteMigrationService>()
-            .AddSingleton<IRegionContext>(_ => new SqliteRegionContext(options.ScyllaKeyspace))
             .AddSingleton<IEncryptionStateRepository, SqliteEncryptionStateRepository>()
             .AddSingleton<IAccountRepository, SqliteAccountRepository>()
             .AddSingleton<INotificationTokenRepository, SqliteNotificationTokenRepository>()

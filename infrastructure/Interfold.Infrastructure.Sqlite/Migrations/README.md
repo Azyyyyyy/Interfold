@@ -7,7 +7,7 @@ consume the same bytes through SQLDelight or Room-KMP.
 ## Conventions
 
 - Dialect-neutral SQLite only (no `WITHOUT ROWID`, no `STRICT`, no `AUTOINCREMENT` for now).
-- Types: `TEXT` for UUIDs / enum wire values / JSON / ISO-8601; `INTEGER` for booleans (0/1) and unix-ms timestamps; no `BLOB` (avatars stay on `LocalAvatarStorage`).
+- Types: `TEXT` for UUIDs / JSON / emails / Discord snowflakes / import-enum wires; `INTEGER` for booleans (0/1), unix-ms timestamps, and short-backed enum ordinals (same codes as Scylla `smallint`); no `BLOB` (avatars stay on `LocalAvatarStorage`).
 - Connection pragmas (applied by `SqliteConnectionFactory` on every open):
   `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`, `busy_timeout=5000`.
 

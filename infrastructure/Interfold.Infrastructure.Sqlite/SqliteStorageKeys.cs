@@ -1,22 +1,27 @@
 using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Domain.Abstractions;
 
 namespace Interfold.Infrastructure.Sqlite;
 
-/// <summary>Region-scoped partition keys for Sqlite domain repositories — same
-/// <c>{region}:{systemId}</c> shape as InMemory.</summary>
+/// <summary>Persist prefix-stripped system ids. JWT/socket still require
+/// <see cref="ScopedSystemId.ParseScoped"/>, so outbound ids are composed with a
+/// fixed <see cref="ScyllaKeyspace.Nam"/> wire tag — not a keyspace.</summary>
 internal static class SqliteStorageKeys
 {
+    private const ScyllaKeyspace WireRegion = ScyllaKeyspace.Nam;
+
     public static SystemId Normalize(SystemId systemId)
         => new(ScopedSystemId.StripRegionPrefix(systemId.Value));
 
-    public static ScopedSystemId ForSystem(IRegionContext regionContext, SystemId systemId)
-        => ScopedSystemId.Compose(regionContext.ResolveUserRegion(systemId), systemId);
+    public static string Persist(SystemId systemId)
+        => ScopedSystemId.StripRegionPrefix(systemId.Value);
 
-    public static SystemId ToWireSystemId(string scopedUserId)
-        => new(ScopedSystemId.StripRegionPrefix(scopedUserId));
+    public static SystemId ToWire(string persisted)
+        => ScopedSystemId.Compose(WireRegion, persisted).AsSystemId();
+
+    public static SystemId ToWire(SystemId persistedOrScoped)
+        => ToWire(Persist(persistedOrScoped));
 
     public static async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(
         SystemId systemId,

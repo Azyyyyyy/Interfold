@@ -1,5 +1,6 @@
 -- Tags + alter↔tag membership.
--- Tag ids are TEXT ("N" hex UUIDs). system_id is scoped "{region}:{rawId}".
+-- Tag ids are TEXT ("N" hex UUIDs). system_id is the prefix-stripped raw id.
+-- security_level is VisibilityLevel smallint ordinal.
 
 CREATE TABLE IF NOT EXISTS tags (
     system_id       TEXT    NOT NULL,
@@ -8,7 +9,7 @@ CREATE TABLE IF NOT EXISTS tags (
     name            TEXT    NOT NULL,
     description     TEXT,
     color           TEXT,
-    security_level  TEXT    NOT NULL,
+    security_level  INTEGER NOT NULL,
     inserted_at     INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL,
     PRIMARY KEY (system_id, id)

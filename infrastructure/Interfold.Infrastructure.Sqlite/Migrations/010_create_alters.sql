@@ -1,7 +1,7 @@
 -- Alters + per-alter custom field values.
--- system_id is the scoped "{region}:{rawId}" key (SqliteStorageKeys.ForSystem).
--- Enums (security_level, avatar_source) stored as TEXT wire values; booleans as INTEGER 0/1;
--- timestamps as unix-ms INTEGER. Alter ids are INTEGER (Scylla smallint).
+-- system_id is the prefix-stripped raw id. Enums (security_level, avatar_source) are
+-- Scylla smallint ordinals; booleans are INTEGER 0/1; timestamps are unix-ms INTEGER.
+-- Alter ids are INTEGER (Scylla smallint).
 
 CREATE TABLE IF NOT EXISTS alters (
     system_id       TEXT    NOT NULL,
@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS alters (
     pronouns        TEXT,
     description     TEXT,
     avatar_url      TEXT,
-    avatar_source   TEXT,
-    security_level  TEXT    NOT NULL,
+    avatar_source   INTEGER,
+    security_level  INTEGER NOT NULL,
     color           TEXT,
     proxy_name      TEXT,
     untracked       INTEGER NOT NULL DEFAULT 0,

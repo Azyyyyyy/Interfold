@@ -1,3 +1,4 @@
+using Dapper;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Domain.Abstractions.Repository;
 
@@ -19,17 +20,19 @@ public sealed class SqliteAuthTokenRevocationRepository(ISqliteConnectionFactory
 
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
+        await connection.ExecuteAsync(
+            """
             INSERT INTO auth_tokens (jti, system_id, issued_at, expires_at, revoked_at)
-            VALUES ($jti, $system_id, $issued_at, $expires_at, NULL)
+            VALUES (@jti, @system_id, @issued_at, @expires_at, NULL)
             ON CONFLICT(jti) DO NOTHING
-            """;
-        command.Parameters.AddWithValue("$jti", jti.Value);
-        command.Parameters.AddWithValue("$system_id", systemId.Value);
-        command.Parameters.AddWithValue("$issued_at", nowMs);
-        command.Parameters.AddWithValue("$expires_at", expiresAt.ToUnixTimeMilliseconds());
-        await command.ExecuteNonQueryAsync(cancellationToken);
+            """,
+            new
+            {
+                jti = jti.Value,
+                system_id = SqliteStorageKeys.Persist(systemId),
+                issued_at = nowMs,
+                expires_at = expiresAt.ToUnixTimeMilliseconds(),
+            });
     }
 
     public async Task<bool> ValidateTokenNotRevokedAsync(
@@ -40,20 +43,17 @@ public sealed class SqliteAuthTokenRevocationRepository(ISqliteConnectionFactory
 
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
+        var found = await connection.QueryFirstOrDefaultAsync<long?>(
+            """
             SELECT 1
             FROM auth_tokens
-            WHERE jti = $jti
+            WHERE jti = @jti
               AND revoked_at IS NULL
-              AND expires_at > $now
+              AND expires_at > @now
             LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$jti", jti.Value);
-        command.Parameters.AddWithValue("$now", nowMs);
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken);
+            """,
+            new { jti = jti.Value, now = nowMs });
+        return found is not null;
     }
 
     public async Task RevokeTokenAsync(
@@ -64,15 +64,13 @@ public sealed class SqliteAuthTokenRevocationRepository(ISqliteConnectionFactory
 
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
+        await connection.ExecuteAsync(
+            """
             UPDATE auth_tokens
-            SET revoked_at = $revoked_at
-            WHERE jti = $jti
+            SET revoked_at = @revoked_at
+            WHERE jti = @jti
               AND revoked_at IS NULL
-            """;
-        command.Parameters.AddWithValue("$jti", jti.Value);
-        command.Parameters.AddWithValue("$revoked_at", nowMs);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+            """,
+            new { jti = jti.Value, revoked_at = nowMs });
     }
 }

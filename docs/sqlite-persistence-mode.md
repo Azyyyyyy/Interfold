@@ -69,8 +69,11 @@ Recorded with the scaffolding slice so subsequent PRs do not re-litigate them:
   dialect-neutral SQLite — no `WITHOUT ROWID`, no `STRICT` for now, no
   `AUTOINCREMENT`). A future Kotlin Multiplatform client (via SQLDelight or
   Room-KMP) reads the same `.sql` bytes. Type conventions: `TEXT` for UUIDs /
-  enum wire values / JSON / ISO-8601; `INTEGER` for booleans (0/1) and unix-ms
-  timestamps; no `BLOB` (avatars stay on `LocalAvatarStorage`).
+  JSON / emails / Discord snowflakes / import-enum wires; `INTEGER` for booleans
+  (0/1), unix-ms timestamps, and short-backed enum ordinals (same codes as Scylla
+  `smallint`); no `BLOB` (avatars stay on `LocalAvatarStorage`). Discord ids stay
+  `TEXT` because SQLite `INTEGER` is signed 64-bit and snowflakes overflow
+  `long.MaxValue` around 2084.
 - **Connection pragmas** applied at every open by `SqliteConnectionFactory`:
   `PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;
   PRAGMA busy_timeout=5000;`.

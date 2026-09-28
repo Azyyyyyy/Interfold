@@ -17,8 +17,7 @@ public sealed class SqliteJournalRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var region = new SqliteRegionContext(ScyllaKeyspace.Nam);
-            var repo = new SqliteJournalRepository(SqliteTestDb.Factory(path), region);
+            var repo = new SqliteJournalRepository(SqliteTestDb.Factory(path));
             var systemId = new SystemId("journal-user");
 
             var entryId = await repo.CreateGlobalAsync(systemId, new CreateGlobalJournalEntryCommand("hello"));
@@ -39,7 +38,7 @@ public sealed class SqliteJournalRepositoryTests
             await Assert.That(got.Pinned).IsTrue();
             await Assert.That(got.Alters.Count).IsEqualTo(1);
             await Assert.That(got.Alters[0].Value).IsEqualTo((short)3);
-            await Assert.That(got.UserId.Value).IsEqualTo("journal-user");
+            await Assert.That(ScopedSystemId.StripRegionPrefix(got.UserId.Value)).IsEqualTo("journal-user");
 
             var listed = await repo.ListGlobalAsync(systemId);
             await Assert.That(listed.Count).IsEqualTo(1);
@@ -60,9 +59,8 @@ public sealed class SqliteJournalRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var region = new SqliteRegionContext(ScyllaKeyspace.Nam);
             var clock = new FakeTimeProvider(DateTimeOffset.Parse("2026-01-15T12:00:00Z"));
-            var repo = new SqliteJournalRepository(SqliteTestDb.Factory(path), region, clock);
+            var repo = new SqliteJournalRepository(SqliteTestDb.Factory(path), clock);
             var systemId = new SystemId("alter-journal-user");
             var alterId = new AlterId(7);
 
@@ -111,9 +109,8 @@ public sealed class SqliteImportOperationRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var region = new SqliteRegionContext(ScyllaKeyspace.Nam);
             var clock = new FakeTimeProvider(DateTimeOffset.Parse("2026-02-01T00:00:00Z"));
-            var repo = new SqliteImportOperationRepository(SqliteTestDb.Factory(path), region, clock);
+            var repo = new SqliteImportOperationRepository(SqliteTestDb.Factory(path), clock);
             var systemId = new SystemId("importer");
             var key = new IdempotencyKey("idem-1");
 
@@ -151,9 +148,8 @@ public sealed class SqliteImportOperationRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var region = new SqliteRegionContext(ScyllaKeyspace.Nam);
             var clock = new FakeTimeProvider(DateTimeOffset.Parse("2026-02-01T00:00:00Z"));
-            var repo = new SqliteImportOperationRepository(SqliteTestDb.Factory(path), region, clock);
+            var repo = new SqliteImportOperationRepository(SqliteTestDb.Factory(path), clock);
             var systemId = new SystemId("stale-user");
 
             var claim = await repo.TryClaimAsync(systemId, ImportOperationKind.PluralKit, new IdempotencyKey("s1"));
@@ -179,8 +175,7 @@ public sealed class SqliteImportOperationRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var region = new SqliteRegionContext(ScyllaKeyspace.Nam);
-            var repo = new SqliteImportOperationRepository(SqliteTestDb.Factory(path), region);
+            var repo = new SqliteImportOperationRepository(SqliteTestDb.Factory(path));
             var systemId = new SystemId("fail-user");
 
             var claim = await repo.TryClaimAsync(systemId, ImportOperationKind.SimplyPlural, new IdempotencyKey("f1"));

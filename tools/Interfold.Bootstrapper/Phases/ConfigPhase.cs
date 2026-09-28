@@ -281,7 +281,7 @@ internal static class ConfigPhase
                                                                 ? PersistenceMode.Sqlite.ToWire()
                                                                 : PersistenceMode.ScyllaPostgres.ToWire())
                                                             .AddChoices(ValidBootstrapPersistenceModes)),
-                                                        PersistenceMode.ScyllaPostgres,
+                                                        PersistenceMode.Sqlite,
                                                         trimmed => $"Unrecognised persistence '{trimmed}'. Valid values: scylla-postgres, sqlite.")),
                 ("CQL backend",                     () => c.UsesSqlite ? "(n/a)" : c.Datastores.Cql.Backend.ToWire(),
                                                     () =>

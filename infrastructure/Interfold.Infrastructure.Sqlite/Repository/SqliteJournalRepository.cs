@@ -1,16 +1,16 @@
+using Dapper;
 using Interfold.Journals.Contracts.Ids;
 using Interfold.Journals.Contracts.Models.Commands;
 using Interfold.Journals.Contracts.Models.Read;
 using Interfold.Journals.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Contracts.Models;
 using Microsoft.Data.Sqlite;
 
 namespace Interfold.Infrastructure.Sqlite.Repository;
 
 public sealed class SqliteJournalRepository(
     ISqliteConnectionFactory connectionFactory,
-    IRegionContext regionContext,
     TimeProvider? timeProvider = null) : IJournalRepository
 {
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
@@ -20,24 +20,26 @@ public sealed class SqliteJournalRepository(
         CreateGlobalJournalEntryCommand command,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
         var entryId = Guid.NewGuid();
         var nowMs = NowMs();
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var commandSql = connection.CreateCommand();
-        commandSql.CommandText = """
+        await connection.ExecuteAsync(
+            """
             INSERT INTO global_journals
                 (user_id, id, title, content, color, pinned, locked, inserted_at, updated_at)
             VALUES
-                ($user_id, $id, $title, NULL, NULL, 0, 0, $inserted_at, $updated_at)
-            """;
-        commandSql.Parameters.AddWithValue("$user_id", userId);
-        commandSql.Parameters.AddWithValue("$id", FormatEntryId(entryId));
-        commandSql.Parameters.AddWithValue("$title", command.Title);
-        commandSql.Parameters.AddWithValue("$inserted_at", nowMs);
-        commandSql.Parameters.AddWithValue("$updated_at", nowMs);
-        await commandSql.ExecuteNonQueryAsync(cancellationToken);
+                (@user_id, @id, @title, NULL, NULL, 0, 0, @inserted_at, @updated_at)
+            """,
+            new
+            {
+                user_id = userKey,
+                id = FormatEntryId(entryId),
+                title = command.Title,
+                inserted_at = nowMs,
+                updated_at = nowMs,
+            });
 
         return new EntryId(entryId);
     }
@@ -67,23 +69,24 @@ public sealed class SqliteJournalRepository(
             return true;
         }
 
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        await connection.ExecuteAsync(
+            """
             UPDATE global_journals SET
-                title = COALESCE($title, title),
-                content = COALESCE($content, content),
-                color = COALESCE($color, color),
-                updated_at = $updated_at
-            WHERE user_id = $user_id AND id = $id
-            """;
-        cmd.Parameters.AddWithValue("$title", (object?)command.Title ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$content", (object?)command.Content ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$color", command.Color is { } c ? c.Value : DBNull.Value);
-        cmd.Parameters.AddWithValue("$updated_at", NowMs());
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", FormatEntryId(command.EntryId.Value));
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+                title = COALESCE(@title, title),
+                content = COALESCE(@content, content),
+                color = COALESCE(@color, color),
+                updated_at = @updated_at
+            WHERE user_id = @user_id AND id = @id
+            """,
+            new
+            {
+                title = command.Title,
+                content = command.Content,
+                color = command.Color?.Value,
+                updated_at = NowMs(),
+                user_id = SqliteStorageKeys.Persist(systemId),
+                id = FormatEntryId(command.EntryId.Value),
+            });
         return true;
     }
 
@@ -92,39 +95,31 @@ public sealed class SqliteJournalRepository(
         EntryId entryId,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         if (!await ExistsGlobalCoreAsync(connection, systemId, entryId, cancellationToken))
         {
             return false;
         }
 
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            await using (var deleteAlters = connection.CreateCommand())
-            {
-                deleteAlters.Transaction = tx;
-                deleteAlters.CommandText = """
-                    DELETE FROM global_journal_alters
-                    WHERE user_id = $user_id AND global_journal_id = $id
-                    """;
-                deleteAlters.Parameters.AddWithValue("$user_id", userId);
-                deleteAlters.Parameters.AddWithValue("$id", FormatEntryId(entryId.Value));
-                await deleteAlters.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                DELETE FROM global_journal_alters
+                WHERE user_id = @user_id AND global_journal_id = @id
+                """,
+                new { user_id = userKey, id = FormatEntryId(entryId.Value) },
+                tx);
 
-            await using (var deleteEntry = connection.CreateCommand())
-            {
-                deleteEntry.Transaction = tx;
-                deleteEntry.CommandText = """
-                    DELETE FROM global_journals
-                    WHERE user_id = $user_id AND id = $id
-                    """;
-                deleteEntry.Parameters.AddWithValue("$user_id", userId);
-                deleteEntry.Parameters.AddWithValue("$id", FormatEntryId(entryId.Value));
-                await deleteEntry.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                DELETE FROM global_journals
+                WHERE user_id = @user_id AND id = @id
+                """,
+                new { user_id = userKey, id = FormatEntryId(entryId.Value) },
+                tx);
 
             await tx.CommitAsync(cancellationToken);
             return true;
@@ -156,7 +151,6 @@ public sealed class SqliteJournalRepository(
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         if (!await ExistsGlobalCoreAsync(connection, systemId, entryId, cancellationToken))
         {
@@ -164,20 +158,22 @@ public sealed class SqliteJournalRepository(
         }
 
         var nowMs = NowMs();
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        await connection.ExecuteAsync(
+            """
             INSERT INTO global_journal_alters
                 (user_id, global_journal_id, alter_id, inserted_at, updated_at)
             VALUES
-                ($user_id, $id, $alter_id, $inserted_at, $updated_at)
+                (@user_id, @id, @alter_id, @inserted_at, @updated_at)
             ON CONFLICT(user_id, global_journal_id, alter_id) DO NOTHING
-            """;
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", FormatEntryId(entryId.Value));
-        cmd.Parameters.AddWithValue("$alter_id", alterId.Value);
-        cmd.Parameters.AddWithValue("$inserted_at", nowMs);
-        cmd.Parameters.AddWithValue("$updated_at", nowMs);
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+            """,
+            new
+            {
+                user_id = SqliteStorageKeys.Persist(systemId),
+                id = FormatEntryId(entryId.Value),
+                alter_id = alterId.Value,
+                inserted_at = nowMs,
+                updated_at = nowMs,
+            });
         return true;
     }
 
@@ -187,19 +183,20 @@ public sealed class SqliteJournalRepository(
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        var removed = await connection.ExecuteAsync(
+            """
             DELETE FROM global_journal_alters
-            WHERE user_id = $user_id
-              AND global_journal_id = $id
-              AND alter_id = $alter_id
-            """;
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", FormatEntryId(entryId.Value));
-        cmd.Parameters.AddWithValue("$alter_id", alterId.Value);
-        var removed = await cmd.ExecuteNonQueryAsync(cancellationToken);
+            WHERE user_id = @user_id
+              AND global_journal_id = @id
+              AND alter_id = @alter_id
+            """,
+            new
+            {
+                user_id = SqliteStorageKeys.Persist(systemId),
+                id = FormatEntryId(entryId.Value),
+                alter_id = alterId.Value,
+            });
         return removed > 0;
     }
 
@@ -208,25 +205,26 @@ public sealed class SqliteJournalRepository(
         CreateAlterJournalEntryCommand command,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
         var entryId = Guid.NewGuid();
         var atMs = command.CreatedAt.ToUnixTimeMilliseconds();
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        await connection.ExecuteAsync(
+            """
             INSERT INTO alter_journals
                 (user_id, id, alter_id, title, content, color, pinned, locked, inserted_at, updated_at)
             VALUES
-                ($user_id, $id, $alter_id, $title, NULL, NULL, 0, 0, $inserted_at, $updated_at)
-            """;
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", FormatEntryId(entryId));
-        cmd.Parameters.AddWithValue("$alter_id", command.AlterId.Value);
-        cmd.Parameters.AddWithValue("$title", command.Title);
-        cmd.Parameters.AddWithValue("$inserted_at", atMs);
-        cmd.Parameters.AddWithValue("$updated_at", atMs);
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+                (@user_id, @id, @alter_id, @title, NULL, NULL, 0, 0, @inserted_at, @updated_at)
+            """,
+            new
+            {
+                user_id = SqliteStorageKeys.Persist(systemId),
+                id = FormatEntryId(entryId),
+                alter_id = command.AlterId.Value,
+                title = command.Title,
+                inserted_at = atMs,
+                updated_at = atMs,
+            });
 
         return new EntryId(entryId);
     }
@@ -236,27 +234,27 @@ public sealed class SqliteJournalRepository(
         EntryId entryId,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT id, alter_id
+        var row = await connection.QueryFirstOrDefaultAsync<AlterJournalRefRow>(
+            """
+            SELECT id AS Id, alter_id AS AlterId
             FROM alter_journals
-            WHERE user_id = $user_id AND id = $id
+            WHERE user_id = @user_id AND id = @id
             LIMIT 1
-            """;
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", FormatEntryId(entryId.Value));
-
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+            """,
+            new
+            {
+                user_id = SqliteStorageKeys.Persist(systemId),
+                id = FormatEntryId(entryId.Value),
+            });
+        if (row is null)
         {
             return null;
         }
 
         return new AlterJournalRef(
-            new EntryId(ParseEntryId(reader.GetString(0))),
-            new AlterId((short)reader.GetInt64(1)));
+            new EntryId(ParseEntryId(row.Id)),
+            new AlterId((short)row.AlterId));
     }
 
     public async Task<bool> UpdateAlterAsync(
@@ -264,30 +262,31 @@ public sealed class SqliteJournalRepository(
         UpdateAlterJournalEntryCommand command,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
 
         if (command.Title is null && command.Content is null && command.Color is null)
         {
-            return await ExistsAlterAsync(connection, userId, command.EntryId, cancellationToken);
+            return await ExistsAlterAsync(connection, SqliteStorageKeys.Persist(systemId), command.EntryId, cancellationToken);
         }
 
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        var updated = await connection.ExecuteAsync(
+            """
             UPDATE alter_journals SET
-                title = COALESCE($title, title),
-                content = COALESCE($content, content),
-                color = COALESCE($color, color),
-                updated_at = $updated_at
-            WHERE user_id = $user_id AND id = $id
-            """;
-        cmd.Parameters.AddWithValue("$title", (object?)command.Title ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$content", (object?)command.Content ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$color", command.Color is { } c ? c.Value : DBNull.Value);
-        cmd.Parameters.AddWithValue("$updated_at", command.UpdatedAt.ToUnixTimeMilliseconds());
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", FormatEntryId(command.EntryId.Value));
-        var updated = await cmd.ExecuteNonQueryAsync(cancellationToken);
+                title = COALESCE(@title, title),
+                content = COALESCE(@content, content),
+                color = COALESCE(@color, color),
+                updated_at = @updated_at
+            WHERE user_id = @user_id AND id = @id
+            """,
+            new
+            {
+                title = command.Title,
+                content = command.Content,
+                color = command.Color?.Value,
+                updated_at = command.UpdatedAt.ToUnixTimeMilliseconds(),
+                user_id = SqliteStorageKeys.Persist(systemId),
+                id = FormatEntryId(command.EntryId.Value),
+            });
         return updated > 0;
     }
 
@@ -296,16 +295,17 @@ public sealed class SqliteJournalRepository(
         EntryId entryId,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        var removed = await connection.ExecuteAsync(
+            """
             DELETE FROM alter_journals
-            WHERE user_id = $user_id AND id = $id
-            """;
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", FormatEntryId(entryId.Value));
-        var removed = await cmd.ExecuteNonQueryAsync(cancellationToken);
+            WHERE user_id = @user_id AND id = @id
+            """,
+            new
+            {
+                user_id = SqliteStorageKeys.Persist(systemId),
+                id = FormatEntryId(entryId.Value),
+            });
         return removed > 0;
     }
 
@@ -314,35 +314,26 @@ public sealed class SqliteJournalRepository(
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            int removed;
-            await using (var deleteEntries = connection.CreateCommand())
-            {
-                deleteEntries.Transaction = tx;
-                deleteEntries.CommandText = """
-                    DELETE FROM alter_journals
-                    WHERE user_id = $user_id AND alter_id = $alter_id
-                    """;
-                deleteEntries.Parameters.AddWithValue("$user_id", userId);
-                deleteEntries.Parameters.AddWithValue("$alter_id", alterId.Value);
-                removed = await deleteEntries.ExecuteNonQueryAsync(cancellationToken);
-            }
+            var removed = await connection.ExecuteAsync(
+                """
+                DELETE FROM alter_journals
+                WHERE user_id = @user_id AND alter_id = @alter_id
+                """,
+                new { user_id = userKey, alter_id = alterId.Value },
+                tx);
 
-            await using (var detach = connection.CreateCommand())
-            {
-                detach.Transaction = tx;
-                detach.CommandText = """
-                    DELETE FROM global_journal_alters
-                    WHERE user_id = $user_id AND alter_id = $alter_id
-                    """;
-                detach.Parameters.AddWithValue("$user_id", userId);
-                detach.Parameters.AddWithValue("$alter_id", alterId.Value);
-                await detach.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                DELETE FROM global_journal_alters
+                WHERE user_id = @user_id AND alter_id = @alter_id
+                """,
+                new { user_id = userKey, alter_id = alterId.Value },
+                tx);
 
             await tx.CommitAsync(cancellationToken);
             return removed;
@@ -373,26 +364,17 @@ public sealed class SqliteJournalRepository(
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT id, user_id, alter_id, title, content, color, pinned, locked, inserted_at, updated_at
+        var rows = await connection.QueryAsync<AlterJournalRow>(
+            """
+            SELECT id AS Id, user_id AS UserId, alter_id AS AlterId, title AS Title, content AS Content,
+                   color AS Color, pinned AS Pinned, locked AS Locked, inserted_at AS InsertedAt, updated_at AS UpdatedAt
             FROM alter_journals
-            WHERE user_id = $user_id AND alter_id = $alter_id
+            WHERE user_id = @user_id AND alter_id = @alter_id
             ORDER BY inserted_at DESC
-            """;
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$alter_id", alterId.Value);
-
-        var list = new List<AlterJournalReadModel>();
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            list.Add(MapAlterJournal(reader));
-        }
-
-        return list;
+            """,
+            new { user_id = SqliteStorageKeys.Persist(systemId), alter_id = alterId.Value });
+        return rows.Select(MapAlterJournal).ToArray();
     }
 
     public async Task<AlterJournalReadModel?> GetAlterAsync(
@@ -400,60 +382,45 @@ public sealed class SqliteJournalRepository(
         EntryId entryId,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT id, user_id, alter_id, title, content, color, pinned, locked, inserted_at, updated_at
+        var row = await connection.QueryFirstOrDefaultAsync<AlterJournalRow>(
+            """
+            SELECT id AS Id, user_id AS UserId, alter_id AS AlterId, title AS Title, content AS Content,
+                   color AS Color, pinned AS Pinned, locked AS Locked, inserted_at AS InsertedAt, updated_at AS UpdatedAt
             FROM alter_journals
-            WHERE user_id = $user_id AND id = $id
+            WHERE user_id = @user_id AND id = @id
             LIMIT 1
-            """;
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", FormatEntryId(entryId.Value));
-
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            return null;
-        }
-
-        return MapAlterJournal(reader);
+            """,
+            new
+            {
+                user_id = SqliteStorageKeys.Persist(systemId),
+                id = FormatEntryId(entryId.Value),
+            });
+        return row is null ? null : MapAlterJournal(row);
     }
 
     public async Task<IReadOnlyList<JournalReadModel>> ListGlobalAsync(
         SystemId systemId,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT id, user_id, title, content, color, pinned, locked, inserted_at, updated_at
+        var drafts = (await connection.QueryAsync<GlobalJournalRow>(
+            """
+            SELECT id AS Id, user_id AS UserId, title AS Title, content AS Content, color AS Color,
+                   pinned AS Pinned, locked AS Locked, inserted_at AS InsertedAt, updated_at AS UpdatedAt
             FROM global_journals
-            WHERE user_id = $user_id
-            """;
-        cmd.Parameters.AddWithValue("$user_id", userId);
+            WHERE user_id = @user_id
+            """,
+            new { user_id = userKey })).ToArray();
 
-        var drafts = new List<(string IdHex, JournalReadModel Model)>();
-
-        await using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        var result = new List<JournalReadModel>(drafts.Length);
+        foreach (var draft in drafts)
         {
-            while (await reader.ReadAsync(cancellationToken))
-            {
-                var idHex = reader.GetString(0);
-                drafts.Add((idHex, MapJournalWithoutAlters(reader)));
-            }
+            var alterIds = await LoadAlterIdsAsync(connection, userKey, draft.Id, cancellationToken);
+            result.Add(MapGlobalJournal(draft) with { Alters = alterIds });
         }
 
-        var result = new List<JournalReadModel>(drafts.Count);
-        foreach (var (idHex, draft) in drafts)
-        {
-            var alterIds = await LoadAlterIdsAsync(connection, userId, idHex, cancellationToken);
-            result.Add(draft with { Alters = alterIds });
-        }
-
-        // Sort by wire form (lowercase "N" hex); Guid.CompareTo would reorder differently.
         return result
             .OrderByDescending(e => e.Id.Value.ToString("N"), StringComparer.Ordinal)
             .ToArray();
@@ -464,30 +431,25 @@ public sealed class SqliteJournalRepository(
         EntryId entryId,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
         var idHex = FormatEntryId(entryId.Value);
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT id, user_id, title, content, color, pinned, locked, inserted_at, updated_at
+        var row = await connection.QueryFirstOrDefaultAsync<GlobalJournalRow>(
+            """
+            SELECT id AS Id, user_id AS UserId, title AS Title, content AS Content, color AS Color,
+                   pinned AS Pinned, locked AS Locked, inserted_at AS InsertedAt, updated_at AS UpdatedAt
             FROM global_journals
-            WHERE user_id = $user_id AND id = $id
+            WHERE user_id = @user_id AND id = @id
             LIMIT 1
-            """;
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", idHex);
-
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+            """,
+            new { user_id = userKey, id = idHex });
+        if (row is null)
         {
             return null;
         }
 
-        var draft = MapJournalWithoutAlters(reader);
-        await reader.DisposeAsync();
-
-        var alterIds = await LoadAlterIdsAsync(connection, userId, idHex, cancellationToken);
-        return draft with { Alters = alterIds };
+        var alterIds = await LoadAlterIdsAsync(connection, userKey, idHex, cancellationToken);
+        return MapGlobalJournal(row) with { Alters = alterIds };
     }
 
     private async Task<bool> SetGlobalFlagAsync(
@@ -497,25 +459,32 @@ public sealed class SqliteJournalRepository(
         bool value,
         CancellationToken cancellationToken)
     {
-        // column is a closed set from callers (locked/pinned) — never bind user input as an identifier.
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         if (!await ExistsGlobalCoreAsync(connection, systemId, entryId, cancellationToken))
         {
             return false;
         }
 
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = $"""
-            UPDATE global_journals
-            SET {column} = $value, updated_at = $updated_at
-            WHERE user_id = $user_id AND id = $id
-            """;
-        cmd.Parameters.AddWithValue("$value", value ? 1 : 0);
-        cmd.Parameters.AddWithValue("$updated_at", NowMs());
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", FormatEntryId(entryId.Value));
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        var sql = column == "pinned"
+            ? """
+              UPDATE global_journals
+              SET pinned = @flag, updated_at = @updated_at
+              WHERE user_id = @user_id AND id = @id
+              """
+            : """
+              UPDATE global_journals
+              SET locked = @flag, updated_at = @updated_at
+              WHERE user_id = @user_id AND id = @id
+              """;
+        await connection.ExecuteAsync(
+            sql,
+            new
+            {
+                flag = value ? 1 : 0,
+                updated_at = NowMs(),
+                user_id = SqliteStorageKeys.Persist(systemId),
+                id = FormatEntryId(entryId.Value),
+            });
         return true;
     }
 
@@ -526,113 +495,107 @@ public sealed class SqliteJournalRepository(
         bool value,
         CancellationToken cancellationToken)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = $"""
-            UPDATE alter_journals
-            SET {column} = $value, updated_at = $updated_at
-            WHERE user_id = $user_id AND id = $id
-            """;
-        cmd.Parameters.AddWithValue("$value", value ? 1 : 0);
-        cmd.Parameters.AddWithValue("$updated_at", NowMs());
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", FormatEntryId(entryId.Value));
-        var updated = await cmd.ExecuteNonQueryAsync(cancellationToken);
+        var sql = column == "pinned"
+            ? """
+              UPDATE alter_journals
+              SET pinned = @flag, updated_at = @updated_at
+              WHERE user_id = @user_id AND id = @id
+              """
+            : """
+              UPDATE alter_journals
+              SET locked = @flag, updated_at = @updated_at
+              WHERE user_id = @user_id AND id = @id
+              """;
+        var updated = await connection.ExecuteAsync(
+            sql,
+            new
+            {
+                flag = value ? 1 : 0,
+                updated_at = NowMs(),
+                user_id = SqliteStorageKeys.Persist(systemId),
+                id = FormatEntryId(entryId.Value),
+            });
         return updated > 0;
     }
 
-    private async Task<bool> ExistsGlobalCoreAsync(
+    private static async Task<bool> ExistsGlobalCoreAsync(
         SqliteConnection connection,
         SystemId systemId,
         EntryId entryId,
         CancellationToken cancellationToken)
     {
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        var hit = await connection.ExecuteScalarAsync(
+            """
             SELECT 1 FROM global_journals
-            WHERE user_id = $user_id AND id = $id
+            WHERE user_id = @user_id AND id = @id
             LIMIT 1
-            """;
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", FormatEntryId(entryId.Value));
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken);
+            """,
+            new
+            {
+                user_id = SqliteStorageKeys.Persist(systemId),
+                id = FormatEntryId(entryId.Value),
+            });
+        return hit is not null and not DBNull;
     }
 
     private static async Task<bool> ExistsAlterAsync(
         SqliteConnection connection,
-        string userId,
+        string userKey,
         EntryId entryId,
         CancellationToken cancellationToken)
     {
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        var hit = await connection.ExecuteScalarAsync(
+            """
             SELECT 1 FROM alter_journals
-            WHERE user_id = $user_id AND id = $id
+            WHERE user_id = @user_id AND id = @id
             LIMIT 1
-            """;
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", FormatEntryId(entryId.Value));
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken);
+            """,
+            new { user_id = userKey, id = FormatEntryId(entryId.Value) });
+        return hit is not null and not DBNull;
     }
 
     private static async Task<IReadOnlyList<AlterId>> LoadAlterIdsAsync(
         SqliteConnection connection,
-        string userId,
+        string userKey,
         string entryIdHex,
         CancellationToken cancellationToken)
     {
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        var alterIds = await connection.QueryAsync<long>(
+            """
             SELECT alter_id
             FROM global_journal_alters
-            WHERE user_id = $user_id AND global_journal_id = $id
-            """;
-        cmd.Parameters.AddWithValue("$user_id", userId);
-        cmd.Parameters.AddWithValue("$id", entryIdHex);
-
-        var list = new List<AlterId>();
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            list.Add(new AlterId((short)reader.GetInt64(0)));
-        }
-
-        return list;
+            WHERE user_id = @user_id AND global_journal_id = @id
+            """,
+            new { user_id = userKey, id = entryIdHex });
+        return alterIds.Select(id => new AlterId((short)id)).ToArray();
     }
 
-    private static JournalReadModel MapJournalWithoutAlters(SqliteDataReader reader)
-    {
-        return new JournalReadModel(
-            new EntryId(ParseEntryId(reader.GetString(0))),
-            SqliteStorageKeys.ToWireSystemId(reader.GetString(1)),
-            reader.GetString(2),
-            reader.IsDBNull(3) ? null : reader.GetString(3),
-            HexColor.FromNullable(reader.IsDBNull(4) ? null : reader.GetString(4)),
-            reader.GetInt64(6) != 0,
-            reader.GetInt64(5) != 0,
-            FromUnixMs(reader.GetInt64(7)),
-            FromUnixMs(reader.GetInt64(8)),
+    private static JournalReadModel MapGlobalJournal(GlobalJournalRow row)
+        => new(
+            new EntryId(ParseEntryId(row.Id)),
+            SqliteStorageKeys.ToWire(row.UserId),
+            row.Title,
+            row.Content,
+            HexColor.FromNullable(row.Color),
+            row.Locked != 0,
+            row.Pinned != 0,
+            FromUnixMs(row.InsertedAt),
+            FromUnixMs(row.UpdatedAt),
             Array.Empty<AlterId>());
-    }
 
-    private static AlterJournalReadModel MapAlterJournal(SqliteDataReader reader)
-    {
-        return new AlterJournalReadModel(
-            new EntryId(ParseEntryId(reader.GetString(0))),
-            SqliteStorageKeys.ToWireSystemId(reader.GetString(1)),
-            new AlterId((short)reader.GetInt64(2)),
-            reader.GetString(3),
-            reader.IsDBNull(4) ? null : reader.GetString(4),
-            HexColor.FromNullable(reader.IsDBNull(5) ? null : reader.GetString(5)),
-            reader.GetInt64(7) != 0,
-            reader.GetInt64(6) != 0,
-            FromUnixMs(reader.GetInt64(8)),
-            FromUnixMs(reader.GetInt64(9)));
-    }
+    private static AlterJournalReadModel MapAlterJournal(AlterJournalRow row)
+        => new(
+            new EntryId(ParseEntryId(row.Id)),
+            SqliteStorageKeys.ToWire(row.UserId),
+            new AlterId((short)row.AlterId),
+            row.Title,
+            row.Content,
+            HexColor.FromNullable(row.Color),
+            row.Locked != 0,
+            row.Pinned != 0,
+            FromUnixMs(row.InsertedAt),
+            FromUnixMs(row.UpdatedAt));
 
     private long NowMs() => _clock.GetUtcNow().ToUnixTimeMilliseconds();
 
@@ -642,4 +605,29 @@ public sealed class SqliteJournalRepository(
 
     private static DateTime FromUnixMs(long ms)
         => DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;
+
+    private sealed record AlterJournalRefRow(string Id, long AlterId);
+
+    private sealed record GlobalJournalRow(
+        string Id,
+        string UserId,
+        string Title,
+        string? Content,
+        string? Color,
+        long Pinned,
+        long Locked,
+        long InsertedAt,
+        long UpdatedAt);
+
+    private sealed record AlterJournalRow(
+        string Id,
+        string UserId,
+        long AlterId,
+        string Title,
+        string? Content,
+        string? Color,
+        long Pinned,
+        long Locked,
+        long InsertedAt,
+        long UpdatedAt);
 }

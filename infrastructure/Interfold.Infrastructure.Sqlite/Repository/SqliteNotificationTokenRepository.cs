@@ -1,3 +1,4 @@
+using Dapper;
 using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Settings.Contracts.Ids;
 using Interfold.Settings.Domain.Abstractions.Repository;
@@ -12,39 +13,33 @@ public sealed class SqliteNotificationTokenRepository(
     public async Task<bool> AddAsync(SystemId systemId, PushToken token, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalizedSystemId = SqliteStorageKeys.Normalize(systemId).Value;
+        var normalizedSystemId = SqliteStorageKeys.Persist(systemId);
         var normalizedToken = token.Value.Trim();
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (Microsoft.Data.Sqlite.SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            // One owner per push token — clear any prior binding first (InMemory overwrite).
-            await using (var clear = connection.CreateCommand())
-            {
-                clear.Transaction = tx;
-                clear.CommandText = "DELETE FROM notification_tokens WHERE push_token = $push_token";
-                clear.Parameters.AddWithValue("$push_token", normalizedToken);
-                await clear.ExecuteNonQueryAsync(cancellationToken);
-            }
-
-            await using (var insert = connection.CreateCommand())
-            {
-                insert.Transaction = tx;
-                insert.CommandText = """
-                    INSERT INTO notification_tokens (system_id, push_token, inserted_at, updated_at)
-                    VALUES ($system_id, $push_token, $inserted_at, $updated_at)
-                    ON CONFLICT(system_id, push_token) DO UPDATE SET
-                        updated_at = excluded.updated_at
-                    """;
-                insert.Parameters.AddWithValue("$system_id", normalizedSystemId);
-                insert.Parameters.AddWithValue("$push_token", normalizedToken);
-                insert.Parameters.AddWithValue("$inserted_at", nowMs);
-                insert.Parameters.AddWithValue("$updated_at", nowMs);
-                await insert.ExecuteNonQueryAsync(cancellationToken);
-            }
-
+            await connection.ExecuteAsync(
+                "DELETE FROM notification_tokens WHERE push_token = @push_token",
+                new { push_token = normalizedToken },
+                tx);
+            await connection.ExecuteAsync(
+                """
+                INSERT INTO notification_tokens (system_id, push_token, inserted_at, updated_at)
+                VALUES (@system_id, @push_token, @inserted_at, @updated_at)
+                ON CONFLICT(system_id, push_token) DO UPDATE SET
+                    updated_at = excluded.updated_at
+                """,
+                new
+                {
+                    system_id = normalizedSystemId,
+                    push_token = normalizedToken,
+                    inserted_at = nowMs,
+                    updated_at = nowMs,
+                },
+                tx);
             await tx.CommitAsync(cancellationToken);
             return true;
         }
@@ -58,13 +53,10 @@ public sealed class SqliteNotificationTokenRepository(
     public async Task<bool> RemoveAsync(PushToken token, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalizedToken = token.Value.Trim();
-
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM notification_tokens WHERE push_token = $push_token";
-        command.Parameters.AddWithValue("$push_token", normalizedToken);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        await connection.ExecuteAsync(
+            "DELETE FROM notification_tokens WHERE push_token = @push_token",
+            new { push_token = token.Value.Trim() });
         return true;
     }
 
@@ -91,32 +83,26 @@ public sealed class SqliteNotificationTokenRepository(
             if (friendship.Friend is null)
                 continue;
 
-            var friendId = SqliteStorageKeys.Normalize(friendship.Friend.Id).Value;
+            var friendId = SqliteStorageKeys.Persist(friendship.Friend.Id);
             if (string.IsNullOrWhiteSpace(friendId) || !seenFriends.Add(friendId))
                 continue;
 
-            await using var command = connection.CreateCommand();
-            command.CommandText = """
-                SELECT push_token
-                FROM notification_tokens
-                WHERE system_id = $system_id
-                """;
-            command.Parameters.AddWithValue("$system_id", friendId);
+            var tokens = (await connection.QueryAsync<string>(
+                    """
+                    SELECT push_token
+                    FROM notification_tokens
+                    WHERE system_id = @system_id
+                    """,
+                    new { system_id = friendId }))
+                .Where(raw => !string.IsNullOrWhiteSpace(raw))
+                .Select(raw => new PushToken(raw))
+                .Distinct()
+                .ToArray();
 
-            var tokens = new List<PushToken>();
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
-            {
-                var raw = reader.GetString(0);
-                if (!string.IsNullOrWhiteSpace(raw))
-                    tokens.Add(new PushToken(raw));
-            }
-
-            var distinct = tokens.Distinct().ToArray();
-            if (distinct.Length == 0)
+            if (tokens.Length == 0)
                 continue;
 
-            groups.Add(new FriendNotificationTokens(new SystemId(friendId), distinct));
+            groups.Add(new FriendNotificationTokens(SqliteStorageKeys.ToWire(friendId), tokens));
         }
 
         return groups;

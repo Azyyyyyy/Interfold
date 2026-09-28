@@ -33,7 +33,7 @@ public sealed class SqliteFriendshipRepositoryTests
 
             var friends = await repo.ListFriendshipsAsync(alice);
             await Assert.That(friends.Count).IsEqualTo(1);
-            await Assert.That(friends[0].Friend.Id.Value).IsEqualTo(bob.Value);
+            await Assert.That(ScopedSystemId.StripRegionPrefix(friends[0].Friend.Id.Value)).IsEqualTo(bob.Value);
             await Assert.That(friends[0].Friendship.Level).IsEqualTo(FriendshipLevel.Friend);
 
             await Assert.That(await repo.SetTrustedAsync(alice, bob, trusted: true)).IsTrue();
@@ -79,11 +79,10 @@ public sealed class SqliteFrontingRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var region = new SqliteRegionContext(ScyllaKeyspace.Nam);
             IFriendshipRepository friendships = new SqliteFriendshipRepository(factory);
             IAlterRepository alters = new StubAlterRepository();
             IFrontingRepository repo = new SqliteFrontingRepository(
-                factory, region, friendships, alters, NullLogger<SqliteFrontingRepository>.Instance);
+                factory, friendships, alters, NullLogger<SqliteFrontingRepository>.Instance);
 
             var systemId = new SystemId("front01");
             var alterId = new AlterId(1);
@@ -126,8 +125,7 @@ public sealed class SqlitePollRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var region = new SqliteRegionContext(ScyllaKeyspace.Nam);
-            IPollRepository repo = new SqlitePollRepository(SqliteTestDb.Factory(path), region);
+            IPollRepository repo = new SqlitePollRepository(SqliteTestDb.Factory(path));
             var systemId = new SystemId("poll001");
 
             var id = await repo.CreateAsync(

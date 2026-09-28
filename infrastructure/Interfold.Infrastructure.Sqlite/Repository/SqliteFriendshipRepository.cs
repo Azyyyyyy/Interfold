@@ -1,9 +1,11 @@
+using Dapper;
 using Interfold.Friendships.Contracts.Ids;
 using Interfold.Friendships.Contracts.Models.Read;
 using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Microsoft.Data.Sqlite;
+using System.Data.Common;
 
 namespace Interfold.Infrastructure.Sqlite.Repository;
 
@@ -32,32 +34,29 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
             return null;
         }
 
-        var normalizedSystemId = SqliteStorageKeys.Normalize(systemId).Value;
-        var normalizedViewerId = SqliteStorageKeys.Normalize(viewerSystemId.Value).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
+        var viewerKey = SqliteStorageKeys.Persist(viewerSystemId.Value);
 
-        if (normalizedSystemId == normalizedViewerId)
+        if (userKey == viewerKey)
         {
             return FriendshipLevel.TrustedFriend;
         }
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
+        var raw = await connection.ExecuteScalarAsync(
+            """
             SELECT level
             FROM friendships
-            WHERE user_id = $user_id AND friend_id = $friend_id
+            WHERE user_id = @user_id AND friend_id = @friend_id
             LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$user_id", normalizedSystemId);
-        command.Parameters.AddWithValue("$friend_id", normalizedViewerId);
-
-        var raw = await command.ExecuteScalarAsync(cancellationToken) as string;
-        if (raw is null || !raw.TryParseWire<FriendshipLevel>(out var level))
+            """,
+            new { user_id = userKey, friend_id = viewerKey });
+        if (raw is null or DBNull)
         {
             return null;
         }
 
-        return level;
+        return ((short)(long)raw).FromCode<FriendshipLevel>();
     }
 
     public async Task<IReadOnlyList<FriendshipReadModel>> ListFriendshipsAsync(
@@ -65,26 +64,19 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalizedSystemId = SqliteStorageKeys.Normalize(systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT friend_id, level, since
+        var rows = await connection.QueryAsync<FriendshipRow>(
+            """
+            SELECT friend_id AS FriendId, level AS Level, since AS Since
             FROM friendships
-            WHERE user_id = $user_id
+            WHERE user_id = @user_id
             ORDER BY since DESC
-            """;
-        command.Parameters.AddWithValue("$user_id", normalizedSystemId);
+            """,
+            new { user_id = userKey });
 
-        var list = new List<FriendshipReadModel>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            list.Add(ReadFriendship(reader));
-        }
-
-        return list;
+        return rows.Select(MapFriendship).ToArray();
     }
 
     public async Task<FriendshipReadModel?> GetFriendshipAsync(
@@ -93,27 +85,20 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalizedSystemId = SqliteStorageKeys.Normalize(systemId).Value;
-        var normalizedFriendId = SqliteStorageKeys.Normalize(friendSystemId).Value;
-
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT friend_id, level, since
+        var row = await connection.QueryFirstOrDefaultAsync<FriendshipRow>(
+            """
+            SELECT friend_id AS FriendId, level AS Level, since AS Since
             FROM friendships
-            WHERE user_id = $user_id AND friend_id = $friend_id
+            WHERE user_id = @user_id AND friend_id = @friend_id
             LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$user_id", normalizedSystemId);
-        command.Parameters.AddWithValue("$friend_id", normalizedFriendId);
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            return null;
-        }
-
-        return ReadFriendship(reader);
+            """,
+            new
+            {
+                user_id = SqliteStorageKeys.Persist(systemId),
+                friend_id = SqliteStorageKeys.Persist(friendSystemId),
+            });
+        return row is null ? null : MapFriendship(row);
     }
 
     public async Task<bool> RemoveFriendshipAsync(
@@ -122,11 +107,11 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var left = SqliteStorageKeys.Normalize(systemId).Value;
-        var right = SqliteStorageKeys.Normalize(friendSystemId).Value;
+        var left = SqliteStorageKeys.Persist(systemId);
+        var right = SqliteStorageKeys.Persist(friendSystemId);
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
             var removed = await DeleteFriendshipEdgeAsync(connection, tx, left, right, cancellationToken);
@@ -154,21 +139,21 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var left = SqliteStorageKeys.Normalize(systemId).Value;
-        var right = SqliteStorageKeys.Normalize(friendSystemId).Value;
-        var level = (trusted ? FriendshipLevel.TrustedFriend : FriendshipLevel.Friend).ToWire();
+        var level = (short)(trusted ? FriendshipLevel.TrustedFriend : FriendshipLevel.Friend);
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
+        var affected = await connection.ExecuteAsync(
+            """
             UPDATE friendships
-            SET level = $level
-            WHERE user_id = $user_id AND friend_id = $friend_id
-            """;
-        command.Parameters.AddWithValue("$level", level);
-        command.Parameters.AddWithValue("$user_id", left);
-        command.Parameters.AddWithValue("$friend_id", right);
-        var affected = await command.ExecuteNonQueryAsync(cancellationToken);
+            SET level = @level
+            WHERE user_id = @user_id AND friend_id = @friend_id
+            """,
+            new
+            {
+                level,
+                user_id = SqliteStorageKeys.Persist(systemId),
+                friend_id = SqliteStorageKeys.Persist(friendSystemId),
+            });
         return affected > 0;
     }
 
@@ -177,45 +162,31 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalizedSystemId = SqliteStorageKeys.Normalize(systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
 
-        var outgoing = new List<FriendRequestReadModel>();
-        await using (var outCmd = connection.CreateCommand())
-        {
-            outCmd.CommandText = """
-                SELECT to_user_id, date_sent
-                FROM friend_requests
-                WHERE from_user_id = $user_id
-                ORDER BY date_sent DESC
-                """;
-            outCmd.Parameters.AddWithValue("$user_id", normalizedSystemId);
-            await using var reader = await outCmd.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
-            {
-                outgoing.Add(ReadRequest(reader));
-            }
-        }
+        var outgoingRows = await connection.QueryAsync<FriendRequestRow>(
+            """
+            SELECT to_user_id AS OtherUserId, date_sent AS DateSent
+            FROM friend_requests
+            WHERE from_user_id = @user_id
+            ORDER BY date_sent DESC
+            """,
+            new { user_id = userKey });
 
-        var incoming = new List<FriendRequestReadModel>();
-        await using (var inCmd = connection.CreateCommand())
-        {
-            inCmd.CommandText = """
-                SELECT from_user_id, date_sent
-                FROM friend_requests
-                WHERE to_user_id = $user_id
-                ORDER BY date_sent DESC
-                """;
-            inCmd.Parameters.AddWithValue("$user_id", normalizedSystemId);
-            await using var reader = await inCmd.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
-            {
-                incoming.Add(ReadRequest(reader));
-            }
-        }
+        var incomingRows = await connection.QueryAsync<FriendRequestRow>(
+            """
+            SELECT from_user_id AS OtherUserId, date_sent AS DateSent
+            FROM friend_requests
+            WHERE to_user_id = @user_id
+            ORDER BY date_sent DESC
+            """,
+            new { user_id = userKey });
 
-        return new FriendRequestIndexReadModel(incoming, outgoing);
+        return new FriendRequestIndexReadModel(
+            incomingRows.Select(MapRequest).ToArray(),
+            outgoingRows.Select(MapRequest).ToArray());
     }
 
     public async Task<SendFriendRequestOutcome> SendRequestAsync(
@@ -224,11 +195,11 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var from = SqliteStorageKeys.Normalize(systemId).Value;
-        var to = SqliteStorageKeys.Normalize(targetSystemId).Value;
+        var from = SqliteStorageKeys.Persist(systemId);
+        var to = SqliteStorageKeys.Persist(targetSystemId);
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
             if (await FriendshipExistsAsync(connection, tx, from, to, cancellationToken))
@@ -253,18 +224,13 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
             }
 
             var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            await using (var insert = connection.CreateCommand())
-            {
-                insert.Transaction = tx;
-                insert.CommandText = """
-                    INSERT INTO friend_requests (from_user_id, to_user_id, date_sent)
-                    VALUES ($from, $to, $date_sent)
-                    """;
-                insert.Parameters.AddWithValue("$from", from);
-                insert.Parameters.AddWithValue("$to", to);
-                insert.Parameters.AddWithValue("$date_sent", nowMs);
-                await insert.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                INSERT INTO friend_requests (from_user_id, to_user_id, date_sent)
+                VALUES (@from, @to, @date_sent)
+                """,
+                new { from, to, date_sent = nowMs },
+                tx);
 
             await tx.CommitAsync(cancellationToken);
             return SendFriendRequestOutcome.Sent;
@@ -282,11 +248,11 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var self = SqliteStorageKeys.Normalize(systemId).Value;
-        var source = SqliteStorageKeys.Normalize(sourceSystemId).Value;
+        var self = SqliteStorageKeys.Persist(systemId);
+        var source = SqliteStorageKeys.Persist(sourceSystemId);
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
             if (await FriendshipExistsAsync(connection, tx, self, source, cancellationToken))
@@ -320,11 +286,11 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var self = SqliteStorageKeys.Normalize(systemId).Value;
-        var source = SqliteStorageKeys.Normalize(sourceSystemId).Value;
+        var self = SqliteStorageKeys.Persist(systemId);
+        var source = SqliteStorageKeys.Persist(sourceSystemId);
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
             if (await FriendshipExistsAsync(connection, tx, self, source, cancellationToken))
@@ -356,11 +322,11 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var self = SqliteStorageKeys.Normalize(systemId).Value;
-        var target = SqliteStorageKeys.Normalize(targetSystemId).Value;
+        var self = SqliteStorageKeys.Persist(systemId);
+        var target = SqliteStorageKeys.Persist(targetSystemId);
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
             if (await FriendshipExistsAsync(connection, tx, self, target, cancellationToken))
@@ -391,49 +357,35 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalized = SqliteStorageKeys.Normalize(systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            var friendIds = new List<SystemId>();
-            await using (var select = connection.CreateCommand())
-            {
-                select.Transaction = tx;
-                select.CommandText = "SELECT friend_id FROM friendships WHERE user_id = $user_id";
-                select.Parameters.AddWithValue("$user_id", normalized);
-                await using var reader = await select.ExecuteReaderAsync(cancellationToken);
-                while (await reader.ReadAsync(cancellationToken))
-                {
-                    friendIds.Add(new SystemId(reader.GetString(0)));
-                }
-            }
+            var friendKeys = (await connection.QueryAsync<string>(
+                "SELECT friend_id FROM friendships WHERE user_id = @user_id",
+                new { user_id = userKey },
+                tx)).ToArray();
 
-            await using (var deleteFriends = connection.CreateCommand())
-            {
-                deleteFriends.Transaction = tx;
-                deleteFriends.CommandText = """
-                    DELETE FROM friendships
-                    WHERE user_id = $user_id OR friend_id = $user_id
-                    """;
-                deleteFriends.Parameters.AddWithValue("$user_id", normalized);
-                await deleteFriends.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                DELETE FROM friendships
+                WHERE user_id = @user_id OR friend_id = @user_id
+                """,
+                new { user_id = userKey },
+                tx);
 
-            await using (var deleteRequests = connection.CreateCommand())
-            {
-                deleteRequests.Transaction = tx;
-                deleteRequests.CommandText = """
-                    DELETE FROM friend_requests
-                    WHERE from_user_id = $user_id OR to_user_id = $user_id
-                    """;
-                deleteRequests.Parameters.AddWithValue("$user_id", normalized);
-                await deleteRequests.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                DELETE FROM friend_requests
+                WHERE from_user_id = @user_id OR to_user_id = @user_id
+                """,
+                new { user_id = userKey },
+                tx);
 
             await tx.CommitAsync(cancellationToken);
-            return friendIds;
+            return friendKeys.Select(SqliteStorageKeys.ToWire).ToArray();
         }
         catch
         {
@@ -445,39 +397,32 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
     private async Task<SystemId?> ResolveByUsernameAsync(string username, CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
+        var persisted = await connection.QueryFirstOrDefaultAsync<string>(
+            """
             SELECT system_id
             FROM accounts
-            WHERE username = $username COLLATE NOCASE
+            WHERE username = @username COLLATE NOCASE
             LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$username", username);
-
-        var scoped = await command.ExecuteScalarAsync(cancellationToken) as string;
-        return scoped is null ? null : SqliteStorageKeys.ToWireSystemId(scoped);
+            """,
+            new { username });
+        return persisted is null ? null : SqliteStorageKeys.ToWire(persisted);
     }
 
-    private static FriendshipReadModel ReadFriendship(SqliteDataReader reader)
+    private static FriendshipReadModel MapFriendship(FriendshipRow row)
     {
-        var friendId = new SystemId(reader.GetString(0));
-        var levelWire = reader.GetString(1);
-        if (!levelWire.TryParseWire<FriendshipLevel>(out var level))
-        {
-            throw new InvalidOperationException($"Corrupt friendship level '{levelWire}'.");
-        }
-
-        var since = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2));
+        var friendId = SqliteStorageKeys.ToWire(row.FriendId);
+        var level = ((short)row.Level).FromCode<FriendshipLevel>();
+        var since = DateTimeOffset.FromUnixTimeMilliseconds(row.Since);
         return new FriendshipReadModel(
             new FriendProfileReadModel(friendId, null, null, null, null, null),
             new FriendshipModel(level, since),
             Array.Empty<FriendFrontingReadModel>());
     }
 
-    private static FriendRequestReadModel ReadRequest(SqliteDataReader reader)
+    private static FriendRequestReadModel MapRequest(FriendRequestRow row)
     {
-        var otherId = new SystemId(reader.GetString(0));
-        var dateSent = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1));
+        var otherId = SqliteStorageKeys.ToWire(row.OtherUserId);
+        var dateSent = DateTimeOffset.FromUnixTimeMilliseconds(row.DateSent);
         return new FriendRequestReadModel(
             new FriendProfileReadModel(otherId, null, null, null, null, null),
             new FriendshipRequestModel(dateSent));
@@ -485,113 +430,104 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
 
     private static async Task<bool> FriendshipExistsAsync(
         SqliteConnection connection,
-        SqliteTransaction tx,
+        DbTransaction tx,
         string userId,
         string friendId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = tx;
-        command.CommandText = """
+        var hit = await connection.ExecuteScalarAsync(
+            """
             SELECT 1 FROM friendships
-            WHERE user_id = $user_id AND friend_id = $friend_id
+            WHERE user_id = @user_id AND friend_id = @friend_id
             LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$user_id", userId);
-        command.Parameters.AddWithValue("$friend_id", friendId);
-        return await command.ExecuteScalarAsync(cancellationToken) is not null;
+            """,
+            new { user_id = userId, friend_id = friendId },
+            tx);
+        return hit is not null and not DBNull;
     }
 
     private static async Task<bool> RequestExistsAsync(
         SqliteConnection connection,
-        SqliteTransaction tx,
+        DbTransaction tx,
         string fromUserId,
         string toUserId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = tx;
-        command.CommandText = """
+        var hit = await connection.ExecuteScalarAsync(
+            """
             SELECT 1 FROM friend_requests
-            WHERE from_user_id = $from AND to_user_id = $to
+            WHERE from_user_id = @from AND to_user_id = @to
             LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$from", fromUserId);
-        command.Parameters.AddWithValue("$to", toUserId);
-        return await command.ExecuteScalarAsync(cancellationToken) is not null;
+            """,
+            new { from = fromUserId, to = toUserId },
+            tx);
+        return hit is not null and not DBNull;
     }
 
     private static async Task LinkFriendsAsync(
         SqliteConnection connection,
-        SqliteTransaction tx,
+        DbTransaction tx,
         string left,
         string right,
         CancellationToken cancellationToken)
     {
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var level = FriendshipLevel.Friend.ToWire();
+        var level = (short)FriendshipLevel.Friend;
         await UpsertFriendshipEdgeAsync(connection, tx, left, right, level, nowMs, cancellationToken);
         await UpsertFriendshipEdgeAsync(connection, tx, right, left, level, nowMs, cancellationToken);
     }
 
-    private static async Task UpsertFriendshipEdgeAsync(
+    private static Task UpsertFriendshipEdgeAsync(
         SqliteConnection connection,
-        SqliteTransaction tx,
+        DbTransaction tx,
         string userId,
         string friendId,
-        string level,
+        short level,
         long sinceMs,
         CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = tx;
-        command.CommandText = """
+        => connection.ExecuteAsync(
+            """
             INSERT INTO friendships (user_id, friend_id, level, since)
-            VALUES ($user_id, $friend_id, $level, $since)
+            VALUES (@user_id, @friend_id, @level, @since)
             ON CONFLICT(user_id, friend_id) DO UPDATE SET
                 level = excluded.level,
                 since = excluded.since
-            """;
-        command.Parameters.AddWithValue("$user_id", userId);
-        command.Parameters.AddWithValue("$friend_id", friendId);
-        command.Parameters.AddWithValue("$level", level);
-        command.Parameters.AddWithValue("$since", sinceMs);
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
+            """,
+            new { user_id = userId, friend_id = friendId, level, since = sinceMs },
+            tx);
 
     private static async Task<bool> DeleteFriendshipEdgeAsync(
         SqliteConnection connection,
-        SqliteTransaction tx,
+        DbTransaction tx,
         string userId,
         string friendId,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = tx;
-        command.CommandText = """
+        var removed = await connection.ExecuteAsync(
+            """
             DELETE FROM friendships
-            WHERE user_id = $user_id AND friend_id = $friend_id
-            """;
-        command.Parameters.AddWithValue("$user_id", userId);
-        command.Parameters.AddWithValue("$friend_id", friendId);
-        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+            WHERE user_id = @user_id AND friend_id = @friend_id
+            """,
+            new { user_id = userId, friend_id = friendId },
+            tx);
+        return removed > 0;
     }
 
-    private static async Task DeleteRequestAsync(
+    private static Task DeleteRequestAsync(
         SqliteConnection connection,
-        SqliteTransaction tx,
+        DbTransaction tx,
         string fromUserId,
         string toUserId,
         CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = tx;
-        command.CommandText = """
+        => connection.ExecuteAsync(
+            """
             DELETE FROM friend_requests
-            WHERE from_user_id = $from AND to_user_id = $to
-            """;
-        command.Parameters.AddWithValue("$from", fromUserId);
-        command.Parameters.AddWithValue("$to", toUserId);
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
+            WHERE from_user_id = @from AND to_user_id = @to
+            """,
+            new { from = fromUserId, to = toUserId },
+            tx);
+
+    private sealed record FriendshipRow(string FriendId, long Level, long Since);
+
+    private sealed record FriendRequestRow(string OtherUserId, long DateSent);
 }

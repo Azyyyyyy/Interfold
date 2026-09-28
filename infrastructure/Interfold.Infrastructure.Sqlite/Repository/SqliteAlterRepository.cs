@@ -1,4 +1,6 @@
+using System.Data;
 using System.Diagnostics;
+using Dapper;
 using Interfold.Alters.Contracts.Abstractions;
 using Interfold.Alters.Contracts.Models;
 using Interfold.Alters.Contracts.Models.Commands;
@@ -10,7 +12,6 @@ using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Domain.Observability;
 using Microsoft.Data.Sqlite;
@@ -21,7 +22,6 @@ namespace Interfold.Infrastructure.Sqlite.Repository;
 public sealed class SqliteAlterRepository : IAlterRepository
 {
     private readonly ISqliteConnectionFactory _connectionFactory;
-    private readonly IRegionContext _regionContext;
     private readonly IFriendshipRepository _friendships;
     private readonly ISettingsFieldRepository _settingsFields;
     private readonly IAlterFieldDefinitions _alterFieldDefinitions;
@@ -30,7 +30,6 @@ public sealed class SqliteAlterRepository : IAlterRepository
 
     public SqliteAlterRepository(
         ISqliteConnectionFactory connectionFactory,
-        IRegionContext regionContext,
         IFriendshipRepository friendships,
         ISettingsFieldRepository settingsFields,
         IAlterFieldDefinitions alterFieldDefinitions,
@@ -38,7 +37,6 @@ public sealed class SqliteAlterRepository : IAlterRepository
         ILogger<SqliteAlterRepository> logger)
     {
         _connectionFactory = connectionFactory;
-        _regionContext = regionContext;
         _friendships = friendships;
         _settingsFields = settingsFields;
         _alterFieldDefinitions = alterFieldDefinitions;
@@ -51,41 +49,37 @@ public sealed class SqliteAlterRepository : IAlterRepository
         CreateAlterCommand command,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.ForSystem(_regionContext, systemId).Value;
+        var systemKey = SqliteStorageKeys.Persist(systemId);
         var createdAtMs = command.CreatedAt.ToUnixTimeMilliseconds();
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
 
-        short nextId;
-        await using (var maxCmd = connection.CreateCommand())
-        {
-            maxCmd.Transaction = tx;
-            maxCmd.CommandText = "SELECT COALESCE(MAX(id), 0) FROM alters WHERE system_id = $system_id";
-            maxCmd.Parameters.AddWithValue("$system_id", systemKey);
-            var max = Convert.ToInt16(await maxCmd.ExecuteScalarAsync(cancellationToken) ?? 0);
-            nextId = checked((short)(max + 1));
-        }
+        var max = await connection.ExecuteScalarAsync<long>(
+            "SELECT COALESCE(MAX(id), 0) FROM alters WHERE system_id = @system_id",
+            new { system_id = systemKey },
+            tx);
+        var nextId = checked((short)(max + 1));
 
-        await using (var insert = connection.CreateCommand())
-        {
-            insert.Transaction = tx;
-            insert.CommandText = """
-                INSERT INTO alters (
-                    system_id, id, name, alias, security_level,
-                    untracked, archived, pinned, inserted_at, updated_at)
-                VALUES (
-                    $system_id, $id, $name, NULL, $security_level,
-                    0, 0, 0, $inserted_at, $updated_at)
-                """;
-            insert.Parameters.AddWithValue("$system_id", systemKey);
-            insert.Parameters.AddWithValue("$id", nextId);
-            insert.Parameters.AddWithValue("$name", command.Name);
-            insert.Parameters.AddWithValue("$security_level", VisibilityLevel.Private.ToWire());
-            insert.Parameters.AddWithValue("$inserted_at", createdAtMs);
-            insert.Parameters.AddWithValue("$updated_at", createdAtMs);
-            await insert.ExecuteNonQueryAsync(cancellationToken);
-        }
+        await connection.ExecuteAsync(
+            """
+            INSERT INTO alters (
+                system_id, id, name, alias, security_level,
+                untracked, archived, pinned, inserted_at, updated_at)
+            VALUES (
+                @system_id, @id, @name, NULL, @security_level,
+                0, 0, 0, @inserted_at, @updated_at)
+            """,
+            new
+            {
+                system_id = systemKey,
+                id = nextId,
+                name = command.Name,
+                security_level = (short)VisibilityLevel.Private,
+                inserted_at = createdAtMs,
+                updated_at = createdAtMs,
+            },
+            tx);
 
         await tx.CommitAsync(cancellationToken);
         return new AlterId(nextId);
@@ -96,18 +90,9 @@ public sealed class SqliteAlterRepository : IAlterRepository
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.ForSystem(_regionContext, systemId).Value;
+        var systemKey = SqliteStorageKeys.Persist(systemId);
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT 1 FROM alters
-            WHERE system_id = $system_id AND id = $id
-            LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$system_id", systemKey);
-        command.Parameters.AddWithValue("$id", alterId.Value);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken);
+        return await RowExistsAsync(connection, tx: null, systemKey, alterId.Value);
     }
 
     public async Task<bool> UpdateAsync(
@@ -115,87 +100,90 @@ public sealed class SqliteAlterRepository : IAlterRepository
         UpdateAlterCommand command,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.ForSystem(_regionContext, systemId).Value;
+        var systemKey = SqliteStorageKeys.Persist(systemId);
         var updatedAtMs = command.UpdatedAt.ToUnixTimeMilliseconds();
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
 
-        if (!await RowExistsAsync(connection, tx, systemKey, command.AlterId.Value, cancellationToken))
+        if (!await RowExistsAsync(connection, tx, systemKey, command.AlterId.Value))
         {
             return false;
         }
 
-        var sets = new List<string> { "updated_at = $updated_at" };
-        await using var update = connection.CreateCommand();
-        update.Transaction = tx;
-        update.Parameters.AddWithValue("$updated_at", updatedAtMs);
-        update.Parameters.AddWithValue("$system_id", systemKey);
-        update.Parameters.AddWithValue("$id", command.AlterId.Value);
+        var sets = new List<string> { "updated_at = @updated_at" };
+        var parameters = new DynamicParameters();
+        parameters.Add("updated_at", updatedAtMs);
+        parameters.Add("system_id", systemKey);
+        parameters.Add("id", command.AlterId.Value);
 
         void Set(string column, string param, object? value)
         {
-            sets.Add($"{column} = {param}");
-            update.Parameters.AddWithValue(param, value ?? DBNull.Value);
+            sets.Add($"{column} = @{param}");
+            parameters.Add(param, value);
         }
 
         if (!string.IsNullOrWhiteSpace(command.Name))
-            Set("name", "$name", command.Name);
+            Set("name", "name", command.Name);
         if (command.Description is not null)
-            Set("description", "$description", command.Description);
+            Set("description", "description", command.Description);
         if (command.Color is not null)
-            Set("color", "$color", command.Color.Value.Value);
+            Set("color", "color", command.Color.Value.Value);
         if (command.Pronouns is not null)
-            Set("pronouns", "$pronouns", command.Pronouns);
+            Set("pronouns", "pronouns", command.Pronouns);
         if (command.ProxyName is not null)
-            Set("proxy_name", "$proxy_name", command.ProxyName);
+            Set("proxy_name", "proxy_name", command.ProxyName);
         if (command.SecurityLevel is not null)
-            Set("security_level", "$security_level", command.SecurityLevel.Value.ToWire());
+            Set("security_level", "security_level", (short)command.SecurityLevel.Value);
         if (command.Untracked is not null)
-            Set("untracked", "$untracked", command.Untracked.Value ? 1 : 0);
+            Set("untracked", "untracked", command.Untracked.Value ? 1 : 0);
         if (command.Archived is not null)
-            Set("archived", "$archived", command.Archived.Value ? 1 : 0);
+            Set("archived", "archived", command.Archived.Value ? 1 : 0);
         if (command.Pinned is not null)
-            Set("pinned", "$pinned", command.Pinned.Value ? 1 : 0);
+            Set("pinned", "pinned", command.Pinned.Value ? 1 : 0);
 
         if (command.ClearAvatar)
         {
-            Set("avatar_url", "$avatar_url", null);
-            Set("avatar_source", "$avatar_source", null);
+            Set("avatar_url", "avatar_url", null);
+            Set("avatar_source", "avatar_source", null);
         }
         else if (command.AvatarUrl is not null)
         {
-            Set("avatar_url", "$avatar_url", command.AvatarUrl.Value.Value);
-            Set("avatar_source", "$avatar_source", (command.AvatarSource ?? AvatarSource.Local).ToWire());
+            Set("avatar_url", "avatar_url", command.AvatarUrl.Value.Value);
+            Set("avatar_source", "avatar_source", (short)(command.AvatarSource ?? AvatarSource.Local));
         }
 
         if (!string.IsNullOrWhiteSpace(command.Alias))
-            Set("alias", "$alias", command.Alias);
+            Set("alias", "alias", command.Alias);
 
-        update.CommandText = $"""
+        await connection.ExecuteAsync(
+            $"""
             UPDATE alters
             SET {string.Join(", ", sets)}
-            WHERE system_id = $system_id AND id = $id
-            """;
-        await update.ExecuteNonQueryAsync(cancellationToken);
+            WHERE system_id = @system_id AND id = @id
+            """,
+            parameters,
+            tx);
 
         if (command.Fields is not null)
         {
             foreach (var field in command.Fields)
             {
-                await using var upsert = connection.CreateCommand();
-                upsert.Transaction = tx;
-                upsert.CommandText = """
+                await connection.ExecuteAsync(
+                    """
                     INSERT INTO alter_fields (system_id, alter_id, field_id, value)
-                    VALUES ($system_id, $alter_id, $field_id, $value)
+                    VALUES (@system_id, @alter_id, @field_id, @value)
                     ON CONFLICT(system_id, alter_id, field_id) DO UPDATE SET
                         value = excluded.value
-                    """;
-                upsert.Parameters.AddWithValue("$system_id", systemKey);
-                upsert.Parameters.AddWithValue("$alter_id", command.AlterId.Value);
-                upsert.Parameters.AddWithValue("$field_id", field.Id.Value.ToString("N"));
-                upsert.Parameters.AddWithValue("$value", (object?)field.Value ?? DBNull.Value);
-                await upsert.ExecuteNonQueryAsync(cancellationToken);
+                    """,
+                    new
+                    {
+                        system_id = systemKey,
+                        alter_id = command.AlterId.Value,
+                        field_id = field.Id.Value.ToString("N"),
+                        value = field.Value,
+                    },
+                    tx);
             }
         }
 
@@ -208,51 +196,39 @@ public sealed class SqliteAlterRepository : IAlterRepository
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.ForSystem(_regionContext, systemId).Value;
+        var systemKey = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
 
-        if (!await RowExistsAsync(connection, tx, systemKey, alterId.Value, cancellationToken))
+        if (!await RowExistsAsync(connection, tx, systemKey, alterId.Value))
         {
             return false;
         }
 
-        await using (var deleteFields = connection.CreateCommand())
-        {
-            deleteFields.Transaction = tx;
-            deleteFields.CommandText = """
-                DELETE FROM alter_fields
-                WHERE system_id = $system_id AND alter_id = $alter_id
-                """;
-            deleteFields.Parameters.AddWithValue("$system_id", systemKey);
-            deleteFields.Parameters.AddWithValue("$alter_id", alterId.Value);
-            await deleteFields.ExecuteNonQueryAsync(cancellationToken);
-        }
+        await connection.ExecuteAsync(
+            """
+            DELETE FROM alter_fields
+            WHERE system_id = @system_id AND alter_id = @alter_id
+            """,
+            new { system_id = systemKey, alter_id = alterId.Value },
+            tx);
 
-        await using (var deleteTags = connection.CreateCommand())
-        {
-            deleteTags.Transaction = tx;
-            deleteTags.CommandText = """
-                DELETE FROM alter_tags
-                WHERE system_id = $system_id AND alter_id = $alter_id
-                """;
-            deleteTags.Parameters.AddWithValue("$system_id", systemKey);
-            deleteTags.Parameters.AddWithValue("$alter_id", alterId.Value);
-            await deleteTags.ExecuteNonQueryAsync(cancellationToken);
-        }
+        await connection.ExecuteAsync(
+            """
+            DELETE FROM alter_tags
+            WHERE system_id = @system_id AND alter_id = @alter_id
+            """,
+            new { system_id = systemKey, alter_id = alterId.Value },
+            tx);
 
-        await using (var deleteAlter = connection.CreateCommand())
-        {
-            deleteAlter.Transaction = tx;
-            deleteAlter.CommandText = """
-                DELETE FROM alters
-                WHERE system_id = $system_id AND id = $id
-                """;
-            deleteAlter.Parameters.AddWithValue("$system_id", systemKey);
-            deleteAlter.Parameters.AddWithValue("$id", alterId.Value);
-            await deleteAlter.ExecuteNonQueryAsync(cancellationToken);
-        }
+        await connection.ExecuteAsync(
+            """
+            DELETE FROM alters
+            WHERE system_id = @system_id AND id = @id
+            """,
+            new { system_id = systemKey, id = alterId.Value },
+            tx);
 
         await tx.CommitAsync(cancellationToken);
         await _polls.RemoveAlterFromPollsAsync(systemId, alterId, cancellationToken);
@@ -263,12 +239,12 @@ public sealed class SqliteAlterRepository : IAlterRepository
         SystemId systemId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.ForSystem(_regionContext, systemId).Value;
+        var systemKey = SqliteStorageKeys.Persist(systemId);
         var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await LoadAlterRowsAsync(connection, systemKey, alterId: null, cancellationToken);
-        var fieldsByAlter = await LoadFieldsByAlterAsync(connection, systemKey, cancellationToken);
+        var rows = await LoadAlterRowsAsync(connection, systemKey, alterId: null);
+        var fieldsByAlter = await LoadFieldsByAlterAsync(connection, systemKey);
 
         return rows
             .OrderBy(r => r.Id)
@@ -286,11 +262,11 @@ public sealed class SqliteAlterRepository : IAlterRepository
             systemId, viewerSystemId, _friendships, cancellationToken);
         var definitions = await _alterFieldDefinitions.ListVisibleAsync(systemId, friendshipLevel, cancellationToken);
         var ownerId = SqliteStorageKeys.Normalize(systemId).Value;
-        var systemKey = SqliteStorageKeys.ForSystem(_regionContext, systemId).Value;
+        var systemKey = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await LoadAlterRowsAsync(connection, systemKey, alterId: null, cancellationToken);
-        var fieldsByAlter = await LoadFieldsByAlterAsync(connection, systemKey, cancellationToken);
+        var rows = await LoadAlterRowsAsync(connection, systemKey, alterId: null);
+        var fieldsByAlter = await LoadFieldsByAlterAsync(connection, systemKey);
 
         var visible = rows
             .Where(r => r.SecurityLevel.CanBeViewedBy(friendshipLevel))
@@ -309,17 +285,17 @@ public sealed class SqliteAlterRepository : IAlterRepository
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.ForSystem(_regionContext, systemId).Value;
+        var systemKey = SqliteStorageKeys.Persist(systemId);
         var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await LoadAlterRowsAsync(connection, systemKey, alterId.Value, cancellationToken);
+        var rows = await LoadAlterRowsAsync(connection, systemKey, alterId.Value);
         if (rows.Count == 0)
         {
             return null;
         }
 
-        var fields = await LoadFieldsForAlterAsync(connection, systemKey, alterId.Value, cancellationToken);
+        var fields = await LoadFieldsForAlterAsync(connection, systemKey, alterId.Value);
         return MapAlterReadModel(rows[0], fields, definitions);
     }
 
@@ -334,10 +310,10 @@ public sealed class SqliteAlterRepository : IAlterRepository
         var friendshipLevel = await SqliteStorageKeys.ResolveFriendshipLevelAsync(
             systemId, viewerSystemId, _friendships, cancellationToken);
         var definitions = await _alterFieldDefinitions.ListVisibleAsync(systemId, friendshipLevel, cancellationToken);
-        var systemKey = SqliteStorageKeys.ForSystem(_regionContext, systemId).Value;
+        var systemKey = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await LoadAlterRowsAsync(connection, systemKey, alterId.Value, cancellationToken);
+        var rows = await LoadAlterRowsAsync(connection, systemKey, alterId.Value);
         if (rows.Count == 0)
         {
             GuardedInstrumentation.RecordGet(
@@ -355,7 +331,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
             return null;
         }
 
-        var fields = await LoadFieldsForAlterAsync(connection, systemKey, alterId.Value, cancellationToken);
+        var fields = await LoadFieldsForAlterAsync(connection, systemKey, alterId.Value);
         var result = MapBareAlter(row, fields, definitions);
         GuardedInstrumentation.RecordGet(
             _logger, "alter", nameof(GetGuardedAsync), viewerSystemId, ownerId,
@@ -369,22 +345,19 @@ public sealed class SqliteAlterRepository : IAlterRepository
         string alias,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.ForSystem(_regionContext, systemId).Value;
+        var systemKey = SqliteStorageKeys.Persist(systemId);
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
+        var found = await connection.ExecuteScalarAsync<long?>(
+            """
             SELECT 1 FROM alters
-            WHERE system_id = $system_id
-              AND id != $id
+            WHERE system_id = @system_id
+              AND id != @id
               AND alias IS NOT NULL
-              AND alias = $alias COLLATE NOCASE
+              AND alias = @alias COLLATE NOCASE
             LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$system_id", systemKey);
-        command.Parameters.AddWithValue("$id", alterId.Value);
-        command.Parameters.AddWithValue("$alias", alias);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken);
+            """,
+            new { system_id = systemKey, id = alterId.Value, alias });
+        return found is not null;
     }
 
     internal static async Task RemoveFieldValuesForSystemAsync(
@@ -394,98 +367,105 @@ public sealed class SqliteAlterRepository : IAlterRepository
         CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
+        await connection.ExecuteAsync(
+            """
             DELETE FROM alter_fields
-            WHERE system_id = $system_id AND field_id = $field_id
-            """;
-        command.Parameters.AddWithValue("$system_id", systemKey);
-        command.Parameters.AddWithValue("$field_id", fieldId.ToString("N"));
-        await command.ExecuteNonQueryAsync(cancellationToken);
+            WHERE system_id = @system_id AND field_id = @field_id
+            """,
+            new { system_id = systemKey, field_id = fieldId.ToString("N") });
     }
 
     private static async Task<bool> RowExistsAsync(
         SqliteConnection connection,
-        SqliteTransaction tx,
+        IDbTransaction? tx,
         string systemKey,
-        short alterId,
-        CancellationToken cancellationToken)
+        short alterId)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = tx;
-        command.CommandText = """
+        var found = await connection.ExecuteScalarAsync<long?>(
+            """
             SELECT 1 FROM alters
-            WHERE system_id = $system_id AND id = $id
+            WHERE system_id = @system_id AND id = @id
             LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$system_id", systemKey);
-        command.Parameters.AddWithValue("$id", alterId);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken);
+            """,
+            new { system_id = systemKey, id = alterId },
+            tx);
+        return found is not null;
     }
 
     private static async Task<List<AlterRow>> LoadAlterRowsAsync(
         SqliteConnection connection,
         string systemKey,
-        short? alterId,
-        CancellationToken cancellationToken)
+        short? alterId)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = alterId is null
-            ? """
-                SELECT id, name, alias, description, avatar_url, avatar_source, color, pronouns,
-                       security_level, proxy_name, untracked, archived, pinned, inserted_at, updated_at
+        const string columns = """
+            id AS Id, name AS Name, alias AS Alias, description AS Description,
+            avatar_url AS AvatarUrl, avatar_source AS AvatarSource, color AS Color, pronouns AS Pronouns,
+            security_level AS SecurityLevel, proxy_name AS ProxyName, untracked AS Untracked,
+            archived AS Archived, pinned AS Pinned, inserted_at AS InsertedAt, updated_at AS UpdatedAt
+            """;
+
+        var sql = alterId is null
+            ? $"""
+                SELECT {columns}
                 FROM alters
-                WHERE system_id = $system_id
+                WHERE system_id = @system_id
                 """
-            : """
-                SELECT id, name, alias, description, avatar_url, avatar_source, color, pronouns,
-                       security_level, proxy_name, untracked, archived, pinned, inserted_at, updated_at
+            : $"""
+                SELECT {columns}
                 FROM alters
-                WHERE system_id = $system_id AND id = $id
+                WHERE system_id = @system_id AND id = @id
                 """;
-        command.Parameters.AddWithValue("$system_id", systemKey);
-        if (alterId is not null)
-        {
-            command.Parameters.AddWithValue("$id", alterId.Value);
-        }
 
-        var rows = new List<AlterRow>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            rows.Add(ReadAlterRow(reader));
-        }
+        var dtos = await connection.QueryAsync<AlterRowDto>(
+            sql,
+            alterId is null
+                ? new { system_id = systemKey }
+                : new { system_id = systemKey, id = alterId.Value });
 
-        return rows;
+        return dtos.Select(MapAlterRow).ToList();
     }
+
+    private static AlterRow MapAlterRow(AlterRowDto dto)
+        => new(
+            (short)dto.Id,
+            dto.Name,
+            dto.Alias,
+            dto.Description,
+            AvatarUrl.FromNullable(dto.AvatarUrl),
+            dto.AvatarSource is { } src ? ((short)src).FromCodeOrNull<AvatarSource>() : null,
+            HexColor.FromNullable(dto.Color),
+            dto.Pronouns,
+            ((short)dto.SecurityLevel).FromCode<VisibilityLevel>(),
+            dto.ProxyName,
+            dto.Untracked != 0,
+            dto.Archived != 0,
+            dto.Pinned != 0,
+            DateTimeOffset.FromUnixTimeMilliseconds(dto.InsertedAt).UtcDateTime,
+            DateTimeOffset.FromUnixTimeMilliseconds(dto.UpdatedAt).UtcDateTime);
 
     private static async Task<Dictionary<short, Dictionary<FieldId, string?>>> LoadFieldsByAlterAsync(
         SqliteConnection connection,
-        string systemKey,
-        CancellationToken cancellationToken)
+        string systemKey)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT alter_id, field_id, value
+        var rows = await connection.QueryAsync<AlterFieldRow>(
+            """
+            SELECT alter_id AS AlterId, field_id AS FieldId, value AS Value
             FROM alter_fields
-            WHERE system_id = $system_id
-            """;
-        command.Parameters.AddWithValue("$system_id", systemKey);
+            WHERE system_id = @system_id
+            """,
+            new { system_id = systemKey });
 
         var result = new Dictionary<short, Dictionary<FieldId, string?>>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        foreach (var row in rows)
         {
-            var alterId = (short)reader.GetInt64(0);
+            var alterId = (short)row.AlterId;
             if (!result.TryGetValue(alterId, out var map))
             {
                 map = new Dictionary<FieldId, string?>();
                 result[alterId] = map;
             }
 
-            map[new FieldId(Guid.Parse(reader.GetString(1)))] =
-                reader.IsDBNull(2) ? null : reader.GetString(2);
+            map[new FieldId(Guid.Parse(row.FieldId))] = row.Value;
         }
 
         return result;
@@ -494,68 +474,23 @@ public sealed class SqliteAlterRepository : IAlterRepository
     private static async Task<Dictionary<FieldId, string?>> LoadFieldsForAlterAsync(
         SqliteConnection connection,
         string systemKey,
-        short alterId,
-        CancellationToken cancellationToken)
+        short alterId)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT field_id, value
+        var rows = await connection.QueryAsync<AlterFieldValueRow>(
+            """
+            SELECT field_id AS FieldId, value AS Value
             FROM alter_fields
-            WHERE system_id = $system_id AND alter_id = $alter_id
-            """;
-        command.Parameters.AddWithValue("$system_id", systemKey);
-        command.Parameters.AddWithValue("$alter_id", alterId);
+            WHERE system_id = @system_id AND alter_id = @alter_id
+            """,
+            new { system_id = systemKey, alter_id = alterId });
 
         var map = new Dictionary<FieldId, string?>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        foreach (var row in rows)
         {
-            map[new FieldId(Guid.Parse(reader.GetString(0)))] =
-                reader.IsDBNull(1) ? null : reader.GetString(1);
+            map[new FieldId(Guid.Parse(row.FieldId))] = row.Value;
         }
 
         return map;
-    }
-
-    private static AlterRow ReadAlterRow(SqliteDataReader reader)
-    {
-        var securityWire = reader.GetString(reader.GetOrdinal("security_level"));
-        if (!securityWire.TryParseWire(out VisibilityLevel securityLevel))
-        {
-            throw new InvalidOperationException($"Corrupt alter security_level wire value '{securityWire}'.");
-        }
-
-        var avatarSourceOrdinal = reader.GetOrdinal("avatar_source");
-        AvatarSource? avatarSource = null;
-        if (!reader.IsDBNull(avatarSourceOrdinal))
-        {
-            var wire = reader.GetString(avatarSourceOrdinal);
-            if (!wire.TryParseWire(out AvatarSource parsed))
-            {
-                throw new InvalidOperationException($"Corrupt alter avatar_source wire value '{wire}'.");
-            }
-
-            avatarSource = parsed;
-        }
-
-        return new AlterRow(
-            Id: (short)reader.GetInt64(reader.GetOrdinal("id")),
-            Name: reader.GetString(reader.GetOrdinal("name")),
-            Alias: reader.IsDBNull(reader.GetOrdinal("alias")) ? null : reader.GetString(reader.GetOrdinal("alias")),
-            Description: reader.IsDBNull(reader.GetOrdinal("description")) ? null : reader.GetString(reader.GetOrdinal("description")),
-            AvatarUrl: AvatarUrl.FromNullable(
-                reader.IsDBNull(reader.GetOrdinal("avatar_url")) ? null : reader.GetString(reader.GetOrdinal("avatar_url"))),
-            AvatarSource: avatarSource,
-            Color: HexColor.FromNullable(
-                reader.IsDBNull(reader.GetOrdinal("color")) ? null : reader.GetString(reader.GetOrdinal("color"))),
-            Pronouns: reader.IsDBNull(reader.GetOrdinal("pronouns")) ? null : reader.GetString(reader.GetOrdinal("pronouns")),
-            SecurityLevel: securityLevel,
-            ProxyName: reader.IsDBNull(reader.GetOrdinal("proxy_name")) ? null : reader.GetString(reader.GetOrdinal("proxy_name")),
-            Untracked: reader.GetInt64(reader.GetOrdinal("untracked")) != 0,
-            Archived: reader.GetInt64(reader.GetOrdinal("archived")) != 0,
-            Pinned: reader.GetInt64(reader.GetOrdinal("pinned")) != 0,
-            InsertedAt: DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(reader.GetOrdinal("inserted_at"))).UtcDateTime,
-            UpdatedAt: DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(reader.GetOrdinal("updated_at"))).UtcDateTime);
     }
 
     private static AlterReadModel MapAlterReadModel(
@@ -594,6 +529,27 @@ public sealed class SqliteAlterRepository : IAlterRepository
             row.Pronouns,
             row.Description,
             AlterFieldProjection.ResolveGuardedFields(fieldValues, definitions, _logger));
+
+    private sealed record AlterRowDto(
+        long Id,
+        string Name,
+        string? Alias,
+        string? Description,
+        string? AvatarUrl,
+        long? AvatarSource,
+        string? Color,
+        string? Pronouns,
+        long SecurityLevel,
+        string? ProxyName,
+        long Untracked,
+        long Archived,
+        long Pinned,
+        long InsertedAt,
+        long UpdatedAt);
+
+    private sealed record AlterFieldRow(long AlterId, string FieldId, string? Value);
+
+    private sealed record AlterFieldValueRow(string FieldId, string? Value);
 
     private sealed record AlterRow(
         short Id,

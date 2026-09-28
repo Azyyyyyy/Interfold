@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Dapper;
 using Interfold.Alters.Contracts.Models;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Friendships.Domain.Abstractions.Repository;
@@ -8,7 +9,6 @@ using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Domain.Observability;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
@@ -17,7 +17,6 @@ namespace Interfold.Infrastructure.Sqlite.Repository;
 
 public sealed class SqliteFrontingRepository(
     ISqliteConnectionFactory connectionFactory,
-    IRegionContext regionContext,
     IFriendshipRepository friendships,
     IAlterRepository alters,
     ILogger<SqliteFrontingRepository> logger) : IFrontingRepository
@@ -28,18 +27,15 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
-
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
+        var hit = await connection.ExecuteScalarAsync(
+            """
             SELECT 1 FROM current_fronts
-            WHERE user_id = $user_id AND alter_id = $alter_id
+            WHERE user_id = @user_id AND alter_id = @alter_id
             LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$user_id", userId);
-        command.Parameters.AddWithValue("$alter_id", alterId.Value);
-        return await command.ExecuteScalarAsync(cancellationToken) is not null;
+            """,
+            new { user_id = SqliteStorageKeys.Persist(systemId), alter_id = alterId.Value });
+        return hit is not null and not DBNull;
     }
 
     public async Task<FrontId?> StartAsync(
@@ -50,61 +46,58 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
         var frontId = Guid.NewGuid();
         var frontIdText = frontId.ToString("N");
         var startedMs = startedAt.ToUnixTimeMilliseconds();
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            await using (var exists = connection.CreateCommand())
+            var already = await connection.ExecuteScalarAsync(
+                """
+                SELECT 1 FROM current_fronts
+                WHERE user_id = @user_id AND alter_id = @alter_id
+                LIMIT 1
+                """,
+                new { user_id = userKey, alter_id = alterId.Value },
+                tx);
+            if (already is not null and not DBNull)
             {
-                exists.Transaction = tx;
-                exists.CommandText = """
-                    SELECT 1 FROM current_fronts
-                    WHERE user_id = $user_id AND alter_id = $alter_id
-                    LIMIT 1
-                    """;
-                exists.Parameters.AddWithValue("$user_id", userId);
-                exists.Parameters.AddWithValue("$alter_id", alterId.Value);
-                if (await exists.ExecuteScalarAsync(cancellationToken) is not null)
+                await tx.RollbackAsync(cancellationToken);
+                return null;
+            }
+
+            await connection.ExecuteAsync(
+                """
+                INSERT INTO current_fronts (user_id, alter_id, id, comment, time_start)
+                VALUES (@user_id, @alter_id, @id, @comment, @time_start)
+                """,
+                new
                 {
-                    await tx.RollbackAsync(cancellationToken);
-                    return null;
-                }
-            }
+                    user_id = userKey,
+                    alter_id = alterId.Value,
+                    id = frontIdText,
+                    comment,
+                    time_start = startedMs,
+                },
+                tx);
 
-            await using (var insertActive = connection.CreateCommand())
-            {
-                insertActive.Transaction = tx;
-                insertActive.CommandText = """
-                    INSERT INTO current_fronts (user_id, alter_id, id, comment, time_start)
-                    VALUES ($user_id, $alter_id, $id, $comment, $time_start)
-                    """;
-                insertActive.Parameters.AddWithValue("$user_id", userId);
-                insertActive.Parameters.AddWithValue("$alter_id", alterId.Value);
-                insertActive.Parameters.AddWithValue("$id", frontIdText);
-                insertActive.Parameters.AddWithValue("$comment", (object?)comment ?? DBNull.Value);
-                insertActive.Parameters.AddWithValue("$time_start", startedMs);
-                await insertActive.ExecuteNonQueryAsync(cancellationToken);
-            }
-
-            await using (var insertHistory = connection.CreateCommand())
-            {
-                insertHistory.Transaction = tx;
-                insertHistory.CommandText = """
-                    INSERT INTO fronts (user_id, id, alter_id, comment, time_start, time_end)
-                    VALUES ($user_id, $id, $alter_id, $comment, $time_start, NULL)
-                    """;
-                insertHistory.Parameters.AddWithValue("$user_id", userId);
-                insertHistory.Parameters.AddWithValue("$id", frontIdText);
-                insertHistory.Parameters.AddWithValue("$alter_id", alterId.Value);
-                insertHistory.Parameters.AddWithValue("$comment", (object?)comment ?? DBNull.Value);
-                insertHistory.Parameters.AddWithValue("$time_start", startedMs);
-                await insertHistory.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                INSERT INTO fronts (user_id, id, alter_id, comment, time_start, time_end)
+                VALUES (@user_id, @id, @alter_id, @comment, @time_start, NULL)
+                """,
+                new
+                {
+                    user_id = userKey,
+                    id = frontIdText,
+                    alter_id = alterId.Value,
+                    comment,
+                    time_start = startedMs,
+                },
+                tx);
 
             await tx.CommitAsync(cancellationToken);
             return new FrontId(frontId);
@@ -123,26 +116,21 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
         var endedMs = endedAt.ToUnixTimeMilliseconds();
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            string? frontIdText;
-            await using (var select = connection.CreateCommand())
-            {
-                select.Transaction = tx;
-                select.CommandText = """
-                    SELECT id FROM current_fronts
-                    WHERE user_id = $user_id AND alter_id = $alter_id
-                    LIMIT 1
-                    """;
-                select.Parameters.AddWithValue("$user_id", userId);
-                select.Parameters.AddWithValue("$alter_id", alterId.Value);
-                frontIdText = await select.ExecuteScalarAsync(cancellationToken) as string;
-            }
+            var frontIdText = await connection.QueryFirstOrDefaultAsync<string>(
+                """
+                SELECT id FROM current_fronts
+                WHERE user_id = @user_id AND alter_id = @alter_id
+                LIMIT 1
+                """,
+                new { user_id = userKey, alter_id = alterId.Value },
+                tx);
 
             if (frontIdText is null)
             {
@@ -150,44 +138,31 @@ public sealed class SqliteFrontingRepository(
                 return false;
             }
 
-            await using (var delete = connection.CreateCommand())
-            {
-                delete.Transaction = tx;
-                delete.CommandText = """
-                    DELETE FROM current_fronts
-                    WHERE user_id = $user_id AND alter_id = $alter_id
-                    """;
-                delete.Parameters.AddWithValue("$user_id", userId);
-                delete.Parameters.AddWithValue("$alter_id", alterId.Value);
-                await delete.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                DELETE FROM current_fronts
+                WHERE user_id = @user_id AND alter_id = @alter_id
+                """,
+                new { user_id = userKey, alter_id = alterId.Value },
+                tx);
 
-            await using (var clearPrimary = connection.CreateCommand())
-            {
-                clearPrimary.Transaction = tx;
-                clearPrimary.CommandText = """
-                    UPDATE front_primary
-                    SET alter_id = NULL
-                    WHERE user_id = $user_id AND alter_id = $alter_id
-                    """;
-                clearPrimary.Parameters.AddWithValue("$user_id", userId);
-                clearPrimary.Parameters.AddWithValue("$alter_id", alterId.Value);
-                await clearPrimary.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                UPDATE front_primary
+                SET alter_id = NULL
+                WHERE user_id = @user_id AND alter_id = @alter_id
+                """,
+                new { user_id = userKey, alter_id = alterId.Value },
+                tx);
 
-            await using (var closeHistory = connection.CreateCommand())
-            {
-                closeHistory.Transaction = tx;
-                closeHistory.CommandText = """
-                    UPDATE fronts
-                    SET time_end = $time_end
-                    WHERE user_id = $user_id AND id = $id AND time_end IS NULL
-                    """;
-                closeHistory.Parameters.AddWithValue("$time_end", endedMs);
-                closeHistory.Parameters.AddWithValue("$user_id", userId);
-                closeHistory.Parameters.AddWithValue("$id", frontIdText);
-                await closeHistory.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                UPDATE fronts
+                SET time_end = @time_end
+                WHERE user_id = @user_id AND id = @id AND time_end IS NULL
+                """,
+                new { time_end = endedMs, user_id = userKey, id = frontIdText },
+                tx);
 
             await tx.CommitAsync(cancellationToken);
             return true;
@@ -205,35 +180,32 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
 
         if (alterId is { } value)
         {
-            await using var exists = connection.CreateCommand();
-            exists.CommandText = """
+            var hit = await connection.ExecuteScalarAsync(
+                """
                 SELECT 1 FROM current_fronts
-                WHERE user_id = $user_id AND alter_id = $alter_id
+                WHERE user_id = @user_id AND alter_id = @alter_id
                 LIMIT 1
-                """;
-            exists.Parameters.AddWithValue("$user_id", userId);
-            exists.Parameters.AddWithValue("$alter_id", value.Value);
-            if (await exists.ExecuteScalarAsync(cancellationToken) is null)
+                """,
+                new { user_id = userKey, alter_id = value.Value });
+            if (hit is null or DBNull)
             {
                 return false;
             }
         }
 
-        await using var upsert = connection.CreateCommand();
-        upsert.CommandText = """
+        await connection.ExecuteAsync(
+            """
             INSERT INTO front_primary (user_id, alter_id)
-            VALUES ($user_id, $alter_id)
+            VALUES (@user_id, @alter_id)
             ON CONFLICT(user_id) DO UPDATE SET alter_id = excluded.alter_id
-            """;
-        upsert.Parameters.AddWithValue("$user_id", userId);
-        upsert.Parameters.AddWithValue("$alter_id", alterId is { } a ? a.Value : DBNull.Value);
-        await upsert.ExecuteNonQueryAsync(cancellationToken);
+            """,
+            new { user_id = userKey, alter_id = alterId?.Value });
         return true;
     }
 
@@ -242,54 +214,43 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
 
         AlterId? primaryId = null;
-        await using (var primaryCmd = connection.CreateCommand())
+        var primaryRaw = await connection.QueryFirstOrDefaultAsync<long?>(
+            """
+            SELECT alter_id FROM front_primary
+            WHERE user_id = @user_id
+            LIMIT 1
+            """,
+            new { user_id = userKey });
+        if (primaryRaw is not null)
         {
-            primaryCmd.CommandText = """
-                SELECT alter_id FROM front_primary
-                WHERE user_id = $user_id
-                LIMIT 1
-                """;
-            primaryCmd.Parameters.AddWithValue("$user_id", userId);
-            await using var primaryReader = await primaryCmd.ExecuteReaderAsync(cancellationToken);
-            if (await primaryReader.ReadAsync(cancellationToken) && !primaryReader.IsDBNull(0))
-            {
-                primaryId = new AlterId((short)primaryReader.GetInt64(0));
-            }
+            primaryId = new AlterId((short)primaryRaw.Value);
         }
 
-        var rows = new List<(FrontId FrontId, AlterId AlterId, string? Comment, DateTimeOffset StartedAt)>();
-        await using (var command = connection.CreateCommand())
-        {
-            command.CommandText = """
-                SELECT id, alter_id, comment, time_start
-                FROM current_fronts
-                WHERE user_id = $user_id
-                ORDER BY time_start DESC
-                """;
-            command.Parameters.AddWithValue("$user_id", userId);
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
-            {
-                rows.Add((
-                    FrontId.Parse(reader.GetString(0), provider: null),
-                    new AlterId((short)reader.GetInt64(1)),
-                    reader.IsDBNull(2) ? null : reader.GetString(2),
-                    DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(3))));
-            }
-        }
+        var rows = (await connection.QueryAsync<CurrentFrontRow>(
+            """
+            SELECT id AS Id, alter_id AS AlterId, comment AS Comment, time_start AS TimeStart
+            FROM current_fronts
+            WHERE user_id = @user_id
+            ORDER BY time_start DESC
+            """,
+            new { user_id = userKey })).ToArray();
 
-        var results = new List<FrontActiveReadModel>(rows.Count);
+        var results = new List<FrontActiveReadModel>(rows.Length);
         foreach (var row in rows)
         {
-            var alterModel = await alters.GetAsync(systemId, row.AlterId, cancellationToken);
+            var alterId = new AlterId((short)row.AlterId);
+            var frontId = FrontId.Parse(row.Id, provider: null);
+            var startedAt = DateTimeOffset.FromUnixTimeMilliseconds(row.TimeStart);
+
+            var alterModel = await alters.GetAsync(systemId, alterId, cancellationToken);
             var bareAlter = alterModel is not null
                 ? new BareAlter(
-                    row.AlterId,
+                    alterId,
                     alterModel.Name,
                     alterModel.AvatarUrl,
                     alterModel.AvatarSource,
@@ -297,12 +258,12 @@ public sealed class SqliteFrontingRepository(
                     alterModel.Pronouns,
                     alterModel.Description,
                     alterModel.Fields)
-                : BareAlter.CreatePlaceholder(row.AlterId);
+                : BareAlter.CreatePlaceholder(alterId);
 
             results.Add(new FrontActiveReadModel(
                 bareAlter,
-                new FrontHistoryReadModel(row.FrontId, row.AlterId, row.Comment, row.StartedAt, null, systemId),
-                primaryId == row.AlterId));
+                new FrontHistoryReadModel(frontId, alterId, row.Comment, startedAt, null, systemId),
+                primaryId == alterId));
         }
 
         return results;
@@ -350,23 +311,23 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
-
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, alter_id, comment, time_start, time_end
+        var rows = await connection.QueryAsync<FrontHistoryRow>(
+            """
+            SELECT id AS Id, alter_id AS AlterId, comment AS Comment, time_start AS TimeStart, time_end AS TimeEnd
             FROM fronts
-            WHERE user_id = $user_id
-              AND time_start >= $start
-              AND time_start <= $end
+            WHERE user_id = @user_id
+              AND time_start >= @start
+              AND time_start <= @end
             ORDER BY time_start DESC
-            """;
-        command.Parameters.AddWithValue("$user_id", userId);
-        command.Parameters.AddWithValue("$start", startInclusive.ToUnixTimeMilliseconds());
-        command.Parameters.AddWithValue("$end", endInclusive.ToUnixTimeMilliseconds());
-
-        return await ReadHistoryAsync(command, systemId, cancellationToken);
+            """,
+            new
+            {
+                user_id = SqliteStorageKeys.Persist(systemId),
+                start = startInclusive.ToUnixTimeMilliseconds(),
+                end = endInclusive.ToUnixTimeMilliseconds(),
+            });
+        return rows.Select(r => MapHistoryRow(r, systemId)).ToArray();
     }
 
     public async Task<IReadOnlyList<FrontHistoryReadModel>> ListAllAsync(
@@ -374,19 +335,16 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
-
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, alter_id, comment, time_start, time_end
+        var rows = await connection.QueryAsync<FrontHistoryRow>(
+            """
+            SELECT id AS Id, alter_id AS AlterId, comment AS Comment, time_start AS TimeStart, time_end AS TimeEnd
             FROM fronts
-            WHERE user_id = $user_id
+            WHERE user_id = @user_id
             ORDER BY time_start DESC
-            """;
-        command.Parameters.AddWithValue("$user_id", userId);
-
-        return await ReadHistoryAsync(command, systemId, cancellationToken);
+            """,
+            new { user_id = SqliteStorageKeys.Persist(systemId) });
+        return rows.Select(r => MapHistoryRow(r, systemId)).ToArray();
     }
 
     public async Task<FrontActiveReadModel?> GetActiveByFrontIdAsync(
@@ -395,50 +353,43 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
         var frontIdText = frontId.Value.ToString("N");
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
 
         AlterId? primaryId = null;
-        await using (var primaryCmd = connection.CreateCommand())
+        var primaryRaw = await connection.QueryFirstOrDefaultAsync<long?>(
+            """
+            SELECT alter_id FROM front_primary
+            WHERE user_id = @user_id
+            LIMIT 1
+            """,
+            new { user_id = userKey });
+        if (primaryRaw is not null)
         {
-            primaryCmd.CommandText = """
-                SELECT alter_id FROM front_primary
-                WHERE user_id = $user_id
-                LIMIT 1
-                """;
-            primaryCmd.Parameters.AddWithValue("$user_id", userId);
-            await using var primaryReader = await primaryCmd.ExecuteReaderAsync(cancellationToken);
-            if (await primaryReader.ReadAsync(cancellationToken) && !primaryReader.IsDBNull(0))
-            {
-                primaryId = new AlterId((short)primaryReader.GetInt64(0));
-            }
+            primaryId = new AlterId((short)primaryRaw.Value);
         }
 
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT alter_id, comment, time_start
+        var row = await connection.QueryFirstOrDefaultAsync<ActiveFrontByIdRow>(
+            """
+            SELECT alter_id AS AlterId, comment AS Comment, time_start AS TimeStart
             FROM current_fronts
-            WHERE user_id = $user_id AND id = $id
+            WHERE user_id = @user_id AND id = @id
             LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$user_id", userId);
-        command.Parameters.AddWithValue("$id", frontIdText);
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+            """,
+            new { user_id = userKey, id = frontIdText });
+        if (row is null)
         {
             return null;
         }
 
-        var alterId = new AlterId((short)reader.GetInt64(0));
-        var comment = reader.IsDBNull(1) ? null : reader.GetString(1);
-        var startedAt = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2));
+        var alterId = new AlterId((short)row.AlterId);
+        var startedAt = DateTimeOffset.FromUnixTimeMilliseconds(row.TimeStart);
 
         return new FrontActiveReadModel(
             BareAlter.CreatePlaceholder(alterId),
-            new FrontHistoryReadModel(frontId, alterId, comment, startedAt, null, systemId),
+            new FrontHistoryReadModel(frontId, alterId, row.Comment, startedAt, null, systemId),
             primaryId == alterId);
     }
 
@@ -448,26 +399,20 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
-
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, alter_id, comment, time_start, time_end
+        var row = await connection.QueryFirstOrDefaultAsync<FrontHistoryRow>(
+            """
+            SELECT id AS Id, alter_id AS AlterId, comment AS Comment, time_start AS TimeStart, time_end AS TimeEnd
             FROM fronts
-            WHERE user_id = $user_id AND id = $id
+            WHERE user_id = @user_id AND id = @id
             LIMIT 1
-            """;
-        command.Parameters.AddWithValue("$user_id", userId);
-        command.Parameters.AddWithValue("$id", frontId.Value.ToString("N"));
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            return null;
-        }
-
-        return ReadHistoryRow(reader, systemId);
+            """,
+            new
+            {
+                user_id = SqliteStorageKeys.Persist(systemId),
+                id = frontId.Value.ToString("N"),
+            });
+        return row is null ? null : MapHistoryRow(row, systemId);
     }
 
     public async Task<bool> EndByFrontIdAsync(
@@ -490,68 +435,48 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
         var frontIdText = frontId.Value.ToString("N");
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            short? alterId = null;
-            await using (var select = connection.CreateCommand())
+            var alterRaw = await connection.QueryFirstOrDefaultAsync<long?>(
+                """
+                SELECT alter_id FROM fronts
+                WHERE user_id = @user_id AND id = @id
+                LIMIT 1
+                """,
+                new { user_id = userKey, id = frontIdText },
+                tx);
+            if (alterRaw is null)
             {
-                select.Transaction = tx;
-                select.CommandText = """
-                    SELECT alter_id FROM fronts
-                    WHERE user_id = $user_id AND id = $id
-                    LIMIT 1
-                    """;
-                select.Parameters.AddWithValue("$user_id", userId);
-                select.Parameters.AddWithValue("$id", frontIdText);
-                var scalar = await select.ExecuteScalarAsync(cancellationToken);
-                if (scalar is null || scalar is DBNull)
-                {
-                    await tx.RollbackAsync(cancellationToken);
-                    return false;
-                }
-
-                alterId = Convert.ToInt16(scalar);
+                await tx.RollbackAsync(cancellationToken);
+                return false;
             }
 
-            await using (var deleteHistory = connection.CreateCommand())
-            {
-                deleteHistory.Transaction = tx;
-                deleteHistory.CommandText = "DELETE FROM fronts WHERE user_id = $user_id AND id = $id";
-                deleteHistory.Parameters.AddWithValue("$user_id", userId);
-                deleteHistory.Parameters.AddWithValue("$id", frontIdText);
-                await deleteHistory.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                "DELETE FROM fronts WHERE user_id = @user_id AND id = @id",
+                new { user_id = userKey, id = frontIdText },
+                tx);
 
-            await using (var deleteActive = connection.CreateCommand())
-            {
-                deleteActive.Transaction = tx;
-                deleteActive.CommandText = """
-                    DELETE FROM current_fronts
-                    WHERE user_id = $user_id AND id = $id
-                    """;
-                deleteActive.Parameters.AddWithValue("$user_id", userId);
-                deleteActive.Parameters.AddWithValue("$id", frontIdText);
-                await deleteActive.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                DELETE FROM current_fronts
+                WHERE user_id = @user_id AND id = @id
+                """,
+                new { user_id = userKey, id = frontIdText },
+                tx);
 
-            if (alterId is { } a)
-            {
-                await using var clearPrimary = connection.CreateCommand();
-                clearPrimary.Transaction = tx;
-                clearPrimary.CommandText = """
-                    UPDATE front_primary
-                    SET alter_id = NULL
-                    WHERE user_id = $user_id AND alter_id = $alter_id
-                    """;
-                clearPrimary.Parameters.AddWithValue("$user_id", userId);
-                clearPrimary.Parameters.AddWithValue("$alter_id", a);
-                await clearPrimary.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                UPDATE front_primary
+                SET alter_id = NULL
+                WHERE user_id = @user_id AND alter_id = @alter_id
+                """,
+                new { user_id = userKey, alter_id = (short)alterRaw.Value },
+                tx);
 
             await tx.CommitAsync(cancellationToken);
             return true;
@@ -570,27 +495,21 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.ForSystem(regionContext, systemId).Value;
+        var userKey = SqliteStorageKeys.Persist(systemId);
         var frontIdText = frontId.Value.ToString("N");
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            int activeUpdated;
-            await using (var updateActive = connection.CreateCommand())
-            {
-                updateActive.Transaction = tx;
-                updateActive.CommandText = """
-                    UPDATE current_fronts
-                    SET comment = $comment
-                    WHERE user_id = $user_id AND id = $id
-                    """;
-                updateActive.Parameters.AddWithValue("$comment", comment);
-                updateActive.Parameters.AddWithValue("$user_id", userId);
-                updateActive.Parameters.AddWithValue("$id", frontIdText);
-                activeUpdated = await updateActive.ExecuteNonQueryAsync(cancellationToken);
-            }
+            var activeUpdated = await connection.ExecuteAsync(
+                """
+                UPDATE current_fronts
+                SET comment = @comment
+                WHERE user_id = @user_id AND id = @id
+                """,
+                new { comment, user_id = userKey, id = frontIdText },
+                tx);
 
             if (activeUpdated == 0)
             {
@@ -598,19 +517,14 @@ public sealed class SqliteFrontingRepository(
                 return false;
             }
 
-            await using (var updateHistory = connection.CreateCommand())
-            {
-                updateHistory.Transaction = tx;
-                updateHistory.CommandText = """
-                    UPDATE fronts
-                    SET comment = $comment
-                    WHERE user_id = $user_id AND id = $id AND time_end IS NULL
-                    """;
-                updateHistory.Parameters.AddWithValue("$comment", comment);
-                updateHistory.Parameters.AddWithValue("$user_id", userId);
-                updateHistory.Parameters.AddWithValue("$id", frontIdText);
-                await updateHistory.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await connection.ExecuteAsync(
+                """
+                UPDATE fronts
+                SET comment = @comment
+                WHERE user_id = @user_id AND id = @id AND time_end IS NULL
+                """,
+                new { comment, user_id = userKey, id = frontIdText },
+                tx);
 
             await tx.CommitAsync(cancellationToken);
             return true;
@@ -622,30 +536,25 @@ public sealed class SqliteFrontingRepository(
         }
     }
 
-    private static async Task<IReadOnlyList<FrontHistoryReadModel>> ReadHistoryAsync(
-        SqliteCommand command,
-        SystemId systemId,
-        CancellationToken cancellationToken)
+    private static FrontHistoryReadModel MapHistoryRow(FrontHistoryRow row, SystemId systemId)
     {
-        var results = new List<FrontHistoryReadModel>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            results.Add(ReadHistoryRow(reader, systemId));
-        }
-
-        return results;
-    }
-
-    private static FrontHistoryReadModel ReadHistoryRow(SqliteDataReader reader, SystemId systemId)
-    {
-        var frontId = FrontId.Parse(reader.GetString(0), provider: null);
-        var alterId = new AlterId((short)reader.GetInt64(1));
-        var comment = reader.IsDBNull(2) ? null : reader.GetString(2);
-        var startedAt = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(3));
-        DateTimeOffset? endedAt = reader.IsDBNull(4)
+        var frontId = FrontId.Parse(row.Id, provider: null);
+        var alterId = new AlterId((short)row.AlterId);
+        var startedAt = DateTimeOffset.FromUnixTimeMilliseconds(row.TimeStart);
+        DateTimeOffset? endedAt = row.TimeEnd is null
             ? null
-            : DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(4));
-        return new FrontHistoryReadModel(frontId, alterId, comment, startedAt, endedAt, systemId);
+            : DateTimeOffset.FromUnixTimeMilliseconds(row.TimeEnd.Value);
+        return new FrontHistoryReadModel(frontId, alterId, row.Comment, startedAt, endedAt, systemId);
     }
+
+    private sealed record CurrentFrontRow(string Id, long AlterId, string? Comment, long TimeStart);
+
+    private sealed record ActiveFrontByIdRow(long AlterId, string? Comment, long TimeStart);
+
+    private sealed record FrontHistoryRow(
+        string Id,
+        long AlterId,
+        string? Comment,
+        long TimeStart,
+        long? TimeEnd);
 }

@@ -1,5 +1,6 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
+using Interfold.Shared.Contracts;
 using TUnit.Core.Exceptions;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -127,15 +128,16 @@ internal static class TestSupport
     /// tweak for the handful of fields a specific test cares about.
     /// </summary>
     /// <remarks>
-    /// Default <see cref="DatastoresSection.Persistence"/> is
-    /// <see cref="Interfold.Shared.Contracts.PersistenceMode.ScyllaPostgres"/>; SQLite is
-    /// <see cref="Interfold.Shared.Contracts.PersistenceMode.Sqlite"/>.
+    /// Default <see cref="DatastoresSection.Persistence"/> on a raw
+    /// <see cref="BootstrapConfig"/> is sqlite. This helper is the CQL-path factory, so it
+    /// sets <see cref="Interfold.Shared.Contracts.PersistenceMode.ScyllaPostgres"/>.
     /// </remarks>
     public static BootstrapConfig MakeConfig(
         CqlBackend backend = CqlBackend.ScyllaSingle,
         Action<BootstrapConfig>? tweak = null)
     {
         var config = new BootstrapConfig();
+        config.Datastores.Persistence = PersistenceMode.ScyllaPostgres;
         config.Datastores.Cql.Backend = backend;
         tweak?.Invoke(config);
         return config;

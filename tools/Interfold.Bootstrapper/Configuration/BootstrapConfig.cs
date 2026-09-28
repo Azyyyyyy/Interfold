@@ -138,7 +138,7 @@ public sealed class EdgeCloudflareAccessSection
 public sealed class DatastoresSection
 {
     [JsonPropertyName("persistence")]
-    public PersistenceMode Persistence { get; set; } = PersistenceMode.ScyllaPostgres;
+    public PersistenceMode Persistence { get; set; } = PersistenceMode.Sqlite;
 
     [JsonPropertyName("postgres")]
     public PostgresDatastoreSection Postgres { get; set; } = new();

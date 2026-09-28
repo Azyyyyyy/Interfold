@@ -24,7 +24,7 @@ internal static partial class PrerequisitesPhase
     private const string SysctlDropIn = "/etc/sysctl.d/99-interfold.conf";
 
     /// <summary>Raw-string overload for the pre-validation peek in
-    /// <see cref="PeekDatabaseModeAsync"/>.</summary>
+    /// <see cref="PeekPersistenceModeAsync"/>.</summary>
     internal static int ResolveScyllaNodeCount(string? cqlBackendWire)
         => ResolveScyllaNodeCount(CqlBackendMapping.ToDatabaseMode(CqlBackendMapping.ParseWire(cqlBackendWire)));
 
@@ -65,22 +65,59 @@ internal static partial class PrerequisitesPhase
         await EnsureDockerAsync(distro, logger, ct).ConfigureAwait(false);
         await EnsureOpenSslAsync(distro, logger, ct).ConfigureAwait(false);
 
-        // Tolerant peek — defaults to single-node baseline on missing/malformed/unrecognised.
-        // ConfigPhase still owns full schema validation. Sqlite skips Seastar AIO entirely.
-        var peekedMode = await PeekDatabaseModeAsync(options, logger, ct).ConfigureAwait(false);
-        if (peekedMode != DatabaseMode.Sqlite)
+        // Tolerant peek — defaults to sqlite (skip Seastar AIO) on missing/malformed files.
+        // ConfigPhase still owns full schema validation.
+        var peekedPersistence = await PeekPersistenceModeAsync(options, logger, ct).ConfigureAwait(false);
+        if (peekedPersistence == PersistenceMode.Sqlite)
         {
-            await EnsureAioLimitAsync(ResolveScyllaNodeCount(peekedMode), logger, ct).ConfigureAwait(false);
+            logger.Info("    persistence=sqlite; skipping fs.aio-max-nr Seastar tuning");
         }
         else
         {
-            logger.Info("    persistence=sqlite; skipping fs.aio-max-nr Seastar tuning");
+            var peekedCql = await PeekCqlDatabaseModeAsync(options, logger, ct).ConfigureAwait(false);
+            await EnsureAioLimitAsync(ResolveScyllaNodeCount(peekedCql), logger, ct).ConfigureAwait(false);
         }
 
         logger.PhaseDone(Phase);
     }
 
-    private static async Task<DatabaseMode> PeekDatabaseModeAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
+    private static async Task<PersistenceMode> PeekPersistenceModeAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(options.ConfigPath) || !File.Exists(options.ConfigPath))
+        {
+            return PersistenceMode.Sqlite;
+        }
+
+        try
+        {
+            await using var stream = File.OpenRead(options.ConfigPath);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
+            if (doc.RootElement.TryGetProperty("datastores", out var datastores)
+                && datastores.TryGetProperty("persistence", out var persistence)
+                && persistence.ValueKind == JsonValueKind.String
+                && persistence.GetString().TryParseWire<PersistenceMode>(out var pers))
+            {
+                return pers;
+            }
+
+            if (doc.RootElement.TryGetProperty("databaseMode", out var modeElement) &&
+                modeElement.ValueKind == JsonValueKind.String &&
+                modeElement.GetString().TryParseWire<DatabaseMode>(out var mode) &&
+                mode == DatabaseMode.Sqlite)
+            {
+                return PersistenceMode.Sqlite;
+            }
+        }
+        catch (Exception ex)
+        {
+            // ConfigPhase will surface a useful error against the same file next.
+            logger.Warn($"could not pre-read datastores.persistence from {options.ConfigPath} for AIO sizing ({ex.GetType().Name}); defaulting to sqlite.");
+        }
+
+        return PersistenceMode.Sqlite;
+    }
+
+    private static async Task<DatabaseMode> PeekCqlDatabaseModeAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(options.ConfigPath) || !File.Exists(options.ConfigPath))
         {
@@ -91,23 +128,13 @@ internal static partial class PrerequisitesPhase
         {
             await using var stream = File.OpenRead(options.ConfigPath);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
-            if (doc.RootElement.TryGetProperty("datastores", out var datastores))
+            if (doc.RootElement.TryGetProperty("datastores", out var datastores)
+                && datastores.TryGetProperty("cql", out var cql)
+                && cql.TryGetProperty("backend", out var backendElement)
+                && backendElement.ValueKind == JsonValueKind.String)
             {
-                if (datastores.TryGetProperty("persistence", out var persistence)
-                    && persistence.ValueKind == JsonValueKind.String
-                    && persistence.GetString().TryParseWire<PersistenceMode>(out var pers)
-                    && pers == PersistenceMode.Sqlite)
-                {
-                    return DatabaseMode.Sqlite;
-                }
-
-                if (datastores.TryGetProperty("cql", out var cql)
-                    && cql.TryGetProperty("backend", out var backendElement)
-                    && backendElement.ValueKind == JsonValueKind.String)
-                {
-                    return CqlBackendMapping.ToDatabaseMode(
-                        CqlBackendMapping.ParseWire(backendElement.GetString()));
-                }
+                return CqlBackendMapping.ToDatabaseMode(
+                    CqlBackendMapping.ParseWire(backendElement.GetString()));
             }
 
             if (doc.RootElement.TryGetProperty("databaseMode", out var modeElement) &&
@@ -119,7 +146,6 @@ internal static partial class PrerequisitesPhase
         }
         catch (Exception ex)
         {
-            // ConfigPhase will surface a useful error against the same file next.
             logger.Warn($"could not pre-read datastores.cql.backend from {options.ConfigPath} for AIO sizing ({ex.GetType().Name}); defaulting to single-node baseline.");
         }
 
@@ -449,14 +475,15 @@ internal static partial class PrerequisitesPhase
             await EnsureDockerDesktopRunningAsync(logger, ct).ConfigureAwait(false);
         }
 
-        var peekedMode = await PeekDatabaseModeAsync(options, logger, ct).ConfigureAwait(false);
-        if (peekedMode != DatabaseMode.Sqlite)
+        var peekedPersistence = await PeekPersistenceModeAsync(options, logger, ct).ConfigureAwait(false);
+        if (peekedPersistence == PersistenceMode.Sqlite)
         {
-            await ProbeContainerAioAsync(ResolveScyllaNodeCount(peekedMode), logger, ct).ConfigureAwait(false);
+            logger.Info("    persistence=sqlite; skipping container AIO probe");
         }
         else
         {
-            logger.Info("    persistence=sqlite; skipping container AIO probe");
+            var peekedCql = await PeekCqlDatabaseModeAsync(options, logger, ct).ConfigureAwait(false);
+            await ProbeContainerAioAsync(ResolveScyllaNodeCount(peekedCql), logger, ct).ConfigureAwait(false);
         }
     }
 
