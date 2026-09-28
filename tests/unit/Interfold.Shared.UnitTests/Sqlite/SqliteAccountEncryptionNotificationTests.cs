@@ -77,6 +77,24 @@ public sealed class SqliteAccountRepositoryTests
     }
 
     [Test]
+    public async Task UpdateUsername_WithoutAccount_ReturnsFalse()
+    {
+        var path = await SqliteTestDb.CreateMigratedAsync();
+        try
+        {
+            var encryption = new SqliteEncryptionStateRepository(SqliteTestDb.Factory(path));
+            var repo = new SqliteAccountRepository(SqliteTestDb.Factory(path), encryption, TimeProvider.System);
+
+            var updated = await repo.UpdateUsernameAsync(new SystemId("ghost"), new Username("nobody"));
+            await Assert.That(updated).IsFalse();
+        }
+        finally
+        {
+            SqliteTestDb.Delete(path);
+        }
+    }
+
+    [Test]
     public async Task FindOrCreate_Discord_SeedsEncryptionSalt()
     {
         var path = await SqliteTestDb.CreateMigratedAsync();

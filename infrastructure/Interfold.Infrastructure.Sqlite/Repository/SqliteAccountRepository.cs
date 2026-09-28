@@ -31,9 +31,26 @@ public sealed class SqliteAccountRepository : IAccountRepository
         _timeProvider = timeProvider;
     }
 
-    public async Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
+    public async Task EnsureExistsAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = SqliteStorageKeys.Persist(systemId);
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        var inserted = await connection.ExecuteAsync(
+            """
+            INSERT OR IGNORE INTO accounts (system_id, created_at, updated_at)
+            VALUES (@system_id, @now, @now)
+            """,
+            new { system_id = systemKey, now = nowMs });
+        if (inserted > 0)
+        {
+            await _encryptionStates.UpsertAsync(
+                SqliteStorageKeys.ToWire(systemKey), false, null, EncryptionSalt.NewRandom(), cancellationToken);
+        }
+    }
+
+    public async Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
+    {
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.ExecuteAsync(
@@ -42,34 +59,8 @@ public sealed class SqliteAccountRepository : IAccountRepository
             SET username = @value, updated_at = @now
             WHERE system_id = @system_id
             """,
-            new { system_id = systemKey, value = username.Value, now = nowMs });
-        if (rows > 0)
-        {
-            return true;
-        }
-
-        // see ScyllaAccountRepository.UpdateUsernameAsync first-touch mint
-        try
-        {
-            await connection.ExecuteAsync(
-                """
-                INSERT INTO accounts (system_id, username, created_at, updated_at)
-                VALUES (@system_id, @value, @now, @now)
-                """,
-                new { system_id = systemKey, value = username.Value, now = nowMs });
-            return true;
-        }
-        catch (SqliteException)
-        {
-            rows = await connection.ExecuteAsync(
-                """
-                UPDATE accounts
-                SET username = @value, updated_at = @now
-                WHERE system_id = @system_id
-                """,
-                new { system_id = systemKey, value = username.Value, now = nowMs });
-            return rows > 0;
-        }
+            new { system_id = SqliteStorageKeys.Persist(systemId), value = username.Value, now = nowMs });
+        return rows > 0;
     }
 
     public async Task<bool> UpdateDescriptionAsync(SystemId systemId, string description, CancellationToken cancellationToken = default)

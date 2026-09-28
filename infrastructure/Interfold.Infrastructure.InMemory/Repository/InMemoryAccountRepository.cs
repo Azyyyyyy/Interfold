@@ -47,6 +47,12 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
+    public Task EnsureExistsAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    {
+        EnsureEncryptionSaltForSystem(ResolveScoped(systemId));
+        return Task.CompletedTask;
+    }
+
     public Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
     {
         var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);

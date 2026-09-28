@@ -58,6 +58,32 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         _options = options.Value;
     }
 
+    public async Task EnsureExistsAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    {
+        await _scopeResolver.ExecuteAsync(systemId, async scope =>
+        {
+            var (session, keyspace, normalizedSystemId) = scope;
+            var existing = (await session.ExecuteAsync(new SimpleStatement(
+                $"SELECT id FROM {keyspace}.users WHERE id = ? LIMIT 1",
+                normalizedSystemId))).FirstOrDefault();
+            if (existing is not null)
+            {
+                return true;
+            }
+
+            var batch = new BatchStatement()
+                .Add(new SimpleStatement(
+                    $"INSERT INTO {keyspace}.users (id, inserted_at, updated_at) VALUES (?, toTimestamp(now()), toTimestamp(now()))",
+                    normalizedSystemId))
+                .Add(new SimpleStatement(
+                    $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry (user_id, region, inserted_at, updated_at) VALUES (?, ?, toTimestamp(now()), toTimestamp(now()))",
+                    normalizedSystemId,
+                    keyspace));
+            await session.ExecuteAsync(batch);
+            return true;
+        }, cancellationToken);
+    }
+
     public async Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
@@ -67,32 +93,20 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             var oldRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT username FROM {keyspace}.users WHERE id = ? LIMIT 1",
                 normalizedSystemId))).FirstOrDefault();
-            var oldUsername = oldRow?.GetValue<string?>("username");
-
-            var batch = new BatchStatement();
             if (oldRow is null)
             {
-                // First touch: mint the regional users row so public guarded reads (ShowAlter etc.)
-                // don't 404 system_not_found. InMemory does this implicitly via its username map.
-                batch.Add(new SimpleStatement(
-                    $"INSERT INTO {keyspace}.users (id, username, inserted_at, updated_at) VALUES (?, ?, toTimestamp(now()), toTimestamp(now()))",
-                    normalizedSystemId,
-                    username.Value));
-                batch.Add(new SimpleStatement(
-                    $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry (user_id, username, region, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
-                    normalizedSystemId,
-                    username.Value,
-                    keyspace));
+                return false;
             }
-            else
-            {
-                batch.Add(new SimpleStatement(
-                    $"UPDATE {keyspace}.users SET username = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                    username.Value, normalizedSystemId));
-                batch.Add(new SimpleStatement(
-                    $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET username = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
-                    username.Value, normalizedSystemId));
-            }
+
+            var oldUsername = oldRow.GetValue<string?>("username");
+
+            var batch = new BatchStatement();
+            batch.Add(new SimpleStatement(
+                $"UPDATE {keyspace}.users SET username = ?, updated_at = toTimestamp(now()) WHERE id = ?",
+                username.Value, normalizedSystemId));
+            batch.Add(new SimpleStatement(
+                $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET username = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
+                username.Value, normalizedSystemId));
 
             if (!string.IsNullOrWhiteSpace(oldUsername))
             {
