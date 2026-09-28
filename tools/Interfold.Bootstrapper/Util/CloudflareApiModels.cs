@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Interfold.Bootstrapper.Util;
@@ -334,14 +333,59 @@ internal sealed class CloudflareAccessPolicyRequest
     public List<CloudflareAccessPolicyCondition> Require { get; set; } = [];
 }
 
-[JsonConverter(typeof(CloudflareAccessPolicyConditionJsonConverter))]
 internal sealed class CloudflareAccessPolicyCondition
 {
-    public CloudflareAccessPolicyRuleKind Kind { get; set; }
-    public string Value { get; set; } = string.Empty;
+    [JsonPropertyName("email")]
+    public CloudflareAccessEmailCondition? Email { get; set; }
+
+    [JsonPropertyName("email_domain")]
+    public CloudflareAccessEmailDomainCondition? EmailDomain { get; set; }
+
+    [JsonPropertyName("login_method")]
+    public CloudflareAccessLoginMethodCondition? LoginMethod { get; set; }
+
+    [JsonPropertyName("everyone")]
+    public CloudflareAccessEveryoneCondition? Everyone { get; set; }
+
+    [JsonPropertyName("service_token")]
+    public CloudflareAccessServiceTokenCondition? ServiceToken { get; set; }
 
     public static CloudflareAccessPolicyCondition From(CloudflareAccessPolicyRule rule)
-        => new() { Kind = rule.Kind, Value = rule.Value };
+        => rule.Kind switch
+        {
+            CloudflareAccessPolicyRuleKind.Email => new() { Email = new() { Email = rule.Value } },
+            CloudflareAccessPolicyRuleKind.EmailDomain => new() { EmailDomain = new() { Domain = rule.Value } },
+            CloudflareAccessPolicyRuleKind.LoginMethod => new() { LoginMethod = new() { Id = rule.Value } },
+            CloudflareAccessPolicyRuleKind.Everyone => new() { Everyone = new() },
+            CloudflareAccessPolicyRuleKind.ServiceToken => new() { ServiceToken = new() { TokenId = rule.Value } },
+            _ => throw new InvalidOperationException($"Unsupported Access policy rule kind '{rule.Kind}'."),
+        };
+}
+
+internal sealed class CloudflareAccessEmailCondition
+{
+    [JsonPropertyName("email")]
+    public string Email { get; set; } = string.Empty;
+}
+
+internal sealed class CloudflareAccessEmailDomainCondition
+{
+    [JsonPropertyName("domain")]
+    public string Domain { get; set; } = string.Empty;
+}
+
+internal sealed class CloudflareAccessLoginMethodCondition
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+}
+
+internal sealed class CloudflareAccessEveryoneCondition;
+
+internal sealed class CloudflareAccessServiceTokenCondition
+{
+    [JsonPropertyName("token_id")]
+    public string TokenId { get; set; } = string.Empty;
 }
 
 internal sealed class CloudflareAccessPolicyResult
@@ -369,117 +413,6 @@ internal sealed class CloudflareServiceTokenResult
 
     [JsonPropertyName("client_secret")]
     public string? ClientSecret { get; set; }
-}
-
-internal sealed class CloudflareAccessPolicyConditionJsonConverter : JsonConverter<CloudflareAccessPolicyCondition>
-{
-    public override CloudflareAccessPolicyCondition Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        if (reader.TokenType != JsonTokenType.StartObject)
-            throw new JsonException("Access policy condition must be an object.");
-
-        CloudflareAccessPolicyCondition? condition = null;
-        while (reader.Read())
-        {
-            if (reader.TokenType == JsonTokenType.EndObject)
-                break;
-            if (reader.TokenType != JsonTokenType.PropertyName)
-                continue;
-
-            var kind = reader.GetString();
-            reader.Read();
-            condition = kind switch
-            {
-                "email" => new() { Kind = CloudflareAccessPolicyRuleKind.Email, Value = ReadNestedString(ref reader, "email") },
-                "email_domain" => new() { Kind = CloudflareAccessPolicyRuleKind.EmailDomain, Value = ReadNestedString(ref reader, "domain") },
-                "login_method" => new() { Kind = CloudflareAccessPolicyRuleKind.LoginMethod, Value = ReadNestedString(ref reader, "id") },
-                "service_token" => new() { Kind = CloudflareAccessPolicyRuleKind.ServiceToken, Value = ReadNestedString(ref reader, "token_id") },
-                "everyone" => ReadEveryone(ref reader),
-                _ => SkipUnknown(ref reader, condition),
-            };
-        }
-
-        return condition ?? throw new JsonException("Access policy condition was empty.");
-    }
-
-    private static CloudflareAccessPolicyCondition ReadEveryone(ref Utf8JsonReader reader)
-    {
-        if (reader.TokenType == JsonTokenType.StartObject)
-            reader.Skip();
-        return new() { Kind = CloudflareAccessPolicyRuleKind.Everyone };
-    }
-
-    private static CloudflareAccessPolicyCondition? SkipUnknown(ref Utf8JsonReader reader, CloudflareAccessPolicyCondition? existing)
-    {
-        if (reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray)
-            reader.Skip();
-        return existing;
-    }
-
-    private static string ReadNestedString(ref Utf8JsonReader reader, string propertyName)
-    {
-        if (reader.TokenType != JsonTokenType.StartObject)
-            throw new JsonException("Access policy condition value must be an object.");
-
-        string? value = null;
-        while (reader.Read())
-        {
-            if (reader.TokenType == JsonTokenType.EndObject)
-                break;
-            if (reader.TokenType != JsonTokenType.PropertyName)
-                continue;
-
-            var name = reader.GetString();
-            reader.Read();
-            if (name == propertyName && reader.TokenType == JsonTokenType.String)
-                value = reader.GetString();
-            else if (reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray)
-                reader.Skip();
-        }
-
-        return value ?? string.Empty;
-    }
-
-    public override void Write(Utf8JsonWriter writer, CloudflareAccessPolicyCondition value, JsonSerializerOptions options)
-    {
-        writer.WriteStartObject();
-        switch (value.Kind)
-        {
-            case CloudflareAccessPolicyRuleKind.Email:
-                writer.WritePropertyName("email");
-                writer.WriteStartObject();
-                writer.WriteString("email", value.Value);
-                writer.WriteEndObject();
-                break;
-            case CloudflareAccessPolicyRuleKind.EmailDomain:
-                writer.WritePropertyName("email_domain");
-                writer.WriteStartObject();
-                writer.WriteString("domain", value.Value);
-                writer.WriteEndObject();
-                break;
-            case CloudflareAccessPolicyRuleKind.LoginMethod:
-                writer.WritePropertyName("login_method");
-                writer.WriteStartObject();
-                writer.WriteString("id", value.Value);
-                writer.WriteEndObject();
-                break;
-            case CloudflareAccessPolicyRuleKind.Everyone:
-                writer.WritePropertyName("everyone");
-                writer.WriteStartObject();
-                writer.WriteEndObject();
-                break;
-            case CloudflareAccessPolicyRuleKind.ServiceToken:
-                writer.WritePropertyName("service_token");
-                writer.WriteStartObject();
-                writer.WriteString("token_id", value.Value);
-                writer.WriteEndObject();
-                break;
-            default:
-                throw new JsonException($"Unsupported Access policy rule kind '{value.Kind}'.");
-        }
-
-        writer.WriteEndObject();
-    }
 }
 
 internal sealed class CloudflareTotalTlsSettings

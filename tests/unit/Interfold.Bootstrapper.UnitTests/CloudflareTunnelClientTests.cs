@@ -373,6 +373,8 @@ public sealed class CloudflareTunnelClientTests
         await Assert.That(createdPolicy.Decision).IsEqualTo("allow");
         await Assert.That(createdPolicy.Name).IsEqualTo("interfold-allow");
         await Assert.That(createdPolicy.Include.Count).IsEqualTo(2);
+        await Assert.That(createdPolicy.Include[0].Email?.Email).IsEqualTo("ops@example.com");
+        await Assert.That(createdPolicy.Include[1].EmailDomain?.Domain).IsEqualTo("example.com");
         await Assert.That(createdPolicy.Require.Count).IsEqualTo(0);
     }
 

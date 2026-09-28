@@ -4,6 +4,7 @@ namespace Interfold.Auth.Api.Auth;
 
 [JsonSourceGenerationOptions(
     PropertyNameCaseInsensitive = true,
+    NumberHandling = JsonNumberHandling.AllowReadingFromString,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(CloudflareAccessIdentityJson))]
 [JsonSerializable(typeof(CloudflareAccessIdpJson))]

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -276,7 +277,11 @@ public sealed class CloudflareAccessJwtValidator
     private static string? SnowflakeFrom(CloudflareAccessOidcClaimsJson? claims)
         => claims is null
             ? null
-            : ReadDiscordSnowflake(claims.Id) ?? ReadDiscordSnowflake(claims.Sub);
+            : ReadDiscordSnowflake(FormatSnowflake(claims.Id))
+              ?? ReadDiscordSnowflake(FormatSnowflake(claims.Sub));
+
+    private static string? FormatSnowflake(ulong? value)
+        => value?.ToString(CultureInfo.InvariantCulture);
 
     internal static bool IsDiscordAccessIdp(string? idpId, string? expectedIdpId)
         => !string.IsNullOrWhiteSpace(expectedIdpId)
