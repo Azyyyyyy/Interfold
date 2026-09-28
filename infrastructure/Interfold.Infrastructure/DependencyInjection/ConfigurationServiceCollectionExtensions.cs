@@ -130,6 +130,9 @@ public static class ConfigurationServiceCollectionExtensions
     {
         // Empty "" would otherwise reach the exporter SDK as a bogus endpoint; null skips.
         opts.OtlpEndpoint = NullIfEmpty(config[OctoconEnvKeys.OtlpEndpoint]);
+        opts.AdvertiseOtlpToClients =
+            bool.TryParse(config[OctoconEnvKeys.AdvertiseOtlpToClients], out var advertise) && advertise;
+        opts.ClientOtlpHttpEndpoint = NullIfEmpty(config[OctoconEnvKeys.ClientOtlpHttpEndpoint]);
     }
 
     private static void ApplyTrust(TrustOptions opts, IConfiguration config)

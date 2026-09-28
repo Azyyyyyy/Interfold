@@ -42,9 +42,15 @@ public static class OctoconEnvKeys
     public const string AppleOAuthClientId = "OCTOCON_APPLE_OAUTH_CLIENT_ID";
     public const string AppleOAuthClientSecret = "OCTOCON_APPLE_OAUTH_CLIENT_SECRET";
 
+    public const string CfAccessTeamDomain = "OCTOCON_CF_ACCESS_TEAM_DOMAIN";
+    public const string CfAccessAud = "OCTOCON_CF_ACCESS_AUD";
+    public const string CfAccessDiscordIdpId = "OCTOCON_CF_ACCESS_DISCORD_IDP_ID";
+
     public const string CorsAllowedOrigins = "OCTOCON_CORS_ALLOWED_ORIGINS";
 
     public const string OtlpEndpoint = "OCTOCON_OTLP_ENDPOINT";
+    public const string AdvertiseOtlpToClients = "OCTOCON_ADVERTISE_OTLP_TO_CLIENTS";
+    public const string ClientOtlpHttpEndpoint = "OCTOCON_CLIENT_OTLP_HTTP_ENDPOINT";
 
     public const string TrustRootCaPath = "OCTOCON_TRUST_ROOT_CA_PATH";
     public const string TrustRootCaFingerprintPath = "OCTOCON_TRUST_ROOT_CA_FINGERPRINT_PATH";

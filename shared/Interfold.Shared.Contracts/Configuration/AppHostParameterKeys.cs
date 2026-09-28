@@ -34,12 +34,22 @@ public static class AppHostParameterKeys
     public const string IncludeCassandra = "Parameters:include-cassandra";
     public const string IncludeDashboard = "Parameters:include-dashboard";
     public const string IncludeWeb = "Parameters:include-web";
+    /// <summary>Run-mode named DB volumes + Persistent lifetime. Off by default;
+    /// publish and test-bench force this on.</summary>
     public const string PersistentContainers = "Parameters:persistent-containers";
     public const string ScyllaTopology = "Parameters:scylla-topology";
     public const string ClusterName = "Parameters:cluster-name";
-    public const string WebTls = "Parameters:web-tls";
-    public const string WebServerName = "Parameters:web-server-name";
+    public const string EdgeTlsMode = "Parameters:edge-tls-mode";
+    public const string EdgeRouting = "Parameters:edge-routing";
+    public const string EdgeApiHost = "Parameters:edge-api-host";
+    public const string EdgeWebHost = "Parameters:edge-web-host";
+    public const string EdgeCloudflareTunnel = "Parameters:edge-cloudflare-tunnel";
+    public const string EdgeIncludeWebUpstream = "Parameters:edge-include-web-upstream";
+    public const string EdgeServerName = "Parameters:edge-server-name";
     public const string ApiImage = "Parameters:api-image";
+    public const string WebImage = "Parameters:web-image";
+    /// <summary>Absolute host path to the Cloudflare Tunnel connector token file (0600).</summary>
+    public const string EdgeCloudflareTunnelTokenPath = "Parameters:edge-cloudflare-tunnel-token-path";
 
     // Bench-mode marker consumed by InterfoldAppHost + TestBenchCoordinator. When on, the
     // AppHost forces api/web/dashboard off, pins stable container names, and emits a
@@ -59,6 +69,13 @@ public static class AppHostParameterKeys
     public const string GoogleOAuthClientId = "Parameters:google-oauth-client-id";
     public const string DiscordOAuthClientId = "Parameters:discord-oauth-client-id";
     public const string AppleOAuthClientId = "Parameters:apple-oauth-client-id";
+    /// <summary>Run-mode only. Seeded into <c>internal.secrets</c> and forwarded as
+    /// <c>OCTOCON_GOOGLE_OAUTH_CLIENT_SECRET</c>. Never emitted into publish <c>.env</c>.</summary>
+    public const string GoogleOAuthClientSecret = "Parameters:google-oauth-client-secret";
+    /// <summary>Run-mode only. Same path as <see cref="GoogleOAuthClientSecret"/> for Discord.</summary>
+    public const string DiscordOAuthClientSecret = "Parameters:discord-oauth-client-secret";
+    /// <summary>Run-mode only. Same path as <see cref="GoogleOAuthClientSecret"/> for Apple.</summary>
+    public const string AppleOAuthClientSecret = "Parameters:apple-oauth-client-secret";
 
     // --- API runtime ---
     public const string ScyllaKeyspace = "Parameters:scylla-keyspace";
@@ -69,22 +86,24 @@ public static class AppHostParameterKeys
     public const string NodeGroup = "Parameters:node-group";
     public const string AvatarPublicBase = "Parameters:avatar-public-base";
     public const string OtlpEndpoint = "Parameters:otlp-endpoint";
+    public const string AdvertiseOtlpToClients = "Parameters:advertise-otlp-to-clients";
+    public const string ClientOtlpHttpEndpoint = "Parameters:client-otlp-http-endpoint";
     public const string SocketBatchBytesThreshold = "Parameters:socket-batch-bytes-threshold";
     public const string DbRetryAttempts = "Parameters:db-retry-attempts";
     public const string DbRetryInitialDelayMs = "Parameters:db-retry-initial-delay-ms";
     public const string DbRetryMaxDelayMs = "Parameters:db-retry-max-delay-ms";
     public const string HydrationMaxConcurrency = "Parameters:hydration-max-concurrency";
+    public const string CfAccessTeamDomain = "Parameters:cf-access-team-domain";
+    public const string CfAccessAud = "Parameters:cf-access-aud";
+    public const string CfAccessDiscordIdpId = "Parameters:cf-access-discord-idp-id";
 
     // --- Host port mappings ---
     public const string PortsPostgres = "Ports:postgres";
     public const string PortsScylla = "Ports:scylla";
     public const string PortsCassandra = "Ports:cassandra";
-    public const string PortsApiHttp = "Ports:api-http";
-    public const string PortsApiHttps = "Ports:api-https";
-    public const string PortsWebHttp = "Ports:web-http";
-    public const string PortsWebHttps = "Ports:web-https";
+    public const string PortsEdgeHttp = "Ports:edge-http";
+    public const string PortsEdgeHttps = "Ports:edge-https";
 
-    // --- Inside-the-container Kestrel ports (not host-published; must match the API image) ---
+    // --- Inside-the-container Kestrel port (not host-published; must match the API image) ---
     public const string PortsApiContainerHttp = "Ports:api-container-http";
-    public const string PortsApiContainerHttps = "Ports:api-container-https";
 }

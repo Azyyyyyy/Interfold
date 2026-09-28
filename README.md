@@ -17,20 +17,75 @@ This repository contains the backend code for Octocon, which is structured into 
 
 ## Self-hosting (production)
 
-Interfold ships a single bootstrapper binary that brings a fresh Linux box from `git clone` to a
+Interfold ships a single bootstrapper binary that brings a fresh Linux or Windows host from `git clone` to a
 running stack. The bootstrapper IS an Aspire AppHost — it reuses the same resource graph as the
 dev `aspire run` flow, with a Docker Compose publisher and a host-side prep wrapper around it.
 
 ### One-shot install
 
-1. Download the latest release tarball (TO BE CREATED) and unpack it on a fresh Ubuntu 22.04+/Debian 12+/Fedora 40+/RHEL 9+ box:
+CI uploads per-arch bootstrapper artefacts (Linux `.tar.gz`, Windows `.zip`). Rolling
+channels publish a **unique tag per CI run** (`bootstrap-stable-{version}` /
+`bootstrap-bleeding-edge-{version}`, where `{version}` is the InformationalVersion stamp) because
+the repo uses immutable releases — fixed tag names cannot be republished. Published
+binaries also embed the release channel (`stable` / `bleeding-edge` / pin tag) as
+assembly metadata (`interfold-bootstrap --version` shows it). `update-self`
+resolves both channels by paginating the Releases API for the newest matching prefix
+(`bootstrap-stable-*` full release, `bootstrap-bleeding-edge-*` prerelease) — not GitHub’s “latest” flag —
+then verifies downloads against each asset’s Releases API `digest` (no `SHA256SUMS` /
+`version.txt` assets). Pinned `bootstrap-v*` tags **are** the version (distinct from
+API image releases tagged `api-v*`):
 
-   ```bash
-   tar -xzf interfold-bootstrap-linux-x64.tar.gz
-   cd interfold-bootstrap
-   ```
+| Arch | Linux | Windows |
+|---|---|---|
+| x64 | `interfold-bootstrap-linux-x64.tar.gz` | `interfold-bootstrap-win-x64.zip` |
+| arm64 | `interfold-bootstrap-linux-arm64.tar.gz` | `interfold-bootstrap-win-arm64.zip` |
+| arm (32-bit) | `interfold-bootstrap-linux-arm.tar.gz` | *(none — .NET has no `win-arm` RID)* |
 
-2. Author `interfold.bootstrap.json` (or run the binary with no arguments to be prompted):
+**Linux** — download a release tarball (or use a CI artefact) on Ubuntu 22.04+/Debian 12+/Fedora 40+/RHEL 9+:
+
+```bash
+# Stable (tracks main — newest non-prerelease bootstrap-stable-* tag)
+tag=$(curl -fsSL 'https://api.github.com/repos/Azyyyyyy/Interfold/releases?per_page=100' \
+  | jq -r '[.[] | select((.prerelease|not) and (.draft|not) and (.tag_name | startswith("bootstrap-stable-")))][0].tag_name')
+curl -fsSL -o interfold-bootstrap-linux-x64.tar.gz \
+  "https://github.com/Azyyyyyy/Interfold/releases/download/${tag}/interfold-bootstrap-linux-x64.tar.gz"
+tar -xzf interfold-bootstrap-linux-x64.tar.gz
+chmod +x interfold-bootstrap
+
+# Bleeding-edge (tracks develop — newest bootstrap-bleeding-edge-* prerelease)
+tag=$(curl -fsSL 'https://api.github.com/repos/Azyyyyyy/Interfold/releases?per_page=100' \
+  | jq -r '[.[] | select(.prerelease and (.draft|not) and (.tag_name | startswith("bootstrap-bleeding-edge-")))][0].tag_name')
+curl -fsSL -o interfold-bootstrap-linux-x64.tar.gz \
+  "https://github.com/Azyyyyyy/Interfold/releases/download/${tag}/interfold-bootstrap-linux-x64.tar.gz"
+tar -xzf interfold-bootstrap-linux-x64.tar.gz
+chmod +x interfold-bootstrap
+
+# Pinned (immutable tag — cut with `git tag bootstrap-v0.0.1 && git push --tags`)
+curl -fsSL -o interfold-bootstrap-linux-x64.tar.gz \
+  https://github.com/Azyyyyyy/Interfold/releases/download/bootstrap-v0.0.1/interfold-bootstrap-linux-x64.tar.gz
+tar -xzf interfold-bootstrap-linux-x64.tar.gz
+chmod +x interfold-bootstrap
+```
+
+Replace `linux-x64` with `linux-arm64` or `linux-arm` as needed. The archive unpacks a
+single flat `interfold-bootstrap` ELF.
+
+**Container install** (initial install only — ongoing binary updates use GitHub Releases
+via `update-self`):
+
+```bash
+docker run --rm -v /opt/interfold:/opt/interfold ghcr.io/azyyyyyy/interfold-bootstrap:latest \
+  bootstrap --config /opt/interfold/interfold.bootstrap.json --output-dir /opt/interfold/deploy
+```
+
+**Windows** — unpack a release zip on a Docker Desktop host (x64 / ARM64):
+
+```powershell
+Expand-Archive interfold-bootstrap-win-x64.zip -DestinationPath .\interfold-bootstrap
+cd .\interfold-bootstrap
+```
+
+1. Author `interfold.bootstrap.json` (or run the binary with no arguments to be prompted):
 
    ```json
    {
@@ -41,7 +96,7 @@ dev `aspire run` flow, with a Docker Compose publisher and a host-side prep wrap
        "certYears": 5,
        "trustStoreInstall": true
      },
-     "ports": { "apiHttp": 5000, "apiHttps": 5001, "webHttp": 8080, "webHttps": 8081 },
+     "ports": { "edgeHttp": 80, "edgeHttps": 443 },
      "databaseMode": "single",
      "apiImage": "ghcr.io/azyyyyyy/interfold-api:latest",
      "oauth": {
@@ -51,10 +106,18 @@ dev `aspire run` flow, with a Docker Compose publisher and a host-side prep wrap
    }
    ```
 
-3. Run the bootstrapper as root:
+2. Run the bootstrapper:
+
+   Linux (as root):
 
    ```bash
    sudo ./interfold-bootstrap bootstrap --config interfold.bootstrap.json
+   ```
+
+   Windows (elevated only if Docker Desktop still needs installing):
+
+   ```powershell
+   .\interfold-bootstrap.exe bootstrap --config interfold.bootstrap.json
    ```
 
    This walks through six phases — prereqs → config → secrets → certs → publish → launch —
@@ -80,6 +143,40 @@ deploy/
 | `interfold-bootstrap up` | Run only `docker compose up -d` + health wait against an already-generated compose file. |
 | `interfold-bootstrap rotate-secrets` | Regenerate DB/admin passwords + encryption keypair + pepper, re-emit compose, restart the API. Certs unchanged. |
 | `interfold-bootstrap rotate-certs` | Regenerate root CA + leaf cert, re-install into the trust store, re-emit compose. Secrets unchanged. |
+| `interfold-bootstrap update-self` | Download and atomically replace the running bootstrapper binary from GitHub Releases (`stable`, `bleeding-edge`, or a pin like `bootstrap-v0.0.1`). |
+| `interfold-bootstrap update-images` | Pull newer compose images, optionally recreate services, and health-check the stack. |
+| `interfold-bootstrap backup` | Snapshot Postgres + Scylla to `{outputDir}/backups/`. |
+| `interfold-bootstrap restore` | Restore from a prior backup archive. |
+| `interfold-bootstrap install-service` | Render and install systemd units (`interfold.service`, backup timer, update service). |
+
+`update-self` flags:
+
+- `--channel stable|bleeding-edge|bootstrap-vX.Y.Z` — release channel or pin tag (defaults to `deployment.update.bootstrapper.channel`). Rolling versions come from the tag suffix; pins compare the local binary to the SemVer core after `bootstrap-v`.
+- `--check` — exit 0 when up to date, exit 2 when a newer release is available (no write).
+- `--force` — re-download even when versions match (repair a corrupt binary).
+- `--rollback` — restore `{binary}.old` over the live binary.
+
+API container images are selected via `api.image` in bootstrap config (not the bootstrapper
+channel). CI publishes `ghcr.io/azyyyyyy/interfold-api` with:
+
+| Tag | Meaning |
+| --- | --- |
+| `latest` | Rolling stable (default branch) |
+| `bleeding-edge` | Rolling develop |
+| `1.2.3` | Exact patch from git tag `api-v1.2.3` |
+| `1.2` / `1` | Floating minor / major (moved on each matching `api-v*` release) |
+
+Examples: `ghcr.io/azyyyyyy/interfold-api:1.2`, `…:1.2.3`. Responses include
+`X-Interfold-Api-Version` (product SemVer) separately from `X-Interfold-Contract` (wire
+freeze). App clients use unversioned `/api/...` routes; breaking changes ship as new
+endpoints. GitHub release tags stay namespaced: `api-v*` (API image) vs `bootstrap-v*`
+(bootstrapper pin) vs `bootstrap-stable-*` / `bootstrap-bleeding-edge-*` (bootstrapper rolling).
+
+When `deployment.update.bootstrapper.enabled=true`, Linux `interfold-update.service` and the
+Windows backup-task update Actions chain `update-self` before `update-images` (Linux uses
+`exec` so the post-swap binary runs the image pull).
+When `deployment.update.bootstrapper.updateOnBootstrap=true`, `bootstrap` checks for a newer
+bootstrapper before prerequisites (skip with `--skip-self-update`).
 
 Common flags:
 
@@ -88,6 +185,7 @@ Common flags:
 - `--output-dir <path>` — override the artifact root (default `./deploy`).
 - `--skip-prereqs` — skip the Docker/openssl/AIO install. Use on re-runs where the host is
   already configured.
+- `--skip-self-update` — skip the optional bootstrapper self-update at the start of `bootstrap`.
 - `--non-interactive` — fail rather than prompt when config values are missing.
 
 ### Local dev (Aspire)
@@ -169,12 +267,15 @@ than editing `.env` by hand.
 - `OCTOCON_POSTGRES_CONNECTION`
 - `OCTOCON_PERSISTENCE`, `OCTOCON_SINGLE_SCYLLA_INSTANCE`
 - `OCTOCON_SCYLLA_KEYSPACE` — per-instance region identity (one of `nam`/`eur`/`sam`/`sas`/`eas`/`ocn`/`gdpr`). Sourced from `BootstrapConfig.scyllaKeyspace`; defaults to `nam`. The interactive form constrains the row to the seven valid values.
-- `OCTOCON_AUTH_CALLBACK_BASE_URL` — base URL the API's OAuth callbacks redirect to. Sourced from `BootstrapConfig.apiRuntime.callbackBaseUrl`; defaults derive to `{scheme}://{domains[0]}` when blank (scheme follows `deployment.webHttps`).
-- `OCTOCON_JWT_AUTHORITY` / `OCTOCON_JWT_AUDIENCE` — JWT `iss` / `aud` claims. Sourced from `BootstrapConfig.apiRuntime.jwtAuthority` / `apiRuntime.jwtAudience`; authority derives the same way as the callback URL; audience defaults to `octocon`.
-- `OCTOCON_CORS_ALLOWED_ORIGINS` — comma-separated CORS allow-list. Sourced from `BootstrapConfig.apiRuntime.corsAllowedOrigins`; defaults to one entry per `deployment.domains` so a fresh bootstrap never ships with the API's "allow any origin" fallback.
-- `OCTOCON_NODE_GROUP` — cluster node role (`primary` / `auxiliary` / `sidecar`). Sourced from `BootstrapConfig.cluster.nodeGroup`; defaults to `auxiliary`. Fly.io stacks override via `FLY_PROCESS_GROUP` at runtime.
+- `OCTOCON_AUTH_CALLBACK_BASE_URL` — base URL the API's OAuth callbacks redirect to. Sourced from `BootstrapConfig.api.oauth.callbackBaseUrl`; defaults derive from `edge.tlsMode` / `edge.ports` (or bare `https://{host}` when `edge.cloudflare.enabled`; subdomain routing may use `edge.routing.apiHost`).
+- `OCTOCON_JWT_AUTHORITY` / `OCTOCON_JWT_AUDIENCE` — JWT `iss` / `aud` claims. Sourced from `BootstrapConfig.api.oauth.jwtAuthority` / `api.oauth.jwtAudience`; authority derives the same way as the callback URL; audience defaults to `octocon`.
+- `OCTOCON_CF_ACCESS_TEAM_DOMAIN` / `OCTOCON_CF_ACCESS_AUD` — Cloudflare Access JWT exchange. Empty disables `GET /auth/cloudflare` and `POST /auth/cloudflare/session`. Written from `{outputDir}/.cloudflare-access.json` after Access is provisioned. See [configuration.md](docs/configuration.md#edgecloudflare-cloudflare-tunnel) for the Access callback URI (Google and Discord) and client contract.
+- `OCTOCON_CORS_ALLOWED_ORIGINS` — comma-separated CORS allow-list. Sourced from `BootstrapConfig.api.corsAllowedOrigins`; defaults to one entry per `edge.hosts` so a fresh bootstrap never ships with the API's "allow any origin" fallback.
+- `OCTOCON_NODE_GROUP` — cluster node role (`primary` / `auxiliary` / `sidecar`). Sourced from `BootstrapConfig.api.nodeGroup`; defaults to `auxiliary`. Fly.io stacks override via `FLY_PROCESS_GROUP` at runtime.
 - `OCTOCON_AVATAR_STORAGE_ROOT` / `OCTOCON_AVATAR_PUBLIC_BASE` — local avatar storage. Self-host compose always sets the container root to `/app/data/avatars` and bind-mounts `BootstrapConfig.storage.avatarStorageRoot` (blank → `{outputDir}/data/avatars`). `avatarPublicBase` blank means the API serves `/avatars/*` itself; set an https URL to stamp CDN links.
-- `OCTOCON_OTLP_ENDPOINT` — gRPC OTLP endpoint for traces/metrics, e.g. `http://localhost:4317`. Sourced from `BootstrapConfig.observability.otlpEndpoint`; empty disables the exporter.
+- `OCTOCON_OTLP_ENDPOINT` — OTLP endpoint for the API's own traces/metrics, e.g. `http://localhost:4317`. Sourced from `BootstrapConfig.observability.otlpEndpoint`; empty disables the exporter.
+- `OCTOCON_ADVERTISE_OTLP_TO_CLIENTS` — when `true`, discovery may advertise the server OTLP URL via `GET /api/telemetry/otlp` (opt-in; default `false`). Sourced from `BootstrapConfig.observability.advertiseOtlpToClients`.
+- `OCTOCON_CLIENT_OTLP_HTTP_ENDPOINT` — optional client-only OTLP/HTTP URL for discovery; when set, overrides the server URL. `aspire run` stamps the Aspire dashboard OTLP/HTTP endpoint so wasm traces show in the dashboard. The API does not ingest OTLP.
 - `OCTOCON_SOCKET_BATCH_BYTES_THRESHOLD` — WebSocket batched-payload flush threshold (bytes). Sourced from `BootstrapConfig.socket.batchBytesThreshold`; nullable — `null` means the API uses its compile-time default.
 - `OCTOCON_DB_RETRY_ATTEMPTS` / `OCTOCON_DB_RETRY_INITIAL_DELAY_MS` / `OCTOCON_DB_RETRY_MAX_DELAY_MS` / `OCTOCON_HYDRATION_MAX_CONCURRENCY` — DB-retry strategy + per-request hydration fan-out cap. Sourced from `BootstrapConfig.persistence.*`; all four have non-null defaults that match the API's compile-time fallbacks.
 

@@ -1,9 +1,8 @@
 using System.Diagnostics;
 using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.RegularExpressions;
 using Cassandra;
+using Interfold.Infrastructure.Persistence;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.Hosting;
@@ -581,8 +580,7 @@ public sealed partial class ScyllaMigrationService(
         }
     }
 
-    internal static string ComputeChecksum(string content) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
+    internal static string ComputeChecksum(string content) => MigrationChecksum.Sha256Utf8(content);
 
     private string[] TargetKeyspaces() =>
         options.Value.IsSingleScyllaInstance

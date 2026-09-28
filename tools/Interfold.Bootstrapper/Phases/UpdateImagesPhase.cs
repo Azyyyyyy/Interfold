@@ -38,9 +38,9 @@ internal static class UpdateImagesPhase
         }
 
         var healthTimeout = TimeSpan.FromSeconds(
-            options.HealthCheckTimeoutOverride ?? config.Update.HealthCheckTimeoutSeconds);
-        var autoRestore = options.AutoRestore || config.Update.AutoRestoreOnFailure;
-        var recreate = config.Update.RecreateOnUpdate;
+            options.HealthCheckTimeoutOverride ?? config.Deployment.Update.HealthCheckTimeoutSeconds);
+        var autoRestore = options.AutoRestore || config.Deployment.Update.AutoRestoreOnFailure;
+        var recreate = config.Deployment.Update.RecreateOnUpdate;
 
         // Pre = container .Image ids; post = Config.Image tag resolution.
         // Avoids `docker compose images`, which exits 1 under the containerd image store
@@ -126,7 +126,8 @@ internal static class UpdateImagesPhase
         }
 
         // Failure never leaves the stack half-updated without operator-facing recovery.
-        var healthErr = await CheckStackHealthAsync(composeFile, config, healthTimeout, logger, ct).ConfigureAwait(false);
+        var healthErr = await CheckStackHealthAsync(
+            composeFile, config, options.OutputDir, healthTimeout, logger, ct).ConfigureAwait(false);
         if (healthErr is not null)
         {
             logger.PhaseFail(Phase, PhaseFailureReasons.HealthCheckFailed);
@@ -140,7 +141,7 @@ internal static class UpdateImagesPhase
         if (backupArtifacts is not null)
         {
             var backupRoot = BackupPhase.ResolveBackupRoot(options, config);
-            var retainCount = options.BackupRetainOverride ?? config.Backup.RetainCount;
+            var retainCount = options.BackupRetainOverride ?? config.Deployment.Backup.RetainCount;
             BackupPhase.PruneComponent(
                 Path.Combine(backupRoot, BackupStoragePaths.PostgresDir),
                 BackupDatabaseComponent.Postgres, retainCount, logger);
@@ -160,7 +161,10 @@ internal static class UpdateImagesPhase
     {
         if (options.UpdateServices is { Length: > 0 })
         {
-            var unknown = options.UpdateServices
+            var canonical = options.UpdateServices
+                .Select(ComposeServices.CanonicalizeUpdateService)
+                .ToArray();
+            var unknown = canonical
                 .Where(svc => !ComposeServices.AllValidUpdateServices.Contains(svc, StringComparer.Ordinal))
                 .ToArray();
             if (unknown.Length > 0)
@@ -170,9 +174,12 @@ internal static class UpdateImagesPhase
                     $"Expected one of: {string.Join(", ", ComposeServices.AllValidUpdateServices)}.");
             }
 
-            return options.UpdateServices;
+            return canonical;
         }
-        return config.Update.Services;
+
+        return config.Deployment.Update.Services
+            .Select(ComposeServices.CanonicalizeUpdateService)
+            .ToArray();
     }
 
     /// <summary>Only cassandra mode, and only when <c>cassandra</c> is in scope; otherwise
@@ -400,7 +407,7 @@ internal static class UpdateImagesPhase
     /// and the API (<c>GET /health/ready</c>). Returns null on success, else an operator-facing
     /// message. Shared deadline so no single tier can starve the others.</summary>
     private static async Task<string?> CheckStackHealthAsync(
-        string composeFile, BootstrapConfig config, TimeSpan totalTimeout,
+        string composeFile, BootstrapConfig config, string outputDir, TimeSpan totalTimeout,
         PhaseLogger logger, CancellationToken ct)
     {
         var deadline = DateTime.UtcNow + totalTimeout;
@@ -416,7 +423,7 @@ internal static class UpdateImagesPhase
         var scErr = await WaitForScyllaReadyAsync(composeFile, scyllaService, deadline, logger, ct).ConfigureAwait(false);
         if (scErr is not null) return scErr;
 
-        var apiErr = await WaitForApiReadyAsync(config.Ports.ApiHttp, deadline, logger, ct).ConfigureAwait(false);
+        var apiErr = await WaitForApiReadyAsync(config, outputDir, deadline, logger, ct).ConfigureAwait(false);
         if (apiErr is not null) return apiErr;
 
         logger.Info("    health-check: all three tiers ready");
@@ -451,8 +458,8 @@ internal static class UpdateImagesPhase
     }
 
     private static Task<string?> WaitForApiReadyAsync(
-        int apiHttpPort, DateTime deadline, PhaseLogger logger, CancellationToken ct)
-        => ApiReadinessProbe.TryWaitUntilAsync(apiHttpPort, deadline, logger, ct);
+        BootstrapConfig config, string outputDir, DateTime deadline, PhaseLogger logger, CancellationToken ct)
+        => ApiReadinessProbe.TryWaitUntilAsync(config, deadline, logger, ct, outputDir);
 
     private static async Task OnHealthCheckFailedAsync(
         BootstrapOptions options, BootstrapConfig config, string composeFile,
@@ -462,7 +469,7 @@ internal static class UpdateImagesPhase
         logger.Error($"health check failed: {healthErr}");
 
         // Best-effort log dump so operators don't have to shell in for a diagnosis.
-        var suspects = new[] { ComposeServices.Postgres, ComposeServices.ScyllaSingle, ComposeServices.ScyllaNam, ComposeServices.Cassandra, ComposeServices.InterfoldApi, ComposeServices.OctoconWeb };
+        var suspects = new[] { ComposeServices.Postgres, ComposeServices.ScyllaSingle, ComposeServices.ScyllaNam, ComposeServices.Cassandra, ComposeServices.InterfoldApi, ComposeServices.InterfoldWeb };
         await ComposeLogDumper.DumpAsync(composeFile, suspects, tailLines: 200, logger, ct).ConfigureAwait(false);
 
         // Clean stopped state so a restore/retry doesn't fight half-recreated containers.
@@ -508,6 +515,20 @@ internal static class UpdateImagesPhase
         else
         {
             logger.Warn("update failed and --skip-pre-update-backup was used; no automatic recovery path available.");
+        }
+
+        if (config.Deployment.Update.Bootstrapper.AutoRollbackOnFailure)
+        {
+            logger.Info("    deployment.update.bootstrapper.autoRollbackOnFailure=true: rolling back bootstrapper binary");
+            var rollback = SelfUpdatePhaseCore.Rollback(SelfUpdatePhaseCore.ResolveBinaryPath(), logger);
+            if (rollback != SelfUpdateResult.RolledBack)
+            {
+                logger.Warn("bootstrapper rollback failed; run `interfold-bootstrap update-self --rollback` manually.");
+            }
+        }
+        else
+        {
+            logger.Warn("To roll back the bootstrapper binary after a failed update, run: interfold-bootstrap update-self --rollback");
         }
     }
 

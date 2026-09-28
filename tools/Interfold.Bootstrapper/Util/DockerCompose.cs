@@ -13,6 +13,7 @@ internal static class DockerCompose
     {
         var args = new List<string> { "compose", "-f", composeFile, "up" };
         if (detach) args.Add("-d");
+        args.Add("--remove-orphans");
         if (build) args.Add("--build");
         if (services is not null) args.AddRange(services);
         return await ProcessRunner.RunAsync("docker", args, ct: ct).ConfigureAwait(false);
@@ -59,6 +60,7 @@ internal static class DockerCompose
     {
         var args = new List<string> { "compose", "-f", composeFile, "down" };
         if (removeVolumes) args.Add("-v");
+        args.Add("--remove-orphans");
         if (services is not null) args.AddRange(services);
         return await ProcessRunner.RunAsync("docker", args, ct: ct).ConfigureAwait(false);
     }
@@ -106,7 +108,7 @@ internal static class DockerCompose
         string? phaseFailReason = null)
     {
         var svcLabel = services is { Count: > 0 } ? string.Join(' ', services) : "...";
-        logger.Info($"    docker compose up -d {svcLabel}");
+        logger.Info($"    docker compose up -d --remove-orphans {svcLabel}");
         var run = await UpAsync(composeFile, services, detach: true, build: false, ct: ct).ConfigureAwait(false);
         if (run.ExitCode != 0)
         {
@@ -117,7 +119,7 @@ internal static class DockerCompose
             }
             var svcSuffix = services is { Count: > 0 } ? $" for [{string.Join(", ", services)}]" : string.Empty;
             throw new InvalidOperationException(
-                $"docker compose up -d{svcSuffix} exited with code {run.ExitCode}: {run.StdErr.Trim()}");
+                $"docker compose up -d --remove-orphans{svcSuffix} exited with code {run.ExitCode}: {run.StdErr.Trim()}");
         }
         if (!string.IsNullOrWhiteSpace(run.StdOut)) logger.Info(run.StdOut.Trim());
     }

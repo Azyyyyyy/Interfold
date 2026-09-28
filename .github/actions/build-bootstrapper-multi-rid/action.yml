@@ -19,6 +19,14 @@ inputs:
   artifact-suffix:
     description: 'Suffix on each artefact `name`, typically the commit SHA so runs don''t collide.'
     required: true
+  bootstrapper-version:
+    description: 'InformationalVersion embedded in the published binaries (also used as the rolling release tag suffix).'
+    required: false
+    default: '0.0.0-dev'
+  bootstrapper-channel:
+    description: 'Release channel stamped into the binary (stable, bleeding-edge, or bootstrap-v* pin). Empty for unstamped PR/local builds.'
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -34,6 +42,9 @@ runs:
         target: out
         platforms: ${{ inputs.platforms }}
         outputs: type=local,dest=./bootstrap-out
+        build-args: |
+          VERSION=${{ inputs.bootstrapper-version }}
+          CHANNEL=${{ inputs.bootstrapper-channel }}
         cache-from: type=gha,scope=interfold-dotnet
         cache-to: type=gha,mode=max,scope=interfold-dotnet
 

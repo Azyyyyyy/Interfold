@@ -1,5 +1,7 @@
 using System.CommandLine;
+using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.Cli;
 
@@ -7,12 +9,18 @@ namespace Interfold.Bootstrapper.Cli;
 /// Entry point and command tree for the bootstrapper CLI.
 /// Commands: <c>bootstrap</c> (default), <c>publish</c>, <c>up</c>, <c>rotate-secrets</c>,
 /// <c>rotate-certs</c>, <c>show-trust</c>, <c>backup</c>, <c>install-service</c>,
-/// <c>update-images</c>, <c>restore</c>.
+/// <c>update-images</c>, <c>update-self</c>, <c>restore</c>.
 /// </summary>
 public static class RootCli
 {
     public static async Task<int> RunAsync(string[] args)
     {
+        if (args is ["--version"] or ["-V"] or ["version"])
+        {
+            PrintVersion();
+            return 0;
+        }
+
         var root = BuildRoot();
         var parseResult = root.Parse(args);
         return await parseResult.InvokeAsync().ConfigureAwait(false);
@@ -31,7 +39,9 @@ public static class RootCli
         };
         var skipPrereqsOpt = new Option<bool>("--skip-prereqs")
         {
-            Description = "Skip the prerequisites phase (Docker/openssl install, AIO sysctl). Use on re-runs."
+            Description = OperatingSystem.IsWindows()
+                ? "Skip the prerequisites phase (Docker Desktop install / elevation). Use on re-runs."
+                : "Skip the prerequisites phase (Docker/openssl install, AIO sysctl). Use on re-runs."
         };
         var nonInteractiveOpt = new Option<bool>("--non-interactive")
         {
@@ -45,6 +55,34 @@ public static class RootCli
         // Hidden testability flags - not surfaced in help but accepted by the parser.
         var faultInjectOpt = new Option<string?>("--fault-inject") { Hidden = true };
         var printPhaseStatusOpt = new Option<bool>("--print-phase-status") { Hidden = true };
+
+        var skipCloudflareTunnelOpt = new Option<bool>("--skip-cloudflare-tunnel")
+        {
+            Description = "Skip Cloudflare Tunnel hostname/DNS registration after launch (air-gapped / tests)."
+        };
+
+        var skipSelfUpdateOpt = new Option<bool>("--skip-self-update")
+        {
+            Description = "Skip bootstrapper self-update at the start of `bootstrap` when config.deployment.update.bootstrapper.updateOnBootstrap is enabled."
+        };
+
+        // --- update-self-specific options ---
+        var selfUpdateChannelOpt = new Option<string?>("--channel")
+        {
+            Description = "Release channel for `update-self`: stable, bleeding-edge, or a pin tag (bootstrap-vX.Y.Z). Overrides config.deployment.update.bootstrapper.channel."
+        };
+        var selfUpdateCheckOpt = new Option<bool>("--check")
+        {
+            Description = "For `update-self`: exit 0 when up to date, exit 2 when a newer release is available (no download)."
+        };
+        var selfUpdateForceOpt = new Option<bool>("--force")
+        {
+            Description = "For `update-self`: re-download even when the running version matches the remote release."
+        };
+        var selfUpdateRollbackOpt = new Option<bool>("--rollback")
+        {
+            Description = "For `update-self`: restore the previous bootstrapper binary from interfold-bootstrap.old."
+        };
 
         // --- backup-specific options ---
         // Component selector: postgres = pg_dump only; scylla = nodetool snapshot only;
@@ -67,23 +105,31 @@ public static class RootCli
 
         // --- install-service-specific options ---
         // When the flag is omitted on the CLI the default falls back to the matching config
-        // value (BackupSection.AutostartServer / BackupSection.Enabled); we accept a tri-state
+        // value (DeploymentSection.AutostartServer / DeploymentSection.Backup.Enabled); we accept a tri-state
         // via the System.CommandLine bool option's "specified" check on the parse result.
         var enableAutostartOpt = new Option<bool>("--enable-autostart")
         {
-            Description = "After writing units, run `systemctl enable --now interfold.service`. Overrides config.backup.autostartServer."
+            Description = OperatingSystem.IsWindows()
+                ? "After writing tasks, enable autostart (logon trigger + docker compose up -d). Overrides config.deployment.autostartServer."
+                : "After writing units, enable autostart (systemctl enable --now interfold.service). Overrides config.deployment.autostartServer."
         };
         var enableBackupTimerOpt = new Option<bool>("--enable-backup-timer")
         {
-            Description = "After writing units, run `systemctl enable --now interfold-backup.timer`. Overrides config.backup.enabled."
+            Description = OperatingSystem.IsWindows()
+                ? "After writing tasks, enable the backup schedule (calendar trigger on InterfoldBackup). Overrides config.deployment.backup.enabled."
+                : "After writing units, enable the backup schedule (systemctl enable --now interfold-backup.timer). Overrides config.deployment.backup.enabled."
         };
         var systemdUnitDirOpt = new Option<string?>("--systemd-unit-dir")
         {
-            Description = "Override the systemd unit installation directory (default: /etc/systemd/system). Used by integration tests."
+            Description = OperatingSystem.IsWindows()
+                ? "Write task XML here and skip schtasks registration (test mode)."
+                : "Write units here and skip systemctl registration. Default: /etc/systemd/system."
         };
         var binaryPathOpt = new Option<string?>("--binary-path")
         {
-            Description = "Override the bootstrapper binary path baked into interfold-backup.service (default: AppContext.BaseDirectory/interfold-bootstrap)."
+            Description = OperatingSystem.IsWindows()
+                ? "Override the bootstrapper binary path baked into backup/update jobs (default: AppContext.BaseDirectory/interfold-bootstrap.exe)."
+                : "Override the bootstrapper binary path baked into backup/update jobs (default: AppContext.BaseDirectory/interfold-bootstrap)."
         };
 
         // --- update-images-specific options ---
@@ -101,7 +147,7 @@ public static class RootCli
         };
         var updateServicesOpt = new Option<string[]>("--service")
         {
-            Description = "Compose services to pull + recreate. Repeatable; e.g. --service interfold-api --service octocon-web. Empty (the default) means every service.",
+            Description = "Compose services to pull + recreate. Repeatable; e.g. --service interfold-api --service interfold-web. Empty (the default) means every service.",
             AllowMultipleArgumentsPerToken = true,
         };
         var healthCheckTimeoutOpt = new Option<int?>("--health-check-timeout")
@@ -131,17 +177,21 @@ public static class RootCli
         };
 
         var root = new RootCommand(
-            "Interfold self-hosting bootstrapper. Brings a fresh Linux box from 'git clone' to a running stack.");
+            "Interfold self-hosting bootstrapper. Brings a fresh Linux or Windows host from 'git clone' to a running stack.");
 
         // ---------- bootstrap (default) ----------
         var bootstrapCmd = new Command("bootstrap",
             "Run all phases: prereqs -> config -> secrets -> certs -> publish -> launch.");
         AddSharedOptions(bootstrapCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         bootstrapCmd.Options.Add(reconfigureOpt);
+        bootstrapCmd.Options.Add(skipCloudflareTunnelOpt);
+        bootstrapCmd.Options.Add(skipSelfUpdateOpt);
         bootstrapCmd.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Bootstrap, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
             rotateSecrets: false, rotateCerts: false, ct,
-            reconfigureOpt: reconfigureOpt));
+            reconfigureOpt: reconfigureOpt,
+            skipCloudflareTunnelOpt: skipCloudflareTunnelOpt,
+            skipSelfUpdateOpt: skipSelfUpdateOpt));
         root.Subcommands.Add(bootstrapCmd);
 
         // ---------- publish (compose-only, no docker compose up) ----------
@@ -157,9 +207,11 @@ public static class RootCli
         var upCmd = new Command("up",
             "Launch an already-generated compose stack: docker compose up -d + health wait.");
         AddSharedOptions(upCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
+        upCmd.Options.Add(skipCloudflareTunnelOpt);
         upCmd.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Up, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
-            rotateSecrets: false, rotateCerts: false, ct));
+            rotateSecrets: false, rotateCerts: false, ct,
+            skipCloudflareTunnelOpt: skipCloudflareTunnelOpt));
         root.Subcommands.Add(upCmd);
 
         // ---------- rotate-secrets ----------
@@ -206,7 +258,9 @@ public static class RootCli
 
         // ---------- install-service ----------
         var installServiceCmd = new Command("install-service",
-            "Install systemd units for boot-up autostart + scheduled backups. Writes to /etc/systemd/system/.");
+            OperatingSystem.IsWindows()
+                ? "Install autostart + scheduled backup (Task Scheduler Interfold / InterfoldBackup)."
+                : "Install autostart + scheduled backup (systemd units in /etc/systemd/system/).");
         AddSharedOptions(installServiceCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         installServiceCmd.Options.Add(enableAutostartOpt);
         installServiceCmd.Options.Add(enableBackupTimerOpt);
@@ -242,6 +296,23 @@ public static class RootCli
             healthCheckTimeoutOpt: healthCheckTimeoutOpt));
         root.Subcommands.Add(updateImagesCmd);
 
+        // ---------- update-self ----------
+        var updateSelfCmd = new Command("update-self",
+            "Download and install a newer bootstrapper release from GitHub Releases for this Linux or Windows RID.");
+        AddSharedOptions(updateSelfCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
+        updateSelfCmd.Options.Add(selfUpdateChannelOpt);
+        updateSelfCmd.Options.Add(selfUpdateCheckOpt);
+        updateSelfCmd.Options.Add(selfUpdateForceOpt);
+        updateSelfCmd.Options.Add(selfUpdateRollbackOpt);
+        updateSelfCmd.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.UpdateSelf, parse,
+            configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
+            rotateSecrets: false, rotateCerts: false, ct,
+            selfUpdateChannelOpt: selfUpdateChannelOpt,
+            selfUpdateCheckOpt: selfUpdateCheckOpt,
+            selfUpdateForceOpt: selfUpdateForceOpt,
+            selfUpdateRollbackOpt: selfUpdateRollbackOpt));
+        root.Subcommands.Add(updateSelfCmd);
+
         // ---------- restore ----------
         var restoreCmd = new Command("restore",
             "Restore DB state from backup archives. Destructive — requires --force in non-interactive mode.");
@@ -264,10 +335,14 @@ public static class RootCli
         // No subcommand -> default to `bootstrap`.
         AddSharedOptions(root, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         root.Options.Add(reconfigureOpt);
+        root.Options.Add(skipCloudflareTunnelOpt);
+        root.Options.Add(skipSelfUpdateOpt);
         root.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Bootstrap, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
             rotateSecrets: false, rotateCerts: false, ct,
-            reconfigureOpt: reconfigureOpt));
+            reconfigureOpt: reconfigureOpt,
+            skipCloudflareTunnelOpt: skipCloudflareTunnelOpt,
+            skipSelfUpdateOpt: skipSelfUpdateOpt));
 
         return root;
     }
@@ -316,8 +391,24 @@ public static class RootCli
         Option<string?>? restoreScyllaOpt = null,
         Option<bool>? restoreLatestOpt = null,
         Option<bool>? restoreForceOpt = null,
-        Option<bool>? reconfigureOpt = null)
+        Option<bool>? reconfigureOpt = null,
+        Option<bool>? skipCloudflareTunnelOpt = null,
+        Option<bool>? skipSelfUpdateOpt = null,
+        Option<string?>? selfUpdateChannelOpt = null,
+        Option<bool>? selfUpdateCheckOpt = null,
+        Option<bool>? selfUpdateForceOpt = null,
+        Option<bool>? selfUpdateRollbackOpt = null)
     {
+        BootstrapperReleaseChannel? channelOverride = null;
+        if (selfUpdateChannelOpt is not null)
+        {
+            var wire = parse.GetValue(selfUpdateChannelOpt);
+            if (!string.IsNullOrWhiteSpace(wire))
+            {
+                channelOverride = BootstrapperReleaseChannel.ParseWire(wire);
+            }
+        }
+
         var options = new BootstrapOptions(
             Command: command,
             ConfigPath: parse.GetValue(configOpt),
@@ -343,7 +434,13 @@ public static class RootCli
             RestoreScyllaArchive: restoreScyllaOpt is null ? null : parse.GetValue(restoreScyllaOpt),
             RestoreLatest: restoreLatestOpt is not null && parse.GetValue(restoreLatestOpt),
             RestoreForce: restoreForceOpt is not null && parse.GetValue(restoreForceOpt),
-            Reconfigure: reconfigureOpt is not null && parse.GetValue(reconfigureOpt));
+            Reconfigure: reconfigureOpt is not null && parse.GetValue(reconfigureOpt),
+            SkipCloudflareTunnel: skipCloudflareTunnelOpt is not null && parse.GetValue(skipCloudflareTunnelOpt),
+            SkipSelfUpdate: skipSelfUpdateOpt is not null && parse.GetValue(skipSelfUpdateOpt),
+            SelfUpdateChannelOverride: channelOverride,
+            SelfUpdateCheckOnly: selfUpdateCheckOpt is not null && parse.GetValue(selfUpdateCheckOpt),
+            SelfUpdateForce: selfUpdateForceOpt is not null && parse.GetValue(selfUpdateForceOpt),
+            SelfUpdateRollback: selfUpdateRollbackOpt is not null && parse.GetValue(selfUpdateRollbackOpt));
 
         var logger = new PhaseLogger(options);
 
@@ -361,5 +458,16 @@ public static class RootCli
             logger.Error(ex.Message);
             return 1;
         }
+    }
+
+    private static void PrintVersion()
+    {
+        var rid = BootstrapperRid.TryDetectHostRid(out var detected)
+            ? detected
+            : "unsupported";
+        var channel = BootstrapperVersion.ReleaseChannelWire;
+        Console.WriteLine(channel is null
+            ? $"{BootstrapperVersion.InformationalVersion} ({rid})"
+            : $"{BootstrapperVersion.InformationalVersion} ({rid}; {channel})");
     }
 }

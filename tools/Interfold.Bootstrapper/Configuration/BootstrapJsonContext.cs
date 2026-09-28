@@ -14,6 +14,9 @@ namespace Interfold.Bootstrapper.Configuration;
     DefaultIgnoreCondition = JsonIgnoreCondition.Never)]
 [JsonSerializable(typeof(BootstrapConfig))]
 [JsonSerializable(typeof(GeneratedSecrets))]
+[JsonSerializable(typeof(Interfold.Bootstrapper.Util.CloudflareTunnelState))]
+[JsonSerializable(typeof(Interfold.Bootstrapper.Util.CloudflareAccessState))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
 public sealed partial class BootstrapJsonContext : JsonSerializerContext
 {
 }

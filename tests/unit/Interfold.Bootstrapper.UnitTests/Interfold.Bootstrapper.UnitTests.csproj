@@ -17,6 +17,8 @@
     <PackageReference Include="TUnit" />
     <!-- In-memory IAnsiConsole (TestConsole) for ConfigInteractivePromptTests. -->
     <PackageReference Include="Spectre.Console.Testing" />
+    <!-- Explicit: ACL assertions in UnixFilePermissionsWindowsTests. -->
+    <PackageReference Include="System.IO.FileSystem.AccessControl" />
   </ItemGroup>
 
   <ItemGroup>

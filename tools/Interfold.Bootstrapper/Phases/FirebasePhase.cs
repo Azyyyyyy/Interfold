@@ -28,7 +28,7 @@ internal static class FirebasePhase
     {
         logger.PhaseStart(Phase);
 
-        var section = config.Firebase;
+        var section = config.Api.Firebase;
         var result = new FirebaseSeedInputs(
             AndroidClientJson: ParseAndroid(section.AndroidConfigPath, options.OutputDir, logger),
             IosClientJson: ParseIos(section.IosConfigPath, options.OutputDir, logger),

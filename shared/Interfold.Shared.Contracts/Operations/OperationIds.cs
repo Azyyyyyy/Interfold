@@ -42,6 +42,8 @@ public static class OperationIds
     public static readonly OperationId QueryAuthOAuthRequest = new("qry.auth.oauth.request");
     public static readonly OperationId AuthOAuthCallback = new("cmd.auth.oauth.callback");
     public static readonly OperationId AuthRevokeToken = new("cmd.auth.revoke.token");
+    public static readonly OperationId QueryAuthLoginMethods = new("qry.auth.login_methods");
+    public static readonly OperationId AuthCloudflareExchange = new("cmd.auth.cloudflare.exchange");
     public static readonly OperationId QueryAuthLinkRequest = new("qry.auth.link.request");
     public static readonly OperationId AuthLinkCallback = new("cmd.auth.link.callback");
 

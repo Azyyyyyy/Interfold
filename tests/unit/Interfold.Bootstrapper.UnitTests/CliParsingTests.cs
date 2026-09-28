@@ -263,7 +263,7 @@ public sealed class CliParsingTests
     {
         // ConfigPhase aborts when --non-interactive is set and no config file is present at the
         // expected path. Drive the `publish` command so the failure happens at the config phase
-        // rather than at prereqs (which is Linux-only).
+        // rather than at prereqs (which is host-mutating).
         using var scratch = TestSupport.NewScratchDir("interfold-cli-ni");
         var tmpDir = scratch.Path;
         var run = await InvokeInProcessAsync("publish",
@@ -302,7 +302,7 @@ public sealed class CliParsingTests
         var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
         var cfg = TestSupport.MakeConfig(tweak: c =>
         {
-            c.Deployment.Hosts = ["api.example.com"];
+            c.Edge.Hosts = ["api.example.com"];
             c.Deployment.OutputDir = tmpDir;
         });
         await File.WriteAllTextAsync(

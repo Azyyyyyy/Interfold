@@ -80,6 +80,10 @@
         // --- Observability ---
         // OTLP gRPC endpoint (e.g. http://localhost:4317). Empty keeps metrics/traces in-process.
         "OCTOCON_OTLP_ENDPOINT": "",
+        // Opt-in: advertise OCTOCON_OTLP_ENDPOINT via GET /api/telemetry/otlp when no client override.
+        "OCTOCON_ADVERTISE_OTLP_TO_CLIENTS": "false",
+        // Optional client-only OTLP/HTTP URL for discovery. Empty + advertise off → 404.
+        "OCTOCON_CLIENT_OTLP_HTTP_ENDPOINT": "",
 
         // --- Cluster ---
         // Resolution order: FLY_PROCESS_GROUP -> OCTOCON_NODE_GROUP -> "auxiliary".

@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using Cassandra;
 using ISession = Cassandra.ISession;
@@ -21,8 +23,8 @@ public sealed class DataStaxScyllaExecutor(string host, int port) : IScyllaExecu
 {
     public async Task ExecCqlAsync(string user, string password, string cql, CancellationToken ct)
     {
-        using var cluster = BuildCluster(user, password);
-        using var session = await cluster.ConnectAsync().ConfigureAwait(false);
+        using var cluster = CreateCluster(host, port, user, password);
+        using var session = await cluster.ConnectAsync().WaitAsync(ct).ConfigureAwait(false);
         // SimpleStatement.SetIdempotence(true) is not strictly true for ALTER ROLE etc. but
         // we never trigger driver-side retries in the seed flow — the orchestrator owns
         // retry semantics by short-circuiting on the idempotency probes.
@@ -34,8 +36,8 @@ public sealed class DataStaxScyllaExecutor(string host, int port) : IScyllaExecu
     {
         try
         {
-            using var cluster = BuildCluster(user, password);
-            using var session = await cluster.ConnectAsync().ConfigureAwait(false);
+            using var cluster = CreateCluster(host, port, user, password);
+            using var session = await cluster.ConnectAsync().WaitAsync(ct).ConfigureAwait(false);
             var stmt = new SimpleStatement(cql);
             var rs = await session.ExecuteAsync(stmt).ConfigureAwait(false);
 
@@ -62,15 +64,38 @@ public sealed class DataStaxScyllaExecutor(string host, int port) : IScyllaExecu
         }
     }
 
-    private Cluster BuildCluster(string user, string password)
+    internal static Cluster CreateCluster(string host, int port, string user, string password)
     {
         return Cluster.Builder()
             .AddContactPoint(host)
             .WithPort(port)
             .WithCredentials(user, password)
-            // Localhost test runs are reachable in well under 5s even on cold-start; the
-            // default 5s socket timeout is fine. Connection pool kept at the driver default
-            // (1 / host) — seed work is sequential, more connections wouldn't help.
+            // Scylla advertises --broadcast-address <compose name> / the container IP. The
+            // DataStax control connection then dials that from the host and hangs. Keep every
+            // peer on the published contact point this executor was constructed with.
+            .WithAddressTranslator(new PublishedPortAddressTranslator(host, port))
+            .WithSocketOptions(new SocketOptions()
+                .SetConnectTimeoutMillis(5_000)
+                .SetReadTimeoutMillis(8_000))
+            .WithQueryTimeout(8_000)
             .Build();
+    }
+
+    private sealed class PublishedPortAddressTranslator(string host, int port) : IAddressTranslator
+    {
+        private readonly IPEndPoint _published = new(Resolve(host), port);
+
+        public IPEndPoint Translate(IPEndPoint address) => _published;
+
+        private static IPAddress Resolve(string host)
+        {
+            if (IPAddress.TryParse(host, out var ip)) return ip;
+            if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
+                return IPAddress.Loopback;
+
+            var addresses = Dns.GetHostAddresses(host);
+            return addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)
+                ?? addresses[0];
+        }
     }
 }

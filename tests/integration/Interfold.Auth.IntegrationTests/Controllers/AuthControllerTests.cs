@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Interfold.Alters.Contracts.Models;
 using Interfold.Alters.Contracts.Models.Read;
+using Interfold.Auth.Api.Models;
 using Interfold.Auth.Contracts.Configuration;
 using Interfold.IntegrationTests.Shared;
 using Interfold.IntegrationTests.Shared.TestServices;
@@ -29,6 +30,36 @@ public sealed class AuthControllerTests(IWebFactoryFixture fixture) : BaseEndpoi
         var body = await response.Content.ReadAsStringAsync();
 
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
+    }
+
+    [Test]
+    public async Task LoginMethods_ReportsCloudflareAccessDisabledByDefault()
+    {
+        using var client = fixture.Factory.CreateClient();
+        var response = await client.GetAsync("/auth/login-methods");
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        var methods = await response.Content.ReadFromJsonAsync<LoginMethodsResponse>();
+        await Assert.That(methods).IsNotNull();
+        await Assert.That(methods!.Cloudflare).IsFalse();
+        await Assert.That(methods.Google).IsFalse();
+        await Assert.That(methods.Discord).IsFalse();
+        await Assert.That(methods.Apple).IsFalse();
+    }
+
+    [Test]
+    public async Task CloudflareExchange_UnavailableWhenAccessEnvUnset()
+    {
+        using var client = TestClient.NoRedirect(fixture);
+        var response = await client.GetAsync("/auth/cloudflare?redirect_uri=https://app.example.com/done");
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
+    }
+
+    [Test]
+    public async Task CloudflareSession_UnauthorizedWithoutAccessJwt()
+    {
+        using var client = fixture.Factory.CreateClient();
+        var response = await client.PostAsync("/auth/cloudflare/session", content: null);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
     }
 
     //TODO: DO we need this? Maybe can split it up another way...

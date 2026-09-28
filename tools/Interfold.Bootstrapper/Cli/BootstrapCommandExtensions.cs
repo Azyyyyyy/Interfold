@@ -12,6 +12,7 @@ internal static class BootstrapCommandExtensions
         BootstrapCommand.Backup => "backup",
         BootstrapCommand.Restore => "restore",
         BootstrapCommand.UpdateImages => "update-images",
+        BootstrapCommand.UpdateSelf => "update-self",
         BootstrapCommand.InstallService => "install-service",
         _ => throw new ArgumentOutOfRangeException(
             nameof(command), command, "Only the standalone CLI commands carry a phase log name."),

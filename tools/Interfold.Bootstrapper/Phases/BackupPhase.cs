@@ -42,7 +42,7 @@ internal static class BackupPhase
         var composeFile = PhaseArtifactLoader.RequireComposeFileOrFail(options, logger, Phase);
 
         var backupRoot = ResolveBackupRoot(options, config);
-        var retainCount = options.BackupRetainOverride ?? config.Backup.RetainCount;
+        var retainCount = options.BackupRetainOverride ?? config.Deployment.Backup.RetainCount;
         if (retainCount < 1)
         {
             logger.PhaseFail(Phase, PhaseFailureReasons.InvalidRetain);
@@ -78,9 +78,9 @@ internal static class BackupPhase
         {
             return Path.GetFullPath(options.BackupDirOverride);
         }
-        if (!string.IsNullOrWhiteSpace(config.Backup.Directory))
+        if (!string.IsNullOrWhiteSpace(config.Deployment.Backup.Directory))
         {
-            return Path.GetFullPath(config.Backup.Directory);
+            return Path.GetFullPath(config.Deployment.Backup.Directory);
         }
         return Path.Combine(options.OutputDir, "backups");
     }
@@ -89,7 +89,8 @@ internal static class BackupPhase
     /// naming in <c>InterfoldAppHost.Configure</c> so exec lands on the same container.</summary>
     internal static (string Service, string DataPath) ResolveScyllaSeed(BootstrapConfig config)
     {
-        return config.DatabaseMode switch
+        var databaseMode = CqlBackendMapping.ToDatabaseMode(config.Datastores.Cql.Backend);
+        return databaseMode switch
         {
             DatabaseMode.Cassandra => (ComposeServices.Cassandra, ContainerMountPaths.CassandraData),
             DatabaseMode.Multi => (ComposeServices.ScyllaNam, ContainerMountPaths.ScyllaData),
@@ -158,7 +159,7 @@ internal static class BackupPhase
         var (adminUser, adminPassword) = PhaseArtifactLoader.RequireAdminPassword(secrets, logger, Phase);
 
         logger.Info($"    postgres: pg_dump -> {dumpPath}");
-        var argv = BuildPostgresDumpArgs(composeFile, adminUser, config.PostgresDatabase);
+        var argv = BuildPostgresDumpArgs(composeFile, adminUser, config.Datastores.Postgres.Database);
 
         // Stream to disk so the dump never buffers in memory; password via env, never argv.
         await DatabaseArchiveStreamer.StreamProcessStdoutToFileAsync(

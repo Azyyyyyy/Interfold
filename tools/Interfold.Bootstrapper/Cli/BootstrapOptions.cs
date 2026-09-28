@@ -1,3 +1,5 @@
+using Interfold.Bootstrapper.Configuration;
+
 namespace Interfold.Bootstrapper.Cli;
 
 /// <summary>
@@ -16,7 +18,7 @@ namespace Interfold.Bootstrapper.Cli;
 /// <param name="BackupComponent">For <see cref="BootstrapCommand.Backup"/>: which DB to snapshot. One of <c>postgres</c>, <c>scylla</c>, <c>all</c>. Defaults to <c>all</c>.</param>
 /// <param name="BackupRetainOverride">For <see cref="BootstrapCommand.Backup"/>: optional CLI override for <c>config.backup.retainCount</c>. Null means "use the config value".</param>
 /// <param name="BackupDirOverride">For <see cref="BootstrapCommand.Backup"/>: optional CLI override for <c>config.backup.directory</c>. Null means "use the config value (or default)".</param>
-/// <param name="EnableAutostart">For <see cref="BootstrapCommand.InstallService"/>: when true, the installer runs <c>systemctl enable --now interfold.service</c> after writing the unit. Defaults to <see cref="BackupSection.AutostartServer"/> on the config.</param>
+/// <param name="EnableAutostart">For <see cref="BootstrapCommand.InstallService"/>: when true, the installer runs <c>systemctl enable --now interfold.service</c> after writing the unit. Defaults to <see cref="DeploymentSection.AutostartServer"/> on the config.</param>
 /// <param name="EnableBackupTimer">For <see cref="BootstrapCommand.InstallService"/>: when true, the installer runs <c>systemctl enable --now interfold-backup.timer</c>. Defaults to <see cref="BackupSection.Enabled"/> on the config.</param>
 /// <param name="SystemdUnitDir">For <see cref="BootstrapCommand.InstallService"/>: override the systemd unit installation directory. Defaults to <c>/etc/systemd/system</c>. Tests point this at a temp dir to keep the host's units untouched.</param>
 /// <param name="BinaryPathOverride">For <see cref="BootstrapCommand.InstallService"/>: override the installed bootstrapper binary path baked into <c>interfold-backup.service</c>. Defaults to the running binary's location.</param>
@@ -56,7 +58,13 @@ public sealed record BootstrapOptions(
     string? RestoreScyllaArchive = null,
     bool RestoreLatest = false,
     bool RestoreForce = false,
-    bool Reconfigure = false);
+    bool Reconfigure = false,
+    bool SkipCloudflareTunnel = false,
+    bool SkipSelfUpdate = false,
+    BootstrapperReleaseChannel? SelfUpdateChannelOverride = null,
+    bool SelfUpdateCheckOnly = false,
+    bool SelfUpdateForce = false,
+    bool SelfUpdateRollback = false);
 
 public enum BootstrapCommand
 {
@@ -105,6 +113,13 @@ public enum BootstrapCommand
     /// recreating any container.
     /// </summary>
     UpdateImages,
+
+    /// <summary>
+    /// Downloads and installs a newer bootstrapper release from GitHub Releases for the
+    /// current host RID (Linux tarball or Windows zip). Supports <c>--check</c>,
+    /// <c>--rollback</c>, and channel override.
+    /// </summary>
+    UpdateSelf,
 
     /// <summary>
     /// Restores the database state from backup archives on disk. Postgres restores

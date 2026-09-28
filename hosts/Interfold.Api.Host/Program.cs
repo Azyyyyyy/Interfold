@@ -26,6 +26,7 @@ using Interfold.Socket.Api.DependencyInjection;
 using Interfold.Systems.Api.DependencyInjection;
 using Interfold.Tags.Api.DependencyInjection;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 
@@ -33,6 +34,15 @@ var builder = WebApplication.CreateBuilder(args);
 
 // --- Aspire ServiceDefaults (OTel, resilience, service discovery) ---
 builder.AddServiceDefaults();
+
+// edge-nginx overwrites X-Forwarded-Proto (Cloudflare https → compose http). Without
+// this, Request.Scheme stays http and avatar URLs trip mixed content on the https SPA.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // Fetches every internal.secrets row the API's PostConfigure patchers need before host build.
 var secretsSnapshot = SecretsPreBuildLoader.Load(builder.Configuration);
@@ -118,6 +128,8 @@ using (var probeProvider = probeServices.BuildServiceProvider(validateScopes: fa
 }
 
 // Allow-list from OCTOCON_CORS_ALLOWED_ORIGINS; blank = allow-any (dev-only).
+// Credentials only on the explicit list: the browser will not attach the Access cookie
+// cross-origin without them, and the allow-any branch is a wildcard.
 var configuredCorsOrigins = corsOptions.AllowedOrigins.ToArray();
 
 builder.Services.AddCors(options =>
@@ -128,7 +140,8 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(configuredCorsOrigins)
                 .AllowAnyHeader()
-                .AllowAnyMethod();
+                .AllowAnyMethod()
+                .AllowCredentials();
             return;
         }
 
@@ -207,7 +220,9 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "Interfold API",
         Version = "v1",
-        Description = $"Interfold API - Contract Version: {InterfoldContractVersions.Current}"
+        Description =
+            $"Interfold API - Contract: {InterfoldContractVersions.Current}; " +
+            $"Api-Version: {InterfoldApiVersion.InformationalVersion}"
     });
 
     options.ResolveConflictingActions(apiDescriptions =>
@@ -270,6 +285,7 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
 app.UseExceptionHandler("/error");
 
 // Buffer avatar multipart PUTs so source-validation can re-read Request.Body post-bind;
@@ -309,6 +325,7 @@ app.Use(async (ctx, next) =>
     ctx.Response.OnStarting(() =>
     {
         ctx.Response.Headers[InterfoldHeaders.Contract] = InterfoldContractVersions.Current;
+        ctx.Response.Headers[InterfoldHeaders.ApiVersion] = InterfoldApiVersion.InformationalVersion;
         return Task.CompletedTask;
     });
     await next();

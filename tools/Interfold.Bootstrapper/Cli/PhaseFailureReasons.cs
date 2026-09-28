@@ -11,6 +11,7 @@ internal static class PhaseFailureReasons
     // Environment / prerequisites
     public const string NonLinuxHost = "non-linux-host";
     public const string NonRoot = "non-root";
+    public const string NonAdmin = "non-admin";
     public const string UnsupportedDistro = "unsupported-distro";
 
     // Config resolution
@@ -24,10 +25,11 @@ internal static class PhaseFailureReasons
     public const string NoComposeFile = "no-compose-file";
     public const string HealthTimeout = "health-timeout";
 
-    // Systemd install
+    // Systemd / Task Scheduler install
     public const string SystemdAnalyzeVerify = "systemd-analyze-verify";
     public const string InvalidCalendar = "invalid-calendar";
     public const string Systemctl = "systemctl";
+    public const string Schtasks = "schtasks";
 
     // Backup / restore
     public const string UnknownComponent = "unknown-component";

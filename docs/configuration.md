@@ -20,7 +20,7 @@ options object inside the API process or on a seeded row inside Postgres.
 | **1. Compile-time defaults** | C# constants and property initialisers      | Source code (`Interfold.Contracts.Configuration.*`) | DI binding helpers                 |
 | **2. Operator file**         | `deploy/interfold.bootstrap.json`           | Operator's working copy                             | `Interfold.Bootstrapper` only      |
 | **3. Environment variables** | `deploy/.env` (compose-bound) + process env | `OCTOCON_*`, `ASPNETCORE_*`, `Parameters:*`         | API at DI bind time                |
-| **4. `internal.secrets`**    | Postgres row `internal.secrets` table       | Inside the application database (default `interfold`, configurable via `BootstrapConfig.postgresDatabase`) | API at startup via `ISecretsStore` |
+| **4. `internal.secrets`**    | Postgres row `internal.secrets` table       | Inside the application database (default `interfold`, configurable via `BootstrapConfig.datastores.postgres.database`) | API at startup via `ISecretsStore` |
 
 
 Layers cascade right-to-left at boot: env binds first, then `SecretsBootstrapService`
@@ -64,206 +64,151 @@ This file is the operator-facing input to the bootstrapper. It is *not* read by 
 directly — its values flow through the bootstrapper into either `secrets.json` (auto-generated
 output) or the `internal.secrets` table (seeded by `DatabaseInitPhase`).
 
+> **Windows host.** `interfold-bootstrap` runs natively on Windows as a Docker Desktop
+> operator. CI ships `win-x64` and `win-arm64` zips alongside the Linux tarballs (there is
+> no `win-arm` RID in modern .NET, so `linux-arm` has no Windows peer). The prereqs phase
+> verifies `docker` + `docker compose`, and if they are missing tries `winget` then `choco`
+> to install Docker Desktop (Administrator required only for that install). Host
+> `fs.aio-max-nr` sysctl is Linux-only; Windows probes the value inside a throwaway
+> container and warns if Scylla's floor is not met. `trustStoreInstall` writes the private
+> CA to `CurrentUser\Root` (no admin). `install-service` registers Task Scheduler jobs
+> instead of systemd. macOS is still unsupported.
+
 Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/BootstrapConfig.cs)`:
 
 ```jsonc
 {
+  "schemaVersion": 2,
   "deployment": {
-    "outputDir": "./deploy",         // artifact root (relative to cwd)
-    "hosts":     [],                 // required, no default — DNS names / IPv4 / IPv6 / CIDR.
-                                     // See "Hosts" subsection below for the entry shapes
-                                     // and primary-host rule. Examples:
-                                     //   ["api.example.com"]            (DNS only)
-                                     //   ["192.168.1.42"]               (LAN box, no domain)
-                                     //   ["api.example.com","fe80::1"]  (mixed)
-                                     //   ["api.example.com","10.0.0.0/8"] (DNS + CIDR scope)
-    "rootCaName":"Interfold Root CA",
-    "certYears": 5,
-    "trustStoreInstall": true,       // add rootCA.crt to system trust store
-    "includeWeb": false,             // ship the octocon-web (Kotlin/Wasm UI) container in
-                                     // the generated compose? Independent from `webHttps`
-                                     // below. Default false ships an API-only stack. Set
-                                     // true with `webHttps:false` to ship the wasm UI in
-                                     // HTTP-only mode (debugging / external-TLS-proxy
-                                     // stacks); `webHttps:true` auto-promotes this to
-                                     // true regardless of what's written here.
-    "webHttps": false                // terminate TLS at octocon-web (see "webHttps and
-                                     // the HTTP->HTTPS redirect" note below)
+    "outputDir": "./deploy",
+    "includeWeb": false,
+    "webImage": "ghcr.io/azyyyyyy/interfold-wasm:latest",
+    "autostartServer": false,
+    "backup": {
+      "enabled": false,
+      "schedule": "daily",
+      "retainCount": 14,
+      "directory": ""
+    },
+    "update": {
+      "enabled": false,
+      "bootstrapper": {
+        "enabled": false,
+        "channel": "stable",
+        "updateOnBootstrap": true,
+        "autoRollbackOnFailure": false
+      },
+      "healthCheckTimeoutSeconds": 180,
+      "autoRestoreOnFailure": false,
+      "recreateOnUpdate": true,
+      "services": []
+    }
   },
-  "ports": {
-    "apiHttp":  5000,
-    "apiHttps": 5001,
-    "webHttp":  8080,
-    "webHttps": 8081
+  "edge": {
+    "hosts": [],
+    "tlsMode": "privateCa",
+    "routing": {
+      "mode": "path",
+      "apiHost": "",
+      "webHost": ""
+    },
+    "ports": { "http": 80, "https": 443 },
+    "cloudflare": {
+      "enabled": false,
+      "apiToken": "",
+      "tunnelName": "interfold",
+      "access": { "enabled": false, "allowedEmails": [], "allowedEmailDomains": [] }
+    },
+    "certificates": {
+      "rootCaName": "Interfold Root CA",
+      "certYears": 5,
+      "trustStoreInstall": true
+    }
   },
-  "scyllaMode": "single",            // "single" | "multi" | "cassandra"
-  "apiImage":   "ghcr.io/azyyyyyy/interfold-api:latest",
-  "postgresDatabase": "interfold",   // Postgres application DB name; any safe identifier
-                                     // matching ^[A-Za-z_][A-Za-z0-9_]{0,62}$. Becomes the
-                                     // Database= field on OCTOCON_POSTGRES_CONNECTION and
-                                     // the target of DatabaseInitPhase's CREATE DATABASE.
-  "clusterName": "InterfoldCluster", // Advertised CQL cluster identity. Lands on
-                                     // CASSANDRA_CLUSTER_NAME (Cassandra) and the
-                                     // --cluster-name CLI flag (Scylla). Pure metadata,
-                                     // visible via `SELECT cluster_name FROM system.local`.
-                                     // Allowed: 1..64 chars matching [A-Za-z0-9 ._-].
-  "scyllaKeyspace": "nam",           // Per-instance region identity. One of:
-                                     // nam | eur | sam | sas | eas | ocn | gdpr.
-                                     // Lands on OCTOCON_SCYLLA_KEYSPACE on the API container;
-                                     // also picks which regional keyspace this stack's API
-                                     // serves (`single`/`cassandra` modes only create one,
-                                     // so this and the migration target must agree).
-  "apiRuntime": {
-    // Three of the four are derivable from `deployment` + `ports` and may be left blank —
-    // the bootstrapper fills them at validate-time with values computed from `hosts`,
-    // `webHttps`, and the matching `ports.*` slot. The interactive form pre-fills the
-    // prompt with the same derived value.
-    "callbackBaseUrl":    "",        // empty -> https://{primary host}[:{ports.apiHttps}];
-                                     // lands on OCTOCON_AUTH_CALLBACK_BASE_URL. The scheme is
-                                     // always `https` because the API container terminates
-                                     // HTTPS unconditionally in self-host (Kestrel binds the
-                                     // bootstrapper-issued leaf PFX independent of `webHttps`,
-                                     // which only governs the web container). The port
-                                     // suffix is dropped when `ports.apiHttps` is 443.
-                                     // (Primary host = first non-CIDR entry in `hosts`; IPv6
-                                     // literals are bracket-wrapped per RFC 3986.)
-    "jwtAuthority":       "",        // empty -> https://{primary host}[:{ports.apiHttps}];
-                                     // JWT `iss` claim. Same derivation as
-                                     // `callbackBaseUrl`.
-    "jwtAudience":        "octocon", // JWT `aud` claim; no derivation, just a default.
-    "corsAllowedOrigins": []         // empty -> one entry per non-CIDR `hosts` entry of the
-                                     // form `{webScheme}://{host}[:{webPort}]`, where
-                                     // `webScheme` follows `webHttps` and `webPort` is the
-                                     // matching `ports.webHttps` / `ports.webHttp` value (port
-                                     // suffix dropped when default for the scheme: 80 for
-                                     // http, 443 for https). Joined with ',' for
-                                     // OCTOCON_CORS_ALLOWED_ORIGINS. CIDR entries are
-                                     // skipped because they have no URL form. An empty list
-                                     // at the API would fall back to "allow any origin",
-                                     // which the bootstrapper actively prevents in
-                                     // production.
+  "datastores": {
+    "postgres": { "database": "interfold" },
+    "cql": {
+      "backend": "scylla-single",
+      "clusterName": "InterfoldCluster",
+      "keyspace": "nam"
+    }
   },
-  "persistence": {
-    // DB-retry strategy + per-request fan-out cap. All four have non-null defaults that
-    // match the API's compile-time fallbacks — leaving them at the defaults reproduces
-    // pre-bootstrapper behaviour 1:1. ConfigPhase.Validate enforces ranges and the
-    // `max >= initial` cross-check.
-    "dbRetryAttempts":         3,    // 1..100;     OCTOCON_DB_RETRY_ATTEMPTS
-    "dbRetryInitialDelayMs":   100,  // 1..60000;   OCTOCON_DB_RETRY_INITIAL_DELAY_MS
-    "dbRetryMaxDelayMs":       1500, // 1..600000;  must be >= dbRetryInitialDelayMs
-    "hydrationMaxConcurrency": 8     // 1..1024;    OCTOCON_HYDRATION_MAX_CONCURRENCY
-  },
-  "cluster": {
-    // Node role used by the API for orchestration-aware decisions. Lower-cased on the
-    // API side; the bootstrapper validator enforces the three canonical values upfront.
-    "nodeGroup": "auxiliary"         // primary | auxiliary | sidecar; OCTOCON_NODE_GROUP
-                                     // Fly.io stacks override via FLY_PROCESS_GROUP at
-                                     // runtime, which wins over OCTOCON_NODE_GROUP.
-  },
-  "storage": {
-    // avatarStorageRoot is a HOST path bind-mounted at /app/data/avatars inside the API
-    // container. Blank → {outputDir}/data/avatars (created on publish). avatarPublicBase
-    // blank → the API serves /avatars/* itself; set an https URL to stamp CDN URLs.
-    "avatarStorageRoot": "",         // absolute host path; blank = {outputDir}/data/avatars
-    "avatarPublicBase":  ""          // public http(s) URL prefix; OCTOCON_AVATAR_PUBLIC_BASE
+  "api": {
+    "image": "ghcr.io/azyyyyyy/interfold-api:latest",
+    "nodeGroup": "auxiliary",
+    "oauth": {
+      "googleClientId": "",
+      "googleClientSecret": "",
+      "discordClientId": "",
+      "discordClientSecret": "",
+      "appleClientId": "",
+      "appleClientSecret": "",
+      "callbackBaseUrl": "",
+      "jwtAuthority": "",
+      "jwtAudience": "octocon"
+    },
+    "corsAllowedOrigins": [],
+    "resilience": {
+      "dbRetryAttempts": 3,
+      "dbRetryInitialDelayMs": 100,
+      "dbRetryMaxDelayMs": 1500,
+      "hydrationMaxConcurrency": 8
+    },
+    "batchBytesThreshold": null,
+    "storage": {
+      "avatarStorageRoot": "",
+      "avatarPublicBase": ""
+    },
+    "firebase": {
+      "androidConfigPath": "",
+      "iosConfigPath": "",
+      "webConfigPath": "",
+      "serviceAccountPath": ""
+    }
   },
   "observability": {
-    // OTLP gRPC endpoint the API exports traces and metrics to. Empty means the OTLP
-    // exporter is not registered (in-process telemetry still works). When set, must
-    // parse as an absolute http(s) URI.
-    "otlpEndpoint": ""               // e.g. "http://localhost:4317"; OCTOCON_OTLP_ENDPOINT
-  },
-  "socket": {
-    // Nullable int — `null` (the default) means "use the API's compile-time default".
-    // The JSON stores literal null rather than 0 so a re-bootstrap of a hand-edited
-    // file doesn't accidentally set the threshold to "flush every empty payload".
-    "batchBytesThreshold": null      // 1..16777216 when set; OCTOCON_SOCKET_BATCH_BYTES_THRESHOLD
-  },
-  "oauth": {
-    // Per-provider OAuth credentials. Rows are paired (id then secret); each provider
-    // needs BOTH halves to register its ASP.NET Core challenge scheme. Leaving a
-    // provider's `*ClientId` empty disables that provider entirely (the scheme is
-    // skipped at startup) regardless of whether a secret is set.
-    "googleClientId":      "1234.apps.googleusercontent.com",  // empty -> provider disabled
-    "googleClientSecret":  "...",                              // empty -> row skipped
-    "discordClientId":     "",                                 // empty -> provider disabled
-    "discordClientSecret": "",                                 // empty -> row skipped
-    "appleClientId":       "",                                 // empty -> provider disabled
-    "appleClientSecret":   ""                                  // empty -> row skipped
-  },
-  "backup": {
-    // Backup + autostart preferences consumed by the `backup` and `install-service`
-    // subcommands. Every field defaults to a "do nothing automatically" stance —
-    // operators opt in here, then re-run `install-service` to materialise the matching
-    // systemd units. See README.md "Backups" / "systemd integration" for the operator
-    // walkthrough.
-    "enabled":         false,        // master toggle for the scheduled-backup timer.
-                                     //   When false, install-service does NOT enable
-                                     //   interfold-backup.timer. The one-shot `backup`
-                                     //   subcommand always works regardless.
-    "schedule":        "daily",      // systemd OnCalendar= expression. Accepts the
-                                     //   shortcuts (hourly|daily|weekly|monthly) plus
-                                     //   the full "DOW YYYY-MM-DD HH:MM:SS" form
-                                     //   (e.g. "Mon..Fri 03:30"). Validated at install
-                                     //   time by `systemd-analyze calendar`.
-    "retainCount":     14,           // per-component archive count to retain. After
-                                     //   every successful backup the oldest archives
-                                     //   (by mtime) are deleted until exactly this
-                                     //   many remain. Bounded 1..1000.
-    "directory":       "",           // blank -> {outputDir}/backups. Non-blank values
-                                     //   must be ABSOLUTE — systemd timer invocations
-                                     //   have an unpredictable CWD, so relative paths
-                                     //   would not resolve consistently.
-    "autostartServer": false         // when true, install-service enables
-                                     //   interfold.service so `docker compose up -d`
-                                     //   runs on every boot after docker.service.
-                                     //   Independent of `enabled`.
-  },
-  "update": {
-    // Docker image update preferences consumed by the `update-images` subcommand and by
-    // the systemd OnSuccess= drop-in that chains updates after successful backups. Every
-    // field defaults to a "manual updates only, no automatic rollback" stance — flip the
-    // toggles you want and re-run `install-service` to materialise the systemd chain.
-    // See README.md "Updating images" for the operator walkthrough.
-    "enabled":                    false, // master toggle for the systemd chain. When true,
-                                         //   install-service writes
-                                         //   interfold-backup.service.d/50-chain-update.conf
-                                         //   with an OnSuccess=interfold-update.service
-                                         //   directive so every successful scheduled backup
-                                         //   triggers `update-images`. Requires systemd
-                                         //   >= 249 (Ubuntu 22.04+ / Debian 12+); the
-                                         //   install phase preflights the version and
-                                         //   refuses on older hosts. Manual `update-images`
-                                         //   works regardless of this toggle.
-    "healthCheckTimeoutSeconds":  180,   // bounded 1..3600. Post-recreate deadline
-                                         //   for the pg_isready + nodetool status +
-                                         //   /health/ready probes combined. Any tier
-                                         //   that doesn't clear its check by the deadline
-                                         //   triggers the log-and-stop / auto-restore
-                                         //   branch.
-    "autoRestoreOnFailure":       false, // when true, a failed health check invokes
-                                         //   `restore --force` against the pre-update
-                                         //   archives inline. Default false: the phase
-                                         //   just prints a copy-pasteable restore command
-                                         //   and exits non-zero — operator decides. The
-                                         //   CLI --auto-restore flag overrides this
-                                         //   per-invocation.
-    "recreateOnUpdate":           true,  // when true (default), the phase runs
-                                         //   `docker compose up -d` after a pull so
-                                         //   compose recreates containers whose image
-                                         //   ID moved. Set false only if you want a
-                                         //   two-step manual recreate (pull now, `up -d`
-                                         //   later during a maintenance window).
-    "services":                   []     // empty -> every compose service is pulled +
-                                         //   recreated. Non-empty is a whitelist
-                                         //   validated against the known compose service
-                                         //   names (msg-db, scylla, scylla-*, cassandra,
-                                         //   interfold-api, octocon-web). Use to update
-                                         //   just the API without touching Postgres or
-                                         //   Scylla, for example.
+    "otlpEndpoint": "",
+    "advertiseOtlpToClients": false,
+    "clientOtlpHttpEndpoint": ""
   }
 }
 ```
+
+#### `edge.cloudflare` (Cloudflare Tunnel)
+
+| Field | Default | Notes |
+| ----- | ------- | ----- |
+| `enabled` | `false` | When `true`, origin stays private (no host-published edge ports). Publish creates/reuses a remotely-managed tunnel; Launch starts `cloudflared`; a post-launch phase registers hostnames + proxied DNS CNAMEs. |
+| `apiToken` | `""` | Cloudflare API token with **Account → Cloudflare Tunnel Edit**, **Zone → Zone Edit**, **Zone → DNS Edit**, **Zone → SSL and Certificates Edit**, **Access: Apps and Policies Edit**, **Access: Service Tokens Edit**, **Workers Scripts Edit**, **Workers KV Storage Edit**, and organization read. Scope the token to one account: a missing zone is created there. Used only by the bootstrapper — never passed to `cloudflared`. |
+| `tunnelName` | `interfold` | Stable name for create-or-reuse of the tunnel object. |
+| `access.enabled` | `false` | When `true`, Cloudflare Access gates public hostnames. Requires tunnel enabled, Interfold Google client id **and** secret, and at least one of `allowedEmails` / `allowedEmailDomains`. |
+| `access.allowedEmails` | `[]` | Exact addresses allowed through Access (Google or Discord, when Discord OAuth is configured). Enforced at Access only — the API does not re-check the list. Discord users need a verified email on this list. |
+| `access.allowedEmailDomains` | `[]` | Email domains (e.g. `example.com`) allowed through Access. At least one email or domain is required when Access is on. |
+
+Account ID is resolved from the primary hostname’s zone (`GET /zones?name=`). If that zone is missing, publish creates it (`POST /zones`, full setup, no jump-start import) on the token’s account and logs the assigned nameservers — public DNS stays down until the registrar points at them. Hostnames more than one label under the zone are outside Universal SSL. Launch enables Total TLS for those names. An advanced certificate (Advanced Certificate Manager) is ordered only after an interactive yes; the prompt defaults to no, and `--non-interactive` never orders one. Total TLS does not issue for Tunnel hostnames, so that pack is what covers them. Issuance is asynchronous. The connector token is written to `{outputDir}/secrets/cloudflare-tunnel.token` (mode 0600). Skip hostname registration with `--skip-cloudflare-tunnel` (also skips Access).
+
+When Access is enabled, the bootstrapper creates/reuses a Zero Trust Google IdP named `interfold-google` from the same Interfold Google OAuth client, one self-hosted app per public hostname, allow + service-token policies, and bypass apps for `/health`, `/health/ready`, and (API host only) `/auth/login-methods`. The API app also sets `options_preflight_bypass` so browser OPTIONS reach the API, which already enforces CORS. A cross-origin `fetch` cannot follow the Access login redirect. Persist `{ teamDomain, aud, appIds, identityProviderId }` in `{outputDir}/.cloudflare-access.json`. The Access service token (`interfold-bootstrap`) is written to `{outputDir}/secrets/cloudflare-access-service.token` (mode 0600). `update-images` polls `https://{primary}/health/ready` with that token: the tunnel publishes no localhost port, and an email allowlist would otherwise send the probe to the Access login page.
+
+When `api.oauth.discordClientId` and `discordClientSecret` are both set, Access also downloads a pinned [Erisa discord-oidc-worker](https://github.com/Erisa/discord-oidc-worker) commit, bundles it (needs Node `npm`/`npx` on the publish host), deploys Worker `interfold-discord-oidc` plus KV `interfold-discord-oidc-keys`, and registers generic OIDC IdP `interfold-discord`. Host apps then allow both IdPs and stop auto-redirecting to Google. Discord provision failures leave Google Access in place. The account must already have a `workers.dev` subdomain.
+
+**OAuth redirect URI (operator must add this — Google Cloud Console and the Discord app):**  
+`https://{team}.cloudflareaccess.com/cdn-cgi/access/callback`  
+The bootstrapper prints this URI on every Access run (phase log and interactive table). The same Google and Discord clients as Interfold OAuth are reused. Discord first-time logins may need a second attempt (`prompt=none` in the Worker).
+
+Publish also appends `https://{team}.cloudflareaccess.com` to `OCTOCON_CORS_ALLOWED_ORIGINS` when `{outputDir}/.cloudflare-access.json` is present. The Access login page calls the API from that origin. `api.corsAllowedOrigins` in the JSON is left as the operator wrote it.
+
+##### Client contract (Access on)
+
+This repo does not own the mobile UI. `GET /auth/login-methods` returns `{ "cloudflare", "google", "discord", "apple" }` (each a bool). Google/Discord/Apple are true when the matching OAuth client id is set. When `cloudflare` is true:
+
+- Show only **Continue with Cloudflare** → system browser / webview to `https://{apiHost}/auth/cloudflare?redirect_uri={app}`. The Access login page is where Google vs Discord is chosen when both IdPs are provisioned.
+- The Access JWT (`Cf-Access-Jwt-Assertion`) is exchanged for a normal Interfold ES256 JWT (`redirect_uri?token=&id=` or `POST /auth/cloudflare/session` → `{ token, id }`).
+- Attach Access service-token headers (`CF-Access-Client-Id` / `CF-Access-Client-Secret`) on API calls that are not a user browser session, or rely on the Access JWT/cookie after the webview.
+- Discord / Apple / Google Interfold buttons stay for non-Access deployments.
+
+The Access JWT is **not** accepted as `Authorization: Bearer` on REST or WebSocket. Sockets and JTI allowlist stay on the Interfold JWT.
+
+When tunnel is enabled, `edge.tlsMode` is coerced to `none` (Cloudflare terminates public TLS). OAuth/JWT/CORS derived URLs use bare `https://{host}`.
 
 OAuth **client IDs** are public values that end up in each provider's authorize-redirect URL.
 The bootstrapper carries them through as plain Aspire parameters (no masking, no
@@ -275,18 +220,57 @@ via `InterfoldAppHost.ConfigureApiSelfHostEnv`. The matching client **secrets** 
 `AuthenticationConfiguration` by `SecretsBootstrapService` at API startup — they never
 appear in `.env`.
 
+#### `deployment.update.bootstrapper` (bootstrapper self-update)
+
+| Field | Default | Notes |
+| ----- | ------- | ----- |
+| `enabled` | `false` | When `true`, scheduled update runs `update-self` before `update-images` (Linux: `interfold-update.service`; Windows: second/third Exec on the backup task). Opt-in — manual `update-self` works regardless. |
+| `channel` | `stable` (or the channel stamped into the running binary when present) | `stable` (newest non-prerelease `bootstrap-stable-{version}` tag via paginated Releases API), `bleeding-edge` (newest `bootstrap-bleeding-edge-{version}` prerelease), or a pin tag like `bootstrap-v0.0.1` (immutable Release; the tag maps to InformationalVersion `0.0.1`). CI-published binaries stamp their origin channel; that stamp is the default for new configs and the last-resort `update-self` channel when config/`--channel` are absent. |
+| `updateOnBootstrap` | `true` when `enabled`, else `false` | At the start of `bootstrap`, check GitHub Releases and apply a newer bootstrapper before prerequisites. Skip with `--skip-self-update`. |
+| `autoRollbackOnFailure` | `false` | When `update-images` health-check fails after a chained update, run `update-self --rollback` to restore `{binary}.old`. Image rollback uses the existing `autoRestoreOnFailure` path separately. |
+
+Downloads are verified against the GitHub Releases API asset `digest` (`sha256:…`) on immutable releases (Linux `.tar.gz` or Windows `.zip` for the host RID). Rolling channels paginate for the newest matching `bootstrap-stable-*` / `bootstrap-bleeding-edge-*` tag (not the repo “latest” flag) and take the version from the tag suffix; pinned `bootstrap-v*` channels compare the running binary’s informational version to the SemVer core after the `bootstrap-v` prefix. The live binary is replaced via
+`{binary}.new` → atomic rename; the previous binary is kept as
+`{binary}.old` until the next successful update or an explicit `--rollback`.
+
+#### `api.image` (API container pin)
+
+| Field | Default | Notes |
+| ----- | ------- | ----- |
+| `image` | `ghcr.io/azyyyyyy/interfold-api:latest` | Full image reference consumed by `publish` / `update-images`. Independent of bootstrapper `deployment.update.bootstrapper.channel`. |
+
+Useful tags (from `api-v*` releases and rolling branch pushes):
+
+| Tag | Pin style |
+| --- | --------- |
+| `latest` | Rolling stable (main) |
+| `bleeding-edge` | Rolling develop |
+| `1` | Float major — moves with each `api-v1.*.*` release |
+| `1.2` | Float minor — moves with each `api-v1.2.*` release |
+| `1.2.3` | Exact patch from `api-v1.2.3` |
+
+The running host stamps `X-Interfold-Api-Version` on responses (product SemVer). That is not a client negotiation signal: routes stay unversioned; prefer additive changes, and ship breaking behavior as a new endpoint. Wire freeze remains `X-Interfold-Contract`.
+
+GitHub tag namespaces: `api-v*` (API image SemVer releases), `bootstrap-v*` (bootstrapper pins), `bootstrap-stable-*` / `bootstrap-bleeding-edge-*` (bootstrapper rolling).
+
+#### `deployment.webImage` (web container pin)
+
+| Field | Default | Notes |
+| ----- | ------- | ----- |
+| `webImage` | `ghcr.io/azyyyyyy/interfold-wasm:latest` | Full image reference for the `interfold-web` compose service when `deployment.includeWeb` is `true`. Consumed by `publish` / `update-images`. Independent of bootstrapper `deployment.update.bootstrapper.channel`. |
+
+When `includeWeb` is true, AppHost sets `INTERFOLD_DEFAULT_API_ENDPOINT` on `interfold-web` from the public API origin it already builds for the edge (scheme and host only; wasm paths already include `/api/…`). The image renders that into `runtime-config.js` at container start. A browser with no saved server URL uses it; a saved URL is left unchanged. Publish uses `routing.apiHost` when set, otherwise `edge` server name. Cloudflare tunnel is `https` with no port; other modes follow `tlsMode` and omit the default port. `_` leaves the variable empty, which keeps the client's built-in endpoint.
+
 First-time operators don't need to hand-author this file — running `interfold-bootstrap` on
 a real TTY without an existing `interfold.bootstrap.json` drops into a Spectre.Console
 navigable form: every field on `BootstrapConfig` is shown as a menu row with its current
-value next to its label, grouped under ten section headers (Deployment / Ports /
-Database / API / Cluster & telemetry / Storage / Performance tuning / OAuth credentials /
-Backup & autostart / Updates).
-The operator arrow-keys between rows and presses Enter to edit any field (inline validation
+value next to its label, grouped under section headers (Deployment / Edge / Datastores /
+API / Observability). The operator arrow-keys between rows and presses Enter to edit any field (inline validation
 re-prompts on bad input, OAuth client secrets are masked in both the editor echo and the
 menu row; client IDs are shown verbatim because they're public), then chooses `Confirm and
-save` to write the JSON. The four derivable `apiRuntime` rows pre-fill their menu display
+save` to write the JSON. The derivable `api.oauth.callbackBaseUrl` / `api.oauth.jwtAuthority`
 and prompt default with the value `ConfigPhase.ResolveDerivedDefaults` computes from
-`deployment` — operators can press Enter to accept or type to override, and either way the
+`edge` — operators can press Enter to accept or type to override, and either way the
 bootstrapper persists the resolved value. The three "disabled when blank" rows (avatar
 public base, OTLP endpoint, socket batch flush threshold) render an
 `<empty>` / `<default>` marker in the menu when unset, so the unset-vs-set distinction is
@@ -298,7 +282,7 @@ top-to-bottom. The bootstrapper writes the resulting JSON to the path above on
 confirmation; `--non-interactive` and `--config <path>` still bypass the form for
 unattended runs.
 
-### Hosts (`deployment.hosts`)
+### Hosts (`edge.hosts`)
 
 The `hosts` list is the single source of truth for where the deployed API will be
 reachable. The field is required (no shipped default placeholder), and each entry is one
@@ -314,11 +298,12 @@ of the following shapes:
 | IPv6 CIDR       | `fe80::/64`            | no                | yes (`iPAddress` + explicit mask) | no                    |
 
 The **primary host** is the first non-CIDR entry. It seeds the leaf cert subject CN, the
-nginx `server_name`, and the derived `apiRuntime.callbackBaseUrl` /
-`apiRuntime.jwtAuthority` URLs (always `https` for the API in self-host, with the
-`:{ports.apiHttps}` suffix dropped only when the operator picked 443; IPv6 literals are
-bracket-wrapped per RFC 3986 §3.2.2). Wildcard DNS entries cannot be the primary because
-`*.example.com` is not a single host the leaf cert can serve — list the concrete primary
+nginx `server_name`, and the derived `api.oauth.callbackBaseUrl` /
+`api.oauth.jwtAuthority` URLs (`http://` via `tlsMode=none` on `edge.ports.http`, or
+`https://` via `privateCa` on `edge.ports.https`; when `cloudflare.enabled`, bare
+`https://{host}` with Cloudflare terminating TLS; port suffix dropped at 80/443; IPv6
+literals are bracket-wrapped per RFC 3986 §3.2.2). Wildcard DNS entries cannot
+be the primary because `*.example.com` is not a single host the leaf cert can serve — list the concrete primary
 alongside the wildcard.
 
 CIDR entries are useful when you want the root CA's Name Constraints scope to cover an
@@ -331,54 +316,81 @@ network address (`192.168.1.0/24`) or pin a single host (`192.168.1.42/32`).
 
 ```jsonc
 {
-  "deployment": {
-    "hosts":     ["192.168.1.42"],   // the box's static LAN IP
-    "rootCaName":"Interfold Root CA",
-    "certYears": 5,
-    "webHttps":  true
+  "edge": {
+    "hosts":     ["192.168.1.42"],
+    "tlsMode": "privateCa",
+    "routing": { "mode": "path", "apiHost": "", "webHost": "" },
+    "certificates": { "rootCaName": "Interfold Root CA", "certYears": 5, "trustStoreInstall": true }
   }
 }
 ```
 
 The leaf cert gets an `iPAddress` SAN for `192.168.1.42`, the root CA's Name Constraints
 pin to the same `/32`, and devices on the LAN that install the root CA validate
-`https://192.168.1.42/` cleanly.
+`https://192.168.1.42/` cleanly through edge-nginx.
 
-> **Shipping the `octocon-web` (wasm UI) container.** Two independent toggles under
-> `deployment` control whether the wasm UI ends up in the generated compose:
+> **Public surface and network isolation.** The bootstrapper always emits `edge-nginx` as
+> the sole service with host port mappings. API, web (when included), Postgres, and
+> Scylla/Cassandra stay on internal Docker networks — no direct host access.
 >
-> - `deployment.includeWeb` (default `false`) — when `true`, ship the `octocon-web`
->   container in HTTP-only mode. The upstream image (`ghcr.io/azyyyyyy/octocon-wasm:latest`)
->   listens on `:8080`, so the bootstrapper maps `ports.webHttp` / `ports.webHttps` onto
->   `:8080` and emits an HTTP healthcheck. No leaf cert or nginx envsubst template gets
->   bind-mounted in this mode — it's intended for local debugging and for stacks fronted
->   by an external TLS-terminating proxy.
-> - `deployment.webHttps` (default `false`) — when `true`, terminate TLS at `octocon-web`
->   itself (the path the rest of this section documents). Setting this implicitly forces
->   `includeWeb` on (TLS termination requires the container that performs it), so
->   operators who only want TLS don't need to flip both.
+> | Actor | May reach | Must not reach |
+> | --- | --- | --- |
+> | **API** | Postgres, Scylla/Cassandra, edge via `edge-api` | Host (no published ports), web container |
+> | **Web** | Nothing server-side (static wasm only) | API, Postgres, Scylla, edge networks |
+> | **Edge** | API (`edge-api`), web (`edge-web` when `includeWeb`) | Postgres, Scylla |
+> | **Postgres / Scylla** | Each other only via API as client | Host, web, edge |
+> | **Host / browser** | Edge public ports only | API, web, DB ports directly |
 >
-> Combinations:
+> The browser calls the API through edge (`/api/` or subdomain routing); the web container
+> does not join `edge-api`. When `cloudflare.enabled`, edge has no host-published ports —
+> `cloudflared` reaches `edge-nginx:80` on the compose network only.
 >
-> | `includeWeb` | `webHttps` | Result                                            |
-> | :----------: | :--------: | :------------------------------------------------ |
-> | `false`      | `false`    | API-only stack (default).                         |
-> | `true`       | `false`    | Wasm UI shipped HTTP-only (debug / external TLS). |
-> | `false`      | `true`     | Wasm UI shipped with TLS termination at nginx.    |
-> | `true`       | `true`     | Same as the row above (`includeWeb` is implied).  |
+> - `deployment.includeWeb` (default `false`) — when `true`, ship `interfold-web` on the
+>   `edge-web` network. Nginx routes `/` (path mode) or `webHost` (subdomain mode) to it.
+>   Pin the image with `deployment.webImage` (default `ghcr.io/azyyyyyy/interfold-wasm:latest`).
+> - `edge.tlsMode` — `none` (plaintext HTTP on `edge.ports.http` only) or
+>   `privateCa` (bootstrapper mints certs; HTTP + HTTPS ports). Public TLS is Cloudflare
+>   Tunnel when `cloudflare.enabled` (origin coerced to `none`).
+> - `edge.routing.mode` — `path` (`/api/` and `/auth/` → API, `/` → web) or `subdomain`
+>   (separate `routing.apiHost` / `routing.webHost`). The SPA keeps `/auth/token`
+>   (OAuth `redirect_uri?token=&id=` landing). Client API origin is the edge host, not
+>   `origin/api` — wasm/mobile paths already include `/api/…`.
 >
-> **`webHttps` and the HTTP→HTTPS redirect.** When `deployment.webHttps` is `true`, the
-> `octocon-web` container terminates TLS on its internal `:443` listener and answers
-> plaintext `:80` requests with a `301` to the HTTPS variant. The redirect's `Location`
-> header is stitched together inside nginx as `https://$host${NGINX_HTTPS_PORT_SUFFIX}…`,
-> where `NGINX_HTTPS_PORT_SUFFIX` is set by `InterfoldAppHost.Configure` to
-> `:{ports.webHttps}` (or empty when the operator picked `443`). This is the bit that lets
-> the default port pair (`webHttp`/`webHttps` = `8080`/`8081`) actually work end-to-end —
-> without it the browser would follow the 301 to `https://<host>/`, resolve the missing
-> port to `:443`, and hit a port that the bootstrapper hasn't bound. Operators fronting
-> the stack with a reverse proxy that exposes a different public port should override
-> `ports.webHttps` to that public port (or move the reverse proxy off `webHttp`/`webHttps`
-> entirely and skip `octocon-web`'s HTTPS termination).
+> **Schema versions.** `schemaVersion` is major.minor, stored as an integer (no decimal
+> in the file): `1` / `2` mean 1.0 / 2.0; additive field additions bump the minor and
+> write `21` for 2.1, `22` for 2.2. A file with no `schemaVersion` (or `1`) is **V1**
+> and auto-upgraded on the next bootstrapper load. Current is **2.0** (`2`).
+>
+> | V1 (legacy) | V2 streamlined |
+> | :---------- | :------------- |
+> | `ports.apiHttp` / `ports.apiHttps` | `edge.ports.http` / `edge.ports.https` (values preserved) |
+> | `deployment.webHttps` | folded into `deployment.includeWeb` (`includeWeb \|\| webHttps`) |
+> | `deployment.hosts` | `edge.hosts` |
+> | `deployment.rootCaName` / cert fields | `edge.certificates.*` |
+> | flat `databaseMode` / `postgresDatabase` / `clusterName` / `scyllaKeyspace` | `datastores.*` |
+> | `apiRuntime` + root `oauth` | `api.oauth` + `api.corsAllowedOrigins` |
+> | root `backup` / `update` | `deployment.backup` / `deployment.update` |
+> | `backup.autostartServer` | `deployment.autostartServer` |
+>
+> V1 upgrade writes `{config}.bak.v1` once (if absent), rewrites the JSON, and logs the new
+> API and web URLs. Removed keys
+> (`ports.webHttp`, `ports.postgres`, `deployment.edge.enabled`, etc.) are stripped during
+> migration.
+>
+> `deployment.edge.enabled` was never part of either schema version; delete it manually if
+> present on an old config (use `edge.tlsMode: none` for plaintext HTTP).
+>
+> | `includeWeb` | `tlsMode` | Result |
+> | :----------: | :-------: | :----- |
+> | `false` | `none` | Edge fronts API over HTTP; API-only stack. |
+> | `true` | `none` | Edge fronts API + web over HTTP. |
+> | `false` | `privateCa` | Edge fronts API over HTTPS; `/` → 404 without web. |
+> | `true` | `privateCa` | Edge fronts API + web over HTTPS. |
+> | * | * + `cloudflare.enabled` | Private origin + `cloudflared`; public HTTPS via Tunnel. |
+>
+> **Edge HTTP→HTTPS redirect.** When `tlsMode` is not `none`, plaintext `:80` requests get
+> a `301` to HTTPS when `edge.ports.https` is not `443`. With `tlsMode=none`, edge listens
+> on `edge.ports.http` only — no TLS server block and no redirect.
 
 > **Interactive auto-default.** When the bootstrapper runs interactively on a fresh box
 > (no `interfold.bootstrap.json` yet) it pre-fills the *Public host(s)* row with the
@@ -389,21 +401,24 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 > with a JSON file) does **not** consult the detector — a file with an empty `hosts` list
 > still fails fast with a clear validation error, by design.
 
-> **mDNS preflight for `.local` names (Linux only).** The bootstrapper runs a two-tier
-> check whenever the finalised `deployment.hosts` list contains a `.local` entry:
+> **mDNS preflight for `.local` names.** The bootstrapper runs a two-tier
+> check whenever the finalised `edge.hosts` list contains a `.local` entry:
 >
 > - **Pre-prompt banner (interactive fresh-config only).** Before the hosts row appears,
 >   the bootstrapper detects the device's short hostname, qualifies it as
->   `{hostname}.local`, and probes whether it resolves via `getent hosts` (which
->   traverses `nsswitch.conf` → `mdns_minimal` → avahi). If it does, the qualified name
+>   `{hostname}.local`, and probes whether it resolves. On Linux that probe is
+>   `getent hosts` (nsswitch → `mdns_minimal` → avahi). On Windows it is
+>   `Dns.GetHostAddresses` (native mDNS / Bonjour). If it does, the qualified name
 >   joins the auto-default alongside the primary IP. If it doesn't, a banner explains
->   that mDNS is unavailable and offers to install `avahi-daemon` + the platform's NSS
->   mdns module (`libnss-mdns` on Debian/Ubuntu, `nss-mdns` on Fedora/RHEL). Decline the
->   offer and the `.local` name is simply omitted from the pre-fill — the row is still
->   editable so the operator can type any host they like.
+>   that mDNS is unavailable. Linux then offers to install `avahi-daemon` + the
+>   platform's NSS mdns module (`libnss-mdns` on Debian/Ubuntu, `nss-mdns` on
+>   Fedora/RHEL). Windows never auto-installs Bonjour — the banner prints a manual
+>   hint instead. Decline the offer (or skip auto-install) and the `.local` name is
+>   omitted from the pre-fill — the row is still editable so the operator can type
+>   any host they like.
 > - **Post-fill safety gate (all `bootstrap` runs).** After the hosts list is finalised
 >   (either by the interactive prompt or loaded from JSON), every `.local` entry is
->   re-probed. Unresolvable ones are removed from `deployment.hosts` with a warning
+>   re-probed. Unresolvable ones are removed from `edge.hosts` with a warning
 >   naming the specific hosts + a copy-pasteable install hint, and **the current
 >   `bootstrap` run continues to completion** with the reduced list. It never halts on
 >   this — the mutation is re-persisted so subsequent runs see the pruned list without
@@ -412,8 +427,9 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 >
 > `--non-interactive` skips the pre-prompt banner (there's no operator to talk to) but
 > the post-fill gate still runs and applies the same strip-and-continue behaviour to
-> `.local` entries in the supplied config. Non-Linux platforms short-circuit both tiers
-> because `getent`'s exit-code contract doesn't translate to Windows / macOS resolvers.
+> `.local` entries in the supplied config. macOS short-circuits both tiers (`getent`
+> is not available in the shape the Linux probe needs); Windows probes and strips
+> but does not offer an auto-install.
 >
 > To enable mDNS ahead of time so the strip never fires:
 >
@@ -424,6 +440,10 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 > # Fedora / RHEL
 > sudo dnf install -y avahi nss-mdns && sudo systemctl enable --now avahi-daemon
 > ```
+>
+> On Windows, enable the **Function Discovery Resource Publication** service or install
+> Bonjour Print Services, then confirm `{hostname}.local` resolves before the next
+> `bootstrap` run.
 
 ## Layer 3 — Environment variables
 
@@ -449,7 +469,7 @@ All four are rendered from templates embedded in the bootstrapper binary; see
 | `interfold.service`        | `oneshot` `RemainAfterExit=yes` | Brings the compose stack up via `/usr/bin/docker compose -f {outputDir}/docker-compose.yaml up -d` after `docker.service` on boot. Deliberately does NOT shell out to `interfold-bootstrap up` — that would re-run the 5-minute `/health/ready` wait inside systemd's boot critical path. Compose's own restart policy + the API container's healthcheck handle steady-state recovery. |
 | `interfold-backup.service` | `oneshot`                  | Runs `interfold-bootstrap backup --config {configPath} --output-dir {outputDir} --component all`. Inherits the bootstrapper's `phase=...` log line format. Operators add drop-in overrides via `/etc/systemd/system/interfold-backup.service.d/*.conf`; the bootstrapper never edits drop-ins on rerun. |
 | `interfold-backup.timer`   | `timer`                    | Fires `interfold-backup.service` on `OnCalendar={config.backup.schedule}` with `Persistent=true` so a missed run (host powered off at the scheduled time) fires on next boot. |
-| `interfold-update.service` | `oneshot`                  | Runs `interfold-bootstrap update-images --config {configPath} --output-dir {outputDir}`. Always rendered so manual invocations always have a target service; only the `OnSuccess=` drop-in that fires it from the backup schedule is conditional on `config.update.enabled`. Never enabled independently — the drop-in is what schedules it. |
+| `interfold-update.service` | `oneshot`                  | Runs `interfold-bootstrap update-images --config {configPath} --output-dir {outputDir}` by default. When `deployment.update.bootstrapper.enabled=true`, `ExecStart` chains `update-self --non-interactive --channel {channel}` before `exec … update-images` so the post-swap binary performs the image pull. Always rendered so manual invocations always have a target service; only the `OnSuccess=` drop-in that fires it from the backup schedule is conditional on `config.update.enabled`. Never enabled independently — the drop-in is what schedules it. |
 
 Conditional drop-in — written only when `config.update.enabled=true`:
 
@@ -467,7 +487,7 @@ operator-managed higher-priority drop-ins to override the chain via a
 Enable/disable contract:
 
 - `install-service --enable-autostart` runs `systemctl enable --now interfold.service`
-  after writing the unit. The CLI flag defaults to `config.backup.autostartServer`, so
+  after writing the unit. The CLI flag defaults to `config.deployment.autostartServer`, so
   operators who set that in `interfold.bootstrap.json` get the boot service enabled on a
   plain `install-service` invocation.
 - `install-service --enable-backup-timer` runs `systemctl enable --now interfold-backup.timer`.
@@ -475,9 +495,10 @@ Enable/disable contract:
 - `interfold-update.service` is **never** enabled directly — the `OnSuccess=` drop-in is
   what schedules it. Enabling it manually would create a boot-time update pass, which is
   not the design goal.
-- Both flags require `systemctl` to be on PATH; if it isn't (Windows / macOS dev box,
-  unprivileged container) the units still get written but no enable-step runs and the
-  log says `systemctl not on PATH; units written but not enabled`.
+- Both flags require `systemctl` to be on PATH on Linux; if it isn't (unprivileged
+  container) the units still get written but no enable-step runs and the log says
+  `systemctl not on PATH; units written but not enabled`. On Windows, `install-service`
+  does not use systemd — see [Task Scheduler](#bootstrapper-installed-task-scheduler-windows).
 - `config.update.enabled=true` requires systemd >= 249 (the minimum version for the
   `OnSuccess=` directive). The install phase parses `systemctl --version`, fails fast
   on older hosts with a clear error naming Ubuntu 22.04 / Debian 12 as the minimum, and
@@ -487,6 +508,25 @@ Validation happens at install time: `systemd-analyze verify` runs against each r
 unit and `systemd-analyze calendar` against the schedule string. Either failing aborts
 the install with the analyzer's output — the unit files stay on disk so the operator can
 inspect and edit them, but no `daemon-reload` happens.
+
+### Bootstrapper-installed Task Scheduler (Windows)
+
+On Windows, the same `install-service` command registers two current-user tasks
+(`LeastPrivilege`, never `Highest`) and writes the XML under `{outputDir}/scheduled-tasks/`
+(or `--systemd-unit-dir` for a dry-run that skips `schtasks`). Templates live in
+`tools/Interfold.Bootstrapper/Phases/WindowsTaskTemplates/`.
+
+| Task | Trigger | What it does |
+| ---- | ------- | ------------ |
+| `Interfold` | At logon (enabled when autostart is on) | `docker compose -f {compose} up -d`. Immediate enable also runs compose up directly — not `schtasks /Run`. |
+| `InterfoldBackup` | Calendar from `config.deployment.backup.schedule` | `{binary} backup --config … --component all`. When `config.update.enabled`, a following Exec runs `update-images` (and, when `deployment.update.bootstrapper.enabled`, an `update-self` Exec runs first). Task Scheduler stops the action list on failure — the OnSuccess analogue. |
+
+`config.deployment.backup.schedule` stays a systemd OnCalendar string. Windows translates
+`daily`, `weekly`, `hourly`, and `*-*-* HH:MM[:SS]`. Other expressions fail install-service
+with `invalid-calendar` rather than silently changing the schedule.
+
+`--systemd-unit-dir` is the shared test seam: write XML (or Linux units) and skip
+registration.
 
 ### Full env inventory
 
@@ -519,15 +559,18 @@ encryption pepper, and the API refuses to boot without it). If the value is stil
 
 | Env var                               | Default         | Notes                                                                                                                                                 |
 | ------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OCTOCON_AUTH_CALLBACK_BASE_URL`      | *empty*         | Base URL the API's OAuth callbacks redirect to. Sourced from `BootstrapConfig.apiRuntime.callbackBaseUrl` via Aspire parameter `oauth-callback-base-url`; defaults derive to `https://{primary host}[:{ports.apiHttps}]` (first non-CIDR entry of `deployment.hosts`, always `https` because the API container terminates HTTPS unconditionally in self-host, port suffix omitted when `ports.apiHttps` is 443; IPv6 literals bracket-wrapped) when the operator leaves the field blank. (bootstrapper-managed) |
-| `OCTOCON_JWT_AUTHORITY`               | `octocon-local` | JWT `iss` claim. Sourced from `BootstrapConfig.apiRuntime.jwtAuthority` via Aspire parameter `jwt-authority`; derives the same way as `OCTOCON_AUTH_CALLBACK_BASE_URL`. The `octocon-local` default applies only to dev / non-bootstrapped runs. (bootstrapper-managed) |
-| `OCTOCON_JWT_AUDIENCE`                | `octocon`       | JWT `aud` claim. Sourced from `BootstrapConfig.apiRuntime.jwtAudience` via Aspire parameter `jwt-audience`. Bound into `AuthenticationConfiguration.JwtAudience` by `ConfigurationServiceCollectionExtensions.ApplyAuthentication` (previously documented as bound but the binding was missing; fixed alongside the bootstrapper wire-up). (bootstrapper-managed) |
+| `OCTOCON_AUTH_CALLBACK_BASE_URL`      | *empty*         | Base URL the API's OAuth callbacks redirect to. Sourced from `BootstrapConfig.api.oauth.callbackBaseUrl` via Aspire parameter `oauth-callback-base-url`; defaults derive from the primary host (first non-CIDR entry of `edge.hosts`; IPv6 literals bracket-wrapped): with `cloudflare.enabled`, bare `https://{primary}` (or `https://{routing.apiHost}` in subdomain mode); with `tlsMode=none`, `http://{primary}[:{edge.ports.http}]` (port suffix omitted when `http` is 80); with `privateCa`, `https://{primary}[:{edge.ports.https}]` (port suffix omitted when `https` is 443). (bootstrapper-managed) |
+| `OCTOCON_JWT_AUTHORITY`               | `octocon-local` | JWT `iss` claim. Sourced from `BootstrapConfig.api.oauth.jwtAuthority` via Aspire parameter `jwt-authority`; derives the same way as `OCTOCON_AUTH_CALLBACK_BASE_URL`. The `octocon-local` default applies only to dev / non-bootstrapped runs. (bootstrapper-managed) |
+| `OCTOCON_JWT_AUDIENCE`                | `octocon`       | JWT `aud` claim. Sourced from `BootstrapConfig.api.oauth.jwtAudience` via Aspire parameter `jwt-audience`. Bound into `AuthenticationConfiguration.JwtAudience` by `ConfigurationServiceCollectionExtensions.ApplyAuthentication` (previously documented as bound but the binding was missing; fixed alongside the bootstrapper wire-up). (bootstrapper-managed) |
 | `OCTOCON_GOOGLE_OAUTH_CLIENT_ID`      | *empty*         | Sourced from `BootstrapConfig.oauth.googleClientId` via Aspire parameter `google-oauth-client-id`; empty value disables the Google scheme. (bootstrapper-managed) |
 | `OCTOCON_DISCORD_OAUTH_CLIENT_ID`     | *empty*         | Same handling, sourced from `oauth.discordClientId`. (bootstrapper-managed)                                                                           |
 | `OCTOCON_APPLE_OAUTH_CLIENT_ID`       | *empty*         | Same handling, sourced from `oauth.appleClientId`. (bootstrapper-managed)                                                                             |
-| `OCTOCON_GOOGLE_OAUTH_CLIENT_SECRET`  | *null*          | Placeholder only; overwritten at startup from `internal.secrets:oauth:google:client_secret`. **Do not rely on the env value.** (bootstrapper-managed) |
-| `OCTOCON_DISCORD_OAUTH_CLIENT_SECRET` | *null*          | Same handling. (bootstrapper-managed)                                                                                                                 |
-| `OCTOCON_APPLE_OAUTH_CLIENT_SECRET`   | *null*          | Same handling. (bootstrapper-managed)                                                                                                                 |
+| `OCTOCON_GOOGLE_OAUTH_CLIENT_SECRET`  | *null*          | Self-host: `internal.secrets:oauth:google:client_secret` only — **not** compose `.env`. `aspire run`: AppHost parameter `google-oauth-client-secret` is seeded into that row and forwarded as this env var. Empty disables token exchange even if the client ID is set. |
+| `OCTOCON_DISCORD_OAUTH_CLIENT_SECRET` | *null*          | Same handling for Discord (`discord-oauth-client-secret`).                                                                                                                                                                                                              |
+| `OCTOCON_APPLE_OAUTH_CLIENT_SECRET`   | *null*          | Same handling for Apple (`apple-oauth-client-secret`).                                                                                                                                                                                                                  |
+| `OCTOCON_CF_ACCESS_TEAM_DOMAIN`       | *empty*         | Cloudflare Access team host (e.g. `myteam.cloudflareaccess.com`). Empty disables `GET/POST /auth/cloudflare`. Sourced from `{outputDir}/.cloudflare-access.json` via Aspire parameter `cf-access-team-domain`. (bootstrapper-managed) |
+| `OCTOCON_CF_ACCESS_AUD`               | *empty*         | Access application AUD used to validate `Cf-Access-Jwt-Assertion`. Empty disables the exchange. Sourced from `.cloudflare-access.json` via `cf-access-aud`. (bootstrapper-managed) |
+| `OCTOCON_CF_ACCESS_DISCORD_IDP_ID`    | *empty*         | Access IdP id for `interfold-discord`. When set, `/auth/cloudflare` treats that IdP as Discord (snowflake lookup) and does not fall back to email. Sourced from `.cloudflare-access.json` `discordIdentityProviderId`. (bootstrapper-managed) |
 
 
 Each provider's authorize URL, ASP.NET Core challenge scheme name, and static challenge
@@ -561,7 +604,7 @@ reads them.
 
 | Env var                        | Default                | Notes                                                                                                                                                                                              |
 | ------------------------------ | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OCTOCON_CORS_ALLOWED_ORIGINS` | *empty* (= allow any in dev only) | Comma-separated allow-list of origin URLs. The API still falls back to "allow any origin" when this is unset/empty, but the bootstrapper never emits a stack with an unset value — `BootstrapConfig.apiRuntime.corsAllowedOrigins` defaults to one `{scheme}://host` entry per non-CIDR `deployment.hosts` entry (joined with `,`), routed through Aspire parameter `cors-allowed-origins`. Operators that want a different allow-list edit the list in the interactive form or the JSON. (bootstrapper-managed) |
+| `OCTOCON_CORS_ALLOWED_ORIGINS` | *empty* (= allow any in dev only) | Comma-separated allow-list of origin URLs. The API still falls back to "allow any origin" when this is unset/empty, but the bootstrapper never emits a stack with an unset value — `BootstrapConfig.api.corsAllowedOrigins` defaults to one `{scheme}://host` entry per non-CIDR `edge.hosts` entry (joined with `,`), routed through Aspire parameter `cors-allowed-origins`. Operators that want a different allow-list edit the list in the interactive form or the JSON. When Cloudflare Access state is present, publish also appends `https://{team}.cloudflareaccess.com`. (bootstrapper-managed) |
 
 `OCTOCON_FRONTEND`, `OCTOCON_BETA_FRONTEND`, and `OCTOCON_DEEPLINK_ADDRESS` have all been
 removed. Their CORS allow-list use moved to `OCTOCON_CORS_ALLOWED_ORIGINS`; their
@@ -578,7 +621,7 @@ your `.env`, they are dead values — the API no longer reads them.
 | Env var                       | Default | Notes      |
 | ----------------------------- | ------- | ---------- |
 | `OCTOCON_AVATAR_STORAGE_ROOT` | `/app/data/avatars` (self-host compose) | Container path the API writes uploaded avatars to. Always baked to `/app/data/avatars` by AppHost; the host directory comes from `BootstrapConfig.storage.avatarStorageRoot` (blank → `{outputDir}/data/avatars`) via a compose bind mount. (bootstrapper-managed) |
-| `OCTOCON_AVATAR_PUBLIC_BASE`  | *empty* (= API serves `/avatars/*`) | Public URL prefix the API uses to construct avatar URLs in responses (e.g. `https://cdn.example.com/avatars/`). Sourced from `BootstrapConfig.storage.avatarPublicBase` via Aspire parameter `avatar-public-base`; empty normalised to `null`. Non-empty values must parse as absolute http(s) URLs. (bootstrapper-managed) |
+| `OCTOCON_AVATAR_PUBLIC_BASE`  | *empty* (= API serves `/avatars/*`) | Public URL prefix the API uses to construct avatar URLs in responses (e.g. `https://cdn.example.com/avatars/`). Sourced from `BootstrapConfig.storage.avatarPublicBase` via Aspire parameter `avatar-public-base`; empty normalised to `null`. Non-empty values must parse as absolute http(s) URLs. When blank, the API prefixes `/avatars/*` with `Request.Scheme` + host. Behind Cloudflare Tunnel that scheme comes from `X-Forwarded-Proto` (edge-nginx copies Cloudflare's https stamp). Socket endpoint relays also copy the upgrade's scheme onto the inner loopback self-call so `GET /api/systems/me/alters/{id}` (which qualifies avatars) does not emit `http://`. Without that, browsers block those URLs as mixed content on the https web origin. (bootstrapper-managed) |
 
 
 #### Observability
@@ -586,7 +629,9 @@ your `.env`, they are dead values — the API no longer reads them.
 
 | Env var                 | Default | Notes                                                        |
 | ----------------------- | ------- | ------------------------------------------------------------ |
-| `OCTOCON_OTLP_ENDPOINT` | *empty* (= OTLP exporter not registered) | gRPC OTLP endpoint, e.g. `http://localhost:4317`. Sourced from `BootstrapConfig.observability.otlpEndpoint` via Aspire parameter `otlp-endpoint`; empty normalised to `null` by `ApplyObservability` so the OTLP exporter is not registered. Non-empty values must parse as absolute http(s) URIs. (bootstrapper-managed) |
+| `OCTOCON_OTLP_ENDPOINT` | *empty* (= OTLP exporter not registered) | OTLP endpoint for the API's own traces/metrics, e.g. `http://localhost:4317`. Sourced from `BootstrapConfig.observability.otlpEndpoint` via Aspire parameter `otlp-endpoint`; empty normalised to `null` by `ApplyObservability` so the OTLP exporter is not registered. Non-empty values must parse as absolute http(s) URIs. (bootstrapper-managed) |
+| `OCTOCON_ADVERTISE_OTLP_TO_CLIENTS` | `false` | Opt-in: when `true`, `GET /api/telemetry/otlp` may advertise `OCTOCON_OTLP_ENDPOINT` if no client override is set. Off by default so configuring the API exporter does not expose it to clients. Sourced from `BootstrapConfig.observability.advertiseOtlpToClients` via Aspire parameter `advertise-otlp-to-clients`. (bootstrapper-managed) |
+| `OCTOCON_CLIENT_OTLP_HTTP_ENDPOINT` | *empty* | Optional dedicated OTLP/HTTP URL for `GET /api/telemetry/otlp`. When set, always wins over the server endpoint. Use when clients need a different URL than the API exporter. Empty + advertise off → discovery 404. Sourced from `BootstrapConfig.observability.clientOtlpHttpEndpoint` via Aspire parameter `client-otlp-http-endpoint`. Non-empty values must parse as absolute http(s) URIs. The API does **not** ingest OTLP. **`aspire run`:** AppHost stamps this with `ASPIRE_DASHBOARD_OTLP_HTTP_ENDPOINT_URL` (`http://localhost:21247`) and turns advertise on, so the wasm client’s `GET /api/telemetry/otlp` points at the Aspire dashboard. Dashboard OTLP CORS is the edge origin; OTLP auth is unsecured because the client only sends the URL (no `x-otlp-api-key`). Override with `Parameters:client-otlp-http-endpoint`. |
 
 
 #### Cluster
@@ -595,7 +640,7 @@ your `.env`, they are dead values — the API no longer reads them.
 | Env var              | Default     | Notes                                             |
 | -------------------- | ----------- | ------------------------------------------------- |
 | `FLY_PROCESS_GROUP`  | *null*      | Fly.io automatic. Wins over `OCTOCON_NODE_GROUP`. |
-| `OCTOCON_NODE_GROUP` | `auxiliary` | Sourced from `BootstrapConfig.cluster.nodeGroup` via Aspire parameter `node-group`; restricted to `primary` / `auxiliary` / `sidecar` by `ConfigPhase.Validate` (lower-cased on read by `ApplyCluster`). (bootstrapper-managed) |
+| `OCTOCON_NODE_GROUP` | `auxiliary` | Sourced from `BootstrapConfig.api.nodeGroup` via Aspire parameter `node-group`; restricted to `primary` / `auxiliary` / `sidecar` by `ConfigPhase.Validate` (lower-cased on read by `ApplyCluster`). (bootstrapper-managed) |
 
 
 #### Socket
@@ -611,8 +656,7 @@ your `.env`, they are dead values — the API no longer reads them.
 
 | Env var                                           | Default           | Notes                                                                                                              |
 | ------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `ASPNETCORE_HTTP_PORTS`                           | `5100`            | Set by AppHost from `Ports:api-container-http`. (bootstrapper-managed)                                              |
-| `ASPNETCORE_HTTPS_PORTS`                          | `5101`            | Set by AppHost from `Ports:api-container-https`. (bootstrapper-managed)                                             |
+| `ASPNETCORE_HTTP_PORTS`                           | `5100`            | Internal container listen port (not host-published). TLS terminates at edge-nginx. (bootstrapper-managed)            |
 | `ASPNETCORE_Kestrel__Certificates__Default__Path` | `/certs/leaf.pfx` | Set by AppHost. (bootstrapper-managed)                                                                             |
 | *password is **not** an env var*                  | —                 | Fetched from `internal.secrets:certs:leaf_pfx_password` before Kestrel binds. See [boot ordering](#boot-ordering). |
 
@@ -665,6 +709,11 @@ and a critical Name Constraints extension on the root cap the blast radius of bo
 | `rootCA.sha256.txt`   | SHA-256 fingerprint of `rootCA.crt` in uppercase colon-hex (matches `openssl x509 -fingerprint -sha256`). | 0644 |
 | `leaf.crt` / `leaf.key` / `leaf.pfx` | Leaf cert + key. PFX password lives in `internal.secrets:certs:leaf_pfx_password`. | 0644 |
 
+On Windows the same 0600/0644 intent is applied as an NTFS ACL (owner-only vs inherited
+read). When `edge.certificates.trustStoreInstall` is true, the certs phase also imports
+`rootCA.crt` into `CurrentUser\Root` (no Administrator). Other Windows accounts still
+need a manual import.
+
 ### Endpoints (`/.well-known/interfold-root-ca.*`)
 
 `[TrustController](../apis/Interfold.Ops.Api/Controllers/TrustController.cs)` serves a
@@ -695,8 +744,9 @@ Root CA:     Interfold Root CA
   Path:        /…/deploy/certs/rootCA.crt
   SHA-256:     AA:BB:CC:…:99
   Not after:   2030-01-01 12:00:00 UTC
-  Distribute:  curl -fSL http://<host>:5000/.well-known/interfold-root-ca.crt -o rootCA.crt
+  Distribute:  curl -fSL https://<host>[:edgeHttps]/.well-known/interfold-root-ca.crt -o rootCA.crt
   Verify:      openssl x509 -in rootCA.crt -noout -fingerprint -sha256
+               certutil -dump rootCA.crt   (Windows)
                (compare the printed SHA256 Fingerprint to the value above)
 ```
 
@@ -714,8 +764,8 @@ downloaded came from the operator and wasn't substituted by a network attacker:
 # 1. Operator broadcasts the fingerprint via Slack / email / Keybase / etc.
 EXPECTED="AA:BB:CC:DD:…:99"
 
-# 2. User fetches the cert. Plain HTTP is fine here — the SHA-256 is what makes this safe.
-curl -fSL http://api.example.com:5000/.well-known/interfold-root-ca.crt -o rootCA.crt
+# 2. User fetches the cert. Plain HTTP is fine here when tlsMode=none — the SHA-256 is what makes this safe.
+curl -fSL https://api.example.com/.well-known/interfold-root-ca.crt -o rootCA.crt
 
 # 3. User computes the fingerprint and compares character-for-character.
 openssl x509 -in rootCA.crt -noout -fingerprint -sha256
@@ -744,7 +794,7 @@ literally what we're doing here.
 ### Name Constraints invariant
 
 The root CA carries a critical Name Constraints extension (RFC 5280 §4.2.1.10) whose
-`permittedSubtrees` is the operator's `deployment.hosts` list:
+`permittedSubtrees` is the operator's `edge.hosts` list:
 
 - **DNS** entries (`api.example.com`, `*.example.com`) emit a `dNSName` permittedSubtree.
   Wildcard entries collapse to their suffix because dNSName subtree semantics already
@@ -817,7 +867,7 @@ Row inventory (see `[SeedKeys.cs](../shared/Interfold.DatabaseBootstrap/SeedKeys
 | `scylla:local_datacenter`     | `nam`                                       | `ScyllaSessionProvider`                                                                                                                  | no          |
 | `scylla:username`             | `GeneratedSecrets.ScyllaUser`               | `ScyllaSessionProvider` (app session)                                                                                                    | no          |
 | `scylla:password`             | `GeneratedSecrets.ScyllaPassword`           | `ScyllaSessionProvider`                                                                                                                  | no          |
-| `scylla:port`                 | `Ports.scylla` (default `9042`)             | `ScyllaSessionProvider`                                                                                                                  | no          |
+| `scylla:port`                 | container CQL port `9042` (compose network) | `ScyllaSessionProvider`                                                                                                                  | no          |
 | `auth:jwt_rsa256_private_pem` | `GeneratedSecrets.JwtRsa256PrivateKeyPem`   | `SecretsBootstrapService.PatchRsa256` — populates `Rsa256PrivateKey` + derives `Rsa256PublicKey`                                         | yes         |
 | `auth:jwt_es256_private_pem`  | `GeneratedSecrets.JwtEs256PrivateKeyPem`    | `SecretsBootstrapService.PatchEs256` — populates `JwtEs256PrivateKeyPem` + seeds `JwtEs256VerificationKeyPems[0]`                        | yes         |
 | `auth:deep_link_secret`       | `GeneratedSecrets.DeepLinkSecret`           | `SecretsBootstrapService` → `AuthenticationConfiguration.DeepLinkSecret`                                                                 | yes         |
@@ -1026,16 +1076,18 @@ followed by an API restart. The bootstrapper will catch up on the next run.
 | Deep-link secret  | `Parameters:dev-deep-link-secret` (`GenerateParameterDefault`, persisted to AppHost user-secrets) → `internal.secrets:auth:deep_link_secret` via dev-seed hook | `GeneratedSecrets.DeepLinkSecret` → `internal.secrets:auth:deep_link_secret`  | `TestDbCredentials.DeepLinkSecret` via `PostgresSeedOptions`                                                                              |
 | Admin passwords   | `Parameters:dev-postgres-admin-password` / `Parameters:dev-scylla-admin-password` (both `GenerateParameterDefault`, persisted to AppHost user-secrets)     | `GeneratedSecrets.PostgresAdminPassword` / `ScyllaAdminPassword`              | `TestDbCredentials.Postgres/Scylla AdminPassword`                                                                                         |
 | Leaf PFX password | *no leaf PFX in dev* (ASP.NET dev cert)                                                                                                                     | `internal.secrets:certs:leaf_pfx_password`, loaded by `SecretsPreBuildLoader` | not exercised                                                                                                                             |
-| OAuth secrets     | Empty in the dev-seed row (`OAuthChallenge` extensions disable the provider for that row)                                                                   | `internal.secrets:oauth:*:client_secret`                                      | empty / `"TEST"`                                                                                                                          |
+| OAuth secrets     | `Parameters:google/discord/apple-oauth-client-id` and `-client-secret` (AppHost user-secrets). IDs become `OCTOCON_*_OAUTH_CLIENT_ID`; secrets seed `internal.secrets:oauth:*:client_secret` and `OCTOCON_*_OAUTH_CLIENT_SECRET`. Empty skips the provider. | `internal.secrets:oauth:*:client_secret`                                      | empty / `"TEST"`                                                                                                                          |
 
 The `Parameters:dev-*` names above are AppHost-private (declared in
 [`DevSeedParameterNames`](../hosts/Interfold.AppHost/DevSeed/DevSeedParameterNames.cs)) —
 they never round-trip through the bootstrapper's `PublishPhase.BuildEnvReplacements` so
-they can't leak into the emitted `.env`. To rotate any of them, run
-`dotnet user-secrets clear --project hosts/Interfold.AppHost` and wipe the persistent
-Postgres volume; a fresh AppHost run will re-generate and re-seed. Wiping user-secrets
-without wiping the DB leaves stale-encrypted data behind — the same trade-off
-`rotate-secrets` documents for prod (see `docs/ROADMAP.md`).
+they can't leak into the emitted `.env`. Run-mode AppHost defaults to session-lifetime
+DB containers (`Parameters:persistent-containers`, off). Opt in when you want volumes to
+survive `aspire run` restarts; then rotating the `dev-*` secrets also means wiping those
+volumes (`dotnet user-secrets clear --project hosts/Interfold.AppHost` plus the
+Postgres/Scylla named volumes). Wiping user-secrets without wiping a persistent DB
+leaves stale-encrypted data behind — the same trade-off `rotate-secrets` documents for
+prod (see `docs/ROADMAP.md`).
 
 
 Tests centralise the test-only material in

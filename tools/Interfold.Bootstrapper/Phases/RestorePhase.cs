@@ -15,7 +15,7 @@ internal static class RestorePhase
     private static readonly string Phase = BootstrapCommand.Restore.ToPhaseLogName();
 
     /// <summary>Client services stopped before the scylla restore and restarted after.</summary>
-    internal static readonly string[] ScyllaRestoreClientServices = [ComposeServices.InterfoldApi, ComposeServices.OctoconWeb];
+    internal static readonly string[] ScyllaRestoreClientServices = [ComposeServices.InterfoldApi, ComposeServices.InterfoldWeb];
 
     public static async Task<int> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
@@ -138,7 +138,7 @@ internal static class RestorePhase
         await WaitForPostgresAsync(composeFile, logger, ct).ConfigureAwait(false);
 
         logger.Info($"    postgres: pg_restore --clean --if-exists <- {archivePath}");
-        var argv = BuildPgRestoreArgs(composeFile, adminUser, config.PostgresDatabase);
+        var argv = BuildPgRestoreArgs(composeFile, adminUser, config.Datastores.Postgres.Database);
         await DatabaseArchiveStreamer.StreamFileToProcessStdinAsync(
             "docker", argv,
             environment: DatabaseArchiveStreamer.PgPasswordEnv(adminPassword),

@@ -1,4 +1,5 @@
 using Interfold.Bootstrapper.Cli;
+using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
@@ -123,7 +124,7 @@ public sealed class BackupCommandBuildingTests
     {
         // single-mode AppHost wires up the bare "scylla" service name; matches the AppHost
         // resource graph in InterfoldAppHost.Configure.
-        var config = TestSupport.MakeConfig(DatabaseMode.Single);
+        var config = TestSupport.MakeConfig(CqlBackend.ScyllaSingle);
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
         await Assert.That(service).IsEqualTo("scylla");
@@ -136,7 +137,7 @@ public sealed class BackupCommandBuildingTests
         // multi-mode publishes 7 regional services; the seed (NAM) is the only one we
         // snapshot. Multi-DC operators that want all seven captured are documented as
         // out-of-scope for the bootstrapper itself.
-        var config = TestSupport.MakeConfig(DatabaseMode.Multi);
+        var config = TestSupport.MakeConfig(CqlBackend.ScyllaMulti);
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
         await Assert.That(service).IsEqualTo("scylla-nam");
@@ -148,7 +149,7 @@ public sealed class BackupCommandBuildingTests
     {
         // cassandra-mode replaces Scylla entirely with a single Cassandra 5 node; the data
         // directory inside the official cassandra image is /var/lib/cassandra (not /var/lib/scylla).
-        var config = TestSupport.MakeConfig(DatabaseMode.Cassandra);
+        var config = TestSupport.MakeConfig(CqlBackend.Cassandra);
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
         await Assert.That(service).IsEqualTo("cassandra");
@@ -166,7 +167,7 @@ public sealed class BackupCommandBuildingTests
             command: BootstrapCommand.Backup,
             backupDirOverride: "/srv/backups");
 
-        var config = TestSupport.MakeConfig(tweak: c => c.Backup.Directory = "/var/never-seen");
+        var config = TestSupport.MakeConfig(tweak: c => c.Deployment.Backup.Directory = "/var/never-seen");
         var resolved = BackupPhase.ResolveBackupRoot(options, config);
 
         // Path.GetFullPath normalises to the platform's separator style; just check it ends
@@ -180,7 +181,7 @@ public sealed class BackupCommandBuildingTests
     {
         var options = TestSupport.MakeOptions(command: BootstrapCommand.Backup);
 
-        var config = TestSupport.MakeConfig(tweak: c => c.Backup.Directory = "/var/backups/interfold");
+        var config = TestSupport.MakeConfig(tweak: c => c.Deployment.Backup.Directory = "/var/backups/interfold");
         var resolved = BackupPhase.ResolveBackupRoot(options, config);
 
         await Assert.That(resolved.Replace('\\', '/'))

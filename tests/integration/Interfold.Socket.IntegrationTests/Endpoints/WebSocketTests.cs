@@ -627,6 +627,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             wsClient.ConfigureRequest = request =>
             {
                 request.Host = new HostString(operatorFacingHost, hostSideMappedPort);
+                request.Scheme = "https";
             };
 
             var uri = new Uri(WebSocketBasePath(fixture.Factory.Server), $"api/socket/websocket?token={socketToken}");
@@ -714,6 +715,8 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
                 // outbound assertion is sufficient for production correctness.
                 await Assert.That(proxyCall!.HostHeader).IsEqualTo(operatorFacingHostHeader)
                     .Because($"Regression: the proxy must forward the OUTER upgrade's Host header ('{operatorFacingHostHeader}') onto the inner HttpRequestMessage so the inner pipeline observes the operator-facing origin, not the loopback dial target. Recorded Host header was '{proxyCall.HostHeader ?? "<null>"}'.");
+                await Assert.That(proxyCall.ForwardedProto).IsEqualTo("https")
+                    .Because("Regression: the proxy must forward the outer scheme as X-Forwarded-Proto so QualifyAvatar on relayed GET /alters/{id} does not stamp http:// on an https SPA.");
             }
 
             await ws.CloseTestDoneAsync(token);

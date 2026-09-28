@@ -2,6 +2,7 @@ using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
 using Interfold.Bootstrapper.IntegrationTests.TestServices;
+using Interfold.Shared.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.IntegrationTests;
 
@@ -85,6 +86,23 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
         // The production default tag must NOT leak through when overridden.
         await Assert.That(compose).DoesNotContain("ghcr.io/azyyyyyy/interfold-api:latest")
             .Because("the default api image tag must not appear when apiImage is overridden");
+    }
+
+    [Test]
+    public async Task CustomWebImageAppearsInGeneratedCompose()
+    {
+        var (scratch, _) = await dinD.PublishAsync(
+            nameof(CustomWebImageAppearsInGeneratedCompose), TestConfigPaths.EdgeConfig);
+
+        var composeBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/docker-compose.yaml");
+        var compose = Encoding.UTF8.GetString(composeBytes);
+
+        await Assert.That(compose).Contains("interfold-web:test")
+            .Because("the custom webImage from the edge fixture should appear in the emitted compose");
+        await Assert.That(compose).DoesNotContain(DefaultContainerImages.Web)
+            .Because("the default web image tag must not appear when webImage is overridden");
+        await Assert.That(compose).DoesNotContain("ghcr.io/azyyyyyy/octocon-wasm")
+            .Because("the legacy octocon-wasm image must not be hardcoded when webImage is set");
     }
 
     [Test]

@@ -12,7 +12,9 @@ namespace Interfold.Infrastructure.IntegrationTests.Topology;
 /// Marked <see cref="ExplicitAttribute"/> — spinning up a 7-DC Scylla ring on a workstation
 /// eats several GB of RAM + several minutes of wall-clock. Local <c>dotnet test</c> at the
 /// solution root skips this class; CI opts in explicitly via
-/// <c>--treenode-filter '/*/*/*MultiNodeScyllaTests/*'</c> in the Infrastructure leg.
+/// <c>--treenode-filter '/*/*/*MultiNodeScyllaTests/*'</c> in the Infrastructure leg,
+/// and only when prepare detects changes under the Scylla project / <c>db/scylla</c> /
+/// this fixture+suite (or on tag / workflow_dispatch).
 /// </para>
 /// </summary>
 [Explicit]

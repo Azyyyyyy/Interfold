@@ -32,6 +32,8 @@ internal static class DatabaseInitPhase
 {
     private static readonly string Phase = BootstrapPhase.DbInit.ToWireName();
     private const string PostgresService = ComposeServices.Postgres;
+    // CQL listen port on the compose network — not a host-published port.
+    private const int ScyllaCqlListenPort = 9042;
 
     public static async Task RunAsync(
         BootstrapOptions options,
@@ -49,7 +51,7 @@ internal static class DatabaseInitPhase
         // multi-region scylla deployments use a different container alias - we drive the
         // first node only because all admin operations propagate via gossip.
         var scyllaService = ResolveScyllaServiceName(config);
-        var scyllaPort = ResolveScyllaPort();
+        var scyllaPort = ScyllaCqlListenPort;
 
         if (CassandraImagePhase.IsCassandraDeployment(config))
         {
@@ -104,10 +106,10 @@ internal static class DatabaseInitPhase
             AppPassword: secrets.PostgresPassword,
             AdminUser: $"{secrets.PostgresUser}_admin",
             AdminPassword: secrets.PostgresAdminPassword,
-            DefaultDatabase: config.PostgresDatabase,
-            GoogleOAuthClientSecret: config.OAuth.GoogleClientSecret ?? string.Empty,
-            DiscordOAuthClientSecret: config.OAuth.DiscordClientSecret ?? string.Empty,
-            AppleOAuthClientSecret: config.OAuth.AppleClientSecret ?? string.Empty,
+            DefaultDatabase: config.Datastores.Postgres.Database,
+            GoogleOAuthClientSecret: config.Api.OAuth.GoogleClientSecret ?? string.Empty,
+            DiscordOAuthClientSecret: config.Api.OAuth.DiscordClientSecret ?? string.Empty,
+            AppleOAuthClientSecret: config.Api.OAuth.AppleClientSecret ?? string.Empty,
             EncryptionPepper: secrets.EncryptionPepper,
             // Self-hosted deployments reach scylla via the docker network using its container
             // alias. The matching DataStax driver inside the API resolves it inside the same
@@ -135,16 +137,6 @@ internal static class DatabaseInitPhase
 
     private static string ResolveScyllaServiceName(BootstrapConfig config)
         => BackupPhase.ResolveScyllaSeed(config).Service;
-
-    private static int ResolveScyllaPort()
-    {
-        // CQL port the API uses to reach Scylla *over the compose docker network* (resolving the
-        // scylla service name via docker DNS). That target is always the container's listening
-        // port — 9042 — irrespective of whatever host port the operator (or test fixture) chose
-        // for external access via `config.ports.scylla`. The host-port choice flows into the
-        // compose YAML via PublishPhase; here we deliberately stay on the in-network port.
-        return 9042;
-    }
 
     // -------- Bring-up --------
 

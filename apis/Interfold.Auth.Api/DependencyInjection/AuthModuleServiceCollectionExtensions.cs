@@ -41,6 +41,10 @@ public static class AuthModuleServiceCollectionExtensions
         services.AddHttpClient<GoogleOAuthService>();
         services.AddHttpClient<DiscordOAuthService>();
         services.AddHttpClient<AppleOAuthService>();
+        services.AddHttpClient<CloudflareAccessJwtValidator>();
+
+        services.AddOptions<CloudflareAccessConfiguration>()
+            .Configure<IConfiguration>(ApplyCloudflareAccess);
 
         // JWTs are self-issued post-OAuth; no external OIDC issuer to validate, so aud +
         // lifetime only. Read straight off configuration to avoid triggering
@@ -101,6 +105,13 @@ public static class AuthModuleServiceCollectionExtensions
         opts.GoogleOAuthClientSecret = config[OctoconEnvKeys.GoogleOAuthClientSecret];
         opts.AppleOAuthClientId = config[OctoconEnvKeys.AppleOAuthClientId];
         opts.AppleOAuthClientSecret = config[OctoconEnvKeys.AppleOAuthClientSecret];
+    }
+
+    private static void ApplyCloudflareAccess(CloudflareAccessConfiguration opts, IConfiguration config)
+    {
+        opts.TeamDomain = config[OctoconEnvKeys.CfAccessTeamDomain] ?? string.Empty;
+        opts.Audience = config[OctoconEnvKeys.CfAccessAud] ?? string.Empty;
+        opts.DiscordIdentityProviderId = config[OctoconEnvKeys.CfAccessDiscordIdpId] ?? string.Empty;
     }
 
     private static SecurityToken ValidateJwtTokenSignatureForBearer(

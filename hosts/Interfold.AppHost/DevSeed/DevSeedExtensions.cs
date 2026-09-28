@@ -25,6 +25,10 @@ internal static class DevSeedExtensions
     /// <param name="scyllaAppPassword">Aspire-managed CQL app role password
     /// (<c>Parameters:scylla-password</c>) — same story as <paramref name="postgresAppPassword"/>
     /// but for <c>ScyllaSeeder</c>.</param>
+    /// <param name="googleOAuthClientSecret">Run-mode Google OAuth client secret; empty skips
+    /// the <c>internal.secrets</c> row so the provider stays disabled.</param>
+    /// <param name="discordOAuthClientSecret">Run-mode Discord OAuth client secret.</param>
+    /// <param name="appleOAuthClientSecret">Run-mode Apple OAuth client secret.</param>
     /// <param name="cqlBackend">First CQL backend the AppHost mapped a host port to. Null when
     /// neither Scylla nor Cassandra are in the graph — the CQL seed step is skipped.</param>
     /// <returns>The <see cref="IResourceBuilder{DevSeedResource}"/> so the caller can pass it
@@ -35,7 +39,10 @@ internal static class DevSeedExtensions
         IResourceBuilder<ContainerResource>? cqlBackend,
         IResourceBuilder<ParameterResource> postgresInitPassword,
         IResourceBuilder<ParameterResource> postgresAppPassword,
-        IResourceBuilder<ParameterResource> scyllaAppPassword)
+        IResourceBuilder<ParameterResource> scyllaAppPassword,
+        IResourceBuilder<ParameterResource> googleOAuthClientSecret,
+        IResourceBuilder<ParameterResource> discordOAuthClientSecret,
+        IResourceBuilder<ParameterResource> appleOAuthClientSecret)
     {
         // GenerateParameterDefault + persist:true writes the value into the AppHost's
         // dotnet user-secrets store on first Build(), so subsequent runs reuse it — matches
@@ -57,7 +64,18 @@ internal static class DevSeedExtensions
             new GenerateParameterDefault { MinLength = 32 },
             secret: true, persist: true);
 
-        var seedResourceBuilder = builder.AddResource(new DevSeedResource("db-seed"));
+        var seedResourceBuilder = builder.AddResource(new DevSeedResource("db-seed"))
+            .WithInitialState(new CustomResourceSnapshot
+            {
+                ResourceType = "Seed",
+                State = new ResourceStateSnapshot(KnownResourceStates.Starting, KnownResourceStateStyles.Info),
+                Properties = [],
+            })
+            .ExcludeFromManifest()
+            // Running, not Healthy: CQL health uses the app role this seed creates.
+            .WaitForStart(msgDb);
+        if (cqlBackend is not null)
+            seedResourceBuilder = seedResourceBuilder.WaitForStart(cqlBackend);
 
         var context = new DevSeedContext(
             seedResource: seedResourceBuilder.Resource,
@@ -70,6 +88,9 @@ internal static class DevSeedExtensions
             deepLinkSecret: deepLinkSecret.Resource,
             postgresAdminPassword: postgresAdminPassword.Resource,
             scyllaAdminPassword: scyllaAdminPassword.Resource,
+            googleOAuthClientSecret: googleOAuthClientSecret.Resource,
+            discordOAuthClientSecret: discordOAuthClientSecret.Resource,
+            appleOAuthClientSecret: appleOAuthClientSecret.Resource,
             configuration: builder.Configuration);
 
         builder.Services.AddSingleton(context);

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 
@@ -57,10 +56,7 @@ internal static class PhaseArtifactLoader
                 "Run `bootstrap` first.");
         }
 
-        await using var stream = File.OpenRead(configPath);
-        return await JsonSerializer.DeserializeAsync(
-            stream, BootstrapJsonContext.Default.BootstrapConfig, ct).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Failed to parse {configPath}.");
+        return await BootstrapConfigFile.LoadAsync(configPath, logger, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -71,7 +67,7 @@ internal static class PhaseArtifactLoader
     /// overload.
     /// </summary>
     public static async Task<BootstrapConfig?> TryLoadConfigAsync(
-        BootstrapOptions options, CancellationToken ct)
+        BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
         var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
         if (!File.Exists(configPath))
@@ -79,9 +75,7 @@ internal static class PhaseArtifactLoader
 
         try
         {
-            await using var stream = File.OpenRead(configPath);
-            return await JsonSerializer.DeserializeAsync(
-                stream, BootstrapJsonContext.Default.BootstrapConfig, ct).ConfigureAwait(false);
+            return await BootstrapConfigFile.LoadAsync(configPath, logger, ct).ConfigureAwait(false);
         }
         catch
         {

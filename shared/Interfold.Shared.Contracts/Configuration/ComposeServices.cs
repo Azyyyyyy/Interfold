@@ -38,11 +38,17 @@ public static class ComposeServices
     /// <summary>Cassandra service (used in <c>cassandra</c> DatabaseMode as the Scylla fallback).</summary>
     public const string Cassandra = "cassandra";
 
-    /// <summary>API container. Emits OCTOCON_* env, terminates TLS, hosts the WebSocket endpoint.</summary>
+    /// <summary>API container. Emits OCTOCON_* env, hosts the WebSocket endpoint.</summary>
     public const string InterfoldApi = "interfold-api";
 
-    /// <summary>Static/octocon web tier proxy in front of the API when web-https is enabled.</summary>
-    public const string OctoconWeb = "octocon-web";
+    /// <summary>Static interfold-web wasm UI (HTTP). Public TLS is terminated by <see cref="EdgeNginx"/> when enabled.</summary>
+    public const string InterfoldWeb = "interfold-web";
+
+    /// <summary>Public edge reverse proxy for HTTP/HTTPS in front of API (+ web).</summary>
+    public const string EdgeNginx = "edge-nginx";
+
+    /// <summary>Cloudflare Tunnel connector (<c>cloudflared</c>) when <c>edge.cloudflare.enabled</c>.</summary>
+    public const string Cloudflared = "cloudflared";
 
     /// <summary>Seven regional Scylla nodes in ScyllaKeyspace declaration order.</summary>
     public static readonly string[] ScyllaRegionalNodes =
@@ -60,7 +66,9 @@ public static class ComposeServices
         ScyllaEas, ScyllaOcn, ScyllaGdpr,
         Cassandra,
         InterfoldApi,
-        OctoconWeb,
+        InterfoldWeb,
+        EdgeNginx,
+        Cloudflared,
     ];
 
     /// <summary>Single naming rule for Scylla node services: multi-node → <c>scylla-{region}</c>,
@@ -70,4 +78,10 @@ public static class ComposeServices
 
     public static string ToScyllaNodeName(Enums.ScyllaKeyspace keyspace, bool multiNode)
         => ToScyllaNodeName(keyspace.ToWire(), multiNode);
+
+    /// <summary>Accepts <c>octocon-web</c> as <see cref="InterfoldWeb"/> in --service filters.</summary>
+    public static string CanonicalizeUpdateService(string service)
+        => string.Equals(service, "octocon-web", StringComparison.Ordinal)
+            ? InterfoldWeb
+            : service;
 }

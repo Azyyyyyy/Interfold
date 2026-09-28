@@ -10,6 +10,13 @@ public static class InterfoldHeaders
     public const string IdempotencyKey = "X-Interfold-Idempotency-Key";
     public const string CommandId = "X-Interfold-Command-Id";
     public const string Contract = "X-Interfold-Contract";
+
+    /// <summary>
+    /// Product SemVer of the running API host (<see cref="InterfoldApiVersion"/>).
+    /// Operator-facing stamp — not a client negotiation signal.
+    /// </summary>
+    public const string ApiVersion = "X-Interfold-Api-Version";
+
     public const string RequestId = "X-Interfold-Request-Id";
 
     /// <summary>
@@ -19,6 +26,15 @@ public static class InterfoldHeaders
     /// </summary>
     public const string InboundRequestId = "X-Request-Id";
     public const string Principal = "X-Interfold-Principal";
+
+    /// <summary>Cloudflare Access identity JWT. Nginx must forward this to origin unchanged.</summary>
+    public const string CfAccessJwtAssertion = "Cf-Access-Jwt-Assertion";
+
+    /// <summary>Cloudflare Access authenticated email, forwarded for diagnostics only.</summary>
+    public const string CfAccessAuthenticatedUserEmail = "Cf-Access-Authenticated-User-Email";
+
+    public const string CfAccessClientId = "CF-Access-Client-Id";
+    public const string CfAccessClientSecret = "CF-Access-Client-Secret";
 }
 
 /// <summary>

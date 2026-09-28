@@ -130,45 +130,55 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
     {
         var basePort = Interlocked.Add(ref _portCursor, PortAllocationStride);
         return new DinDPortAllocation(
-            ApiHttp: basePort + 0,
-            ApiHttps: basePort + 1,
-            WebHttp: basePort + 2,
-            WebHttps: basePort + 3,
-            Postgres: basePort + 4,
-            Scylla: basePort + 5);
+            EdgeHttp: basePort + 0,
+            EdgeHttps: basePort + 1);
     }
 
-    /// <summary>Overwrites the top-level <c>ports</c> object; the rest of the config is
+    /// <summary>Overwrites <c>edge.ports</c>; the rest of the config is
     /// preserved verbatim via <see cref="JsonNode"/>.</summary>
     private static byte[] RewriteConfigWithPorts(byte[] configBytes, DinDPortAllocation ports)
     {
         var root = JsonNode.Parse(configBytes)
             ?? throw new InvalidOperationException("test bootstrap config parsed to null");
-        root["ports"] = new JsonObject
+        root["schemaVersion"] = 2;
+        root.AsObject().Remove("ports");
+
+        var edge = root["edge"] as JsonObject ?? new JsonObject();
+        edge["ports"] = new JsonObject
         {
-            ["apiHttp"] = ports.ApiHttp,
-            ["apiHttps"] = ports.ApiHttps,
-            ["webHttp"] = ports.WebHttp,
-            ["webHttps"] = ports.WebHttps,
-            ["postgres"] = ports.Postgres,
-            ["scylla"] = ports.Scylla,
+            ["http"] = ports.EdgeHttp,
+            ["https"] = ports.EdgeHttps,
         };
+        root["edge"] = edge;
+
         var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
         return Encoding.UTF8.GetBytes(json);
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (_dinD is not null)
+        if (_dinD is null) return;
+        try
         {
             await _dinD.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // privileged DinD teardown on Docker Desktop often cancels the npipe remove
         }
     }
 
     public async Task<ExecResult> ExecAsync(IList<string> command, CancellationToken ct = default)
     {
         if (_dinD is null) throw new InvalidOperationException("Fixture not initialized.");
-        var result = await _dinD.ExecAsync(command, ct).ConfigureAwait(false);
+        // dash treats `set -e\r` as an illegal option; C# raw strings on Windows carry CRLF.
+        var args = new string[command.Count];
+        for (var i = 0; i < command.Count; i++)
+        {
+            args[i] = command[i].Replace("\r", "", StringComparison.Ordinal);
+        }
+
+        var result = await _dinD.ExecAsync(args, ct).ConfigureAwait(false);
         return new ExecResult(result.ExitCode ?? -1, result.Stdout ?? string.Empty, result.Stderr ?? string.Empty);
     }
 
@@ -438,11 +448,7 @@ public readonly record struct DinDScratch(string Root, string OutputDir, string 
     public string SecretsJsonPath => $"{OutputDir}/secrets/secrets.json";
 }
 
-/// <summary>Per-test 6-port allocation baked into the per-test config.</summary>
+/// <summary>Per-test edge port allocation baked into the per-test config.</summary>
 public readonly record struct DinDPortAllocation(
-    int ApiHttp,
-    int ApiHttps,
-    int WebHttp,
-    int WebHttps,
-    int Postgres,
-    int Scylla);
+    int EdgeHttp,
+    int EdgeHttps);

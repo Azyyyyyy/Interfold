@@ -37,8 +37,6 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
         $"{AppHostParameterKeys.IncludeApi}=false",
         $"{AppHostParameterKeys.IncludeWeb}=false",
         $"{AppHostParameterKeys.PersistentContainers}=false",
-        // Distinct port so Aspire test-mode allocator doesn't collide with SharedDbFixture.
-        $"{AppHostParameterKeys.PortsScylla}=39042",
         $"{AppHostParameterKeys.ScyllaUser}={TestDbCredentials.ScyllaAppUser}",
         $"{AppHostParameterKeys.ScyllaPassword}={TestDbCredentials.ScyllaAppPassword}",
         $"{AppHostParameterKeys.EncryptionPrivateKey}=TEST"
