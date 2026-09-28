@@ -4,6 +4,14 @@ namespace Interfold.Bootstrapper.Util;
 
 internal sealed class DiscordOidcConfigJson
 {
+    internal static readonly string[] EsModuleExportNames =
+    [
+        "clientId",
+        "clientSecret",
+        "redirectURL",
+        "serversToCheckRolesFor",
+    ];
+
     [JsonPropertyName("clientId")]
     public string ClientId { get; set; } = string.Empty;
 

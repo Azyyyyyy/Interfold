@@ -77,25 +77,17 @@ internal static class DiscordOidcWorkerSource
     // default + named keys, matching `import * as config from "./config.json"`.
     internal static string ToConfigEsModule(string json)
     {
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.ValueKind != JsonValueKind.Object)
+        try
         {
-            throw new InvalidDataException("discord-oidc config.json must be a JSON object.");
+            _ = JsonSerializer.Deserialize(json, CloudflareApiJsonContext.Default.DiscordOidcConfigJson)
+                ?? throw new InvalidDataException("discord-oidc config.json must be a JSON object.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException("discord-oidc config.json must be a JSON object.", ex);
         }
 
-        var keys = new List<string>();
-        foreach (var property in doc.RootElement.EnumerateObject())
-        {
-            if (!IsJsIdentifier(property.Name))
-            {
-                throw new InvalidDataException(
-                    $"discord-oidc config.json key '{property.Name}' is not a JS identifier.");
-            }
-
-            keys.Add(property.Name);
-        }
-
-        var destructure = string.Join(", ", keys);
+        var destructure = string.Join(", ", DiscordOidcConfigJson.EsModuleExportNames);
         return $"const json = {json};{Environment.NewLine}export default json;{Environment.NewLine}export const {{ {destructure} }} = json;{Environment.NewLine}";
     }
 
@@ -134,22 +126,6 @@ internal static class DiscordOidcWorkerSource
             throw new InvalidOperationException($"Discord OIDC worker download was empty: {url}");
 
         await File.WriteAllBytesAsync(destPath, bytes, ct).ConfigureAwait(false);
-    }
-
-    private static bool IsJsIdentifier(string name)
-    {
-        if (name.Length == 0)
-            return false;
-        if (!char.IsAsciiLetter(name[0]) && name[0] is not '_' and not '$')
-            return false;
-
-        for (var i = 1; i < name.Length; i++)
-        {
-            if (!char.IsAsciiLetterOrDigit(name[i]) && name[i] is not '_' and not '$')
-                return false;
-        }
-
-        return true;
     }
 
     internal static HttpClient CreateHttp()

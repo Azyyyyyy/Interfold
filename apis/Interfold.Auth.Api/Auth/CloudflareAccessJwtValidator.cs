@@ -173,8 +173,10 @@ public sealed class CloudflareAccessJwtValidator
                 return default;
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
-            return ReadIdentityHints(doc.RootElement);
+            var identity = await JsonSerializer
+                .DeserializeAsync(stream, CloudflareAccessJsonContext.Default.CloudflareAccessIdentityJson, ct)
+                .ConfigureAwait(false);
+            return HintsFrom(identity);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
@@ -193,8 +195,7 @@ public sealed class CloudflareAccessJwtValidator
             {
                 try
                 {
-                    using var doc = JsonDocument.Parse(raw);
-                    hints = ReadIdentityHints(doc.RootElement);
+                    hints = HintsFromJwtIdpJson(raw);
                 }
                 catch (JsonException)
                 {
@@ -239,8 +240,8 @@ public sealed class CloudflareAccessJwtValidator
 
         try
         {
-            using var doc = JsonDocument.Parse(custom);
-            return ReadDiscordIdFromOidcClaims(doc.RootElement);
+            var claims = JsonSerializer.Deserialize(custom, CloudflareAccessJsonContext.Default.CloudflareAccessOidcClaimsJson);
+            return SnowflakeFrom(claims);
         }
         catch (JsonException)
         {
@@ -248,55 +249,34 @@ public sealed class CloudflareAccessJwtValidator
         }
     }
 
-    private static AccessIdentityHints ReadIdentityHints(JsonElement root)
+    private static AccessIdentityHints HintsFromJwtIdpJson(string json)
     {
-        string? id = null;
-        string? type = null;
-        string? name = null;
-        var idp = root;
-        if (root.TryGetProperty("idp", out var nested) && nested.ValueKind is JsonValueKind.Object or JsonValueKind.String)
-            idp = nested;
+        var identity = JsonSerializer.Deserialize(json, CloudflareAccessJsonContext.Default.CloudflareAccessIdentityJson);
+        if (identity?.Idp is not null)
+            return HintsFrom(identity);
 
-        if (idp.ValueKind == JsonValueKind.String)
-        {
-            type = idp.GetString();
-            name = type;
-        }
-        else if (idp.ValueKind == JsonValueKind.Object)
-        {
-            if (idp.TryGetProperty("id", out var idEl))
-                id = idEl.GetString();
-            if (idp.TryGetProperty("type", out var typeEl))
-                type = typeEl.GetString();
-            if (idp.TryGetProperty("name", out var nameEl))
-                name = nameEl.GetString();
-        }
-
-        return new AccessIdentityHints(id, type, name, ReadDiscordIdFromOidcClaims(root));
+        var idp = JsonSerializer.Deserialize(json, CloudflareAccessJsonContext.Default.CloudflareAccessIdpJson);
+        return idp is null ? default : new AccessIdentityHints(idp.Id, idp.Type, idp.Name, null);
     }
 
-    private static string? ReadDiscordIdFromOidcClaims(JsonElement root)
+    private static AccessIdentityHints HintsFrom(CloudflareAccessIdentityJson? identity)
     {
-        if (root.TryGetProperty("oidc_fields", out var fields) && fields.ValueKind == JsonValueKind.Object)
-        {
-            var fromFields = ReadSnowflakeProperty(fields, "id") ?? ReadSnowflakeProperty(fields, "sub");
-            if (fromFields is not null)
-                return fromFields;
-        }
+        if (identity is null)
+            return default;
 
-        if (root.TryGetProperty("custom", out var custom) && custom.ValueKind == JsonValueKind.Object)
-            return ReadSnowflakeProperty(custom, "id") ?? ReadSnowflakeProperty(custom, "sub");
-
-        return ReadSnowflakeProperty(root, "id");
+        return new AccessIdentityHints(
+            identity.Idp?.Id,
+            identity.Idp?.Type,
+            identity.Idp?.Name,
+            SnowflakeFrom(identity.OidcFields)
+                ?? SnowflakeFrom(identity.Custom)
+                ?? ReadDiscordSnowflake(identity.Id));
     }
 
-    private static string? ReadSnowflakeProperty(JsonElement obj, string name)
-    {
-        if (!obj.TryGetProperty(name, out var el))
-            return null;
-
-        return ReadDiscordSnowflake(el.ValueKind == JsonValueKind.String ? el.GetString() : el.ToString());
-    }
+    private static string? SnowflakeFrom(CloudflareAccessOidcClaimsJson? claims)
+        => claims is null
+            ? null
+            : ReadDiscordSnowflake(claims.Id) ?? ReadDiscordSnowflake(claims.Sub);
 
     internal static bool IsDiscordAccessIdp(string? idpId, string? expectedIdpId)
         => !string.IsNullOrWhiteSpace(expectedIdpId)

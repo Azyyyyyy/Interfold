@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
 using Interfold.Bootstrapper.Util;
@@ -98,11 +99,11 @@ public sealed class CloudflareTunnelClientTests
         await Assert.That(zone.NameServers).IsNotNull();
         await Assert.That(zone.NameServers!).Contains("ns1.cloudflare.com");
 
-        using var doc = JsonDocument.Parse(postBody!);
-        await Assert.That(doc.RootElement.GetProperty("name").GetString()).IsEqualTo("test.api");
-        await Assert.That(doc.RootElement.GetProperty("type").GetString()).IsEqualTo("full");
-        await Assert.That(doc.RootElement.GetProperty("jump_start").GetBoolean()).IsFalse();
-        await Assert.That(doc.RootElement.GetProperty("account").GetProperty("id").GetString()).IsEqualTo("acct-1");
+        var created = Deserialize(postBody!, CloudflareApiJsonContext.Default.CloudflareCreateZoneRequest);
+        await Assert.That(created.Name).IsEqualTo("test.api");
+        await Assert.That(created.Type).IsEqualTo("full");
+        await Assert.That(created.JumpStart).IsFalse();
+        await Assert.That(created.Account.Id).IsEqualTo("acct-1");
     }
 
     [Test]
@@ -164,9 +165,9 @@ public sealed class CloudflareTunnelClientTests
         await Assert.That(creds.TunnelId).IsEqualTo("tun-1");
         await Assert.That(creds.ConnectorToken).IsEqualTo("connector-jwt");
 
-        using var doc = JsonDocument.Parse(postBody!);
-        await Assert.That(doc.RootElement.GetProperty("name").GetString()).IsEqualTo("interfold");
-        await Assert.That(doc.RootElement.GetProperty("config_src").GetString()).IsEqualTo("cloudflare");
+        var created = Deserialize(postBody!, CloudflareApiJsonContext.Default.CloudflareCreateTunnelRequest);
+        await Assert.That(created.Name).IsEqualTo("interfold");
+        await Assert.That(created.ConfigSrc).IsEqualTo("cloudflare");
     }
 
     [Test]
@@ -208,13 +209,11 @@ public sealed class CloudflareTunnelClientTests
             CloudflareTunnelPhase.OriginService,
             CancellationToken.None);
 
-        using var doc = JsonDocument.Parse(putBody!);
-        var ingress = doc.RootElement.GetProperty("config").GetProperty("ingress");
-        await Assert.That(ingress.GetArrayLength()).IsEqualTo(3);
-        await Assert.That(ingress[0].GetProperty("hostname").GetString()).IsEqualTo("api.example.com");
-        await Assert.That(ingress[0].GetProperty("service").GetString())
-            .IsEqualTo("http://edge-nginx:80");
-        await Assert.That(ingress[2].GetProperty("service").GetString()).IsEqualTo("http_status:404");
+        var put = Deserialize(putBody!, CloudflareApiJsonContext.Default.CloudflarePutIngressRequest);
+        await Assert.That(put.Config.Ingress.Count).IsEqualTo(3);
+        await Assert.That(put.Config.Ingress[0].Hostname).IsEqualTo("api.example.com");
+        await Assert.That(put.Config.Ingress[0].Service).IsEqualTo("http://edge-nginx:80");
+        await Assert.That(put.Config.Ingress[2].Service).IsEqualTo("http_status:404");
     }
 
     [Test]
@@ -237,12 +236,11 @@ public sealed class CloudflareTunnelClientTests
         using var client = CreateClient(handler);
         await client.UpsertDnsCnameAsync("zone-1", "api.example.com", "tun-1", CancellationToken.None);
 
-        using var doc = JsonDocument.Parse(postBody!);
-        await Assert.That(doc.RootElement.GetProperty("type").GetString()).IsEqualTo("CNAME");
-        await Assert.That(doc.RootElement.GetProperty("name").GetString()).IsEqualTo("api.example.com");
-        await Assert.That(doc.RootElement.GetProperty("content").GetString())
-            .IsEqualTo("tun-1.cfargotunnel.com");
-        await Assert.That(doc.RootElement.GetProperty("proxied").GetBoolean()).IsTrue();
+        var created = Deserialize(postBody!, CloudflareApiJsonContext.Default.CloudflareDnsRecordRequest);
+        await Assert.That(created.Type).IsEqualTo("CNAME");
+        await Assert.That(created.Name).IsEqualTo("api.example.com");
+        await Assert.That(created.Content).IsEqualTo("tun-1.cfargotunnel.com");
+        await Assert.That(created.Proxied).IsTrue();
     }
 
     [Test]
@@ -266,9 +264,8 @@ public sealed class CloudflareTunnelClientTests
         await client.UpsertDnsCnameAsync("zone-1", "api.example.com", "tun-1", CancellationToken.None);
 
         await Assert.That(handler.PostCount).IsEqualTo(0);
-        using var doc = JsonDocument.Parse(patchBody!);
-        await Assert.That(doc.RootElement.GetProperty("content").GetString())
-            .IsEqualTo("tun-1.cfargotunnel.com");
+        var patched = Deserialize(patchBody!, CloudflareApiJsonContext.Default.CloudflareDnsRecordRequest);
+        await Assert.That(patched.Content).IsEqualTo("tun-1.cfargotunnel.com");
     }
 
     [Test]
@@ -311,9 +308,9 @@ public sealed class CloudflareTunnelClientTests
         using var client = CreateClient(handler);
         var id = await client.EnsureGoogleIdentityProviderAsync("acct-1", "cid", "csecret", CancellationToken.None);
         await Assert.That(id).IsEqualTo("idp-1");
-        using var doc = JsonDocument.Parse(postBody!);
-        await Assert.That(doc.RootElement.GetProperty("type").GetString()).IsEqualTo("google");
-        await Assert.That(doc.RootElement.GetProperty("name").GetString()).IsEqualTo("interfold-google");
+        var created = Deserialize(postBody!, CloudflareApiJsonContext.Default.CloudflareGoogleIdpRequest);
+        await Assert.That(created.Type).IsEqualTo("google");
+        await Assert.That(created.Name).IsEqualTo("interfold-google");
     }
 
     [Test]
@@ -336,15 +333,15 @@ public sealed class CloudflareTunnelClientTests
         using var client = CreateClient(handler);
         var app = await client.EnsureSelfHostedAppAsync("acct-1", "api.example.com", "idp-1", CancellationToken.None);
         await Assert.That(app.Aud).IsEqualTo("aud-1");
-        using var doc = JsonDocument.Parse(postBody!);
-        await Assert.That(doc.RootElement.GetProperty("domain").GetString()).IsEqualTo("api.example.com");
-        await Assert.That(doc.RootElement.GetProperty("type").GetString()).IsEqualTo("self_hosted");
-        await Assert.That(doc.RootElement.GetProperty("options_preflight_bypass").GetBoolean()).IsFalse();
+        var created = Deserialize(postBody!, CloudflareApiJsonContext.Default.CloudflareSelfHostedAppRequest);
+        await Assert.That(created.Domain).IsEqualTo("api.example.com");
+        await Assert.That(created.Type).IsEqualTo("self_hosted");
+        await Assert.That(created.OptionsPreflightBypass).IsFalse();
 
         await client.EnsureSelfHostedAppAsync(
             "acct-1", "api.example.com", "idp-1", CancellationToken.None, optionsPreflightBypass: true);
-        using var bypass = JsonDocument.Parse(postBody!);
-        await Assert.That(bypass.RootElement.GetProperty("options_preflight_bypass").GetBoolean()).IsTrue();
+        var bypass = Deserialize(postBody!, CloudflareApiJsonContext.Default.CloudflareSelfHostedAppRequest);
+        await Assert.That(bypass.OptionsPreflightBypass).IsTrue();
     }
 
     [Test]
@@ -372,11 +369,11 @@ public sealed class CloudflareTunnelClientTests
         await client.ReplaceAppPoliciesAsync("acct-1", "app-1", [policy], CancellationToken.None);
 
         await Assert.That(handler.DeleteCount).IsEqualTo(1);
-        using var doc = JsonDocument.Parse(created!);
-        await Assert.That(doc.RootElement.GetProperty("decision").GetString()).IsEqualTo("allow");
-        await Assert.That(doc.RootElement.GetProperty("name").GetString()).IsEqualTo("interfold-allow");
-        await Assert.That(doc.RootElement.GetProperty("include").GetArrayLength()).IsEqualTo(2);
-        await Assert.That(doc.RootElement.GetProperty("require").GetArrayLength()).IsEqualTo(0);
+        var createdPolicy = Deserialize(created!, CloudflareApiJsonContext.Default.CloudflareAccessPolicyRequest);
+        await Assert.That(createdPolicy.Decision).IsEqualTo("allow");
+        await Assert.That(createdPolicy.Name).IsEqualTo("interfold-allow");
+        await Assert.That(createdPolicy.Include.Count).IsEqualTo(2);
+        await Assert.That(createdPolicy.Require.Count).IsEqualTo(0);
     }
 
     [Test]
@@ -405,14 +402,13 @@ public sealed class CloudflareTunnelClientTests
             "https://interfold-discord-oidc.test.workers.dev",
             CancellationToken.None);
         await Assert.That(id).IsEqualTo("idp-oidc");
-        using var doc = JsonDocument.Parse(postBody!);
-        await Assert.That(doc.RootElement.GetProperty("type").GetString()).IsEqualTo("oidc");
-        await Assert.That(doc.RootElement.GetProperty("name").GetString()).IsEqualTo("interfold-discord");
-        var config = doc.RootElement.GetProperty("config");
-        await Assert.That(config.GetProperty("auth_url").GetString())
+        var created = Deserialize(postBody!, CloudflareApiJsonContext.Default.CloudflareOidcIdpRequest);
+        await Assert.That(created.Type).IsEqualTo("oidc");
+        await Assert.That(created.Name).IsEqualTo("interfold-discord");
+        await Assert.That(created.Config.AuthUrl)
             .IsEqualTo("https://interfold-discord-oidc.test.workers.dev/authorize/email");
-        await Assert.That(config.GetProperty("pkce_enabled").GetBoolean()).IsFalse();
-        await Assert.That(config.GetProperty("claims")[0].GetString()).IsEqualTo("id");
+        await Assert.That(created.Config.PkceEnabled).IsFalse();
+        await Assert.That(created.Config.Claims[0]).IsEqualTo("id");
     }
 
     [Test]
@@ -440,12 +436,11 @@ public sealed class CloudflareTunnelClientTests
             autoRedirectToIdentity: false,
             CancellationToken.None);
 
-        using var doc = JsonDocument.Parse(postBody!);
-        await Assert.That(doc.RootElement.GetProperty("auto_redirect_to_identity").GetBoolean()).IsFalse();
-        var idps = doc.RootElement.GetProperty("allowed_idps");
-        await Assert.That(idps.GetArrayLength()).IsEqualTo(2);
-        await Assert.That(idps[0].GetString()).IsEqualTo("idp-google");
-        await Assert.That(idps[1].GetString()).IsEqualTo("idp-discord");
+        var created = Deserialize(postBody!, CloudflareApiJsonContext.Default.CloudflareSelfHostedAppRequest);
+        await Assert.That(created.AutoRedirectToIdentity).IsFalse();
+        await Assert.That(created.AllowedIdps.Count).IsEqualTo(2);
+        await Assert.That(created.AllowedIdps[0]).IsEqualTo("idp-google");
+        await Assert.That(created.AllowedIdps[1]).IsEqualTo("idp-discord");
     }
 
     [Test]
@@ -468,8 +463,8 @@ public sealed class CloudflareTunnelClientTests
         using var client = CreateClient(handler);
         var id = await client.EnsureKvNamespaceAsync("acct-1", "interfold-discord-oidc-keys", CancellationToken.None);
         await Assert.That(id).IsEqualTo("kv-1");
-        using var doc = JsonDocument.Parse(postBody!);
-        await Assert.That(doc.RootElement.GetProperty("title").GetString()).IsEqualTo("interfold-discord-oidc-keys");
+        var created = Deserialize(postBody!, CloudflareApiJsonContext.Default.CloudflareKvNamespaceRequest);
+        await Assert.That(created.Title).IsEqualTo("interfold-discord-oidc-keys");
     }
 
     [Test]
@@ -548,6 +543,10 @@ public sealed class CloudflareTunnelClientTests
         await Assert.That(token.ClientId).IsEqualTo("cid");
         await Assert.That(token.ClientSecret).IsEqualTo("csec");
     }
+
+    private static T Deserialize<T>(string json, JsonTypeInfo<T> typeInfo)
+        => JsonSerializer.Deserialize(json, typeInfo)
+           ?? throw new InvalidOperationException("Expected a JSON object.");
 
     private static CloudflareTunnelClient CreateClient(HttpMessageHandler handler)
         => new(new HttpClient(handler)

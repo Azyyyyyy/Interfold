@@ -374,7 +374,71 @@ internal sealed class CloudflareServiceTokenResult
 internal sealed class CloudflareAccessPolicyConditionJsonConverter : JsonConverter<CloudflareAccessPolicyCondition>
 {
     public override CloudflareAccessPolicyCondition Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => throw new JsonException("Access policy conditions are write-only.");
+    {
+        if (reader.TokenType != JsonTokenType.StartObject)
+            throw new JsonException("Access policy condition must be an object.");
+
+        CloudflareAccessPolicyCondition? condition = null;
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject)
+                break;
+            if (reader.TokenType != JsonTokenType.PropertyName)
+                continue;
+
+            var kind = reader.GetString();
+            reader.Read();
+            condition = kind switch
+            {
+                "email" => new() { Kind = CloudflareAccessPolicyRuleKind.Email, Value = ReadNestedString(ref reader, "email") },
+                "email_domain" => new() { Kind = CloudflareAccessPolicyRuleKind.EmailDomain, Value = ReadNestedString(ref reader, "domain") },
+                "login_method" => new() { Kind = CloudflareAccessPolicyRuleKind.LoginMethod, Value = ReadNestedString(ref reader, "id") },
+                "service_token" => new() { Kind = CloudflareAccessPolicyRuleKind.ServiceToken, Value = ReadNestedString(ref reader, "token_id") },
+                "everyone" => ReadEveryone(ref reader),
+                _ => SkipUnknown(ref reader, condition),
+            };
+        }
+
+        return condition ?? throw new JsonException("Access policy condition was empty.");
+    }
+
+    private static CloudflareAccessPolicyCondition ReadEveryone(ref Utf8JsonReader reader)
+    {
+        if (reader.TokenType == JsonTokenType.StartObject)
+            reader.Skip();
+        return new() { Kind = CloudflareAccessPolicyRuleKind.Everyone };
+    }
+
+    private static CloudflareAccessPolicyCondition? SkipUnknown(ref Utf8JsonReader reader, CloudflareAccessPolicyCondition? existing)
+    {
+        if (reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray)
+            reader.Skip();
+        return existing;
+    }
+
+    private static string ReadNestedString(ref Utf8JsonReader reader, string propertyName)
+    {
+        if (reader.TokenType != JsonTokenType.StartObject)
+            throw new JsonException("Access policy condition value must be an object.");
+
+        string? value = null;
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject)
+                break;
+            if (reader.TokenType != JsonTokenType.PropertyName)
+                continue;
+
+            var name = reader.GetString();
+            reader.Read();
+            if (name == propertyName && reader.TokenType == JsonTokenType.String)
+                value = reader.GetString();
+            else if (reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray)
+                reader.Skip();
+        }
+
+        return value ?? string.Empty;
+    }
 
     public override void Write(Utf8JsonWriter writer, CloudflareAccessPolicyCondition value, JsonSerializerOptions options)
     {

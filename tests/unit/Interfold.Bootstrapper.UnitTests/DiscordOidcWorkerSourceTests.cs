@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
@@ -19,12 +20,13 @@ public sealed class DiscordOidcWorkerSourceTests
             "https://team.cloudflareaccess.com/cdn-cgi/access/callback");
 
         var json = await File.ReadAllTextAsync(Path.Combine(scratch.Path, "config.json"));
-        using var doc = System.Text.Json.JsonDocument.Parse(json);
-        await Assert.That(doc.RootElement.GetProperty("clientId").GetString()).IsEqualTo("client-1");
-        await Assert.That(doc.RootElement.GetProperty("clientSecret").GetString()).IsEqualTo("secret-1");
-        await Assert.That(doc.RootElement.GetProperty("redirectURL").GetString())
+        var config = JsonSerializer.Deserialize(json, CloudflareApiJsonContext.Default.DiscordOidcConfigJson);
+        await Assert.That(config).IsNotNull();
+        await Assert.That(config!.ClientId).IsEqualTo("client-1");
+        await Assert.That(config.ClientSecret).IsEqualTo("secret-1");
+        await Assert.That(config.RedirectUrl)
             .IsEqualTo("https://team.cloudflareaccess.com/cdn-cgi/access/callback");
-        await Assert.That(doc.RootElement.GetProperty("serversToCheckRolesFor").GetArrayLength()).IsEqualTo(0);
+        await Assert.That(config.ServersToCheckRolesFor.Count).IsEqualTo(0);
     }
 
     [Test]
