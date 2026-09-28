@@ -183,7 +183,7 @@ internal sealed class CloudflareTunnelClient : IDisposable
             .ConfigureAwait(false);
         _ = await ReadEnvelopeAsync(
                 response,
-                CloudflareApiJsonContext.Default.CloudflareApiResponseJsonElement,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareIgnoredResult,
                 ct)
             .ConfigureAwait(false);
     }
@@ -624,7 +624,7 @@ internal sealed class CloudflareTunnelClient : IDisposable
             .ConfigureAwait(false);
         _ = await ReadEnvelopeAsync(
                 upload,
-                CloudflareApiJsonContext.Default.CloudflareApiResponseJsonElement,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareIgnoredResult,
                 ct)
             .ConfigureAwait(false);
 
@@ -636,7 +636,7 @@ internal sealed class CloudflareTunnelClient : IDisposable
             .ConfigureAwait(false);
         _ = await ReadEnvelopeAsync(
                 enable,
-                CloudflareApiJsonContext.Default.CloudflareApiResponseJsonElement,
+                CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareIgnoredResult,
                 ct)
             .ConfigureAwait(false);
 
@@ -718,7 +718,7 @@ internal sealed class CloudflareTunnelClient : IDisposable
                 .ConfigureAwait(false);
             _ = await ReadEnvelopeAsync(
                     del,
-                    CloudflareApiJsonContext.Default.CloudflareApiResponseJsonElement,
+                    CloudflareApiJsonContext.Default.CloudflareApiResponseCloudflareIgnoredResult,
                     ct)
                 .ConfigureAwait(false);
         }

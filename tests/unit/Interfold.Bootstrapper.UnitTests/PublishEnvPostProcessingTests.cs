@@ -702,8 +702,8 @@ public sealed class PublishEnvPostProcessingTests
                 .Because($"env-key '{envKey}' must be the upper-snake-cased form of the kebab-cased Aspire parameter '{bareName}' (config-key '{configKey}')");
         }
 
-        // Spec-frozen at 27 — bump this AND the enumerator together.
-        await Assert.That(seenConfigKeys.Count).IsEqualTo(27)
-            .Because("shared-parameter count is spec-frozen at 27; update BOTH the enumerator AND this assertion together");
+        // Spec-frozen at 28 — bump this AND the enumerator together.
+        await Assert.That(seenConfigKeys.Count).IsEqualTo(28)
+            .Because("shared-parameter count is spec-frozen at 28; update BOTH the enumerator AND this assertion together");
     }
 }

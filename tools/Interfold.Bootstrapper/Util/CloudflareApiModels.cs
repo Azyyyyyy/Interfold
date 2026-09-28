@@ -14,6 +14,8 @@ internal sealed class CloudflareApiResponse<T>
     public T? Result { get; set; }
 }
 
+internal sealed class CloudflareIgnoredResult;
+
 internal sealed class CloudflareApiError
 {
     // JsonElement? AV'd STJ source-gen Create_* under Linux Release; Cloudflare codes are ints.

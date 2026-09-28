@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Interfold.Bootstrapper.Util;
@@ -13,7 +12,7 @@ namespace Interfold.Bootstrapper.Util;
 [JsonSerializable(typeof(CloudflareApiResponse<CloudflareTunnelResult>))]
 [JsonSerializable(typeof(CloudflareApiResponse<List<CloudflareTunnelResult>>))]
 [JsonSerializable(typeof(CloudflareApiResponse<string>))]
-[JsonSerializable(typeof(CloudflareApiResponse<JsonElement>))]
+[JsonSerializable(typeof(CloudflareApiResponse<CloudflareIgnoredResult>))]
 [JsonSerializable(typeof(CloudflareApiResponse<CloudflareDnsRecordResult>))]
 [JsonSerializable(typeof(CloudflareApiResponse<List<CloudflareDnsRecordResult>>))]
 [JsonSerializable(typeof(CloudflareCreateTunnelRequest))]
