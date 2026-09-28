@@ -323,6 +323,7 @@ public static class InterfoldAppHost
         var hydrationMaxConcurrency = builder.AddConfiguredParameter(AppHostParameterKeys.HydrationMaxConcurrency, "8", publishValueAsDefault: true);
         var cfAccessTeamDomain = builder.AddConfiguredParameter(AppHostParameterKeys.CfAccessTeamDomain, publishValueAsDefault: true);
         var cfAccessAud = builder.AddConfiguredParameter(AppHostParameterKeys.CfAccessAud, publishValueAsDefault: true);
+        var cfAccessDiscordIdpId = builder.AddConfiguredParameter(AppHostParameterKeys.CfAccessDiscordIdpId, publishValueAsDefault: true);
 
         // Reject well-known default passwords in dev mode. Each check is gated on the
         // matching include-* toggle so opt-out fixtures don't need placeholder creds. Publish
@@ -711,7 +712,8 @@ public static class InterfoldAppHost
                    .WithEnvironment(OctoconEnvKeys.DbRetryMaxDelayMs, dbRetryMaxDelayMs)
                    .WithEnvironment(OctoconEnvKeys.HydrationMaxConcurrency, hydrationMaxConcurrency)
                    .WithEnvironment(OctoconEnvKeys.CfAccessTeamDomain, cfAccessTeamDomain)
-                   .WithEnvironment(OctoconEnvKeys.CfAccessAud, cfAccessAud);
+                   .WithEnvironment(OctoconEnvKeys.CfAccessAud, cfAccessAud)
+                   .WithEnvironment(OctoconEnvKeys.CfAccessDiscordIdpId, cfAccessDiscordIdpId);
 
                 // Mount root CA for TrustController whenever edge uses private CA material.
                 if (!edgeUsesPlainHttp && !edgeCloudflareTunnel)

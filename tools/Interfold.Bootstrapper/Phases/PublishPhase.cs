@@ -180,6 +180,7 @@ internal static class PublishPhase
 
         yield return (AppHostParameterKeys.CfAccessTeamDomain, "CF_ACCESS_TEAM_DOMAIN", access?.TeamDomain ?? string.Empty);
         yield return (AppHostParameterKeys.CfAccessAud, "CF_ACCESS_AUD", access?.Aud ?? string.Empty);
+        yield return (AppHostParameterKeys.CfAccessDiscordIdpId, "CF_ACCESS_DISCORD_IDP_ID", access?.DiscordIdentityProviderId ?? string.Empty);
     }
 
     internal static string CorsOriginsWithAccessCallback(IReadOnlyList<string> origins, string? teamDomain)

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Interfold.Bootstrapper.Util;
@@ -13,7 +12,7 @@ namespace Interfold.Bootstrapper.Util;
 [JsonSerializable(typeof(CloudflareApiResponse<CloudflareTunnelResult>))]
 [JsonSerializable(typeof(CloudflareApiResponse<List<CloudflareTunnelResult>>))]
 [JsonSerializable(typeof(CloudflareApiResponse<string>))]
-[JsonSerializable(typeof(CloudflareApiResponse<JsonElement>))]
+[JsonSerializable(typeof(CloudflareApiResponse<CloudflareIgnoredResult>))]
 [JsonSerializable(typeof(CloudflareApiResponse<CloudflareDnsRecordResult>))]
 [JsonSerializable(typeof(CloudflareApiResponse<List<CloudflareDnsRecordResult>>))]
 [JsonSerializable(typeof(CloudflareCreateTunnelRequest))]
@@ -29,6 +28,15 @@ namespace Interfold.Bootstrapper.Util;
 [JsonSerializable(typeof(CloudflareApiResponse<CloudflareServiceTokenResult>))]
 [JsonSerializable(typeof(CloudflareApiResponse<List<CloudflareServiceTokenResult>>))]
 [JsonSerializable(typeof(CloudflareGoogleIdpRequest))]
+[JsonSerializable(typeof(CloudflareOidcIdpRequest))]
+[JsonSerializable(typeof(CloudflareKvNamespaceRequest))]
+[JsonSerializable(typeof(CloudflareApiResponse<CloudflareKvNamespaceResult>))]
+[JsonSerializable(typeof(CloudflareApiResponse<List<CloudflareKvNamespaceResult>>))]
+[JsonSerializable(typeof(CloudflareApiResponse<CloudflareWorkersSubdomainResult>))]
+[JsonSerializable(typeof(CloudflareWorkersScriptSubdomainRequest))]
+[JsonSerializable(typeof(CloudflareWorkerUploadMetadata))]
+[JsonSerializable(typeof(DiscordOidcConfigJson))]
+[JsonSerializable(typeof(DiscordOidcPackageJson))]
 [JsonSerializable(typeof(CloudflareSelfHostedAppRequest))]
 [JsonSerializable(typeof(CloudflareAccessPolicyRequest))]
 [JsonSerializable(typeof(CloudflareServiceTokenRequest))]

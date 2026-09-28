@@ -111,6 +111,7 @@ public static class AuthModuleServiceCollectionExtensions
     {
         opts.TeamDomain = config[OctoconEnvKeys.CfAccessTeamDomain] ?? string.Empty;
         opts.Audience = config[OctoconEnvKeys.CfAccessAud] ?? string.Empty;
+        opts.DiscordIdentityProviderId = config[OctoconEnvKeys.CfAccessDiscordIdpId] ?? string.Empty;
     }
 
     private static SecurityToken ValidateJwtTokenSignatureForBearer(

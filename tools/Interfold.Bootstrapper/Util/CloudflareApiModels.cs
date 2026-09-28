@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Interfold.Bootstrapper.Util;
@@ -14,6 +13,8 @@ internal sealed class CloudflareApiResponse<T>
     [JsonPropertyName("result")]
     public T? Result { get; set; }
 }
+
+internal sealed class CloudflareIgnoredResult;
 
 internal sealed class CloudflareApiError
 {
@@ -180,6 +181,99 @@ internal sealed class CloudflareGoogleIdpConfig
     public string ClientSecret { get; set; } = string.Empty;
 }
 
+internal sealed class CloudflareOidcIdpRequest
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "oidc";
+
+    [JsonPropertyName("config")]
+    public CloudflareOidcIdpConfig Config { get; set; } = new();
+}
+
+internal sealed class CloudflareOidcIdpConfig
+{
+    [JsonPropertyName("client_id")]
+    public string ClientId { get; set; } = string.Empty;
+
+    [JsonPropertyName("client_secret")]
+    public string ClientSecret { get; set; } = string.Empty;
+
+    [JsonPropertyName("auth_url")]
+    public string AuthUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("token_url")]
+    public string TokenUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("certs_url")]
+    public string CertsUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("pkce_enabled")]
+    public bool PkceEnabled { get; set; }
+
+    [JsonPropertyName("email_claim_name")]
+    public string EmailClaimName { get; set; } = "email";
+
+    [JsonPropertyName("claims")]
+    public List<string> Claims { get; set; } = [];
+
+    [JsonPropertyName("scopes")]
+    public List<string> Scopes { get; set; } = [];
+}
+
+internal sealed class CloudflareKvNamespaceRequest
+{
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+}
+
+internal sealed class CloudflareKvNamespaceResult
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("title")]
+    public string? Title { get; set; }
+}
+
+internal sealed class CloudflareWorkersSubdomainResult
+{
+    [JsonPropertyName("subdomain")]
+    public string? Subdomain { get; set; }
+}
+
+internal sealed class CloudflareWorkersScriptSubdomainRequest
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; } = true;
+}
+
+internal sealed class CloudflareWorkerUploadMetadata
+{
+    [JsonPropertyName("main_module")]
+    public string MainModule { get; set; } = "worker.js";
+
+    [JsonPropertyName("compatibility_date")]
+    public string CompatibilityDate { get; set; } = "2022-12-24";
+
+    [JsonPropertyName("bindings")]
+    public List<CloudflareWorkerBinding> Bindings { get; set; } = [];
+}
+
+internal sealed class CloudflareWorkerBinding
+{
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("namespace_id")]
+    public string? NamespaceId { get; set; }
+}
+
 internal sealed class CloudflareIdentityProviderResult
 {
     [JsonPropertyName("id")]
@@ -241,14 +335,59 @@ internal sealed class CloudflareAccessPolicyRequest
     public List<CloudflareAccessPolicyCondition> Require { get; set; } = [];
 }
 
-[JsonConverter(typeof(CloudflareAccessPolicyConditionJsonConverter))]
 internal sealed class CloudflareAccessPolicyCondition
 {
-    public CloudflareAccessPolicyRuleKind Kind { get; set; }
-    public string Value { get; set; } = string.Empty;
+    [JsonPropertyName("email")]
+    public CloudflareAccessEmailCondition? Email { get; set; }
+
+    [JsonPropertyName("email_domain")]
+    public CloudflareAccessEmailDomainCondition? EmailDomain { get; set; }
+
+    [JsonPropertyName("login_method")]
+    public CloudflareAccessLoginMethodCondition? LoginMethod { get; set; }
+
+    [JsonPropertyName("everyone")]
+    public CloudflareAccessEveryoneCondition? Everyone { get; set; }
+
+    [JsonPropertyName("service_token")]
+    public CloudflareAccessServiceTokenCondition? ServiceToken { get; set; }
 
     public static CloudflareAccessPolicyCondition From(CloudflareAccessPolicyRule rule)
-        => new() { Kind = rule.Kind, Value = rule.Value };
+        => rule.Kind switch
+        {
+            CloudflareAccessPolicyRuleKind.Email => new() { Email = new() { Email = rule.Value } },
+            CloudflareAccessPolicyRuleKind.EmailDomain => new() { EmailDomain = new() { Domain = rule.Value } },
+            CloudflareAccessPolicyRuleKind.LoginMethod => new() { LoginMethod = new() { Id = rule.Value } },
+            CloudflareAccessPolicyRuleKind.Everyone => new() { Everyone = new() },
+            CloudflareAccessPolicyRuleKind.ServiceToken => new() { ServiceToken = new() { TokenId = rule.Value } },
+            _ => throw new InvalidOperationException($"Unsupported Access policy rule kind '{rule.Kind}'."),
+        };
+}
+
+internal sealed class CloudflareAccessEmailCondition
+{
+    [JsonPropertyName("email")]
+    public string Email { get; set; } = string.Empty;
+}
+
+internal sealed class CloudflareAccessEmailDomainCondition
+{
+    [JsonPropertyName("domain")]
+    public string Domain { get; set; } = string.Empty;
+}
+
+internal sealed class CloudflareAccessLoginMethodCondition
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+}
+
+internal sealed class CloudflareAccessEveryoneCondition;
+
+internal sealed class CloudflareAccessServiceTokenCondition
+{
+    [JsonPropertyName("token_id")]
+    public string TokenId { get; set; } = string.Empty;
 }
 
 internal sealed class CloudflareAccessPolicyResult
@@ -276,53 +415,6 @@ internal sealed class CloudflareServiceTokenResult
 
     [JsonPropertyName("client_secret")]
     public string? ClientSecret { get; set; }
-}
-
-internal sealed class CloudflareAccessPolicyConditionJsonConverter : JsonConverter<CloudflareAccessPolicyCondition>
-{
-    public override CloudflareAccessPolicyCondition Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => throw new JsonException("Access policy conditions are write-only.");
-
-    public override void Write(Utf8JsonWriter writer, CloudflareAccessPolicyCondition value, JsonSerializerOptions options)
-    {
-        writer.WriteStartObject();
-        switch (value.Kind)
-        {
-            case CloudflareAccessPolicyRuleKind.Email:
-                writer.WritePropertyName("email");
-                writer.WriteStartObject();
-                writer.WriteString("email", value.Value);
-                writer.WriteEndObject();
-                break;
-            case CloudflareAccessPolicyRuleKind.EmailDomain:
-                writer.WritePropertyName("email_domain");
-                writer.WriteStartObject();
-                writer.WriteString("domain", value.Value);
-                writer.WriteEndObject();
-                break;
-            case CloudflareAccessPolicyRuleKind.LoginMethod:
-                writer.WritePropertyName("login_method");
-                writer.WriteStartObject();
-                writer.WriteString("id", value.Value);
-                writer.WriteEndObject();
-                break;
-            case CloudflareAccessPolicyRuleKind.Everyone:
-                writer.WritePropertyName("everyone");
-                writer.WriteStartObject();
-                writer.WriteEndObject();
-                break;
-            case CloudflareAccessPolicyRuleKind.ServiceToken:
-                writer.WritePropertyName("service_token");
-                writer.WriteStartObject();
-                writer.WriteString("token_id", value.Value);
-                writer.WriteEndObject();
-                break;
-            default:
-                throw new JsonException($"Unsupported Access policy rule kind '{value.Kind}'.");
-        }
-
-        writer.WriteEndObject();
-    }
 }
 
 internal sealed class CloudflareTotalTlsSettings

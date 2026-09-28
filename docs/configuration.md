@@ -179,19 +179,21 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
 | Field | Default | Notes |
 | ----- | ------- | ----- |
 | `enabled` | `false` | When `true`, origin stays private (no host-published edge ports). Publish creates/reuses a remotely-managed tunnel; Launch starts `cloudflared`; a post-launch phase registers hostnames + proxied DNS CNAMEs. |
-| `apiToken` | `""` | Cloudflare API token with **Account → Cloudflare Tunnel Edit**, **Zone → Zone Edit**, **Zone → DNS Edit**, **Zone → SSL and Certificates Edit**, **Access: Apps and Policies Edit**, **Access: Service Tokens Edit**, and organization read. Scope the token to one account: a missing zone is created there. Used only by the bootstrapper — never passed to `cloudflared`. |
+| `apiToken` | `""` | Cloudflare API token with **Account → Cloudflare Tunnel Edit**, **Zone → Zone Edit**, **Zone → DNS Edit**, **Zone → SSL and Certificates Edit**, **Access: Apps and Policies Edit**, **Access: Service Tokens Edit**, **Workers Scripts Edit**, **Workers KV Storage Edit**, and organization read. Scope the token to one account: a missing zone is created there. Used only by the bootstrapper — never passed to `cloudflared`. |
 | `tunnelName` | `interfold` | Stable name for create-or-reuse of the tunnel object. |
 | `access.enabled` | `false` | When `true`, Cloudflare Access gates public hostnames. Requires tunnel enabled, Interfold Google client id **and** secret, and at least one of `allowedEmails` / `allowedEmailDomains`. |
-| `access.allowedEmails` | `[]` | Exact Google addresses allowed through Access (AND with the Interfold Google IdP). Enforced at Access only — the API does not re-check the list. |
-| `access.allowedEmailDomains` | `[]` | Google email domains (e.g. `example.com`) allowed through Access. At least one email or domain is required when Access is on. |
+| `access.allowedEmails` | `[]` | Exact addresses allowed through Access (Google or Discord, when Discord OAuth is configured). Enforced at Access only — the API does not re-check the list. Discord users need a verified email on this list. |
+| `access.allowedEmailDomains` | `[]` | Email domains (e.g. `example.com`) allowed through Access. At least one email or domain is required when Access is on. |
 
 Account ID is resolved from the primary hostname’s zone (`GET /zones?name=`). If that zone is missing, publish creates it (`POST /zones`, full setup, no jump-start import) on the token’s account and logs the assigned nameservers — public DNS stays down until the registrar points at them. Hostnames more than one label under the zone are outside Universal SSL. Launch enables Total TLS for those names. An advanced certificate (Advanced Certificate Manager) is ordered only after an interactive yes; the prompt defaults to no, and `--non-interactive` never orders one. Total TLS does not issue for Tunnel hostnames, so that pack is what covers them. Issuance is asynchronous. The connector token is written to `{outputDir}/secrets/cloudflare-tunnel.token` (mode 0600). Skip hostname registration with `--skip-cloudflare-tunnel` (also skips Access).
 
 When Access is enabled, the bootstrapper creates/reuses a Zero Trust Google IdP named `interfold-google` from the same Interfold Google OAuth client, one self-hosted app per public hostname, allow + service-token policies, and bypass apps for `/health`, `/health/ready`, and (API host only) `/auth/login-methods`. The API app also sets `options_preflight_bypass` so browser OPTIONS reach the API, which already enforces CORS. A cross-origin `fetch` cannot follow the Access login redirect. Persist `{ teamDomain, aud, appIds, identityProviderId }` in `{outputDir}/.cloudflare-access.json`. The Access service token (`interfold-bootstrap`) is written to `{outputDir}/secrets/cloudflare-access-service.token` (mode 0600). `update-images` polls `https://{primary}/health/ready` with that token: the tunnel publishes no localhost port, and an email allowlist would otherwise send the probe to the Access login page.
 
-**Google redirect URI (operator must add this — Google Cloud Console only):**  
+When `api.oauth.discordClientId` and `discordClientSecret` are both set, Access also downloads a pinned [Erisa discord-oidc-worker](https://github.com/Erisa/discord-oidc-worker) commit, bundles it (needs Node `npm`/`npx` on the publish host), deploys Worker `interfold-discord-oidc` plus KV `interfold-discord-oidc-keys`, and registers generic OIDC IdP `interfold-discord`. Host apps then allow both IdPs and stop auto-redirecting to Google. Discord provision failures leave Google Access in place. The account must already have a `workers.dev` subdomain.
+
+**OAuth redirect URI (operator must add this — Google Cloud Console and the Discord app):**  
 `https://{team}.cloudflareaccess.com/cdn-cgi/access/callback`  
-The bootstrapper prints this URI on every Access run (phase log and interactive table). The same Google client as Interfold OAuth is reused.
+The bootstrapper prints this URI on every Access run (phase log and interactive table). The same Google and Discord clients as Interfold OAuth are reused. Discord first-time logins may need a second attempt (`prompt=none` in the Worker).
 
 Publish also appends `https://{team}.cloudflareaccess.com` to `OCTOCON_CORS_ALLOWED_ORIGINS` when `{outputDir}/.cloudflare-access.json` is present. The Access login page calls the API from that origin. `api.corsAllowedOrigins` in the JSON is left as the operator wrote it.
 
@@ -199,7 +201,7 @@ Publish also appends `https://{team}.cloudflareaccess.com` to `OCTOCON_CORS_ALLO
 
 This repo does not own the mobile UI. `GET /auth/login-methods` returns `{ "cloudflare", "google", "discord", "apple" }` (each a bool). Google/Discord/Apple are true when the matching OAuth client id is set. When `cloudflare` is true:
 
-- Show only **Continue with Cloudflare** → system browser / webview to `https://{apiHost}/auth/cloudflare?redirect_uri={app}`.
+- Show only **Continue with Cloudflare** → system browser / webview to `https://{apiHost}/auth/cloudflare?redirect_uri={app}`. The Access login page is where Google vs Discord is chosen when both IdPs are provisioned.
 - The Access JWT (`Cf-Access-Jwt-Assertion`) is exchanged for a normal Interfold ES256 JWT (`redirect_uri?token=&id=` or `POST /auth/cloudflare/session` → `{ token, id }`).
 - Attach Access service-token headers (`CF-Access-Client-Id` / `CF-Access-Client-Secret`) on API calls that are not a user browser session, or rely on the Access JWT/cookie after the webview.
 - Discord / Apple / Google Interfold buttons stay for non-Access deployments.
@@ -568,6 +570,7 @@ encryption pepper, and the API refuses to boot without it). If the value is stil
 | `OCTOCON_APPLE_OAUTH_CLIENT_SECRET`   | *null*          | Same handling for Apple (`apple-oauth-client-secret`).                                                                                                                                                                                                                  |
 | `OCTOCON_CF_ACCESS_TEAM_DOMAIN`       | *empty*         | Cloudflare Access team host (e.g. `myteam.cloudflareaccess.com`). Empty disables `GET/POST /auth/cloudflare`. Sourced from `{outputDir}/.cloudflare-access.json` via Aspire parameter `cf-access-team-domain`. (bootstrapper-managed) |
 | `OCTOCON_CF_ACCESS_AUD`               | *empty*         | Access application AUD used to validate `Cf-Access-Jwt-Assertion`. Empty disables the exchange. Sourced from `.cloudflare-access.json` via `cf-access-aud`. (bootstrapper-managed) |
+| `OCTOCON_CF_ACCESS_DISCORD_IDP_ID`    | *empty*         | Access IdP id for `interfold-discord`. When set, `/auth/cloudflare` treats that IdP as Discord (snowflake lookup) and does not fall back to email. Sourced from `.cloudflare-access.json` `discordIdentityProviderId`. (bootstrapper-managed) |
 
 
 Each provider's authorize URL, ASP.NET Core challenge scheme name, and static challenge

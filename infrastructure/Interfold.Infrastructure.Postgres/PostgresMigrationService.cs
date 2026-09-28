@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
+using Interfold.Infrastructure.Persistence;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.Hosting;
@@ -196,8 +195,5 @@ public sealed class PostgresMigrationService(
         return applied;
     }
 
-    internal static string ComputeChecksum(string sql)
-    {
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sql)));
-    }
+    internal static string ComputeChecksum(string sql) => MigrationChecksum.Sha256Utf8(sql);
 }

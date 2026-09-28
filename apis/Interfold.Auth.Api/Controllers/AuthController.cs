@@ -237,7 +237,7 @@ public sealed class AuthController : OAuthControllerBase
             return (null, null, StatusCode(StatusCodes.Status403Forbidden, new ErrorResponse(
                 $"Cloudflare Access identity provider '{validated.IdentityProvider}' is not supported.",
                 ErrorCodes.UnsupportedAccessIdentityProvider,
-                detail: "Interfold currently maps Access logins from Google only.")));
+                detail: "Interfold maps Access logins from Google or Discord (OIDC).")));
         }
 
         var envelope = BuildEnvelope(OperationIds.AuthCloudflareExchange, new AuthenticateOAuthCommand(identity));

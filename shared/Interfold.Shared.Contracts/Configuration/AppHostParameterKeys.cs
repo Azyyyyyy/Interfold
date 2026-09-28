@@ -95,6 +95,7 @@ public static class AppHostParameterKeys
     public const string HydrationMaxConcurrency = "Parameters:hydration-max-concurrency";
     public const string CfAccessTeamDomain = "Parameters:cf-access-team-domain";
     public const string CfAccessAud = "Parameters:cf-access-aud";
+    public const string CfAccessDiscordIdpId = "Parameters:cf-access-discord-idp-id";
 
     // --- Host port mappings ---
     public const string PortsPostgres = "Ports:postgres";

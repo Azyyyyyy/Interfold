@@ -35,6 +35,10 @@ class H(BaseHTTPRequestHandler):
             ok(self, {"name": "Interfold", "auth_domain": "team.cloudflareaccess.com"})
         elif path.endswith("/access/identity_providers"):
             ok(self, [])
+        elif path.endswith("/storage/kv/namespaces"):
+            ok(self, [])
+        elif path.endswith("/workers/subdomain"):
+            ok(self, {"subdomain": "test"})
         elif path.endswith("/access/apps"):
             ok(self, [])
         elif "/access/apps/" in path and path.endswith("/policies"):
@@ -52,8 +56,18 @@ class H(BaseHTTPRequestHandler):
         if path.endswith("/cfd_tunnel"):
             ok(self, {"id": "tun-test", "name": "interfold-test", "token": "connector-token-jwt"})
         elif path.endswith("/access/identity_providers"):
-            open("/tmp/cf-idp-post.json", "wb").write(body)
-            ok(self, {"id": "idp-test", "name": "interfold-google"})
+            name = "interfold-google"
+            try:
+                name = json.loads(body.decode()).get("name") or name
+            except Exception:
+                pass
+            open("/tmp/cf-idp-post.json", "ab").write(body + b"\n")
+            idp_id = "idp-discord" if name == "interfold-discord" else "idp-test"
+            ok(self, {"id" : idp_id, "name": name})
+        elif path.endswith("/storage/kv/namespaces"):
+            ok(self, {"id": "kv-test", "title": "interfold-discord-oidc-keys"})
+        elif "/workers/scripts/" in path and path.endswith("/subdomain"):
+            ok(self, {"enabled": True})
         elif path.endswith("/access/apps"):
             open("/tmp/cf-app-post.json", "ab").write(body + b"\n")
             domain = json.loads(body).get("domain", "api.example.com")

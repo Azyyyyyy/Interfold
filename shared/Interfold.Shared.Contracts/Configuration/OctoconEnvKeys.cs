@@ -44,6 +44,7 @@ public static class OctoconEnvKeys
 
     public const string CfAccessTeamDomain = "OCTOCON_CF_ACCESS_TEAM_DOMAIN";
     public const string CfAccessAud = "OCTOCON_CF_ACCESS_AUD";
+    public const string CfAccessDiscordIdpId = "OCTOCON_CF_ACCESS_DISCORD_IDP_ID";
 
     public const string CorsAllowedOrigins = "OCTOCON_CORS_ALLOWED_ORIGINS";
 
