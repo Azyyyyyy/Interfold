@@ -586,6 +586,8 @@ public static class TestBenchCoordinator
         // the default config providers so these overrides land on the same keys the
         // InterfoldAppHost reads.
         yield return $"--{AppHostParameterKeys.TestBenchMode}=true";
+        // see InterfoldAppHost: sqlite forces include-postgres/scylla off
+        yield return $"--{AppHostParameterKeys.Persistence}=scylla-postgres";
         yield return $"--{AppHostParameterKeys.IncludeApi}=false";
         yield return $"--{AppHostParameterKeys.IncludeWeb}=false";
         yield return $"--{AppHostParameterKeys.IncludeDashboard}=false";

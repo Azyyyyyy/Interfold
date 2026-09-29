@@ -1,4 +1,4 @@
-using Interfold.Alters.Contracts.Models;
+using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Friendships.Contracts.Models.Read;
 using Interfold.Friendships.Domain.Abstractions.Repository;
@@ -7,9 +7,9 @@ using Interfold.Infrastructure.Sqlite;
 using Interfold.Infrastructure.Sqlite.Repository;
 using Interfold.Polls.Contracts.Models.Commands;
 using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Settings.Domain;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Interfold.Api.UnitTests.Sqlite;
@@ -33,7 +33,7 @@ public sealed class SqliteFriendshipRepositoryTests
 
             var friends = await repo.ListFriendshipsAsync(alice);
             await Assert.That(friends.Count).IsEqualTo(1);
-            await Assert.That(ScopedSystemId.StripRegionPrefix(friends[0].Friend.Id.Value)).IsEqualTo(bob.Value);
+            await Assert.That(friends[0].Friend.Id.Value).IsEqualTo(bob.Value);
             await Assert.That(friends[0].Friendship.Level).IsEqualTo(FriendshipLevel.Friend);
 
             await Assert.That(await repo.SetTrustedAsync(alice, bob, trusted: true)).IsTrue();
@@ -79,39 +79,28 @@ public sealed class SqliteFrontingRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            IFriendshipRepository friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
-            var systemId = new SystemId("front01");
-            var alterId = new AlterId(1);
-
-            var altersMock = IAlterRepository.Mock(MockBehavior.Strict);
-            altersMock.GetAsync(systemId, alterId, Any<CancellationToken>()).Returns(
-                new AlterReadModel(
-                    alterId,
-                    "FrontAlter",
-                    description: null,
-                    avatarUrl: null,
-                    avatarSource: null,
-                    color: null,
-                    pronouns: null,
-                    VisibilityLevel.Private,
-                    Array.Empty<AlterPublicFieldReadModel>(),
-                    proxyName: null,
-                    alias: null,
-                    untracked: false,
-                    archived: false,
-                    pinned: false));
-
+            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
+            var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
+            var polls = new SqlitePollRepository(factory, TimeProvider.System);
+            IAlterRepository alters = new SqliteAlterRepository(
+                factory, friendships, settings, alterFields, polls,
+                NullLogger<SqliteAlterRepository>.Instance);
             IFrontingRepository repo = new SqliteFrontingRepository(
-                factory, friendships, altersMock.Object, NullLogger<SqliteFrontingRepository>.Instance, TimeProvider.System);
+                factory, friendships, alters, NullLogger<SqliteFrontingRepository>.Instance, TimeProvider.System);
+
+            var systemId = new SystemId("front01");
+            var alterId = await alters.CreateAsync(systemId, new CreateAlterCommand("FrontAlter", DateTimeOffset.UtcNow));
+            await Assert.That(alterId).IsNotNull();
 
             var startedAt = DateTimeOffset.UtcNow.AddMinutes(-5);
 
-            var frontId = await repo.StartAsync(systemId, alterId, "hello", startedAt);
+            var frontId = await repo.StartAsync(systemId, alterId!.Value, "hello", startedAt);
             await Assert.That(frontId).IsNotNull();
-            await Assert.That(await repo.IsFrontingAsync(systemId, alterId)).IsTrue();
-            await Assert.That(await repo.StartAsync(systemId, alterId, null, startedAt)).IsNull();
+            await Assert.That(await repo.IsFrontingAsync(systemId, alterId.Value)).IsTrue();
+            await Assert.That(await repo.StartAsync(systemId, alterId.Value, null, startedAt)).IsNull();
 
-            await Assert.That(await repo.SetPrimaryAsync(systemId, alterId)).IsTrue();
+            await Assert.That(await repo.SetPrimaryAsync(systemId, alterId.Value)).IsTrue();
             var active = await repo.ListActiveAsync(systemId);
             await Assert.That(active.Count).IsEqualTo(1);
             await Assert.That(active[0].Primary).IsTrue();
@@ -121,8 +110,8 @@ public sealed class SqliteFrontingRepositoryTests
             await Assert.That(await repo.UpdateCommentByFrontIdAsync(systemId, frontId!.Value, "updated")).IsTrue();
 
             var endedAt = DateTimeOffset.UtcNow;
-            await Assert.That(await repo.EndAsync(systemId, alterId, endedAt)).IsTrue();
-            await Assert.That(await repo.IsFrontingAsync(systemId, alterId)).IsFalse();
+            await Assert.That(await repo.EndAsync(systemId, alterId.Value, endedAt)).IsTrue();
+            await Assert.That(await repo.IsFrontingAsync(systemId, alterId.Value)).IsFalse();
 
             var history = await repo.ListAllAsync(systemId);
             await Assert.That(history.Count).IsEqualTo(1);

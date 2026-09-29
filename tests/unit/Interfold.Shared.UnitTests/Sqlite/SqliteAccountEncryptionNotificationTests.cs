@@ -67,8 +67,7 @@ public sealed class SqliteAccountRepositoryTests
 
             var resolved = await repo.ResolveSystemIdByLinkTokenAsync(token);
             await Assert.That(resolved).IsNotNull();
-            await Assert.That(ScopedSystemId.StripRegionPrefix(resolved!.Value))
-                .IsEqualTo(ScopedSystemId.StripRegionPrefix(systemId.Value));
+            await Assert.That(resolved!.Value).IsEqualTo(systemId.Value);
         }
         finally
         {
@@ -140,7 +139,7 @@ public sealed class SqliteNotificationTokenRepositoryTests
 
             var groups = await repo.ListTokensForFriendsOfAsync(me);
             await Assert.That(groups.Count).IsEqualTo(1);
-            await Assert.That(ScopedSystemId.StripRegionPrefix(groups[0].FriendSystemId.Value)).IsEqualTo(friend.Value);
+            await Assert.That(groups[0].FriendSystemId.Value).IsEqualTo(friend.Value);
             await Assert.That(groups[0].Tokens.Count).IsEqualTo(1);
             await Assert.That(groups[0].Tokens[0].Value).IsEqualTo(token.Value);
 

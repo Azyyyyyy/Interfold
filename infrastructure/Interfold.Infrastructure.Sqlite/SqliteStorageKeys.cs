@@ -4,9 +4,9 @@ using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Infrastructure.Sqlite;
 
-/// <summary>Persist prefix-stripped system ids. JWT/socket still require
-/// <see cref="ScopedSystemId.ParseScoped"/>, so outbound ids are composed with a
-/// fixed <see cref="ScyllaKeyspace.Nam"/> wire tag — not a keyspace.</summary>
+/// <summary>Persist prefix-stripped system ids. Read-model ids match Scylla
+/// <c>NormalizeSystemId</c> (bare). Auth/identity returns use
+/// <see cref="ToScopedPrincipal"/> so JWT mint can <see cref="ScopedSystemId.ParseScoped"/>.</summary>
 internal static class SqliteStorageKeys
 {
     private const ScyllaKeyspace WireRegion = ScyllaKeyspace.Nam;
@@ -18,10 +18,16 @@ internal static class SqliteStorageKeys
         => ScopedSystemId.StripRegionPrefix(systemId.Value);
 
     public static SystemId ToWire(string persisted)
-        => ScopedSystemId.Compose(WireRegion, persisted).AsSystemId();
+        => new(ScopedSystemId.StripRegionPrefix(persisted));
 
     public static SystemId ToWire(SystemId persistedOrScoped)
         => ToWire(Persist(persistedOrScoped));
+
+    public static SystemId ToScopedPrincipal(string persisted)
+        => ScopedSystemId.Compose(WireRegion, ScopedSystemId.StripRegionPrefix(persisted)).AsSystemId();
+
+    public static SystemId ToScopedPrincipal(SystemId persistedOrScoped)
+        => ToScopedPrincipal(Persist(persistedOrScoped));
 
     public static async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(
         SystemId systemId,

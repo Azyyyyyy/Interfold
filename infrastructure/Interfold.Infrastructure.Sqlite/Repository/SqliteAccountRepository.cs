@@ -43,7 +43,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
         if (inserted > 0)
         {
             await _encryptionStates.UpsertAsync(
-                SqliteStorageKeys.ToWire(systemKey), false, null, EncryptionSalt.NewRandom(), cancellationToken);
+                SqliteStorageKeys.ToScopedPrincipal(systemKey), false, null, EncryptionSalt.NewRandom(), cancellationToken);
         }
     }
 
@@ -63,6 +63,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
     public async Task<bool> UpdateDescriptionAsync(SystemId systemId, string description, CancellationToken cancellationToken = default)
     {
+        await EnsureExistsAsync(systemId, cancellationToken);
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.ExecuteAsync(
@@ -81,6 +82,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
         AvatarSource source,
         CancellationToken cancellationToken = default)
     {
+        await EnsureExistsAsync(systemId, cancellationToken);
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.ExecuteAsync(
@@ -101,6 +103,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
     public async Task<bool> ClearAvatarAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
+        await EnsureExistsAsync(systemId, cancellationToken);
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.ExecuteAsync(
@@ -189,7 +192,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
         if (row.ExpiresAt > nowMs)
         {
-            return SqliteStorageKeys.ToWire(row.SystemId);
+            return SqliteStorageKeys.ToScopedPrincipal(row.SystemId);
         }
 
         await ScrubLinkTokenAsync(connection, linkTokenValue: linkToken.Value, cancellationToken: cancellationToken);
@@ -396,7 +399,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var persisted = await connection.QueryFirstOrDefaultAsync<string>(sql, new { value });
-        return persisted is null ? null : SqliteStorageKeys.ToWire(persisted);
+        return persisted is null ? null : SqliteStorageKeys.ToScopedPrincipal(persisted);
     }
 
     private async Task<SystemId?> FindOrCreateByProviderAsync(
@@ -428,7 +431,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             return await tryFind(value, cancellationToken);
         }
 
-        var wired = SqliteStorageKeys.ToWire(rawId);
+        var wired = SqliteStorageKeys.ToScopedPrincipal(rawId);
         await _encryptionStates.UpsertAsync(wired, false, null, EncryptionSalt.NewRandom(), cancellationToken);
         return wired;
     }

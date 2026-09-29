@@ -38,7 +38,7 @@ public sealed class SqliteJournalRepositoryTests
             await Assert.That(got.Pinned).IsTrue();
             await Assert.That(got.Alters.Count).IsEqualTo(1);
             await Assert.That(got.Alters[0].Value).IsEqualTo((short)3);
-            await Assert.That(ScopedSystemId.StripRegionPrefix(got.UserId.Value)).IsEqualTo("journal-user");
+            await Assert.That(got.UserId.Value).IsEqualTo("journal-user");
 
             var listed = await repo.ListGlobalAsync(systemId);
             await Assert.That(listed.Count).IsEqualTo(1);
