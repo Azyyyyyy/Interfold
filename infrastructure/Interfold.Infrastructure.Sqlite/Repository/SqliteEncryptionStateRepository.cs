@@ -5,13 +5,21 @@ using Interfold.Shared.Contracts.Models;
 
 namespace Interfold.Infrastructure.Sqlite.Repository;
 
-public sealed class SqliteEncryptionStateRepository(ISqliteConnectionFactory connectionFactory)
-    : IEncryptionStateRepository
+public sealed class SqliteEncryptionStateRepository : IEncryptionStateRepository
 {
+    private readonly ISqliteConnectionFactory _connectionFactory;
+    private readonly TimeProvider _timeProvider;
+
+    public SqliteEncryptionStateRepository(ISqliteConnectionFactory connectionFactory, TimeProvider timeProvider)
+    {
+        _connectionFactory = connectionFactory;
+        _timeProvider = timeProvider;
+    }
+
     public async Task<EncryptionState?> GetAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<EncryptionStateRow>(
             """
             SELECT encryption_initialized AS Initialized, encryption_key_checksum AS Checksum, salt AS Salt
@@ -39,9 +47,9 @@ public sealed class SqliteEncryptionStateRepository(ISqliteConnectionFactory con
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await connection.ExecuteAsync(
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.ExecuteAsync(
             """
             INSERT INTO encryption_states
                 (system_id, encryption_initialized, encryption_key_checksum, salt, updated_at)
@@ -61,7 +69,7 @@ public sealed class SqliteEncryptionStateRepository(ISqliteConnectionFactory con
                 salt = salt?.Value,
                 updated_at = nowMs,
             });
-        return true;
+        return rows > 0;
     }
 
     private sealed record EncryptionStateRow(long Initialized, string? Checksum, string? Salt);

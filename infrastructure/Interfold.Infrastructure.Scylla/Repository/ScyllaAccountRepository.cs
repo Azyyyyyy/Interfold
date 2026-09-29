@@ -33,7 +33,6 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
     private readonly record struct LinkTokenEntry(ScopedSystemId Scoped, DateTimeOffset ExpiresAt);
 
-    private static readonly TimeSpan LinkTokenTtl = TimeSpan.FromMinutes(5);
     private readonly object _linkTokenLock = new();
     // Reverse map keys on the typed LinkToken (not its string value) so no accidental
     // toString-then-dict-key path can bypass the redacting wrapper.
@@ -210,7 +209,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             LinkToken token = new(Guid.NewGuid().ToString());
             _linkTokenBySystem[scoped] = token;
-            _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkTokenTtl));
+            _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkToken.Ttl));
 
             return Task.FromResult(token);
         }

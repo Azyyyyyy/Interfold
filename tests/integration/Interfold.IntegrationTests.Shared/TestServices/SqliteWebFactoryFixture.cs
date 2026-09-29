@@ -24,11 +24,11 @@ public sealed class SqliteWebFactoryFixture : IWebFactoryFixture, IAsyncInitiali
 
         await SqliteMigrationService.MigrateAsync(cs, NullLogger.Instance, CancellationToken.None);
 
-        var store = new SqliteSecretsStore(new SqliteConnectionFactory(cs));
-        await store.UpsertAsync(SecretsStoreKeys.EncryptionPepper, "TEST");
-        await store.UpsertAsync(SecretsStoreKeys.AuthJwtEs256PrivatePem, TestDbCredentials.JwtEs256PrivateKeyPem);
-        await store.UpsertAsync(SecretsStoreKeys.AuthDeepLinkSecret, TestDbCredentials.DeepLinkSecret);
-        await store.UpsertAsync(SecretsStoreKeys.AuthJwtRsa256PrivatePem, TestDbCredentials.JwtRsa256PrivateKeyPem);
+        var store = new SqliteSecretsStore(new SqliteConnectionFactory(cs), TimeProvider.System);
+        await store.UpsertAsync(SecretsStoreKeys.EncryptionPepper, "TEST", "bootstrap");
+        await store.UpsertAsync(SecretsStoreKeys.AuthJwtEs256PrivatePem, TestDbCredentials.JwtEs256PrivateKeyPem, "bootstrap");
+        await store.UpsertAsync(SecretsStoreKeys.AuthDeepLinkSecret, TestDbCredentials.DeepLinkSecret, "bootstrap");
+        await store.UpsertAsync(SecretsStoreKeys.AuthJwtRsa256PrivatePem, TestDbCredentials.JwtRsa256PrivateKeyPem, "bootstrap");
 
         Factory = CreatePrivateFactory();
     }

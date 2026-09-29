@@ -5,15 +5,24 @@ using Interfold.Shared.Domain.Abstractions;
 
 namespace Interfold.Infrastructure.Sqlite;
 
-public sealed class SqliteIdempotencyStore(ISqliteConnectionFactory connectionFactory) : IIdempotencyStore
+public sealed class SqliteIdempotencyStore : IIdempotencyStore
 {
+    private readonly ISqliteConnectionFactory _connectionFactory;
+    private readonly TimeProvider _timeProvider;
+
+    public SqliteIdempotencyStore(ISqliteConnectionFactory connectionFactory, TimeProvider timeProvider)
+    {
+        _connectionFactory = connectionFactory;
+        _timeProvider = timeProvider;
+    }
+
     public async Task<IdempotencyMatch?> FindAsync(
         SystemId principalId,
         OperationId operationId,
         IdempotencyKey idempotencyKey,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<IdempotencyRow>(
             """
             SELECT payload_hash AS PayloadHash, outcome_hash AS OutcomeHash, outcome_payload AS OutcomePayload
@@ -40,8 +49,8 @@ public sealed class SqliteIdempotencyStore(ISqliteConnectionFactory connectionFa
         string? outcomePayload,
         CancellationToken cancellationToken = default)
     {
-        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(
             """
             INSERT INTO octocon_idempotency (

@@ -9,8 +9,17 @@ using System.Data.Common;
 
 namespace Interfold.Infrastructure.Sqlite.Repository;
 
-public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connectionFactory) : IFriendshipRepository
+public sealed class SqliteFriendshipRepository : IFriendshipRepository
 {
+    private readonly ISqliteConnectionFactory _connectionFactory;
+    private readonly TimeProvider _timeProvider;
+
+    public SqliteFriendshipRepository(ISqliteConnectionFactory connectionFactory, TimeProvider timeProvider)
+    {
+        _connectionFactory = connectionFactory;
+        _timeProvider = timeProvider;
+    }
+
     public async Task<SystemId?> ResolveUserIdAsync(FriendLookup lookup, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -42,7 +51,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
             return FriendshipLevel.TrustedFriend;
         }
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var raw = await connection.ExecuteScalarAsync(
             """
             SELECT level
@@ -66,7 +75,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         cancellationToken.ThrowIfCancellationRequested();
         var userKey = SqliteStorageKeys.Persist(systemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<FriendshipRow>(
             """
             SELECT friend_id AS FriendId, level AS Level, since AS Since
@@ -85,7 +94,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<FriendshipRow>(
             """
             SELECT friend_id AS FriendId, level AS Level, since AS Since
@@ -110,7 +119,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         var left = SqliteStorageKeys.Persist(systemId);
         var right = SqliteStorageKeys.Persist(friendSystemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -141,7 +150,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         cancellationToken.ThrowIfCancellationRequested();
         var level = (short)(trusted ? FriendshipLevel.TrustedFriend : FriendshipLevel.Friend);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var affected = await connection.ExecuteAsync(
             """
             UPDATE friendships
@@ -164,7 +173,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         cancellationToken.ThrowIfCancellationRequested();
         var userKey = SqliteStorageKeys.Persist(systemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
 
         var outgoingRows = await connection.QueryAsync<FriendRequestRow>(
             """
@@ -198,7 +207,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         var from = SqliteStorageKeys.Persist(systemId);
         var to = SqliteStorageKeys.Persist(targetSystemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -223,7 +232,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
                 return SendFriendRequestOutcome.Accepted;
             }
 
-            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
             await connection.ExecuteAsync(
                 """
                 INSERT INTO friend_requests (from_user_id, to_user_id, date_sent)
@@ -251,7 +260,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         var self = SqliteStorageKeys.Persist(systemId);
         var source = SqliteStorageKeys.Persist(sourceSystemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -289,7 +298,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         var self = SqliteStorageKeys.Persist(systemId);
         var source = SqliteStorageKeys.Persist(sourceSystemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -325,7 +334,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         var self = SqliteStorageKeys.Persist(systemId);
         var target = SqliteStorageKeys.Persist(targetSystemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -359,7 +368,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         cancellationToken.ThrowIfCancellationRequested();
         var userKey = SqliteStorageKeys.Persist(systemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -396,7 +405,7 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
 
     private async Task<SystemId?> ResolveByUsernameAsync(string username, CancellationToken cancellationToken)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var persisted = await connection.QueryFirstOrDefaultAsync<string>(
             """
             SELECT system_id
@@ -464,14 +473,14 @@ public sealed class SqliteFriendshipRepository(ISqliteConnectionFactory connecti
         return hit is not null and not DBNull;
     }
 
-    private static async Task LinkFriendsAsync(
+    private async Task LinkFriendsAsync(
         SqliteConnection connection,
         DbTransaction tx,
         string left,
         string right,
         CancellationToken cancellationToken)
     {
-        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         var level = (short)FriendshipLevel.Friend;
         await UpsertFriendshipEdgeAsync(connection, tx, left, right, level, nowMs, cancellationToken);
         await UpsertFriendshipEdgeAsync(connection, tx, right, left, level, nowMs, cancellationToken);

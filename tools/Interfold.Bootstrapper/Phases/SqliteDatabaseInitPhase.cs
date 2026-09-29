@@ -53,7 +53,7 @@ internal static class SqliteDatabaseInitPhase
         logger.LogInformation("Sqlite db-init: migrating {Path}", dbPath);
         await SqliteMigrationService.MigrateAsync(connectionString, logger, ct).ConfigureAwait(false);
 
-        var store = new SqliteSecretsStore(new SqliteConnectionFactory(connectionString));
+        var store = new SqliteSecretsStore(new SqliteConnectionFactory(connectionString), TimeProvider.System);
         var existingPepper = await store.GetAsync(SecretsStoreKeys.EncryptionPepper, ct).ConfigureAwait(false);
         if (existingPepper is not null)
         {
@@ -86,7 +86,7 @@ internal static class SqliteDatabaseInitPhase
         CancellationToken ct)
     {
         if (string.IsNullOrEmpty(value)) return;
-        await store.UpsertAsync(key, value, cancellationToken: ct).ConfigureAwait(false);
+        await store.UpsertAsync(key, value, createdBy: "bootstrap", cancellationToken: ct).ConfigureAwait(false);
     }
 
     private sealed class SqlitePhaseLoggerAdapter(PhaseLogger inner) : ILogger

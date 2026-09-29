@@ -1,5 +1,4 @@
 using Interfold.Alters.Contracts.Models;
-using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Friendships.Contracts.Models.Read;
 using Interfold.Friendships.Domain.Abstractions.Repository;
@@ -10,6 +9,7 @@ using Interfold.Polls.Contracts.Models.Commands;
 using Interfold.Polls.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Interfold.Api.UnitTests.Sqlite;
@@ -22,7 +22,7 @@ public sealed class SqliteFriendshipRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var repo = new SqliteFriendshipRepository(SqliteTestDb.Factory(path));
+            var repo = new SqliteFriendshipRepository(SqliteTestDb.Factory(path), TimeProvider.System);
             var alice = new SystemId("alice01");
             var bob = new SystemId("bob0001");
 
@@ -55,7 +55,7 @@ public sealed class SqliteFriendshipRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var repo = new SqliteFriendshipRepository(SqliteTestDb.Factory(path));
+            var repo = new SqliteFriendshipRepository(SqliteTestDb.Factory(path), TimeProvider.System);
             var alice = new SystemId("alice02");
             var bob = new SystemId("bob0002");
 
@@ -79,13 +79,31 @@ public sealed class SqliteFrontingRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            IFriendshipRepository friendships = new SqliteFriendshipRepository(factory);
-            IAlterRepository alters = new StubAlterRepository();
-            IFrontingRepository repo = new SqliteFrontingRepository(
-                factory, friendships, alters, NullLogger<SqliteFrontingRepository>.Instance);
-
+            IFriendshipRepository friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
             var systemId = new SystemId("front01");
             var alterId = new AlterId(1);
+
+            var altersMock = IAlterRepository.Mock(MockBehavior.Strict);
+            altersMock.GetAsync(systemId, alterId, Any<CancellationToken>()).Returns(
+                new AlterReadModel(
+                    alterId,
+                    "FrontAlter",
+                    description: null,
+                    avatarUrl: null,
+                    avatarSource: null,
+                    color: null,
+                    pronouns: null,
+                    VisibilityLevel.Private,
+                    Array.Empty<AlterPublicFieldReadModel>(),
+                    proxyName: null,
+                    alias: null,
+                    untracked: false,
+                    archived: false,
+                    pinned: false));
+
+            IFrontingRepository repo = new SqliteFrontingRepository(
+                factory, friendships, altersMock.Object, NullLogger<SqliteFrontingRepository>.Instance, TimeProvider.System);
+
             var startedAt = DateTimeOffset.UtcNow.AddMinutes(-5);
 
             var frontId = await repo.StartAsync(systemId, alterId, "hello", startedAt);
@@ -98,6 +116,7 @@ public sealed class SqliteFrontingRepositoryTests
             await Assert.That(active.Count).IsEqualTo(1);
             await Assert.That(active[0].Primary).IsTrue();
             await Assert.That(active[0].Front.Comment).IsEqualTo("hello");
+            await Assert.That(active[0].Alter.Name).IsEqualTo("FrontAlter");
 
             await Assert.That(await repo.UpdateCommentByFrontIdAsync(systemId, frontId!.Value, "updated")).IsTrue();
 
@@ -125,7 +144,7 @@ public sealed class SqlitePollRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            IPollRepository repo = new SqlitePollRepository(SqliteTestDb.Factory(path));
+            IPollRepository repo = new SqlitePollRepository(SqliteTestDb.Factory(path), TimeProvider.System);
             var systemId = new SystemId("poll001");
 
             var id = await repo.CreateAsync(
@@ -154,38 +173,4 @@ public sealed class SqlitePollRepositoryTests
             SqliteTestDb.Delete(path);
         }
     }
-}
-
-/// <summary>Minimal alter stub so fronting ListActive can hydrate BareAlter without the full alter table.</summary>
-file sealed class StubAlterRepository : IAlterRepository
-{
-    public Task<AlterId?> CreateAsync(SystemId systemId, CreateAlterCommand command, CancellationToken cancellationToken = default)
-        => Task.FromResult<AlterId?>(null);
-
-    public Task<bool> ExistsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
-        => Task.FromResult(true);
-
-    public Task<bool> UpdateAsync(SystemId systemId, UpdateAlterCommand command, CancellationToken cancellationToken = default)
-        => Task.FromResult(false);
-
-    public Task<bool> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
-        => Task.FromResult(false);
-
-    public Task<IReadOnlyList<AlterReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<AlterReadModel>>(Array.Empty<AlterReadModel>());
-
-    public Task<IReadOnlyList<BareAlter>> ListGuardedAsync(
-        SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<BareAlter>>(Array.Empty<BareAlter>());
-
-    public Task<AlterReadModel?> GetAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
-        => Task.FromResult<AlterReadModel?>(null);
-
-    public Task<BareAlter?> GetGuardedAsync(
-        SystemId systemId, AlterId alterId, SystemId? viewerSystemId, CancellationToken cancellationToken = default)
-        => Task.FromResult<BareAlter?>(null);
-
-    public Task<bool> AliasTakenByOtherAsync(
-        SystemId systemId, AlterId alterId, string alias, CancellationToken cancellationToken = default)
-        => Task.FromResult(false);
 }

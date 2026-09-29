@@ -18,7 +18,7 @@ public sealed class SqliteEncryptionStateRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var repo = new SqliteEncryptionStateRepository(SqliteTestDb.Factory(path));
+            var repo = new SqliteEncryptionStateRepository(SqliteTestDb.Factory(path), TimeProvider.System);
             var systemId = new SystemId("alice");
             var salt = EncryptionSalt.NewRandom();
 
@@ -49,7 +49,7 @@ public sealed class SqliteAccountRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var encryption = new SqliteEncryptionStateRepository(SqliteTestDb.Factory(path));
+            var encryption = new SqliteEncryptionStateRepository(SqliteTestDb.Factory(path), TimeProvider.System);
             var repo = new SqliteAccountRepository(SqliteTestDb.Factory(path), encryption, TimeProvider.System);
 
             var systemId = await repo.FindOrCreateSystemIdAsync(
@@ -82,7 +82,7 @@ public sealed class SqliteAccountRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var encryption = new SqliteEncryptionStateRepository(SqliteTestDb.Factory(path));
+            var encryption = new SqliteEncryptionStateRepository(SqliteTestDb.Factory(path), TimeProvider.System);
             var repo = new SqliteAccountRepository(SqliteTestDb.Factory(path), encryption, TimeProvider.System);
 
             var updated = await repo.UpdateUsernameAsync(new SystemId("ghost"), new Username("nobody"));
@@ -100,7 +100,7 @@ public sealed class SqliteAccountRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var encryption = new SqliteEncryptionStateRepository(SqliteTestDb.Factory(path));
+            var encryption = new SqliteEncryptionStateRepository(SqliteTestDb.Factory(path), TimeProvider.System);
             var repo = new SqliteAccountRepository(SqliteTestDb.Factory(path), encryption, TimeProvider.System);
 
             var created = await repo.FindOrCreateSystemIdAsync(
@@ -133,7 +133,7 @@ public sealed class SqliteNotificationTokenRepositoryTests
             var me = new SystemId("me");
             var friend = new SystemId("friend");
             var friendships = new FixedFriendshipRepository(me, friend);
-            var repo = new SqliteNotificationTokenRepository(SqliteTestDb.Factory(path), friendships);
+            var repo = new SqliteNotificationTokenRepository(SqliteTestDb.Factory(path), friendships, TimeProvider.System);
 
             var token = new PushToken("device-token-1");
             await repo.AddAsync(friend, token);

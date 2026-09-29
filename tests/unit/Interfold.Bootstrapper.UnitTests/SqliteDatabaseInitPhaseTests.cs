@@ -24,7 +24,7 @@ public sealed class SqliteDatabaseInitPhaseTests
             await SqliteDatabaseInitPhase.MigrateAndSeedAsync(
                 dbPath, config, secrets, FirebaseSeedInputs.Empty, NullLogger.Instance, CancellationToken.None);
 
-            var store = new SqliteSecretsStore(new SqliteConnectionFactory($"Data Source={dbPath}"));
+            var store = new SqliteSecretsStore(new SqliteConnectionFactory($"Data Source={dbPath}"), TimeProvider.System);
             var pepper1 = await store.GetAsync(SecretsStoreKeys.EncryptionPepper);
             await Assert.That(pepper1).IsEqualTo(secrets.EncryptionPepper);
             await Assert.That(await store.GetAsync(SecretsStoreKeys.OAuthGoogleClientSecret)).IsEqualTo("google-secret");

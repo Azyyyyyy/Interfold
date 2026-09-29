@@ -104,8 +104,8 @@ public sealed class SqliteSecretsStoreTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var store = new SqliteSecretsStore(SqliteTestDb.Factory(path));
-            await store.UpsertAsync(SecretsStoreKeys.EncryptionPepper, "pepper-value");
+            var store = new SqliteSecretsStore(SqliteTestDb.Factory(path), TimeProvider.System);
+            await store.UpsertAsync(SecretsStoreKeys.EncryptionPepper, "pepper-value", "bootstrap");
 
             var got = await store.GetAsync(SecretsStoreKeys.EncryptionPepper);
             await Assert.That(got).IsEqualTo("pepper-value");
@@ -131,7 +131,7 @@ public sealed class SqliteIdempotencyStoreTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var store = new SqliteIdempotencyStore(SqliteTestDb.Factory(path));
+            var store = new SqliteIdempotencyStore(SqliteTestDb.Factory(path), TimeProvider.System);
             var principal = new SystemId("alice");
             var op = new OperationId("op-1");
             var key = new IdempotencyKey("idem-1");
@@ -161,7 +161,7 @@ public sealed class SqliteAuthTokenRevocationRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var repo = new SqliteAuthTokenRevocationRepository(SqliteTestDb.Factory(path));
+            var repo = new SqliteAuthTokenRevocationRepository(SqliteTestDb.Factory(path), TimeProvider.System);
             var jti = new Jti(Guid.NewGuid().ToString("N"));
             var systemId = new SystemId("bob");
 

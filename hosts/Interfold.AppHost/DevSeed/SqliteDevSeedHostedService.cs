@@ -32,7 +32,7 @@ internal sealed class SqliteDevSeedHostedService(
             logger.LogInformation("Sqlite dev seed: migrating {Path}", context.HostDbPath);
             await SqliteMigrationService.MigrateAsync(connectionString, logger, stoppingToken);
 
-            var store = new SqliteSecretsStore(new SqliteConnectionFactory(connectionString));
+            var store = new SqliteSecretsStore(new SqliteConnectionFactory(connectionString), TimeProvider.System);
             var existingPepper = await store.GetAsync(SecretsStoreKeys.EncryptionPepper, stoppingToken);
             if (existingPepper is null)
             {
@@ -42,10 +42,10 @@ internal sealed class SqliteDevSeedHostedService(
                     ?? throw new InvalidOperationException("Deep-link secret parameter resolved to null.");
                 var (rsaPem, es256Pem) = GenerateJwtPems();
 
-                await store.UpsertAsync(SecretsStoreKeys.EncryptionPepper, pepper, cancellationToken: stoppingToken);
-                await store.UpsertAsync(SecretsStoreKeys.AuthDeepLinkSecret, deepLink, cancellationToken: stoppingToken);
-                await store.UpsertAsync(SecretsStoreKeys.AuthJwtRsa256PrivatePem, rsaPem, cancellationToken: stoppingToken);
-                await store.UpsertAsync(SecretsStoreKeys.AuthJwtEs256PrivatePem, es256Pem, cancellationToken: stoppingToken);
+                await store.UpsertAsync(SecretsStoreKeys.EncryptionPepper, pepper, "bootstrap", cancellationToken: stoppingToken);
+                await store.UpsertAsync(SecretsStoreKeys.AuthDeepLinkSecret, deepLink, "bootstrap", cancellationToken: stoppingToken);
+                await store.UpsertAsync(SecretsStoreKeys.AuthJwtRsa256PrivatePem, rsaPem, "bootstrap", cancellationToken: stoppingToken);
+                await store.UpsertAsync(SecretsStoreKeys.AuthJwtEs256PrivatePem, es256Pem, "bootstrap", cancellationToken: stoppingToken);
                 logger.LogInformation("Sqlite dev seed: wrote initial secrets");
             }
             else

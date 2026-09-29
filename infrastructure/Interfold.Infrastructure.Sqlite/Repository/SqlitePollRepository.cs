@@ -11,8 +11,17 @@ using Microsoft.Data.Sqlite;
 
 namespace Interfold.Infrastructure.Sqlite.Repository;
 
-public sealed class SqlitePollRepository(ISqliteConnectionFactory connectionFactory) : IPollRepository
+public sealed class SqlitePollRepository : IPollRepository
 {
+    private readonly ISqliteConnectionFactory _connectionFactory;
+    private readonly TimeProvider _timeProvider;
+
+    public SqlitePollRepository(ISqliteConnectionFactory connectionFactory, TimeProvider timeProvider)
+    {
+        _connectionFactory = connectionFactory;
+        _timeProvider = timeProvider;
+    }
+
     public async Task<IReadOnlyList<PollReadModel>> ListAsync(
         SystemId systemId,
         CancellationToken cancellationToken = default)
@@ -20,7 +29,7 @@ public sealed class SqlitePollRepository(ISqliteConnectionFactory connectionFact
         cancellationToken.ThrowIfCancellationRequested();
         var userId = SqliteStorageKeys.Persist(systemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<PollRow>(
             """
             SELECT id AS Id, title AS Title, description AS Description, type AS Type,
@@ -44,7 +53,7 @@ public sealed class SqlitePollRepository(ISqliteConnectionFactory connectionFact
         cancellationToken.ThrowIfCancellationRequested();
         var userId = SqliteStorageKeys.Persist(systemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<PollRow>(
             """
             SELECT id AS Id, title AS Title, description AS Description, type AS Type,
@@ -66,10 +75,10 @@ public sealed class SqlitePollRepository(ISqliteConnectionFactory connectionFact
         cancellationToken.ThrowIfCancellationRequested();
         var userId = SqliteStorageKeys.Persist(systemId);
         var pollGuid = Guid.NewGuid();
-        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         var insertedMs = ToUnixMs(command.InsertedAtUtc);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(
             """
             INSERT INTO polls
@@ -100,7 +109,7 @@ public sealed class SqlitePollRepository(ISqliteConnectionFactory connectionFact
         cancellationToken.ThrowIfCancellationRequested();
         var userId = SqliteStorageKeys.Persist(systemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var found = await connection.ExecuteScalarAsync<long?>(
             """
             SELECT 1 FROM polls
@@ -120,7 +129,7 @@ public sealed class SqlitePollRepository(ISqliteConnectionFactory connectionFact
         var userId = SqliteStorageKeys.Persist(systemId);
         var pollIdText = command.Id.Value.ToString("N");
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         if (!await ExistsOnConnectionAsync(connection, userId, pollIdText))
         {
             return false;
@@ -134,8 +143,8 @@ public sealed class SqlitePollRepository(ISqliteConnectionFactory connectionFact
             return true;
         }
 
-        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        await connection.ExecuteAsync(
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        var updated = await connection.ExecuteAsync(
             """
             UPDATE polls SET
                 title = COALESCE(@title, title),
@@ -159,7 +168,7 @@ public sealed class SqlitePollRepository(ISqliteConnectionFactory connectionFact
                 user_id = userId,
                 id = pollIdText,
             });
-        return true;
+        return updated > 0;
     }
 
     public async Task<bool> DeleteAsync(
@@ -170,7 +179,7 @@ public sealed class SqlitePollRepository(ISqliteConnectionFactory connectionFact
         cancellationToken.ThrowIfCancellationRequested();
         var userId = SqliteStorageKeys.Persist(systemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var affected = await connection.ExecuteAsync(
             "DELETE FROM polls WHERE user_id = @user_id AND id = @id",
             new { user_id = userId, id = pollId.Value.ToString("N") });
@@ -231,13 +240,9 @@ public sealed class SqlitePollRepository(ISqliteConnectionFactory connectionFact
             FromUnixMs(row.UpdatedAt));
     }
 
+    // Repo stores unix ms as UTC; Unspecified Kind is treated as UTC (not local).
     private static long ToUnixMs(DateTime value)
-    {
-        var utc = value.Kind == DateTimeKind.Unspecified
-            ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
-            : value.ToUniversalTime();
-        return new DateTimeOffset(utc).ToUnixTimeMilliseconds();
-    }
+        => new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
 
     private static DateTime FromUnixMs(long ms)
         => DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;

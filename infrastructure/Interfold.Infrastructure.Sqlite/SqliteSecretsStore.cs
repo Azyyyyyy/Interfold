@@ -3,11 +3,20 @@ using Interfold.Shared.Contracts.Secrets;
 
 namespace Interfold.Infrastructure.Sqlite;
 
-public sealed class SqliteSecretsStore(ISqliteConnectionFactory connectionFactory) : ISecretsStore
+public sealed class SqliteSecretsStore : ISecretsStore
 {
+    private readonly ISqliteConnectionFactory _connectionFactory;
+    private readonly TimeProvider _timeProvider;
+
+    public SqliteSecretsStore(ISqliteConnectionFactory connectionFactory, TimeProvider timeProvider)
+    {
+        _connectionFactory = connectionFactory;
+        _timeProvider = timeProvider;
+    }
+
     public async Task<string?> GetAsync(SecretsStoreKey key, CancellationToken cancellationToken = default)
     {
-        await using var conn = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var conn = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         return await conn.QueryFirstOrDefaultAsync<string>(
             "SELECT value FROM secrets WHERE key = @key",
             new { key = key.Value });
@@ -21,7 +30,7 @@ public sealed class SqliteSecretsStore(ISqliteConnectionFactory connectionFactor
 
     public async Task<IReadOnlyList<SecretEntry>> ListAsync(CancellationToken cancellationToken = default)
     {
-        await using var conn = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var conn = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await conn.QueryAsync<SecretRow>(
             """
             SELECT key AS Key, value AS Value, created_by AS CreatedBy, created_at AS CreatedAt,
@@ -43,11 +52,12 @@ public sealed class SqliteSecretsStore(ISqliteConnectionFactory connectionFactor
     public async Task UpsertAsync(
         SecretsStoreKey key,
         string value,
-        string createdBy = "bootstrap",
+        string createdBy,
         CancellationToken cancellationToken = default)
     {
-        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        await using var conn = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        ArgumentException.ThrowIfNullOrWhiteSpace(createdBy);
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var conn = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await conn.ExecuteAsync(
             """
             INSERT INTO secrets (key, value, created_by, created_at, updated_at, expires_at, rotated_from)

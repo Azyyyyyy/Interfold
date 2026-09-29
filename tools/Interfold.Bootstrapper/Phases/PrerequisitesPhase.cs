@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Principal;
-using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
@@ -83,73 +82,29 @@ internal static partial class PrerequisitesPhase
 
     private static async Task<PersistenceMode> PeekPersistenceModeAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(options.ConfigPath) || !File.Exists(options.ConfigPath))
-        {
-            return PersistenceMode.Sqlite;
-        }
-
         try
         {
-            await using var stream = File.OpenRead(options.ConfigPath);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
-            if (doc.RootElement.TryGetProperty("datastores", out var datastores)
-                && datastores.TryGetProperty("persistence", out var persistence)
-                && persistence.ValueKind == JsonValueKind.String
-                && persistence.GetString().TryParseWire<PersistenceMode>(out var pers))
-            {
-                return pers;
-            }
-
-            if (doc.RootElement.TryGetProperty("databaseMode", out var modeElement) &&
-                modeElement.ValueKind == JsonValueKind.String &&
-                modeElement.GetString().TryParseWire<DatabaseMode>(out var mode) &&
-                mode == DatabaseMode.Sqlite)
-            {
-                return PersistenceMode.Sqlite;
-            }
+            return await BootstrapConfigPeek.PeekPersistenceModeAsync(options.ConfigPath, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             // ConfigPhase will surface a useful error against the same file next.
             logger.Warn($"could not pre-read datastores.persistence from {options.ConfigPath} for AIO sizing ({ex.GetType().Name}); defaulting to sqlite.");
+            return PersistenceMode.Sqlite;
         }
-
-        return PersistenceMode.Sqlite;
     }
 
     private static async Task<DatabaseMode> PeekCqlDatabaseModeAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(options.ConfigPath) || !File.Exists(options.ConfigPath))
-        {
-            return DatabaseMode.Single;
-        }
-
         try
         {
-            await using var stream = File.OpenRead(options.ConfigPath);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
-            if (doc.RootElement.TryGetProperty("datastores", out var datastores)
-                && datastores.TryGetProperty("cql", out var cql)
-                && cql.TryGetProperty("backend", out var backendElement)
-                && backendElement.ValueKind == JsonValueKind.String)
-            {
-                return CqlBackendMapping.ToDatabaseMode(
-                    CqlBackendMapping.ParseWire(backendElement.GetString()));
-            }
-
-            if (doc.RootElement.TryGetProperty("databaseMode", out var modeElement) &&
-                modeElement.ValueKind == JsonValueKind.String &&
-                modeElement.GetString().TryParseWire<DatabaseMode>(out var mode))
-            {
-                return mode;
-            }
+            return await BootstrapConfigPeek.PeekCqlDatabaseModeAsync(options.ConfigPath, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             logger.Warn($"could not pre-read datastores.cql.backend from {options.ConfigPath} for AIO sizing ({ex.GetType().Name}); defaulting to single-node baseline.");
+            return DatabaseMode.Single;
         }
-
-        return DatabaseMode.Single;
     }
 
     private static void EnsureLinux(PhaseLogger logger)

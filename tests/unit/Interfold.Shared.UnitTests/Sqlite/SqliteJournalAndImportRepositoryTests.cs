@@ -17,7 +17,7 @@ public sealed class SqliteJournalRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var repo = new SqliteJournalRepository(SqliteTestDb.Factory(path));
+            var repo = new SqliteJournalRepository(SqliteTestDb.Factory(path), TimeProvider.System);
             var systemId = new SystemId("journal-user");
 
             var entryId = await repo.CreateGlobalAsync(systemId, new CreateGlobalJournalEntryCommand("hello"));
@@ -175,7 +175,7 @@ public sealed class SqliteImportOperationRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var repo = new SqliteImportOperationRepository(SqliteTestDb.Factory(path));
+            var repo = new SqliteImportOperationRepository(SqliteTestDb.Factory(path), TimeProvider.System);
             var systemId = new SystemId("fail-user");
 
             var claim = await repo.TryClaimAsync(systemId, ImportOperationKind.SimplyPlural, new IdempotencyKey("f1"));

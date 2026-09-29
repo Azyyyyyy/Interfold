@@ -18,10 +18,10 @@ public sealed class SqliteAlterRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var friendships = new SqliteFriendshipRepository(factory);
-            var settings = new SqliteSettingsFieldRepository(factory);
+            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
-            var polls = new SqlitePollRepository(factory);
+            var polls = new SqlitePollRepository(factory, TimeProvider.System);
             var alters = new SqliteAlterRepository(
                 factory, friendships, settings, alterFields, polls,
                 NullLogger<SqliteAlterRepository>.Instance);
@@ -53,15 +53,15 @@ public sealed class SqliteTagRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var friendships = new SqliteFriendshipRepository(factory);
-            var settings = new SqliteSettingsFieldRepository(factory);
+            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
-            var polls = new SqlitePollRepository(factory);
+            var polls = new SqlitePollRepository(factory, TimeProvider.System);
             var alters = new SqliteAlterRepository(
                 factory, friendships, settings, alterFields, polls,
                 NullLogger<SqliteAlterRepository>.Instance);
             var tags = new SqliteTagRepository(
-                factory, friendships, alters, NullLogger<SqliteTagRepository>.Instance);
+                factory, friendships, alters, NullLogger<SqliteTagRepository>.Instance, TimeProvider.System);
 
             var systemId = new SystemId("tag0001");
             var created = await tags.CreateAsync(
@@ -91,7 +91,7 @@ public sealed class SqliteSettingsFieldRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var settings = new SqliteSettingsFieldRepository(factory);
+            var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
 
             var systemId = new SystemId("field01");
             var fieldId = await settings.CreateAsync(

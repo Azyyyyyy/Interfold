@@ -19,12 +19,12 @@ public sealed class SqliteOnlineBackupTests
         try
         {
             await SqliteMigrationService.MigrateAsync($"Data Source={source}", NullLogger.Instance, CancellationToken.None);
-            var store = new SqliteSecretsStore(new SqliteConnectionFactory($"Data Source={source}"));
-            await store.UpsertAsync(SecretsStoreKeys.EncryptionPepper, "pepper-value");
+            var store = new SqliteSecretsStore(new SqliteConnectionFactory($"Data Source={source}"), TimeProvider.System);
+            await store.UpsertAsync(SecretsStoreKeys.EncryptionPepper, "pepper-value", "bootstrap");
 
             await SqliteOnlineBackup.BackupAsync(source, dest, CancellationToken.None);
 
-            var restored = new SqliteSecretsStore(new SqliteConnectionFactory($"Data Source={dest}"));
+            var restored = new SqliteSecretsStore(new SqliteConnectionFactory($"Data Source={dest}"), TimeProvider.System);
             await Assert.That(await restored.GetAsync(SecretsStoreKeys.EncryptionPepper)).IsEqualTo("pepper-value");
         }
         finally

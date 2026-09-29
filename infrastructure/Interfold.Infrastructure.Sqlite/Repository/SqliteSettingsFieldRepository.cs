@@ -15,10 +15,10 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
 
     public SqliteSettingsFieldRepository(
         ISqliteConnectionFactory connectionFactory,
-        TimeProvider? timeProvider = null)
+        TimeProvider timeProvider)
     {
         _connectionFactory = connectionFactory;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
     }
 
     public async Task<IReadOnlyList<SettingsFieldReadModel>> ListAsync(
@@ -124,14 +124,14 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             parameters.Add("locked", locked.Value ? 1 : 0);
         }
 
-        await connection.ExecuteAsync(
+        var updated = await connection.ExecuteAsync(
             $"""
             UPDATE settings_fields
             SET {string.Join(", ", sets)}
             WHERE system_id = @system_id AND id = @id
             """,
             parameters);
-        return true;
+        return updated > 0;
     }
 
     public async Task<bool> DeleteAsync(
@@ -150,7 +150,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             return false;
         }
 
-        await connection.ExecuteAsync(
+        var removed = await connection.ExecuteAsync(
             """
             DELETE FROM settings_fields
             WHERE system_id = @system_id AND id = @id
@@ -171,7 +171,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             // best-effort cascade, tolerate missing alter_fields table mid-migration
         }
 
-        return true;
+        return removed > 0;
     }
 
     public async Task<bool> RelocateAsync(

@@ -25,7 +25,8 @@ public sealed class SqliteHealthChecker(ISqliteConnectionFactory connectionFacto
                 var found = await table.ExecuteScalarAsync(cancellationToken);
                 if (found is null)
                 {
-                    throw new InvalidOperationException(
+                    return new HealthCheckResult(
+                        HealthStatus.Unhealthy,
                         "SQLite table 'octocon_idempotency' was not found. Run schema migrations first.");
                 }
             }

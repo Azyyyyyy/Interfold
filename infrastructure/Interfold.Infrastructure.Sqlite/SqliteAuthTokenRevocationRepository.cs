@@ -6,9 +6,17 @@ namespace Interfold.Infrastructure.Sqlite;
 
 /// <summary>SQLite-backed <see cref="IAuthTokenRevocationRepository"/> — one row per
 /// issued JWT keyed on JTI.</summary>
-public sealed class SqliteAuthTokenRevocationRepository(ISqliteConnectionFactory connectionFactory)
-    : IAuthTokenRevocationRepository
+public sealed class SqliteAuthTokenRevocationRepository : IAuthTokenRevocationRepository
 {
+    private readonly ISqliteConnectionFactory _connectionFactory;
+    private readonly TimeProvider _timeProvider;
+
+    public SqliteAuthTokenRevocationRepository(ISqliteConnectionFactory connectionFactory, TimeProvider timeProvider)
+    {
+        _connectionFactory = connectionFactory;
+        _timeProvider = timeProvider;
+    }
+
     public async Task RecordTokenAsync(
         Jti jti,
         SystemId systemId,
@@ -18,8 +26,8 @@ public sealed class SqliteAuthTokenRevocationRepository(ISqliteConnectionFactory
         ArgumentException.ThrowIfNullOrWhiteSpace(jti.Value, nameof(jti));
         ArgumentException.ThrowIfNullOrWhiteSpace(systemId.Value, nameof(systemId));
 
-        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(
             """
             INSERT INTO auth_tokens (jti, system_id, issued_at, expires_at, revoked_at)
@@ -41,8 +49,8 @@ public sealed class SqliteAuthTokenRevocationRepository(ISqliteConnectionFactory
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(jti.Value, nameof(jti));
 
-        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var found = await connection.QueryFirstOrDefaultAsync<long?>(
             """
             SELECT 1
@@ -62,8 +70,8 @@ public sealed class SqliteAuthTokenRevocationRepository(ISqliteConnectionFactory
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(jti.Value, nameof(jti));
 
-        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(
             """
             UPDATE auth_tokens

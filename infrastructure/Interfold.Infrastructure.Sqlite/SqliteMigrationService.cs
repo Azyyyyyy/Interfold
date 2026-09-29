@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
+using Interfold.Infrastructure.Persistence;
 using Interfold.Shared.Contracts.Configuration;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Hosting;
@@ -162,8 +161,7 @@ public sealed class SqliteMigrationService(
         return applied;
     }
 
-    public static string ComputeChecksum(string sql)
-        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sql)));
+    public static string ComputeChecksum(string sql) => MigrationChecksum.Sha256Utf8(sql);
 
     private static IEnumerable<string> SplitStatements(string sql)
     {

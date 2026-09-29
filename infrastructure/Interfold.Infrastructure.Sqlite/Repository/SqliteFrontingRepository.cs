@@ -6,7 +6,6 @@ using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Fronting.Contracts.Ids;
 using Interfold.Fronting.Contracts.Models.Read;
 using Interfold.Fronting.Domain.Abstractions.Repository;
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Domain.Observability;
@@ -15,19 +14,34 @@ using Microsoft.Extensions.Logging;
 
 namespace Interfold.Infrastructure.Sqlite.Repository;
 
-public sealed class SqliteFrontingRepository(
-    ISqliteConnectionFactory connectionFactory,
-    IFriendshipRepository friendships,
-    IAlterRepository alters,
-    ILogger<SqliteFrontingRepository> logger) : IFrontingRepository
+public sealed class SqliteFrontingRepository : IFrontingRepository
 {
+    private readonly ISqliteConnectionFactory _connectionFactory;
+    private readonly IAlterRepository _alters;
+    private readonly ILogger<SqliteFrontingRepository> _logger;
+    private readonly TimeProvider _timeProvider;
+
+    public SqliteFrontingRepository(
+        ISqliteConnectionFactory connectionFactory,
+        IFriendshipRepository friendships,
+        IAlterRepository alters,
+        ILogger<SqliteFrontingRepository> logger,
+        TimeProvider timeProvider)
+    {
+        _ = friendships;
+        _connectionFactory = connectionFactory;
+        _alters = alters;
+        _logger = logger;
+        _timeProvider = timeProvider;
+    }
+
     public async Task<bool> IsFrontingAsync(
         SystemId systemId,
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var hit = await connection.ExecuteScalarAsync(
             """
             SELECT 1 FROM current_fronts
@@ -51,7 +65,7 @@ public sealed class SqliteFrontingRepository(
         var frontIdText = frontId.ToString("N");
         var startedMs = startedAt.ToUnixTimeMilliseconds();
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -119,7 +133,7 @@ public sealed class SqliteFrontingRepository(
         var userKey = SqliteStorageKeys.Persist(systemId);
         var endedMs = endedAt.ToUnixTimeMilliseconds();
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -182,7 +196,7 @@ public sealed class SqliteFrontingRepository(
         cancellationToken.ThrowIfCancellationRequested();
         var userKey = SqliteStorageKeys.Persist(systemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
 
         if (alterId is { } value)
         {
@@ -199,14 +213,14 @@ public sealed class SqliteFrontingRepository(
             }
         }
 
-        await connection.ExecuteAsync(
+        var rows = await connection.ExecuteAsync(
             """
             INSERT INTO front_primary (user_id, alter_id)
             VALUES (@user_id, @alter_id)
             ON CONFLICT(user_id) DO UPDATE SET alter_id = excluded.alter_id
             """,
             new { user_id = userKey, alter_id = alterId?.Value });
-        return true;
+        return rows > 0;
     }
 
     public async Task<IReadOnlyList<FrontActiveReadModel>> ListActiveAsync(
@@ -216,7 +230,7 @@ public sealed class SqliteFrontingRepository(
         cancellationToken.ThrowIfCancellationRequested();
         var userKey = SqliteStorageKeys.Persist(systemId);
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
 
         AlterId? primaryId = null;
         var primaryRaw = await connection.QueryFirstOrDefaultAsync<long?>(
@@ -247,18 +261,18 @@ public sealed class SqliteFrontingRepository(
             var frontId = FrontId.Parse(row.Id, provider: null);
             var startedAt = DateTimeOffset.FromUnixTimeMilliseconds(row.TimeStart);
 
-            var alterModel = await alters.GetAsync(systemId, alterId, cancellationToken);
-            var bareAlter = alterModel is not null
-                ? new BareAlter(
-                    alterId,
-                    alterModel.Name,
-                    alterModel.AvatarUrl,
-                    alterModel.AvatarSource,
-                    alterModel.Color,
-                    alterModel.Pronouns,
-                    alterModel.Description,
-                    alterModel.Fields)
-                : BareAlter.CreatePlaceholder(alterId);
+            var alterModel = await _alters.GetAsync(systemId, alterId, cancellationToken)
+                ?? throw new InvalidOperationException(
+                    $"Alter {alterId.Value} is missing but referenced by an active front.");
+            var bareAlter = new BareAlter(
+                alterId,
+                alterModel.Name,
+                alterModel.AvatarUrl,
+                alterModel.AvatarSource,
+                alterModel.Color,
+                alterModel.Pronouns,
+                alterModel.Description,
+                alterModel.Fields);
 
             results.Add(new FrontActiveReadModel(
                 bareAlter,
@@ -276,30 +290,21 @@ public sealed class SqliteFrontingRepository(
     {
         var sw = Stopwatch.StartNew();
         var ownerId = SqliteStorageKeys.Normalize(systemId).Value;
-        var friendshipLevel = await SqliteStorageKeys.ResolveFriendshipLevelAsync(
-            systemId, viewerSystemId, friendships, cancellationToken);
-        if (!VisibilityLevel.Public.CanBeViewedBy(friendshipLevel))
-        {
-            GuardedInstrumentation.RecordList(
-                logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, ownerId,
-                totalCount: 0, visibleCount: 0, sw.Elapsed.TotalMilliseconds);
-            return Array.Empty<FrontActiveReadModel>();
-        }
 
         var all = await ListActiveAsync(systemId, cancellationToken);
         if (all.Count == 0)
         {
             GuardedInstrumentation.RecordList(
-                logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, ownerId,
+                _logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, ownerId,
                 totalCount: 0, visibleCount: 0, sw.Elapsed.TotalMilliseconds);
             return all;
         }
 
-        var guardedAlters = await alters.ListGuardedAsync(systemId, viewerSystemId, cancellationToken);
+        var guardedAlters = await _alters.ListGuardedAsync(systemId, viewerSystemId, cancellationToken);
         var visibleIds = guardedAlters.Select(a => a.Id).ToHashSet();
         var visible = all.Where(front => visibleIds.Contains(front.Alter.Id)).ToArray();
         GuardedInstrumentation.RecordList(
-            logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, ownerId,
+            _logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, ownerId,
             all.Count, visible.Length, sw.Elapsed.TotalMilliseconds);
         return visible;
     }
@@ -311,7 +316,7 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<FrontHistoryRow>(
             """
             SELECT id AS Id, alter_id AS AlterId, comment AS Comment, time_start AS TimeStart, time_end AS TimeEnd
@@ -335,7 +340,7 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<FrontHistoryRow>(
             """
             SELECT id AS Id, alter_id AS AlterId, comment AS Comment, time_start AS TimeStart, time_end AS TimeEnd
@@ -356,7 +361,7 @@ public sealed class SqliteFrontingRepository(
         var userKey = SqliteStorageKeys.Persist(systemId);
         var frontIdText = frontId.Value.ToString("N");
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
 
         AlterId? primaryId = null;
         var primaryRaw = await connection.QueryFirstOrDefaultAsync<long?>(
@@ -386,9 +391,21 @@ public sealed class SqliteFrontingRepository(
 
         var alterId = new AlterId((short)row.AlterId);
         var startedAt = DateTimeOffset.FromUnixTimeMilliseconds(row.TimeStart);
+        var alterModel = await _alters.GetAsync(systemId, alterId, cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Alter {alterId.Value} is missing but referenced by an active front.");
+        var bareAlter = new BareAlter(
+            alterId,
+            alterModel.Name,
+            alterModel.AvatarUrl,
+            alterModel.AvatarSource,
+            alterModel.Color,
+            alterModel.Pronouns,
+            alterModel.Description,
+            alterModel.Fields);
 
         return new FrontActiveReadModel(
-            BareAlter.CreatePlaceholder(alterId),
+            bareAlter,
             new FrontHistoryReadModel(frontId, alterId, row.Comment, startedAt, null, systemId),
             primaryId == alterId);
     }
@@ -399,7 +416,7 @@ public sealed class SqliteFrontingRepository(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<FrontHistoryRow>(
             """
             SELECT id AS Id, alter_id AS AlterId, comment AS Comment, time_start AS TimeStart, time_end AS TimeEnd
@@ -426,7 +443,7 @@ public sealed class SqliteFrontingRepository(
             return false;
         }
 
-        return await EndAsync(systemId, found.Front.AlterId, DateTimeOffset.UtcNow, cancellationToken);
+        return await EndAsync(systemId, found.Front.AlterId, _timeProvider.GetUtcNow(), cancellationToken);
     }
 
     public async Task<bool> DeleteFrontByIdAsync(
@@ -438,7 +455,7 @@ public sealed class SqliteFrontingRepository(
         var userKey = SqliteStorageKeys.Persist(systemId);
         var frontIdText = frontId.Value.ToString("N");
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -498,7 +515,7 @@ public sealed class SqliteFrontingRepository(
         var userKey = SqliteStorageKeys.Persist(systemId);
         var frontIdText = frontId.Value.ToString("N");
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {

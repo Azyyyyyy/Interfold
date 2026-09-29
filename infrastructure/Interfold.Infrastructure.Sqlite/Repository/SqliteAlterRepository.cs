@@ -156,7 +156,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
         if (!string.IsNullOrWhiteSpace(command.Alias))
             Set("alias", "alias", command.Alias);
 
-        await connection.ExecuteAsync(
+        var updated = await connection.ExecuteAsync(
             $"""
             UPDATE alters
             SET {string.Join(", ", sets)}
@@ -188,7 +188,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
         }
 
         await tx.CommitAsync(cancellationToken);
-        return true;
+        return updated > 0;
     }
 
     public async Task<bool> DeleteAsync(
@@ -222,7 +222,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
             new { system_id = systemKey, alter_id = alterId.Value },
             tx);
 
-        await connection.ExecuteAsync(
+        var removed = await connection.ExecuteAsync(
             """
             DELETE FROM alters
             WHERE system_id = @system_id AND id = @id
@@ -232,7 +232,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
 
         await tx.CommitAsync(cancellationToken);
         await _polls.RemoveAlterFromPollsAsync(systemId, alterId, cancellationToken);
-        return true;
+        return removed > 0;
     }
 
     public async Task<IReadOnlyList<AlterReadModel>> ListAsync(

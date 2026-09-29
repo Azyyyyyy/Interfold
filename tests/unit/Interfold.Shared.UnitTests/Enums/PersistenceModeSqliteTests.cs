@@ -50,6 +50,7 @@ public sealed class PersistenceModeSqliteTests
             };
 
             var services = new ServiceCollection();
+            services.AddSingleton(TimeProvider.System);
             services.AddSingleton(Microsoft.Extensions.Options.Options.Create(cfg));
             services.AddSingleton<Microsoft.Extensions.Logging.ILoggerFactory>(
                 Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance);

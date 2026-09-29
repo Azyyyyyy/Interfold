@@ -13,7 +13,6 @@ using Interfold.Polls.Domain.Abstractions.Repository;
 using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Tags.Domain.Abstractions.Repository;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Interfold.Infrastructure.Sqlite;
 
@@ -28,7 +27,6 @@ public static class SqliteServiceCollectionExtensions
         PersistenceConfiguration options)
     {
         _ = options;
-        services.TryAddSingleton(TimeProvider.System);
 
         return services
             .AddSingleton<ISqliteConnectionFactory, SqliteConnectionFactory>()

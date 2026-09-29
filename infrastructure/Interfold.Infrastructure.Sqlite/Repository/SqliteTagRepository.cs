@@ -30,13 +30,13 @@ public sealed class SqliteTagRepository : ITagRepository
         IFriendshipRepository friendships,
         IAlterRepository alterRepository,
         ILogger<SqliteTagRepository> logger,
-        TimeProvider? timeProvider = null)
+        TimeProvider timeProvider)
     {
         _connectionFactory = connectionFactory;
         _friendships = friendships;
         _alterRepository = alterRepository;
         _logger = logger;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
     }
 
     public async Task<TagId?> CreateAsync(
@@ -147,14 +147,14 @@ public sealed class SqliteTagRepository : ITagRepository
             return true;
         }
 
-        await connection.ExecuteAsync(
+        var updated = await connection.ExecuteAsync(
             $"""
             UPDATE tags
             SET {string.Join(", ", sets)}
             WHERE system_id = @system_id AND id = @id
             """,
             parameters);
-        return true;
+        return updated > 0;
     }
 
     public async Task<bool> DeleteAsync(
@@ -181,7 +181,7 @@ public sealed class SqliteTagRepository : ITagRepository
             new { system_id = systemKey, tag_id = tagHex },
             tx);
 
-        await connection.ExecuteAsync(
+        var removed = await connection.ExecuteAsync(
             """
             DELETE FROM tags
             WHERE system_id = @system_id AND id = @id
@@ -190,7 +190,7 @@ public sealed class SqliteTagRepository : ITagRepository
             tx);
 
         await tx.CommitAsync(cancellationToken);
-        return true;
+        return removed > 0;
     }
 
     public async Task<bool> AttachAlterAsync(
@@ -286,7 +286,7 @@ public sealed class SqliteTagRepository : ITagRepository
             return false;
         }
 
-        await connection.ExecuteAsync(
+        var updated = await connection.ExecuteAsync(
             """
             UPDATE tags
             SET parent_tag_id = @parent_tag_id, updated_at = @updated_at
@@ -299,7 +299,7 @@ public sealed class SqliteTagRepository : ITagRepository
                 system_id = systemKey,
                 id = tagHex,
             });
-        return true;
+        return updated > 0;
     }
 
     public async Task<bool> RemoveParentAsync(
@@ -317,14 +317,14 @@ public sealed class SqliteTagRepository : ITagRepository
             return false;
         }
 
-        await connection.ExecuteAsync(
+        var updated = await connection.ExecuteAsync(
             """
             UPDATE tags
             SET parent_tag_id = NULL, updated_at = @updated_at
             WHERE system_id = @system_id AND id = @id
             """,
             new { updated_at = nowMs, system_id = systemKey, id = tagHex });
-        return true;
+        return updated > 0;
     }
 
     public async Task<IReadOnlyList<TagReadModel>> ListAsync(

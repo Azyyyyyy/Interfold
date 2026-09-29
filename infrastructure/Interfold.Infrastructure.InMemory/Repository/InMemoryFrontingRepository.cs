@@ -6,7 +6,6 @@ using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Fronting.Contracts.Ids;
 using Interfold.Fronting.Contracts.Models.Read;
 using Interfold.Fronting.Domain.Abstractions.Repository;
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Domain.Abstractions;
@@ -49,6 +48,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         _friendships = friendships;
         _alters = alters;
         _logger = logger;
+        _ = _friendships;
     }
 
     public Task<bool> IsFrontingAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
@@ -172,10 +172,18 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         var results = new List<FrontActiveReadModel>(activeFronts.Count);
         foreach (var x in activeFronts.OrderByDescending(f => f.StartedAt))
         {
-            var alterModel = await _alters.GetAsync(systemId, x.AlterId, cancellationToken);
-            var bareAlter = alterModel is not null
-                ? new BareAlter(x.AlterId, alterModel.Name, alterModel.AvatarUrl, alterModel.AvatarSource, alterModel.Color, alterModel.Pronouns, alterModel.Description, alterModel.Fields ?? Array.Empty<AlterPublicFieldReadModel>())
-                : BareAlter.CreatePlaceholder(x.AlterId);
+            var alterModel = await _alters.GetAsync(systemId, x.AlterId, cancellationToken)
+                ?? throw new InvalidOperationException(
+                    $"Alter {x.AlterId.Value} is missing but referenced by an active front.");
+            var bareAlter = new BareAlter(
+                x.AlterId,
+                alterModel.Name,
+                alterModel.AvatarUrl,
+                alterModel.AvatarSource,
+                alterModel.Color,
+                alterModel.Pronouns,
+                alterModel.Description,
+                alterModel.Fields ?? Array.Empty<AlterPublicFieldReadModel>());
 
             results.Add(new FrontActiveReadModel(
                 bareAlter,
@@ -193,12 +201,6 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
     {
         var sw = Stopwatch.StartNew();
         var ownerId = InMemoryStorageKeys.Normalize(systemId).Value;
-        var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
-        if (!VisibilityLevel.Public.CanBeViewedBy(friendshipLevel))
-        {
-            GuardedInstrumentation.RecordList(_logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, ownerId, totalCount: 0, visibleCount: 0, sw.Elapsed.TotalMilliseconds);
-            return Array.Empty<FrontActiveReadModel>();
-        }
 
         var all = await ListActiveAsync(systemId, cancellationToken);
         if (all.Count == 0)
@@ -260,26 +262,41 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         }
     }
 
-    public Task<FrontActiveReadModel?> GetActiveByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default)
+    public async Task<FrontActiveReadModel?> GetActiveByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default)
     {
         var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
+        FrontState? found;
+        AlterId? primary;
         lock (_sync)
         {
             if (!TryGetActiveSet(systemKey, out var set))
-                return Task.FromResult<FrontActiveReadModel?>(null);
+                return null;
 
-            _primaryBySystem.TryGetValue(systemKey, out var primary);
+            _primaryBySystem.TryGetValue(systemKey, out primary);
 
-            var found = set.Values.FirstOrDefault(x => x.FrontId == frontId);
+            found = set.Values.FirstOrDefault(x => x.FrontId == frontId);
             if (found is null)
-                return Task.FromResult<FrontActiveReadModel?>(null);
-
-            return Task.FromResult<FrontActiveReadModel?>(new FrontActiveReadModel(
-                BareAlter.CreatePlaceholder(found.AlterId),
-                new FrontHistoryReadModel(found.FrontId, found.AlterId, found.Comment, found.StartedAt, null, systemId),
-                primary == found.AlterId));
+                return null;
         }
+
+        var alterModel = await _alters.GetAsync(systemId, found.AlterId, cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Alter {found.AlterId.Value} is missing but referenced by an active front.");
+        var bareAlter = new BareAlter(
+            found.AlterId,
+            alterModel.Name,
+            alterModel.AvatarUrl,
+            alterModel.AvatarSource,
+            alterModel.Color,
+            alterModel.Pronouns,
+            alterModel.Description,
+            alterModel.Fields ?? Array.Empty<AlterPublicFieldReadModel>());
+
+        return new FrontActiveReadModel(
+            bareAlter,
+            new FrontHistoryReadModel(found.FrontId, found.AlterId, found.Comment, found.StartedAt, null, systemId),
+            primary == found.AlterId);
     }
 
     public Task<FrontHistoryReadModel?> GetHistoryEntryByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default)

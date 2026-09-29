@@ -12,11 +12,16 @@ namespace Interfold.Infrastructure.Sqlite.Repository;
 /// <summary>SQLite port of <see cref="IImportOperationRepository"/>. The per-system mutex
 /// is <c>INSERT … ON CONFLICT DO NOTHING</c> on <c>active_import_by_system</c>; terminal
 /// transitions release with a conditional <c>DELETE … AND operation_id = ?</c>.</summary>
-public sealed class SqliteImportOperationRepository(
-    ISqliteConnectionFactory connectionFactory,
-    TimeProvider? timeProvider = null) : IImportOperationRepository
+public sealed class SqliteImportOperationRepository : IImportOperationRepository
 {
-    private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
+    private readonly ISqliteConnectionFactory _connectionFactory;
+    private readonly TimeProvider _clock;
+
+    public SqliteImportOperationRepository(ISqliteConnectionFactory connectionFactory, TimeProvider timeProvider)
+    {
+        _connectionFactory = connectionFactory;
+        _clock = timeProvider;
+    }
 
     public async Task<ImportOperationClaim> TryClaimAsync(
         SystemId systemId,
@@ -29,9 +34,9 @@ public sealed class SqliteImportOperationRepository(
         var systemKey = SqliteStorageKeys.Persist(systemId);
         var kindWire = kind.ToWire();
         var newOperationId = Guid.NewGuid();
-        var nowMs = NowMs();
+        var nowMs = _clock.GetUtcNow().ToUnixTimeMilliseconds();
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -106,7 +111,7 @@ public sealed class SqliteImportOperationRepository(
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(
             """
             UPDATE import_operations
@@ -134,8 +139,8 @@ public sealed class SqliteImportOperationRepository(
         cancellationToken.ThrowIfCancellationRequested();
 
         var systemKey = SqliteStorageKeys.Persist(systemId);
-        var nowMs = NowMs();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        var nowMs = _clock.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -176,8 +181,8 @@ public sealed class SqliteImportOperationRepository(
         cancellationToken.ThrowIfCancellationRequested();
 
         var systemKey = SqliteStorageKeys.Persist(systemId);
-        var nowMs = NowMs();
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        var nowMs = _clock.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -218,7 +223,7 @@ public sealed class SqliteImportOperationRepository(
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<ImportOperationRow>(
             """
             SELECT system_id AS SystemId, operation_id AS OperationId, kind AS Kind, status AS Status,
@@ -244,7 +249,7 @@ public sealed class SqliteImportOperationRepository(
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var raw = await connection.QueryFirstOrDefaultAsync<string>(
             """
             SELECT operation_id
@@ -262,8 +267,8 @@ public sealed class SqliteImportOperationRepository(
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var cutoffMs = NowMs() - (long)olderThan.TotalMilliseconds;
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        var cutoffMs = _clock.GetUtcNow().ToUnixTimeMilliseconds() - (long)olderThan.TotalMilliseconds;
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<ImportOperationRow>(
             """
             SELECT system_id AS SystemId, operation_id AS OperationId, kind AS Kind, status AS Status,
@@ -337,7 +342,6 @@ public sealed class SqliteImportOperationRepository(
             new IdempotencyKey(row.IdempotencyKey));
     }
 
-    private long NowMs() => _clock.GetUtcNow().ToUnixTimeMilliseconds();
 
     private static string FormatOperationId(Guid id) => id.ToString("N");
 

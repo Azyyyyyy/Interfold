@@ -13,9 +13,6 @@ namespace Interfold.Infrastructure.InMemory.Repository;
 
 public sealed class InMemoryAccountRepository : IAccountRepository
 {
-    // Matches the Scylla port's 5-minute link-token expiry.
-    private static readonly TimeSpan LinkTokenTtl = TimeSpan.FromMinutes(5);
-
     private readonly record struct LinkTokenEntry(ScopedSystemId Scoped, DateTimeOffset ExpiresAt);
 
     // Identity-side reverse dicts key on raw string to preserve
@@ -97,7 +94,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return new(Convert.ToHexString(hash)[..32].ToLowerInvariant());
         });
 
-        _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkTokenTtl));
+        _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkToken.Ttl));
 
         return Task.FromResult(token);
     }

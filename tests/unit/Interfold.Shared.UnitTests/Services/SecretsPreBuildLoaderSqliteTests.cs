@@ -19,9 +19,9 @@ public sealed class SecretsPreBuildLoaderSqliteTests
         try
         {
             await SqliteMigrationService.MigrateAsync(cs, NullLogger.Instance, CancellationToken.None);
-            var store = new SqliteSecretsStore(new SqliteConnectionFactory(cs));
-            await store.UpsertAsync(SecretsStoreKeys.EncryptionPepper, "sqlite-pepper");
-            await store.UpsertAsync(SecretsStoreKeys.AuthDeepLinkSecret, "sqlite-deeplink");
+            var store = new SqliteSecretsStore(new SqliteConnectionFactory(cs), TimeProvider.System);
+            await store.UpsertAsync(SecretsStoreKeys.EncryptionPepper, "sqlite-pepper", "bootstrap");
+            await store.UpsertAsync(SecretsStoreKeys.AuthDeepLinkSecret, "sqlite-deeplink", "bootstrap");
 
             var builder = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>

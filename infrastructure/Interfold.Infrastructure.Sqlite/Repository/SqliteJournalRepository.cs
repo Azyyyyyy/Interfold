@@ -9,11 +9,16 @@ using Microsoft.Data.Sqlite;
 
 namespace Interfold.Infrastructure.Sqlite.Repository;
 
-public sealed class SqliteJournalRepository(
-    ISqliteConnectionFactory connectionFactory,
-    TimeProvider? timeProvider = null) : IJournalRepository
+public sealed class SqliteJournalRepository : IJournalRepository
 {
-    private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
+    private readonly ISqliteConnectionFactory _connectionFactory;
+    private readonly TimeProvider _clock;
+
+    public SqliteJournalRepository(ISqliteConnectionFactory connectionFactory, TimeProvider timeProvider)
+    {
+        _connectionFactory = connectionFactory;
+        _clock = timeProvider;
+    }
 
     public async Task<EntryId?> CreateGlobalAsync(
         SystemId systemId,
@@ -22,9 +27,9 @@ public sealed class SqliteJournalRepository(
     {
         var userKey = SqliteStorageKeys.Persist(systemId);
         var entryId = Guid.NewGuid();
-        var nowMs = NowMs();
+        var nowMs = _clock.GetUtcNow().ToUnixTimeMilliseconds();
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(
             """
             INSERT INTO global_journals
@@ -49,7 +54,7 @@ public sealed class SqliteJournalRepository(
         EntryId entryId,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         return await ExistsGlobalCoreAsync(connection, systemId, entryId, cancellationToken);
     }
 
@@ -58,7 +63,7 @@ public sealed class SqliteJournalRepository(
         UpdateGlobalJournalEntryCommand command,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         if (!await ExistsGlobalCoreAsync(connection, systemId, command.EntryId, cancellationToken))
         {
             return false;
@@ -69,7 +74,7 @@ public sealed class SqliteJournalRepository(
             return true;
         }
 
-        await connection.ExecuteAsync(
+        var updated = await connection.ExecuteAsync(
             """
             UPDATE global_journals SET
                 title = COALESCE(@title, title),
@@ -83,11 +88,11 @@ public sealed class SqliteJournalRepository(
                 title = command.Title,
                 content = command.Content,
                 color = command.Color?.Value,
-                updated_at = NowMs(),
+                updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
                 user_id = SqliteStorageKeys.Persist(systemId),
                 id = FormatEntryId(command.EntryId.Value),
             });
-        return true;
+        return updated > 0;
     }
 
     public async Task<bool> DeleteGlobalAsync(
@@ -96,7 +101,7 @@ public sealed class SqliteJournalRepository(
         CancellationToken cancellationToken = default)
     {
         var userKey = SqliteStorageKeys.Persist(systemId);
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         if (!await ExistsGlobalCoreAsync(connection, systemId, entryId, cancellationToken))
         {
             return false;
@@ -113,7 +118,7 @@ public sealed class SqliteJournalRepository(
                 new { user_id = userKey, id = FormatEntryId(entryId.Value) },
                 tx);
 
-            await connection.ExecuteAsync(
+            var removed = await connection.ExecuteAsync(
                 """
                 DELETE FROM global_journals
                 WHERE user_id = @user_id AND id = @id
@@ -122,7 +127,7 @@ public sealed class SqliteJournalRepository(
                 tx);
 
             await tx.CommitAsync(cancellationToken);
-            return true;
+            return removed > 0;
         }
         catch
         {
@@ -151,13 +156,13 @@ public sealed class SqliteJournalRepository(
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         if (!await ExistsGlobalCoreAsync(connection, systemId, entryId, cancellationToken))
         {
             return false;
         }
 
-        var nowMs = NowMs();
+        var nowMs = _clock.GetUtcNow().ToUnixTimeMilliseconds();
         await connection.ExecuteAsync(
             """
             INSERT INTO global_journal_alters
@@ -183,7 +188,7 @@ public sealed class SqliteJournalRepository(
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var removed = await connection.ExecuteAsync(
             """
             DELETE FROM global_journal_alters
@@ -208,7 +213,7 @@ public sealed class SqliteJournalRepository(
         var entryId = Guid.NewGuid();
         var atMs = command.CreatedAt.ToUnixTimeMilliseconds();
 
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(
             """
             INSERT INTO alter_journals
@@ -234,7 +239,7 @@ public sealed class SqliteJournalRepository(
         EntryId entryId,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<AlterJournalRefRow>(
             """
             SELECT id AS Id, alter_id AS AlterId
@@ -262,7 +267,7 @@ public sealed class SqliteJournalRepository(
         UpdateAlterJournalEntryCommand command,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
 
         if (command.Title is null && command.Content is null && command.Color is null)
         {
@@ -295,7 +300,7 @@ public sealed class SqliteJournalRepository(
         EntryId entryId,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var removed = await connection.ExecuteAsync(
             """
             DELETE FROM alter_journals
@@ -315,7 +320,7 @@ public sealed class SqliteJournalRepository(
         CancellationToken cancellationToken = default)
     {
         var userKey = SqliteStorageKeys.Persist(systemId);
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -364,7 +369,7 @@ public sealed class SqliteJournalRepository(
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<AlterJournalRow>(
             """
             SELECT id AS Id, user_id AS UserId, alter_id AS AlterId, title AS Title, content AS Content,
@@ -382,7 +387,7 @@ public sealed class SqliteJournalRepository(
         EntryId entryId,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<AlterJournalRow>(
             """
             SELECT id AS Id, user_id AS UserId, alter_id AS AlterId, title AS Title, content AS Content,
@@ -404,7 +409,7 @@ public sealed class SqliteJournalRepository(
         CancellationToken cancellationToken = default)
     {
         var userKey = SqliteStorageKeys.Persist(systemId);
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var drafts = (await connection.QueryAsync<GlobalJournalRow>(
             """
             SELECT id AS Id, user_id AS UserId, title AS Title, content AS Content, color AS Color,
@@ -433,7 +438,7 @@ public sealed class SqliteJournalRepository(
     {
         var userKey = SqliteStorageKeys.Persist(systemId);
         var idHex = FormatEntryId(entryId.Value);
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<GlobalJournalRow>(
             """
             SELECT id AS Id, user_id AS UserId, title AS Title, content AS Content, color AS Color,
@@ -459,7 +464,7 @@ public sealed class SqliteJournalRepository(
         bool value,
         CancellationToken cancellationToken)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         if (!await ExistsGlobalCoreAsync(connection, systemId, entryId, cancellationToken))
         {
             return false;
@@ -476,16 +481,16 @@ public sealed class SqliteJournalRepository(
               SET locked = @flag, updated_at = @updated_at
               WHERE user_id = @user_id AND id = @id
               """;
-        await connection.ExecuteAsync(
+        var rows = await connection.ExecuteAsync(
             sql,
             new
             {
                 flag = value ? 1 : 0,
-                updated_at = NowMs(),
+                updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
                 user_id = SqliteStorageKeys.Persist(systemId),
                 id = FormatEntryId(entryId.Value),
             });
-        return true;
+        return rows > 0;
     }
 
     private async Task<bool> SetAlterFlagAsync(
@@ -495,7 +500,7 @@ public sealed class SqliteJournalRepository(
         bool value,
         CancellationToken cancellationToken)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var sql = column == "pinned"
             ? """
               UPDATE alter_journals
@@ -512,7 +517,7 @@ public sealed class SqliteJournalRepository(
             new
             {
                 flag = value ? 1 : 0,
-                updated_at = NowMs(),
+                updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
                 user_id = SqliteStorageKeys.Persist(systemId),
                 id = FormatEntryId(entryId.Value),
             });
@@ -596,8 +601,6 @@ public sealed class SqliteJournalRepository(
             row.Pinned != 0,
             FromUnixMs(row.InsertedAt),
             FromUnixMs(row.UpdatedAt));
-
-    private long NowMs() => _clock.GetUtcNow().ToUnixTimeMilliseconds();
 
     private static string FormatEntryId(Guid id) => id.ToString("N");
 
