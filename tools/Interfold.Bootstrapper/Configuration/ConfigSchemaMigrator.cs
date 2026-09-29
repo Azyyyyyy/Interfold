@@ -368,6 +368,9 @@ internal static class ConfigSchemaMigrator
             postgres["database"] = db?.DeepClone();
         }
 
+        // Always stamp persistence on V1→V2. Pre-persistence V1 implied Scylla+Postgres
+        // (except databaseMode=sqlite); without an explicit wire the V2 sqlite default
+        // would flip those stacks.
         if (root.TryGetPropertyValue("databaseMode", out var mode))
         {
             var wire = mode?.GetValue<string>() ?? "single";
@@ -377,12 +380,18 @@ internal static class ConfigSchemaMigrator
             }
             else
             {
+                datastores["persistence"] = "scylla-postgres";
                 cql["backend"] = MapDatabaseModeToBackend(mode);
             }
         }
         else if (root.TryGetPropertyValue("scyllaMode", out var scyllaMode))
         {
+            datastores["persistence"] = "scylla-postgres";
             cql["backend"] = MapDatabaseModeToBackend(scyllaMode);
+        }
+        else if (!datastores.ContainsKey("persistence"))
+        {
+            datastores["persistence"] = "scylla-postgres";
         }
 
         if (root.TryGetPropertyValue("clusterName", out var clusterName))

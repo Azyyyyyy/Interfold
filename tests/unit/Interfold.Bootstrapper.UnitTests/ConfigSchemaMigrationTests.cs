@@ -39,9 +39,42 @@ public sealed class ConfigSchemaMigrationTests
         await Assert.That(root.GetProperty("edge").GetProperty("hosts")[0].GetString()).IsEqualTo("api.example.com");
         await Assert.That(root.GetProperty("deployment").GetProperty("includeWeb").GetBoolean()).IsFalse();
         await Assert.That(root.TryGetProperty("datastores", out var datastores) && datastores.ValueKind == JsonValueKind.Object).IsTrue();
+        await Assert.That(datastores.GetProperty("persistence").GetString()).IsEqualTo("scylla-postgres");
+        await Assert.That(datastores.GetProperty("cql").GetProperty("backend").GetString()).IsEqualTo("scylla-single");
         await Assert.That(root.TryGetProperty("ports", out _)).IsFalse();
         await Assert.That(root.GetProperty("deployment").TryGetProperty("edge", out _)).IsFalse();
         await Assert.That(root.GetProperty("deployment").TryGetProperty("webHttps", out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task V1SqliteDatabaseModeMigratesToSqlitePersistence()
+    {
+        const string json = """
+            {
+              "deployment": { "hosts": ["a.example.com"], "includeWeb": false },
+              "ports": { "apiHttp": 5000, "apiHttps": 5001 },
+              "databaseMode": "sqlite"
+            }
+            """;
+        var result = Migrate(json);
+        using var doc = JsonDocument.Parse(result.Json);
+        await Assert.That(doc.RootElement.GetProperty("datastores").GetProperty("persistence").GetString())
+            .IsEqualTo("sqlite");
+    }
+
+    [Test]
+    public async Task V1MissingDatabaseModeStillStampsScyllaPostgresPersistence()
+    {
+        const string json = """
+            {
+              "deployment": { "hosts": ["a.example.com"], "includeWeb": false },
+              "ports": { "apiHttp": 5000, "apiHttps": 5001 }
+            }
+            """;
+        var result = Migrate(json);
+        using var doc = JsonDocument.Parse(result.Json);
+        await Assert.That(doc.RootElement.GetProperty("datastores").GetProperty("persistence").GetString())
+            .IsEqualTo("scylla-postgres");
     }
 
     [Test]

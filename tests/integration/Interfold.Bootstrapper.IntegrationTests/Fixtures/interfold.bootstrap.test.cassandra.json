@@ -14,6 +14,7 @@
     }
   },
   "datastores": {
+    "persistence": "scylla-postgres",
     "postgres": { "database": "test_pg_db" },
     "cql": { "backend": "cassandra" }
   },

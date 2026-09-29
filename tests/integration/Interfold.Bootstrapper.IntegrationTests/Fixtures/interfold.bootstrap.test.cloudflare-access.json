@@ -25,6 +25,7 @@
     }
   },
   "datastores": {
+    "persistence": "scylla-postgres",
     "cql": { "backend": "scylla-single" }
   },
   "api": {
