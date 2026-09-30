@@ -10,6 +10,9 @@ namespace Interfold.Shared.Contracts.Ids;
 [JsonConverter(typeof(LinkTokenJsonConverter))]
 public readonly record struct LinkToken
 {
+    /// <summary>Shared across Sqlite / Scylla / InMemory account adapters.</summary>
+    public static readonly TimeSpan Ttl = TimeSpan.FromMinutes(5);
+
     public string Value { get; }
 
     public LinkToken(string value)

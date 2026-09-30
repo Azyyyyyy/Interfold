@@ -162,7 +162,7 @@ internal static class ConfigSchemaMigrator
         }
 
         MoveBackupUpdate(root, deployment);
-        HoistDatastoreFields(root, postgres, cql);
+        HoistDatastoreFields(root, datastores, postgres, cql);
         HoistApiFields(root, api);
 
         root["deployment"] = deployment;
@@ -361,20 +361,37 @@ internal static class ConfigSchemaMigrator
         }
     }
 
-    private static void HoistDatastoreFields(JsonObject root, JsonObject postgres, JsonObject cql)
+    private static void HoistDatastoreFields(JsonObject root, JsonObject datastores, JsonObject postgres, JsonObject cql)
     {
         if (root.TryGetPropertyValue("postgresDatabase", out var db))
         {
             postgres["database"] = db?.DeepClone();
         }
 
+        // Always stamp persistence on V1→V2. Pre-persistence V1 implied Scylla+Postgres
+        // (except databaseMode=sqlite); without an explicit wire the V2 sqlite default
+        // would flip those stacks.
         if (root.TryGetPropertyValue("databaseMode", out var mode))
         {
-            cql["backend"] = MapDatabaseModeToBackend(mode);
+            var wire = mode?.GetValue<string>() ?? "single";
+            if (wire.Trim().Equals("sqlite", StringComparison.OrdinalIgnoreCase))
+            {
+                datastores["persistence"] = "sqlite";
+            }
+            else
+            {
+                datastores["persistence"] = "scylla-postgres";
+                cql["backend"] = MapDatabaseModeToBackend(mode);
+            }
         }
         else if (root.TryGetPropertyValue("scyllaMode", out var scyllaMode))
         {
+            datastores["persistence"] = "scylla-postgres";
             cql["backend"] = MapDatabaseModeToBackend(scyllaMode);
+        }
+        else if (!datastores.ContainsKey("persistence"))
+        {
+            datastores["persistence"] = "scylla-postgres";
         }
 
         if (root.TryGetPropertyValue("clusterName", out var clusterName))

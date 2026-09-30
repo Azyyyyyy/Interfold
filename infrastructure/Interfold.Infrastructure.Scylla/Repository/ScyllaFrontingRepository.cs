@@ -210,7 +210,8 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
                     if (!alterById.TryGetValue(alterId, out var alter))
                     {
-                        alter = BareAlter.CreatePlaceholder(alterId);
+                        throw new InvalidOperationException(
+                            $"Alter {alterId.Value} is missing but referenced by an active front.");
                     }
 
                     return new FrontActiveReadModel(alter, front, primaryAlterId == alterId);
@@ -348,7 +349,8 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             BareAlter alter;
             if (alterRow is null)
             {
-                alter = BareAlter.CreatePlaceholder(new(alterId));
+                throw new InvalidOperationException(
+                    $"Alter {alterId} is missing but referenced by an active front.");
             }
             else
             {

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -34,6 +35,7 @@ public sealed class ConfigValidationTests
         },
         Datastores =
         {
+            Persistence = PersistenceMode.ScyllaPostgres,
             Cql = { Backend = CqlBackend.ScyllaSingle },
         },
     };

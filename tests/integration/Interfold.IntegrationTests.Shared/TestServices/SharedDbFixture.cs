@@ -58,6 +58,8 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         LifecycleProbe.Log("SharedDbFixture.BuildArgs");
         var args = new List<string>
         {
+            // see InterfoldAppHost: sqlite forces include-postgres/scylla off
+            $"{AppHostParameterKeys.Persistence}=scylla-postgres",
             $"{AppHostParameterKeys.IncludeApi}=false",
             $"{AppHostParameterKeys.IncludeWeb}=false",
             $"{AppHostParameterKeys.PersistentContainers}=false",

@@ -8,6 +8,10 @@ namespace Interfold.Settings.Domain.Abstractions.Repository;
 
 public interface IAccountRepository
 {
+    /// <summary>Idempotent insert of an empty account for an already-held system id.
+    /// OAuth mints ids via <see cref="FindOrCreateSystemIdAsync"/>.</summary>
+    Task EnsureExistsAsync(SystemId systemId, CancellationToken cancellationToken = default);
+
     Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default);
 
     Task<bool> UpdateDescriptionAsync(SystemId systemId, string description, CancellationToken cancellationToken = default);

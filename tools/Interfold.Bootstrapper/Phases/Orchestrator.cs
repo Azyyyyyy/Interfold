@@ -118,7 +118,14 @@ internal static class Orchestrator
             or BootstrapCommand.RotateSecrets
             or BootstrapCommand.RotateCerts)
         {
-            await DatabaseInitPhase.RunAsync(options, config!, secrets!, firebase, logger, ct).ConfigureAwait(false);
+            if (config!.UsesSqlite)
+            {
+                await SqliteDatabaseInitPhase.RunAsync(options, config, secrets!, firebase, logger, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                await DatabaseInitPhase.RunAsync(options, config, secrets!, firebase, logger, ct).ConfigureAwait(false);
+            }
             if (HaltAfter(options, BootstrapPhase.DbInit, logger)) return 0;
         }
 

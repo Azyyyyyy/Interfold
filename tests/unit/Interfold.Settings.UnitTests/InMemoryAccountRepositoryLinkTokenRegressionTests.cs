@@ -1,3 +1,4 @@
+using Interfold.Settings.Contracts.Ids;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Infrastructure.InMemory.Repository;
@@ -25,7 +26,7 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
 
         var token = await repo.GetOrCreateLinkTokenAsync(RawSystemId);
 
-        clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
+        clock.Advance(LinkToken.Ttl + TimeSpan.FromSeconds(1));
 
         var resolved = await repo.ResolveSystemIdByLinkTokenAsync(token);
         await Assert.That(resolved).IsNull()
@@ -40,7 +41,7 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
         var repo = new InMemoryAccountRepository(new FixedRegionContext(ScyllaKeyspace.Nam), timeProvider: clock);
 
         await repo.GetOrCreateLinkTokenAsync(RawSystemId);
-        clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
+        clock.Advance(LinkToken.Ttl + TimeSpan.FromSeconds(1));
 
         var read = await repo.GetLinkTokenAsync(RawSystemId);
         await Assert.That(read).IsNull()
@@ -58,7 +59,7 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
         var repo = new InMemoryAccountRepository(new FixedRegionContext(ScyllaKeyspace.Nam), timeProvider: clock);
 
         var originalToken = await repo.GetOrCreateLinkTokenAsync(RawSystemId);
-        clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
+        clock.Advance(LinkToken.Ttl + TimeSpan.FromSeconds(1));
 
         var resolvedAfterExpiry = await repo.ResolveSystemIdByLinkTokenAsync(originalToken);
         await Assert.That(resolvedAfterExpiry).IsNull()

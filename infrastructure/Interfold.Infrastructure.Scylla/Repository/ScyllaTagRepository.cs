@@ -84,7 +84,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 null,
                 null,
                 (short)VisibilityLevel.Private,
-                command.InsertedAtUtc
+                ScyllaTimestamps.AsUtc(command.InsertedAtUtc)
             );
 
             await session.ExecuteAsync(insert);

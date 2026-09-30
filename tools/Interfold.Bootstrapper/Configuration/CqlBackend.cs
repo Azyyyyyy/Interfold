@@ -27,11 +27,18 @@ internal static class CqlBackendMapping
         _ => DatabaseMode.Single,
     };
 
+    internal static DatabaseMode ToEffectiveDatabaseMode(BootstrapConfig config)
+        => config.UsesSqlite
+            ? DatabaseMode.Sqlite
+            : ToDatabaseMode(config.Datastores.Cql.Backend);
+
     internal static CqlBackend FromDatabaseMode(DatabaseMode mode) => mode switch
     {
         DatabaseMode.Single => CqlBackend.ScyllaSingle,
         DatabaseMode.Multi => CqlBackend.ScyllaMulti,
         DatabaseMode.Cassandra => CqlBackend.Cassandra,
+        DatabaseMode.Sqlite => throw new InvalidOperationException(
+            "Sqlite persistence has no CQL backend."),
         _ => CqlBackend.ScyllaSingle,
     };
 

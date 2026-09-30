@@ -30,6 +30,8 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
 
     protected override string[] Args =>
     [
+        // see InterfoldAppHost: sqlite forces include-postgres/scylla off
+        $"{AppHostParameterKeys.Persistence}=scylla-postgres",
         $"{AppHostParameterKeys.IncludePostgres}=false",
         $"{AppHostParameterKeys.IncludeScylla}=true",
         $"{AppHostParameterKeys.IncludeCassandra}=false",

@@ -10,6 +10,7 @@
     <InternalsVisibleTo Include="Interfold.Infrastructure.Scylla" />
     <InternalsVisibleTo Include="Interfold.Infrastructure.InMemory" />
     <InternalsVisibleTo Include="Interfold.Infrastructure.Postgres" />
+    <InternalsVisibleTo Include="Interfold.Infrastructure.Sqlite" />
     <ProjectReference Include="..\..\shared\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
     <!-- Interfold.Infrastructure -> Interfold.Auth.Domain back-ref:
          IAuthTokenRevocationRepository is bound by PostgresServiceCollectionExtensions +

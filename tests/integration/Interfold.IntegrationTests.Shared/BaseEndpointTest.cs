@@ -11,6 +11,7 @@ using Interfold.Fronting.Contracts.Models.Read;
 using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Settings.Contracts.Models.Read;
 using Interfold.Settings.Contracts.Models.Wire;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
@@ -141,10 +142,19 @@ public class BaseEndpointTest
         return (owner, nonFriend, friend, trusted);
     }
 
-    /// <summary>Ensures a public profile exists via a username POST; treats 204 and 409
-    /// (already set) as success.</summary>
+    /// <summary>Creates the account row if missing, then POSTs username. 204 and 409 succeed.</summary>
     public static async Task EnsureUserExistsAsync(HttpClient client, string principal, string? username = null)
     {
+        if (!InterfoldWebApplicationFactory.TryGetFactory(client, out var factory))
+        {
+            throw new InvalidOperationException(
+                "Could not resolve test factory for HttpClient. Use InterfoldWebApplicationFactory.CreateClient().");
+        }
+
+        var accounts = factory.Services.GetRequiredService<IAccountRepository>();
+        var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, principal);
+        await accounts.EnsureExistsAsync(scoped.AsSystemId());
+
         var body = new SettingsUsernameRequest(new Username(username ?? principal));
         using var res = await client.SendAsJsonAsync(HttpMethod.Post, "/api/settings/username", body, principal);
         var responseBody = res.IsSuccessStatusCode || res.StatusCode == HttpStatusCode.Conflict

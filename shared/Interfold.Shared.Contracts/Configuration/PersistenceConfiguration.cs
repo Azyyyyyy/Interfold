@@ -4,10 +4,9 @@ using System.ComponentModel.DataAnnotations;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration.Validation;
 
-/// <summary>Scylla/Postgres persistence + retry configuration. Bound from OCTOCON_
-/// env vars. <c>ScyllaKeyspace</c> unifies session default keyspace and region routing;
-/// Scylla connection secrets live in <c>internal.secrets</c> and are read via
-/// <c>ISecretsStore</c>.</summary>
+/// <summary>Persistence + retry configuration. Bound from OCTOCON_ env vars.
+/// <c>ScyllaKeyspace</c> unifies session default keyspace and region routing;
+/// Scylla connection secrets live in the secrets store.</summary>
 public sealed class PersistenceConfiguration : IValidatableObject
 {
     public const string SectionName = "Octocon:Persistence";
@@ -19,9 +18,14 @@ public sealed class PersistenceConfiguration : IValidatableObject
     /// Env: OCTOCON_SCYLLA_KEYSPACE.</summary>
     public Enums.ScyllaKeyspace ScyllaKeyspace { get; set; } = Enums.ScyllaKeyspace.Nam;
 
-    /// <summary>Env: OCTOCON_POSTGRES_CONNECTION.</summary>
-    [Required, MinLength(1)]
+    /// <summary>Env: OCTOCON_POSTGRES_CONNECTION. Required when
+    /// <see cref="Mode"/> is <see cref="PersistenceMode.ScyllaPostgres"/>.</summary>
     public string PostgresConnectionString { get; set; } = "";
+
+    /// <summary>Env: OCTOCON_SQLITE_CONNECTION. Required when
+    /// <see cref="Mode"/> is <see cref="PersistenceMode.Sqlite"/>
+    /// (e.g. <c>Data Source=/var/lib/interfold/interfold.db</c>).</summary>
+    public string SqliteConnectionString { get; set; } = "";
 
     /// <summary>True → migration service creates only the ScyllaKeyspace keyspace.
     /// Env: OCTOCON_SINGLE_SCYLLA_INSTANCE.</summary>
@@ -43,6 +47,20 @@ public sealed class PersistenceConfiguration : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
+        if (Mode == PersistenceMode.ScyllaPostgres && string.IsNullOrWhiteSpace(PostgresConnectionString))
+        {
+            yield return new ValidationResult(
+                $"{nameof(PostgresConnectionString)} is required when {nameof(Mode)} is {PersistenceMode.ScyllaPostgres}.",
+                [nameof(PostgresConnectionString)]);
+        }
+
+        if (Mode == PersistenceMode.Sqlite && string.IsNullOrWhiteSpace(SqliteConnectionString))
+        {
+            yield return new ValidationResult(
+                $"{nameof(SqliteConnectionString)} is required when {nameof(Mode)} is {PersistenceMode.Sqlite}.",
+                [nameof(SqliteConnectionString)]);
+        }
+
         var initialMs = DbRetryInitialDelay.TotalMilliseconds;
         if (initialMs < ConfigurationBounds.DbRetryInitialDelayMsMin
             || initialMs > ConfigurationBounds.DbRetryInitialDelayMsMax)

@@ -82,8 +82,8 @@ public sealed class ScyllaPollRepository : IPollRepository
                 command.Description,
                 (short)command.Type,
                 "{}",
-                command.TimeEnd,
-                command.InsertedAtUtc
+                ScyllaTimestamps.AsUtc(command.TimeEnd),
+                ScyllaTimestamps.AsUtc(command.InsertedAtUtc)
             );
 
             await session.ExecuteAsync(insert);
@@ -133,7 +133,7 @@ public sealed class ScyllaPollRepository : IPollRepository
             {
                 updateBatch.Add(new SimpleStatement(
                     $"UPDATE {keyspace}.polls SET time_end = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
-                    command.TimeEnd,
+                    ScyllaTimestamps.AsUtc(command.TimeEnd),
                     normalizedSystemId,
                     command.Id.Value));
             }

@@ -9,6 +9,7 @@ using Interfold.Shared.Contracts.Enums;
 namespace Interfold.Alters.IntegrationTests.Controllers;
 
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
+[ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest

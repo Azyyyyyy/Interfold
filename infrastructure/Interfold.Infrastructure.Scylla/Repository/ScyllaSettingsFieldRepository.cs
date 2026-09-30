@@ -224,8 +224,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         DateTime insertedAtUtc)
     {
         EnsureFieldUdtMapping(session, keyspace);
-        // SpecifyKind(Utc) defends against a future caller handing us a Local DateTime.
-        var insertedAtOffset = new DateTimeOffset(DateTime.SpecifyKind(insertedAtUtc, DateTimeKind.Utc), TimeSpan.Zero);
+        var insertedAtOffset = ScyllaTimestamps.AsUtc(insertedAtUtc);
         return new UserFieldUdt
         {
             Id = id,
