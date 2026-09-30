@@ -1,0 +1,526 @@
+using System.Net;
+using Interfold.Bootstrapper.Configuration;
+using Interfold.Bootstrapper.Phases;
+using Interfold.Shared.Contracts;
+using Spectre.Console;
+using Spectre.Console.Testing;
+
+namespace Interfold.Bootstrapper.UnitTests;
+
+/// <summary>Drives <see cref="GuidedConfigPrompt"/> through Spectre <c>TestConsole</c>.
+/// Selection prompts take Enter for the highlighted (first) choice and DownArrow to move.
+/// Confirmation prompts require Enter after <c>y</c>/<c>n</c>; Enter alone accepts the default.
+/// <para><c>[NotInParallel("bootstrapper-console")]</c> shares the Spectre TestConsole lock
+/// with <see cref="ConfigInteractivePromptTests"/>.</para></summary>
+[NotInParallel("bootstrapper-console")]
+[Retry(2)]
+public sealed class GuidedConfigPromptTests
+{
+    private const int AdvancedFieldCount = 61;
+
+    private static TestConsole NewConsole()
+    {
+        var console = new TestConsole();
+        console.Interactive();
+        console.Profile.Height = 120;
+        console.Profile.Width = 130;
+        return console;
+    }
+
+    private static void Select(TestConsole console, int downArrows)
+    {
+        for (var i = 0; i < downArrows; i++)
+        {
+            console.Input.PushKey(ConsoleKey.DownArrow);
+        }
+
+        console.Input.PushKey(ConsoleKey.Enter);
+    }
+
+    private static void Accept(TestConsole console) => console.Input.PushKey(ConsoleKey.Enter);
+
+    private static void DeclineOptional(TestConsole console)
+    {
+        Accept(console);
+        Accept(console);
+        Accept(console);
+    }
+
+    private static void Answer(TestConsole console, string text) => console.Input.PushTextWithEnter(text);
+
+    private static void ConfirmAdvanced(TestConsole console) => Select(console, AdvancedFieldCount);
+
+    private static BootstrapConfig Run(TestConsole console, string? hostname = null, IPAddress? ip = null) =>
+        GuidedConfigPrompt.Run(
+            console,
+            maskSecrets: true,
+            localAddressProbe: () => ip,
+            hostnameProbe: () => hostname);
+
+    [Test]
+    public async Task ChoosingAdvancedSkipsGuidedQuestions()
+    {
+        var console = NewConsole();
+        Select(console, downArrows: 1);
+        ConfirmAdvanced(console);
+
+        var config = Run(console);
+
+        await Assert.That(console.Output).Contains("Configure interfold.bootstrap.json");
+        await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.ReachabilityTitle);
+        await Assert.That(config.Edge.Hosts).IsEmpty();
+        await Assert.That(config.Datastores.Persistence).IsEqualTo(PersistenceMode.Sqlite);
+        await Assert.That(config.Edge.TlsMode).IsEqualTo(EdgeTlsMode.PrivateCa);
+    }
+
+    [Test]
+    public async Task LanConfirmUsesPrivateCaSqliteAndPath()
+    {
+        var console = NewConsole();
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Answer(console, "192.168.1.42");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(config.Edge.TlsMode).IsEqualTo(EdgeTlsMode.PrivateCa);
+        await Assert.That(config.Datastores.Persistence).IsEqualTo(PersistenceMode.Sqlite);
+        await Assert.That(config.Edge.Routing.Mode).IsEqualTo(EdgeRoutingMode.Path);
+        await Assert.That(config.Edge.Hosts).IsEquivalentTo(["192.168.1.42"]);
+        await Assert.That(config.Edge.Certificates.TrustStoreInstall).IsTrue();
+        await Assert.That(config.Edge.Ports.Http).IsEqualTo(80);
+        await Assert.That(config.Edge.Ports.Https).IsEqualTo(443);
+        await Assert.That(config.Api.OAuth.AppleClientId).IsEmpty();
+        await Assert.That(config.Edge.Cloudflare.Enabled).IsFalse();
+        await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://192.168.1.42");
+        await Assert.That(config.Deployment.Backup.Enabled).IsFalse();
+        await Assert.That(config.Deployment.Update.Enabled).IsFalse();
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.UpdatesUnavailableMessage);
+        await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.UpdateQuestion);
+        await Assert.That(console.Output).Contains("not available (scheduled backups are off)");
+        ConfigPhase.Validate(config);
+    }
+
+    [Test]
+    public async Task IpOnlyHostSkipsSubdomainQuestion()
+    {
+        var console = NewConsole();
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Answer(console, "y");
+        Answer(console, "192.168.1.42");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.RoutingTitle);
+        await Assert.That(config.Deployment.IncludeWeb).IsTrue();
+        await Assert.That(config.Edge.Routing.Mode).IsEqualTo(EdgeRoutingMode.Path);
+        await Assert.That(console.Output).Contains("IP hosts stay on one address");
+    }
+
+    [Test]
+    public async Task DnsHostWithWebCanChooseSeparateHostnames()
+    {
+        var console = NewConsole();
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Answer(console, "y");
+        Answer(console, "app.example.com");
+        Select(console, downArrows: 1);
+        Answer(console, "api.example.com");
+        Answer(console, "web.example.com");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(config.Edge.Routing.Mode).IsEqualTo(EdgeRoutingMode.Subdomain);
+        await Assert.That(config.Edge.Routing.ApiHost).IsEqualTo("api.example.com");
+        await Assert.That(config.Edge.Routing.WebHost).IsEqualTo("web.example.com");
+        await Assert.That(config.Edge.TlsMode).IsEqualTo(EdgeTlsMode.PrivateCa);
+        await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://api.example.com");
+        ConfigPhase.Validate(config);
+    }
+
+    [Test]
+    public async Task CloudflareConfirmLeavesTlsForValidateAndSkipsGoogleWhenAccessIsOff()
+    {
+        const string token = "cfat-test-token";
+        var console = NewConsole();
+        Accept(console);
+        Select(console, downArrows: 1);
+        Accept(console);
+        Answer(console, "y");
+        Answer(console, "app.example.com");
+        Accept(console);
+        Answer(console, token);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.RoutingTitle);
+        await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.GoogleClientIdLabel);
+        await Assert.That(console.Output).DoesNotContain(token);
+        await Assert.That(config.Edge.Cloudflare.Enabled).IsTrue();
+        await Assert.That(config.Edge.Cloudflare.ApiToken).IsEqualTo(token);
+        await Assert.That(config.Edge.Cloudflare.TunnelName).IsEqualTo("interfold");
+        await Assert.That(config.Edge.Cloudflare.Access.Enabled).IsFalse();
+        await Assert.That(console.Output).Contains("not published (Cloudflare Tunnel)");
+        await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.PortsQuestion);
+        await Assert.That(config.Api.OAuth.GoogleClientId).IsEmpty();
+        await Assert.That(config.Edge.TlsMode).IsEqualTo(EdgeTlsMode.PrivateCa);
+        await Assert.That(config.Edge.Routing.Mode).IsEqualTo(EdgeRoutingMode.Path);
+        await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://app.example.com");
+
+        ConfigPhase.Validate(config);
+        await Assert.That(config.Edge.TlsMode).IsEqualTo(EdgeTlsMode.None);
+    }
+
+    [Test]
+    public async Task CloudflareAccessRequiresEmailAndGoogle()
+    {
+        var console = NewConsole();
+        Accept(console);
+        Select(console, downArrows: 1);
+        Accept(console);
+        Accept(console);
+        Answer(console, "access.example.com");
+        Answer(console, "cfat-access-token");
+        Answer(console, "y");
+        Answer(console, "person@example.com");
+        Accept(console);
+        Answer(console, "google-client");
+        Answer(console, "google-secret");
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.GoogleClientIdLabel);
+        await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.DiscordClientIdLabel);
+        await Assert.That(config.Edge.Cloudflare.Access.Enabled).IsTrue();
+        await Assert.That(config.Edge.Cloudflare.Access.AllowedEmails).IsEquivalentTo(["person@example.com"]);
+        await Assert.That(config.Api.OAuth.GoogleClientId).IsEqualTo("google-client");
+        await Assert.That(config.Api.OAuth.GoogleClientSecret).IsEqualTo("google-secret");
+        await Assert.That(config.Api.OAuth.DiscordClientId).IsEmpty();
+        ConfigPhase.Validate(config);
+        await Assert.That(config.Edge.TlsMode).IsEqualTo(EdgeTlsMode.None);
+    }
+
+    [Test]
+    public async Task LanPrefillKeepsHostnameBeforeDetectedAddress()
+    {
+        var console = NewConsole();
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console, hostname: "box.local", ip: IPAddress.Parse("10.1.2.3"));
+
+        await Assert.That(config.Edge.Hosts).IsEquivalentTo(["box.local", "10.1.2.3"]);
+        await Assert.That(config.Edge.Hosts[0]).IsEqualTo("box.local");
+    }
+
+    [Test]
+    public async Task CloudflarePrefillDropsDetectedIp()
+    {
+        var console = NewConsole();
+        Accept(console);
+        Select(console, downArrows: 1);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Answer(console, "cfat-prefill-token");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console, hostname: "box.local", ip: IPAddress.Parse("10.1.2.3"));
+
+        await Assert.That(config.Edge.Hosts).IsEquivalentTo(["box.local"]);
+    }
+
+    [Test]
+    public async Task SummaryAdvancedOpensEditorSeededFromGuidedAnswers()
+    {
+        var console = NewConsole();
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Answer(console, "lan.example.com");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Select(console, downArrows: 2);
+        ConfirmAdvanced(console);
+
+        var config = Run(console);
+
+        await Assert.That(console.Output).Contains("Configure interfold.bootstrap.json");
+        await Assert.That(config.Edge.Hosts).IsEquivalentTo(["lan.example.com"]);
+        await Assert.That(config.Edge.TlsMode).IsEqualTo(EdgeTlsMode.PrivateCa);
+        await Assert.That(config.Edge.Certificates.TrustStoreInstall).IsTrue();
+        await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://lan.example.com");
+    }
+
+    [Test]
+    public async Task UpdatesYesWithoutBootstrapperAppliesSafePreset()
+    {
+        var console = NewConsole();
+        PushThroughSignIn(console);
+        Answer(console, "y");
+        Accept(console);
+        Accept(console);
+        Answer(console, "y");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(config.Deployment.Backup.Enabled).IsTrue();
+        await Assert.That(config.Deployment.Backup.Schedule).IsEqualTo("daily");
+        await Assert.That(config.Deployment.Backup.RetainCount).IsEqualTo(14);
+        await Assert.That(config.Deployment.Backup.Directory).IsEmpty();
+        await Assert.That(config.Deployment.Update.Enabled).IsTrue();
+        await Assert.That(config.Deployment.Update.RecreateOnUpdate).IsTrue();
+        await Assert.That(config.Deployment.Update.AutoRestoreOnFailure).IsTrue();
+        await Assert.That(config.Deployment.Update.HealthCheckTimeoutSeconds).IsEqualTo(180);
+        await Assert.That(config.Deployment.Update.Services).IsEmpty();
+        await Assert.That(config.Deployment.Update.Bootstrapper.Enabled).IsFalse();
+        await Assert.That(config.Deployment.Update.Bootstrapper.AutoRollbackOnFailure).IsFalse();
+        await Assert.That(config.Deployment.Update.Bootstrapper.Channel).IsEqualTo(BootstrapperReleaseChannel.Stable);
+        await Assert.That(config.Deployment.Update.Bootstrapper.UpdateOnBootstrap).IsNull();
+        await Assert.That(console.Output).Contains("on, bootstrapper not updated");
+        ConfigPhase.Validate(config);
+    }
+
+    [Test]
+    public async Task UpdatesYesWithBootstrapperEnablesRollback()
+    {
+        var console = NewConsole();
+        PushThroughSignIn(console);
+        Answer(console, "y");
+        Accept(console);
+        Accept(console);
+        Answer(console, "y");
+        Answer(console, "y");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(config.Deployment.Update.Enabled).IsTrue();
+        await Assert.That(config.Deployment.Update.Bootstrapper.Enabled).IsTrue();
+        await Assert.That(config.Deployment.Update.Bootstrapper.AutoRollbackOnFailure).IsTrue();
+        await Assert.That(config.Deployment.Update.Bootstrapper.UpdateOnBootstrap).IsNull();
+        await Assert.That(config.Deployment.Update.Bootstrapper.Channel).IsEqualTo(BootstrapperReleaseChannel.Stable);
+        await Assert.That(console.Output).Contains("bootstrapper updated, rollback on failure");
+    }
+
+    [Test]
+    public async Task UpdatesNoLeavesUpdateDisabledAndSkipsBootstrapperQuestion()
+    {
+        var console = NewConsole();
+        PushThroughSignIn(console);
+        Answer(console, "y");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(config.Deployment.Backup.Enabled).IsTrue();
+        await Assert.That(config.Deployment.Update.Enabled).IsFalse();
+        await Assert.That(config.Deployment.Update.AutoRestoreOnFailure).IsFalse();
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.UpdateQuestion);
+        await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.BootstrapperUpdateQuestion);
+        await Assert.That(console.Output).Contains("off");
+    }
+
+    [Test]
+    public async Task FirebaseAutoDetectFillsPathsFromFolder()
+    {
+        using var scratch = TestSupport.NewScratchDir("guided-firebase");
+        var folder = scratch.Path;
+        var android = Path.Combine(folder, "google-services.json");
+        var ios = Path.Combine(folder, "GoogleService-Info.plist");
+        var web = Path.Combine(folder, "firebase-web-config.json");
+        var sa = Path.Combine(folder, "octocon-firebase-adminsdk-abc.json");
+        File.WriteAllText(android, "{}");
+        File.WriteAllText(ios, "<plist/>");
+        File.WriteAllText(web, "{}");
+        File.WriteAllText(sa, """{"type":"service_account"}""");
+
+        var console = NewConsole();
+        PushThroughSignIn(console);
+        Accept(console);
+        Answer(console, "y");
+        Accept(console);
+        Answer(console, folder);
+        Accept(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(config.Api.Firebase.AndroidConfigPath).IsEqualTo(Path.GetFullPath(android));
+        await Assert.That(config.Api.Firebase.IosConfigPath).IsEqualTo(Path.GetFullPath(ios));
+        await Assert.That(config.Api.Firebase.WebConfigPath).IsEqualTo(Path.GetFullPath(web));
+        await Assert.That(config.Api.Firebase.ServiceAccountPath).IsEqualTo(Path.GetFullPath(sa));
+        await Assert.That(console.Output).Contains("4/4 configured");
+    }
+
+    [Test]
+    public async Task OtlpAdvertiseOffSkipsClientOverride()
+    {
+        var console = NewConsole();
+        PushThroughSignIn(console);
+        Accept(console);
+        Accept(console);
+        Answer(console, "y");
+        Answer(console, "https://otel.example.com/v1/traces");
+        Accept(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(config.Observability.OtlpEndpoint).IsEqualTo("https://otel.example.com/v1/traces");
+        await Assert.That(config.Observability.AdvertiseOtlpToClients).IsFalse();
+        await Assert.That(config.Observability.ClientOtlpHttpEndpoint).IsEmpty();
+        await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.OtlpClientOverrideLabel);
+        await Assert.That(console.Output).Contains("not advertised");
+        ConfigPhase.Validate(config);
+    }
+
+    [Test]
+    public async Task OtlpAdvertiseOnRecordsClientOverride()
+    {
+        var console = NewConsole();
+        PushThroughSignIn(console);
+        Accept(console);
+        Accept(console);
+        Answer(console, "y");
+        Answer(console, "https://otel.example.com/v1/traces");
+        Answer(console, "y");
+        Answer(console, "https://clients.example.com/v1/traces");
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(config.Observability.AdvertiseOtlpToClients).IsTrue();
+        await Assert.That(config.Observability.ClientOtlpHttpEndpoint).IsEqualTo("https://clients.example.com/v1/traces");
+        await Assert.That(console.Output).Contains("advertised to clients");
+        ConfigPhase.Validate(config);
+    }
+
+    [Test]
+    public async Task LanCanPublishNonStandardPorts()
+    {
+        var console = NewConsole();
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Answer(console, "192.168.1.42");
+        Accept(console);
+        Answer(console, "n");
+        Answer(console, "8080");
+        Answer(console, "8443");
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(config.Edge.Ports.Http).IsEqualTo(8080);
+        await Assert.That(config.Edge.Ports.Https).IsEqualTo(8443);
+        await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://192.168.1.42:8443");
+        await Assert.That(console.Output).Contains("8080 and 8443");
+        ConfigPhase.Validate(config);
+    }
+
+    [Test]
+    public async Task AppleSignInRecordsClientCredentials()
+    {
+        var console = NewConsole();
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Answer(console, "192.168.1.42");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Answer(console, "y");
+        Answer(console, "com.example.interfold");
+        Answer(console, "apple-secret");
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(config.Api.OAuth.AppleClientId).IsEqualTo("com.example.interfold");
+        await Assert.That(config.Api.OAuth.AppleClientSecret).IsEqualTo("apple-secret");
+        await Assert.That(config.Api.OAuth.GoogleClientId).IsEmpty();
+        await Assert.That(console.Output).DoesNotContain("apple-secret");
+        await Assert.That(console.Output).Contains("Apple (set)");
+    }
+
+    private static void PushThroughSignIn(TestConsole console)
+    {
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Answer(console, "192.168.1.42");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+    }
+}

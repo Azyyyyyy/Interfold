@@ -261,26 +261,51 @@ GitHub tag namespaces: `api-v*` (API image SemVer releases), `bootstrap-v*` (boo
 
 When `includeWeb` is true, AppHost sets `INTERFOLD_DEFAULT_API_ENDPOINT` on `interfold-web` from the public API origin it already builds for the edge (scheme and host only; wasm paths already include `/api/…`). The image renders that into `runtime-config.js` at container start. A browser with no saved server URL uses it; a saved URL is left unchanged. Publish uses `routing.apiHost` when set, otherwise `edge` server name. Cloudflare tunnel is `https` with no port; other modes follow `tlsMode` and omit the default port. `_` leaves the variable empty, which keeps the client's built-in endpoint.
 
-First-time operators don't need to hand-author this file — running `interfold-bootstrap` on
-a real TTY without an existing `interfold.bootstrap.json` drops into a Spectre.Console
-navigable form: every field on `BootstrapConfig` is shown as a menu row with its current
-value next to its label, grouped under section headers (Deployment / Edge / Datastores /
-API / Observability). The operator arrow-keys between rows and presses Enter to edit any field (inline validation
-re-prompts on bad input, OAuth client secrets are masked in both the editor echo and the
-menu row; client IDs are shown verbatim because they're public), then chooses `Confirm and
-save` to write the JSON. The derivable `api.oauth.callbackBaseUrl` / `api.oauth.jwtAuthority`
-and prompt default with the value `ConfigPhase.ResolveDerivedDefaults` computes from
-`edge` — operators can press Enter to accept or type to override, and either way the
-bootstrapper persists the resolved value. The three "disabled when blank" rows (avatar
-public base, OTLP endpoint, socket batch flush threshold) render an
-`<empty>` / `<default>` marker in the menu when unset, so the unset-vs-set distinction is
-visible at a glance; leaving them blank reproduces the pre-bootstrapper "env var unset"
-behaviour 1:1. Avatar storage root is also blankable but means "use `{outputDir}/data/avatars`"
-rather than disabling uploads. There is no separate walkthrough phase: experienced operators jump straight
-to the rows they care about and Confirm; first-time operators just Enter every row
-top-to-bottom. The bootstrapper writes the resulting JSON to the path above on
-confirmation; `--non-interactive` and `--config <path>` still bypass the form for
-unattended runs.
+First-time operators don't need to hand-author this file. Running `interfold-bootstrap` on
+a real TTY without an existing `interfold.bootstrap.json` asks which setup to use.
+**Guided setup** (the recommended choice) asks how people will reach the server — this
+machine or the local network with a private CA, or the public internet through a
+Cloudflare Tunnel — then persistence (SQLite, or Scylla and Postgres at the built-in
+backend defaults), whether to include the web UI, and the hostname. Later questions
+follow from those answers. A local-network host offers to install the root CA into the
+trust store. A Cloudflare hostname asks for an API token and, optionally, an Access
+allowlist; Access also collects the Google OAuth client, which Access requires.
+When the web UI is included and the host is a DNS name, the operator can keep one
+address or set separate API and web hostnames. An IP-only host stays on path routing.
+A local-network install also asks whether to keep the standard web ports, 80 and 443;
+saying no asks for the two ports to publish instead. Cloudflare does not publish host
+ports, so that question is skipped. Sign-in (Google, Discord, both, or neither) is
+optional, and a follow-up can add Apple. The Access branch skips the Google half
+because those credentials were already collected. Guided setup then asks
+about scheduled backups. Declining them prints that automatic updates are not
+available, because updates run after each successful backup. Accepting them asks how
+often to back up and how many archives to keep, then whether to install updates after
+each backup. Yes pulls new images, recreates containers, and restores the pre-update
+backup if the health check fails. A follow-up can also update the bootstrapper; a
+failed health check then restores the previous bootstrapper binary. Firebase push
+notifications and an OpenTelemetry collector are optional; saying yes asks only the
+follow-ups that choice needs. Backup directory, release channel, health-check
+timeout, and the service whitelist stay in the advanced editor. The bootstrapper then
+shows those answers and the public URL derived from them. **Confirm and continue** writes `interfold.bootstrap.json` and the rest of
+bootstrap runs as usual. **Start over** returns to the mode question. **Open advanced
+editor** continues in the full field menu with the guided answers already filled in.
+
+**Advanced (all options)** is that Spectre.Console menu: every field on `BootstrapConfig`
+is a row with its current value, grouped under section headers (Deployment / Edge /
+Datastores / API / Observability). Arrow keys move between rows and Enter edits one
+(inline validation re-prompts on bad input; OAuth client secrets are masked in both
+the editor echo and the menu row; client IDs are shown verbatim because they're
+public). `Confirm and save` writes the JSON. The derivable
+`api.oauth.callbackBaseUrl` / `api.oauth.jwtAuthority` prompt default to the value
+`ConfigPhase.ResolveDerivedDefaults` computes from `edge` — Enter accepts it, or the
+operator types an override, and either way the bootstrapper persists the resolved
+value. The three "disabled when blank" rows (avatar public base, OTLP endpoint,
+socket batch flush threshold) render an `<empty>` / `<default>` marker when unset, so
+the unset-vs-set distinction is visible; leaving them blank reproduces the
+pre-bootstrapper "env var unset" behaviour 1:1. Avatar storage root is also blankable
+but means "use `{outputDir}/data/avatars`" rather than disabling uploads.
+`--reconfigure` reopens this menu from an existing file. `--non-interactive` and
+`--config <path>` still bypass both setup paths for unattended runs.
 
 ### Hosts (`edge.hosts`)
 

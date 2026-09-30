@@ -61,9 +61,7 @@ internal static class ConfigPhase
             // mdnsHostname is null when .local won't resolve, so we don't pre-fill a broken name.
             var mdnsHostname = await ApplyPreFillMdnsCheckAsync(options, logger, ct).ConfigureAwait(false);
 
-            // Tests pass maskSecrets: false so Spectre's ReadKey secret path doesn't
-            // fight the TestConsole input queue.
-            config = PromptForConfig(
+            config = GuidedConfigPrompt.Run(
                 AnsiConsole.Console,
                 maskSecrets: true,
                 hostnameProbe: () => mdnsHostname);
@@ -642,7 +640,7 @@ internal static class ConfigPhase
     }
 
     /// <summary>Menu-row summary: <c>off</c> or <c>N/4 configured (...)</c>.</summary>
-    private static string ShowFirebaseState(FirebaseSection section)
+    internal static string ShowFirebaseState(FirebaseSection section)
     {
         var platforms = new List<string>(4);
         if (!string.IsNullOrEmpty(section.AndroidConfigPath)) platforms.Add("android");
@@ -691,6 +689,35 @@ internal static class ConfigPhase
                 section.IosConfigPath = string.Empty;
                 section.WebConfigPath = string.Empty;
                 section.ServiceAccountPath = string.Empty;
+                break;
+        }
+    }
+
+    internal const string FirebaseGuidedSkip = "Skip";
+
+    /// <summary>First-run Firebase setup. Clear is omitted because there is nothing to clear yet.</summary>
+    internal static void PromptGuidedFirebase(IAnsiConsole console, FirebaseSection section)
+    {
+        var choice = console.Prompt(
+            new SelectionPrompt<string>()
+                .Title("[bold]Firebase push notifications[/]")
+                .AddChoices(FirebaseChoiceAutoDetect, FirebaseChoicePerFile, FirebaseGuidedSkip));
+
+        switch (choice)
+        {
+            case FirebaseChoiceAutoDetect:
+                PromptFirebaseFolder(console, section);
+                break;
+
+            case FirebaseChoicePerFile:
+                section.AndroidConfigPath = PromptFirebasePath(console,
+                    "Path to google-services.json", section.AndroidConfigPath);
+                section.IosConfigPath = PromptFirebasePath(console,
+                    "Path to GoogleService-Info.plist", section.IosConfigPath);
+                section.WebConfigPath = PromptFirebasePath(console,
+                    "Path to firebase-web-config.json", section.WebConfigPath);
+                section.ServiceAccountPath = PromptFirebasePath(console,
+                    "Path to FCM v1 service-account JSON", section.ServiceAccountPath);
                 break;
         }
     }
@@ -1409,6 +1436,9 @@ internal static class ConfigPhase
     /// </summary>
     private static readonly Regex BackupSchedulePattern =
         new(@"^[A-Za-z0-9 .,:\-*/]{1,256}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    internal static bool IsAllowedBackupSchedule(string? schedule) =>
+        !string.IsNullOrWhiteSpace(schedule) && BackupSchedulePattern.IsMatch(schedule);
 
     private static void ValidatePort(int port, string field)
     {
