@@ -34,6 +34,7 @@
     <ProjectReference Include="..\Interfold.IntegrationTests.Shared\Interfold.IntegrationTests.Shared.csproj" />
     <ProjectReference Include="..\..\..\infrastructure\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\infrastructure\Interfold.Infrastructure.Scylla\Interfold.Infrastructure.Scylla.csproj" />
+    <ProjectReference Include="..\..\..\tools\Interfold.StackMove\Interfold.StackMove.csproj" />
     <ProjectReference Include="..\..\..\hosts\Interfold.AppHost\Interfold.AppHost.csproj">
       <Aliases>AppHost</Aliases>
     </ProjectReference>

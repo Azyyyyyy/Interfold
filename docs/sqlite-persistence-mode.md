@@ -44,9 +44,12 @@ Rough baseline resource comparison:
   `INotificationTokenRepository`, secrets store — in addition to every
   domain repository. The whole point is to remove the Postgres dependency
   entirely, not just replace CQL.
-- **No automated migration between modes.** If a `ScyllaPostgres` operator
-  wants to switch to `Sqlite`, they export via API and re-import into a
-  fresh deployment. Direct data-file migration is out of scope.
+- **A stack move is a separate tool.** `tools/Interfold.StackMove`
+  (`interfold-stack-move move`) copies a deployment between `sqlite`, `scylla`,
+  and `cassandra`. Scylla and Cassandra share one CQL copier. The tool prints
+  the `datastores` edits and does not write `interfold.bootstrap.json` or
+  `secrets.json`. `--secrets` (or `{outputDir}/secrets/secrets.json` next to
+  `--bootstrap`) supplies the database passwords.
 - **No multi-node SQLite.** No rqlite, no LiteFS. This mode is
   single-machine by construction.
 - **Avatars stay on `LocalAvatarStorage`.** No BLOB-in-SQLite for avatars —
@@ -246,8 +249,11 @@ the last year" style aggregations). Captured under Open questions.
 - **Mixed modes** (`CassandraSqlite`, `SqlitePostgres`, etc.). Two modes:
   full CQL+Pg or full SQLite.
 - **Multi-node SQLite.** SQLite mode is single-machine.
-- **Automated data migration** between `ScyllaPostgres` and `Sqlite`.
-  Operators export/import via API.
+- **The stack-move tool does not edit the bootstrap file or `secrets.json`.**
+  `--bootstrap` and `--secrets` are read-only. Passwords come from
+  `secrets.json` (`postgresAdminPassword`, `scyllaPassword`). Operators apply
+  the printed `datastores` snippet themselves. `interfold-stack-move` copies
+  rows between `sqlite` and the shared CQL copier used by Scylla and Cassandra.
 - **Enterprise / large-team deploys.** SQLite mode targets personal,
   family, and small-community self-hosts; larger deployments stay on
   `ScyllaPostgres`.
