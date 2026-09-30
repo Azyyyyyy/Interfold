@@ -71,15 +71,13 @@ public class UbuntuPrereqsPhaseTests(UbuntuBarePrereqsDinDFixture dinD)
     [NotInParallel("ubuntu-bare-prereqs")]
     public async Task PersistsAioSysctlDropIn()
     {
+        // No-config peek defaults to sqlite and skips Seastar AIO. This fixture pins
+        // scylla-postgres so the drop-in is still written.
+        var scratch = await dinD.CreateScratchAsync(nameof(PersistsAioSysctlDropIn), TestConfigPaths.DefaultConfig);
         var result = await dinD.RunBootstrapperAsync(nameof(PersistsAioSysctlDropIn),
-            ["bootstrap", "--non-interactive", "--fault-inject=after-prereqs"]);
+            ["bootstrap", "--config", scratch.ConfigPath, "--non-interactive", "--fault-inject=after-prereqs"]);
         await Assert.That(result.ExitCode).IsEqualTo(0L).Because(result.Stderr);
 
-        // PrereqsPhase writes /etc/sysctl.d/99-interfold.conf with a topology-sized
-        // `fs.aio-max-nr = <N>`. With no config file (the --non-interactive path used here),
-        // the AIO sizing falls back to the single-node baseline (1 * 116562 + 50000 = 166562);
-        // we assert only on the key being present so the test stays robust if the per-node
-        // constants change.
         var content = await dinD.ExecAsync(["sh", "-c", "cat /etc/sysctl.d/99-interfold.conf || true"]);
         await Assert.That(content.Stdout).Contains("fs.aio-max-nr")
             .Because($"sysctl drop-in should contain fs.aio-max-nr; got: {content.Stdout}");
