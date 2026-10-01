@@ -14,33 +14,21 @@ namespace Interfold.Bootstrapper.Util;
 /// </summary>
 internal static class ApiReadinessProbe
 {
-    private const int DefaultHttpPort = 80;
-    private const int DefaultHttpsPort = 443;
+    // A missing name will not appear later in the same launch. Connection refused still
+    // retries for the full budget, because nginx comes up after the containers start.
+    private const int NameResolutionAttempts = 3;
 
-    /// <summary>URL for polling readiness. Tunnel publishes no host ports, so that case
-    /// uses the public hostname instead of localhost.</summary>
+    /// <summary>Public API origin plus <c>/health/ready</c>. Same address a browser opens.</summary>
     internal static string ResolveReadyUrl(BootstrapConfig config)
     {
-        if (config.Edge.Cloudflare.Enabled)
+        var origin = ConfigPhase.FormatPublicApiOrigin(config);
+        if (string.IsNullOrEmpty(origin))
         {
-            var hosts = CloudflareTunnelPhase.ResolvePublicHostnames(config);
-            if (hosts.Count == 0)
-            {
-                throw new InvalidOperationException(
-                    "Cloudflare Tunnel is enabled but no public DNS hostname is configured for the readiness probe.");
-            }
-
-            return CloudflareTunnelClient.BuildPublicReadyUrl(hosts[0]);
+            throw new InvalidOperationException(
+                "No public API address is configured for the readiness probe.");
         }
 
-        if (config.Edge.TlsMode == EdgeTlsMode.None)
-        {
-            var suffix = config.Edge.Ports.Http == DefaultHttpPort ? string.Empty : $":{config.Edge.Ports.Http}";
-            return $"http://localhost{suffix}{HealthEndpoints.Ready}";
-        }
-
-        var httpsSuffix = config.Edge.Ports.Https == DefaultHttpsPort ? string.Empty : $":{config.Edge.Ports.Https}";
-        return $"https://localhost{httpsSuffix}{HealthEndpoints.Ready}";
+        return origin + HealthEndpoints.Ready;
     }
 
     /// <summary>
@@ -77,6 +65,7 @@ internal static class ApiReadinessProbe
         using var http = CreateClient(config);
         var url = ResolveReadyUrl(config);
         var attempt = 0;
+        var nameMisses = 0;
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
@@ -100,6 +89,17 @@ internal static class ApiReadinessProbe
                 if (attempt == 1)
                     logger.Info($"    api probe {url} returned {(int)resp.StatusCode}; retrying");
             }
+            catch (HttpRequestException ex) when (IsNameResolutionFailure(ex))
+            {
+                nameMisses++;
+                if (nameMisses >= NameResolutionAttempts)
+                {
+                    return $"{url} did not resolve. The health check uses the address people open.";
+                }
+
+                if (nameMisses == 1)
+                    logger.Info($"    api probe {url} did not resolve; retrying");
+            }
             catch (HttpRequestException) { /* edge or API may not be listening yet */ }
             catch (TaskCanceledException) when (!ct.IsCancellationRequested) { /* per-request timeout */ }
 
@@ -118,5 +118,15 @@ internal static class ApiReadinessProbe
         }
 
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
+    }
+
+    private static bool IsNameResolutionFailure(HttpRequestException ex)
+    {
+        if (ex.HttpRequestError == HttpRequestError.NameResolutionError)
+            return true;
+
+        return ex.InnerException is System.Net.Sockets.SocketException sock
+            && sock.SocketErrorCode is System.Net.Sockets.SocketError.HostNotFound
+                or System.Net.Sockets.SocketError.NoData;
     }
 }

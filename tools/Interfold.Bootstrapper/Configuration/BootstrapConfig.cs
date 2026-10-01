@@ -168,7 +168,7 @@ public sealed class CqlDatastoreSection
 public sealed class ApiSection
 {
     [JsonPropertyName("image")]
-    public string Image { get; set; } = DefaultContainerImages.Api;
+    public string Image { get; set; } = BootstrapperApiImage.Default;
 
     [JsonPropertyName("nodeGroup")]
     public NodeGroup NodeGroup { get; set; } = NodeGroup.Auxiliary;

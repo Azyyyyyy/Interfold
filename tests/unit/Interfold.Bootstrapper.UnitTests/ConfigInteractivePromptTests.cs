@@ -99,7 +99,7 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(config.Datastores.Postgres.Database).IsEqualTo("interfold");
         await Assert.That(config.Datastores.Cql.ClusterName).IsEqualTo("InterfoldCluster");
         await Assert.That(config.Datastores.Cql.Keyspace).IsEqualTo(ScyllaKeyspace.Nam);
-        await Assert.That(config.Api.Image).IsEqualTo(DefaultContainerImages.Api);
+        await Assert.That(config.Api.Image).IsEqualTo(BootstrapperApiImage.Default);
         await Assert.That(config.Deployment.WebImage).IsEqualTo(DefaultContainerImages.Web);
 
         // ApiRuntime: derivation happens in RunAsync / Validate, not PromptForConfig, so

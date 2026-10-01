@@ -37,6 +37,12 @@ internal static class GuidedConfigPrompt
     internal const string RoutingTitle = "One web address, or two?";
     internal const string RoutingPath = "One web address";
     internal const string RoutingSeparate = "Two web addresses (recommended)";
+    internal static readonly string[] LocalSubdomainHint =
+    [
+        "A name ending in .local only answers as itself.",
+        "This computer will also use the two names below.",
+        "Phones and other computers on the network will not find them.",
+    ];
 
     internal const string SignInTitle = "Sign-in";
     internal const string SignInGoogle = "Google";
@@ -301,6 +307,8 @@ internal static class GuidedConfigPrompt
                 config.Edge.Routing.Mode = EdgeRoutingMode.Subdomain;
                 console.MarkupLine(
                     $"[grey]These names are added in front of {Markup.Escape(baseHost)}. A full name is kept when it already ends with {Markup.Escape(baseHost)}.[/]");
+                if (baseHost.EndsWith(".local", StringComparison.OrdinalIgnoreCase))
+                    WriteGreyLines(console, LocalSubdomainHint);
                 config.Edge.Routing.ApiHost = PromptNameInFrontOfHost(
                     console, "API", baseHost, config.Edge.Routing.ApiHost, suggested: "api", otherFull: null);
                 config.Edge.Routing.WebHost = PromptNameInFrontOfHost(

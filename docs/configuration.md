@@ -237,7 +237,7 @@ Downloads are verified against the GitHub Releases API asset `digest` (`sha256:â
 
 | Field | Default | Notes |
 | ----- | ------- | ----- |
-| `image` | `ghcr.io/azyyyyyy/interfold-api:latest` | Full image reference consumed by `publish` / `update-images`. Independent of bootstrapper `deployment.update.bootstrapper.channel`. |
+| `image` | `ghcr.io/azyyyyyy/interfold-api:bleeding-edge` for a Debug build; `ghcr.io/azyyyyyy/interfold-api:latest` for a Release build | Full image reference consumed by `publish` / `update-images`. A new config takes that default. An existing `image` value is kept. Bootstrap pulls registry-hosted images before the first `docker compose up`, so a tag already on disk is replaced. Local-only tags are left in place. Independent of bootstrapper `deployment.update.bootstrapper.channel`. |
 
 Useful tags (from `api-v*` releases and rolling branch pushes):
 
@@ -492,6 +492,20 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 > On Windows, enable the **Function Discovery Resource Publication** service or install
 > Bonjour Print Services, then confirm `{hostname}.local` resolves before the next
 > `bootstrap` run.
+>
+> mDNS publishes that one name only. `api.{host}.local` and `web.{host}.local` are
+> different names, so subdomain routing does not resolve them on the LAN. On `bootstrap`
+> and `up`, when the tunnel is off, the bootstrapper adds those `.local` names to the
+> system hosts file (`127.0.0.1` and `::1`) so this computer can open them. Phones and
+> other computers still cannot. Use one web address when those devices should open the
+> site by name. When the process cannot write that file, an interactive run asks
+> before an administrator prompt (Windows approval or sudo). Declining, or a
+> non-interactive run, prints the lines to add and the launch continues.
+>
+> Launch and `up` poll `{public API origin}/health/ready`. That is the address a browser
+> opens, including `api.{host}` when routing is subdomain. A name that does not resolve
+> fails the check after a few attempts. Connection refused keeps retrying until the
+> health budget ends, because the containers are still starting.
 
 ## Layer 3 â€” Environment variables
 

@@ -334,6 +334,32 @@ public sealed class GuidedConfigPromptTests
     }
 
     [Test]
+    public async Task LocalSubdomainExplainsThatOnlyThisComputerGetsTheNames()
+    {
+        var console = NewConsole();
+        Accept(console);
+        Accept(console);
+        Answer(console, "y");
+        Answer(console, "home.local");
+        Accept(console);
+        Answer(console, "api");
+        Answer(console, "web");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(console.Output).Contains("A name ending in .local only answers as itself.");
+        await Assert.That(console.Output).Contains("This computer will also use the two names below.");
+        await Assert.That(console.Output).Contains("Phones and other computers on the network will not find them.");
+        await Assert.That(config.Edge.Routing.ApiHost).IsEqualTo("api.home.local");
+        await Assert.That(config.Edge.Routing.WebHost).IsEqualTo("web.home.local");
+    }
+
+    [Test]
     public async Task SeparateHostnamesAcceptFullNameUnderTheSameHost()
     {
         var console = NewConsole();
