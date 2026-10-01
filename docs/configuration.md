@@ -179,9 +179,9 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
 | Field | Default | Notes |
 | ----- | ------- | ----- |
 | `enabled` | `false` | When `true`, origin stays private (no host-published edge ports). Publish creates/reuses a remotely-managed tunnel; Launch starts `cloudflared`; a post-launch phase registers hostnames + proxied DNS CNAMEs. |
-| `apiToken` | `""` | Cloudflare API token with **Account → Cloudflare Tunnel Edit**, **Zone → Zone Edit**, **Zone → DNS Edit**, **Zone → SSL and Certificates Edit**, **Access: Apps and Policies Edit**, **Access: Service Tokens Edit**, **Workers Scripts Edit**, **Workers KV Storage Edit**, and organization read. Scope the token to one account: a missing zone is created there. Used only by the bootstrapper — never passed to `cloudflared`. |
+| `apiToken` | `""` | Cloudflare API token. Create it at https://dash.cloudflare.com/profile/api-tokens (Create Token, then Create Custom Token). Core permissions: **Account → Cloudflare Tunnel → Edit**, **Zone → Zone → Edit**, **Zone → DNS → Edit**, **Zone → SSL and Certificates → Edit**, **Account → Access: Apps and Policies → Edit**, **Account → Access: Service Tokens → Edit**, and **Account → Organization → Read**. Add **Account → Workers Scripts → Edit** and **Account → Workers KV Storage → Edit** only if you plan to use Discord for signing in (those deploy the Discord Access Worker). Scope the token to one account: a missing zone is created there. Do not grant every permission. Used only by the bootstrapper — never passed to `cloudflared`. |
 | `tunnelName` | `interfold` | Stable name for create-or-reuse of the tunnel object. |
-| `access.enabled` | `false` | When `true`, Cloudflare Access gates public hostnames. Requires tunnel enabled, Interfold Google client id **and** secret, and at least one of `allowedEmails` / `allowedEmailDomains`. |
+| `access.enabled` | `false` | When `true`, Cloudflare Access gates public hostnames. Requires tunnel enabled, a Google client id **and** secret or a Discord client id **and** secret, and at least one of `allowedEmails` / `allowedEmailDomains`. |
 | `access.allowedEmails` | `[]` | Exact addresses allowed through Access (Google or Discord, when Discord OAuth is configured). Enforced at Access only — the API does not re-check the list. Discord users need a verified email on this list. |
 | `access.allowedEmailDomains` | `[]` | Email domains (e.g. `example.com`) allowed through Access. At least one email or domain is required when Access is on. |
 
@@ -264,30 +264,49 @@ When `includeWeb` is true, AppHost sets `INTERFOLD_DEFAULT_API_ENDPOINT` on `int
 First-time operators don't need to hand-author this file. Running `interfold-bootstrap` on
 a real TTY without an existing `interfold.bootstrap.json` asks which setup to use.
 **Guided setup** (the recommended choice) asks how people will reach the server — this
-machine or the local network with a private CA, or the public internet through a
-Cloudflare Tunnel — then whether to include the web UI, and the hostname. Data is
+machine or the local network with a private CA, or the public internet through
+Cloudflare. The internet choice only works when Cloudflare looks up that web address. If Cloudflare does not look the name up, use the local network instead.
+Then it asks whether to include the web UI, and the address people
+will use to open it. Data is
 always stored in SQLite; Scylla and Postgres stay in the advanced editor. Later
-questions follow from those answers. A local-network host offers to install the root CA into the
-trust store. A Cloudflare hostname asks for an API token and, optionally, an Access
-allowlist; Access also collects the Google OAuth client, which Access requires.
-When the web UI is included and the host is a DNS name, the operator can keep one
-address or set separate API and web hostnames. An IP-only host stays on path routing.
+questions follow from those answers. A local-network install asks whether this computer
+should trust Interfold's certificate, so the browser stops warning that the site is unsafe.
+Other devices still need that certificate installed on them. A Cloudflare hostname asks for an API token. The prompt links to the Cloudflare API tokens page, lists the core permissions, lists the extra permissions only Discord sign-in needs, and says not to grant every permission. Access is optional.
+When the web UI is included and the host is a name, the operator can keep one
+web address or use two. Two is the recommended choice: the API at `api.example.com`
+and the website at `web.example.com`. Typing the full name is kept when it already ends with that host.
+An IP-only host stays on path routing.
 A local-network install also asks whether to keep the standard web ports, 80 and 443;
 saying no asks for the two ports to publish instead. Cloudflare does not publish host
-ports, so that question is skipped. Sign-in (Google, Discord, both, or neither) is
-optional, and a follow-up can add Apple. The Access branch skips the Google half
-because those credentials were already collected. Guided setup then asks
+ports, so that question is skipped. Sign-in is one list of Google, Discord, and
+Apple. Ticked options are shown when someone signs in, and unticked options stay
+hidden. Tick any combination; the prompt then asks for that provider's client ID
+and secret, and which redirect addresses to register on the public API URL. A
+`.local` name or a numeric address leaves Google off the list and explains why.
+Cloudflare Access needs Google or Discord ticked. When Google is not available,
+Discord starts ticked. Guided setup then asks
 about scheduled backups. Declining them prints that automatic updates are not
 available, because updates run after each successful backup. Accepting them asks how
 often to back up and how many archives to keep, then whether to install updates after
 each backup. Yes pulls new images, recreates containers, and restores the pre-update
 backup if the health check fails. A follow-up can also update the bootstrapper; a
 failed health check then restores the previous bootstrapper binary. Firebase push
-notifications and an OpenTelemetry collector are optional; saying yes asks only the
-follow-ups that choice needs. Backup directory, release channel, health-check
+notifications are optional. The prompt explains that Firebase tells phones and
+browsers when who is fronting changes for a system, and that saying no leaves those alerts
+off. When Google sign-in was set up, it asks you to add Firebase to that same
+Google Cloud project. Otherwise it walks through creating a project. It then says
+where each file is: Project settings for the app downloads, Cloud Messaging for
+the web push key, and Service accounts for the private key. The web step takes only
+the `const firebaseConfig = { ... };` block. Leave out the import lines above it. The Web Push key is typed separately
+and saved into `firebase-web-config.json`. An OpenTelemetry collector is optional. The prompt says most people should
+leave it off. A collector is a separate program that receives the API's logs, traces,
+and performance numbers and forwards them to a dashboard. The prompt links to
+https://opentelemetry.io/docs/collector/ for how to run one, then asks for that
+collector's address. Advertising it tells clients where to send their own logs.
+They can use the API's collector, or a different one. Backup directory, release channel, health-check
 timeout, and the service whitelist stay in the advanced editor. The bootstrapper then
 shows those answers, the public API URL, and the public web URL when the web UI is
-included. **Confirm and continue** writes `interfold.bootstrap.json` and the rest of
+included. Path routing appends `/api/` on the API URL and `/` on the web URL. **Confirm and continue** writes `interfold.bootstrap.json` and the rest of
 bootstrap runs as usual. **Start over** returns to the mode question. **Open advanced
 editor** continues in the full field menu with the guided answers already filled in.
 
@@ -931,13 +950,16 @@ rows seeded and the whole flow degrades gracefully:
   `NullFCMService` so `FrontNotifierBackgroundService` no-ops the send path — no
   fronting-change push, no crash, no operator action required.
 
+Use the Google Cloud project that already holds Google sign-in, and add Firebase to it at https://console.firebase.google.com/. Create a new Firebase project only when Google sign-in is not in use.
+
 Operators supply the source files via `BootstrapConfig.firebase.*`:
 
 | Field                                | File the operator points at                                         | How to obtain it                                                                                                       |
 | ------------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `firebase.androidConfigPath`         | `google-services.json`                                              | Firebase Console → Project Settings → General → Your apps → Android → *google-services.json*                           |
 | `firebase.iosConfigPath`             | `GoogleService-Info.plist`                                          | Firebase Console → Project Settings → General → Your apps → iOS → *GoogleService-Info.plist*                           |
-| `firebase.webConfigPath`             | flat `firebase-web-config.json` (matches the client DTO 1:1)         | Firebase Console → Project Settings → General → Your apps → Web → *SDK setup and configuration* + inject the VAPID key from Cloud Messaging → Web configuration → Web Push certificates |
+| `firebase.webConfigPath`             | Console `firebaseConfig` block saved as a file, or `firebase-web-config.json` | Project settings → General → Your apps → Web → copy only `const firebaseConfig = { ... };` and save it. Leave out the import lines above it. The block has no Web Push key. |
+| `firebase.webPushKey`                | Public Web Push key (`vapidKey`)                                    | Project settings → Cloud Messaging → Web Push certificates → key pair. The bootstrapper writes it into `firebase-web-config.json` next to the block. |
 | `firebase.serviceAccountPath`        | FCM v1 service-account credential JSON                              | Firebase Console → Project Settings → Service accounts → *Generate new private key*                                    |
 
 The `firebase-phase` in the bootstrapper (`Interfold.Bootstrapper/Phases/FirebasePhase.cs`)

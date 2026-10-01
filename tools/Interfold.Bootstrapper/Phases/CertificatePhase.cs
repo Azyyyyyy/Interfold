@@ -69,10 +69,11 @@ internal static partial class CertificatePhase
 
         Directory.CreateDirectory(certsDir);
 
-        // ConfigPhase.Validate already parsed these; re-parse here to hand helpers the typed shape.
+        // Name constraints stay on the host list. Subdomain names are children of that
+        // list, so the constraint already permits them; the leaf still has to name them.
         var hosts = config.Edge.Hosts.Select(HostParser.Parse).ToList();
         var (rootCert, rootKey) = GenerateRootCa(config.Edge.Certificates.RootCaName, config.Edge.Certificates.CertYears, hosts);
-        var (leafCert, leafKey) = GenerateLeaf(rootCert, rootKey, hosts, config.Edge.Certificates.CertYears);
+        var (leafCert, leafKey) = GenerateLeaf(rootCert, rootKey, LeafHosts(config, hosts), config.Edge.Certificates.CertYears);
 
         await PersistAsync(rootCert, rootKey, leafCert, leafKey, secrets.LeafPfxPassword,
             rootCrtPath, rootKeyPath, leafCrtPath, leafKeyPath, leafPfxPath, ct).ConfigureAwait(false);
@@ -112,6 +113,50 @@ internal static partial class CertificatePhase
         }
 
         logger.PhaseDone(Phase);
+    }
+
+    internal static List<HostEntry> LeafHosts(BootstrapConfig config, List<HostEntry> hosts)
+    {
+        if (config.Edge.Routing.Mode != EdgeRoutingMode.Subdomain)
+        {
+            return hosts;
+        }
+
+        var leaf = new List<HostEntry>(hosts);
+        AddDnsHost(leaf, config.Edge.Routing.ApiHost);
+        AddDnsHost(leaf, config.Edge.Routing.WebHost);
+        return leaf;
+    }
+
+    private static void AddDnsHost(List<HostEntry> hosts, string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return;
+        }
+
+        HostEntry entry;
+        try
+        {
+            entry = HostParser.Parse(raw);
+        }
+        catch (FormatException)
+        {
+            return;
+        }
+
+        if (entry.Kind != HostKind.Dns)
+        {
+            return;
+        }
+
+        if (hosts.Any(host => host.Kind == HostKind.Dns
+                              && string.Equals(host.DnsName, entry.DnsName, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        hosts.Add(entry);
     }
 
     private static (X509Certificate2 Cert, RSA Key) GenerateRootCa(string rootCaName, int years, IReadOnlyList<HostEntry> hosts)

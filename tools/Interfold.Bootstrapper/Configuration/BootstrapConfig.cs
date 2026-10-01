@@ -324,6 +324,10 @@ public sealed class FirebaseSection
     [JsonPropertyName("webConfigPath")]
     public string WebConfigPath { get; set; } = string.Empty;
 
+    // The console firebaseConfig block has no Web Push key. This fills vapidKey at ingest.
+    [JsonPropertyName("webPushKey")]
+    public string WebPushKey { get; set; } = string.Empty;
+
     [JsonPropertyName("serviceAccountPath")]
     public string ServiceAccountPath { get; set; } = string.Empty;
 }

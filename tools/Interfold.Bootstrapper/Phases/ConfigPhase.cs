@@ -678,8 +678,7 @@ internal static class ConfigPhase
                     "Path to google-services.json", section.AndroidConfigPath);
                 section.IosConfigPath = PromptFirebasePath(console,
                     "Path to GoogleService-Info.plist", section.IosConfigPath);
-                section.WebConfigPath = PromptFirebasePath(console,
-                    "Path to firebase-web-config.json", section.WebConfigPath);
+                PromptFirebaseWeb(console, section);
                 section.ServiceAccountPath = PromptFirebasePath(console,
                     "Path to FCM v1 service-account JSON", section.ServiceAccountPath);
                 break;
@@ -688,6 +687,7 @@ internal static class ConfigPhase
                 section.AndroidConfigPath = string.Empty;
                 section.IosConfigPath = string.Empty;
                 section.WebConfigPath = string.Empty;
+                section.WebPushKey = string.Empty;
                 section.ServiceAccountPath = string.Empty;
                 break;
         }
@@ -721,8 +721,7 @@ internal static class ConfigPhase
                     "Path to google-services.json", section.AndroidConfigPath);
                 section.IosConfigPath = PromptFirebasePath(console,
                     "Path to GoogleService-Info.plist", section.IosConfigPath);
-                section.WebConfigPath = PromptFirebasePath(console,
-                    "Path to firebase-web-config.json", section.WebConfigPath);
+                PromptFirebaseWeb(console, section);
                 section.ServiceAccountPath = PromptFirebasePath(console,
                     "Path to FCM v1 service-account JSON", section.ServiceAccountPath);
                 break;
@@ -750,8 +749,68 @@ internal static class ConfigPhase
         section.IosConfigPath = result.Section.IosConfigPath;
         section.WebConfigPath = result.Section.WebConfigPath;
         section.ServiceAccountPath = result.Section.ServiceAccountPath;
+        if (!string.IsNullOrEmpty(section.WebConfigPath))
+            ApplyWebPushKey(console, section);
 
         RenderFirebaseScanSummary(console, result);
+    }
+
+    private static void PromptFirebaseWeb(IAnsiConsole console, FirebaseSection section)
+    {
+        console.MarkupLine("[grey]Save only the firebaseConfig block from Project settings, Your apps, Web.[/]");
+        console.MarkupLine("[grey]It looks like const firebaseConfig = { ... };[/]");
+        console.MarkupLine("[grey]Leave out the import lines above it.[/]");
+        while (true)
+        {
+            var fallback = string.IsNullOrEmpty(section.WebConfigPath) ? string.Empty : section.WebConfigPath;
+            var path = PromptFirebasePath(console, "Path to that firebaseConfig file", fallback);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                section.WebConfigPath = string.Empty;
+                section.WebPushKey = string.Empty;
+                return;
+            }
+
+            if (!FirebaseWebSnippet.TryRead(File.ReadAllText(path), out var fields))
+            {
+                console.MarkupLine("[red]That file is not the firebaseConfig block.[/]");
+                section.WebConfigPath = string.Empty;
+                continue;
+            }
+
+            var saved = SaveWebConfig(console, section, path, fields);
+            section.WebConfigPath = saved;
+            return;
+        }
+    }
+
+    private static void ApplyWebPushKey(IAnsiConsole console, FirebaseSection section)
+    {
+        if (!FirebaseWebSnippet.TryRead(File.ReadAllText(section.WebConfigPath), out var fields))
+            return;
+
+        section.WebConfigPath = SaveWebConfig(console, section, section.WebConfigPath, fields);
+    }
+
+    private static string SaveWebConfig(
+        IAnsiConsole console,
+        FirebaseSection section,
+        string sourcePath,
+        FirebaseWebSnippetFields fields)
+    {
+        var vapidDefault = !string.IsNullOrWhiteSpace(fields.VapidKey)
+            ? fields.VapidKey!
+            : section.WebPushKey;
+        var vapid = console.Prompt(
+            new TextPrompt<string>("Web Push key (from Cloud Messaging, Web Push certificates):")
+                .DefaultValue(vapidDefault)
+                .Validate(value => string.IsNullOrWhiteSpace(value)
+                    ? ValidationResult.Error("[red]Copy the key pair from Web Push certificates.[/]")
+                    : ValidationResult.Success()));
+        section.WebPushKey = vapid.Trim();
+        var directory = Path.GetDirectoryName(Path.GetFullPath(sourcePath))
+            ?? throw new InvalidOperationException($"Firebase web config '{sourcePath}' has no directory.");
+        return FirebaseWebSnippet.Save(directory, fields.WithVapid(section.WebPushKey));
     }
 
     /// <summary>Blank leaves the platform unwired; non-blank must resolve to an existing
@@ -913,6 +972,34 @@ internal static class ConfigPhase
         => config.Edge.Routing.Mode == EdgeRoutingMode.Subdomain
            && !string.IsNullOrWhiteSpace(config.Edge.Routing.ApiHost)
            && !string.IsNullOrWhiteSpace(config.Edge.Routing.WebHost);
+
+    internal static string FormatPublicApiOrigin(BootstrapConfig config)
+    {
+        if (IsSubdomainPair(config))
+        {
+            return FormatPublicOrigin(config, config.Edge.Routing.ApiHost.Trim());
+        }
+
+        var parsed = new List<HostEntry>();
+        foreach (var raw in config.Edge.Hosts)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+
+            try
+            {
+                parsed.Add(HostParser.Parse(raw));
+            }
+            catch (FormatException)
+            {
+            }
+        }
+
+        var primary = HostParser.PickPrimary(parsed);
+        return primary is null ? string.Empty : FormatPublicApiOrigin(config, primary);
+    }
 
     private static string FormatPublicApiOrigin(BootstrapConfig config, HostEntry primary)
     {
@@ -1391,11 +1478,12 @@ internal static class ConfigPhase
                     "config.edge.cloudflare.access.enabled=true requires cloudflare.enabled=true (Access sits on tunnel hostnames).");
             }
 
-            if (string.IsNullOrWhiteSpace(config.Api.OAuth.GoogleClientId)
-                || string.IsNullOrWhiteSpace(config.Api.OAuth.GoogleClientSecret))
+            var googleReady = CloudflareAccessPhase.HasGoogleOAuth(config.Api.OAuth);
+            var discordReady = CloudflareAccessPhase.HasDiscordOAuth(config.Api.OAuth);
+            if (!googleReady && !discordReady)
             {
                 throw new InvalidOperationException(
-                    "config.api.oauth.googleClientId and googleClientSecret are required when cloudflare.access.enabled=true.");
+                    "config.api.oauth googleClientId and googleClientSecret, or discordClientId and discordClientSecret, are required when cloudflare.access.enabled=true.");
             }
 
             var emails = edge.Cloudflare.Access.AllowedEmails

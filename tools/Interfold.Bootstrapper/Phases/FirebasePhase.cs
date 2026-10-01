@@ -32,7 +32,7 @@ internal static class FirebasePhase
         var result = new FirebaseSeedInputs(
             AndroidClientJson: ParseAndroid(section.AndroidConfigPath, options.OutputDir, logger),
             IosClientJson: ParseIos(section.IosConfigPath, options.OutputDir, logger),
-            WebClientJson: ReadWebPassthrough(section.WebConfigPath, options.OutputDir, logger),
+            WebClientJson: ReadWeb(section, options.OutputDir, logger),
             ServiceAccountJson: ReadServiceAccount(section.ServiceAccountPath, options.OutputDir, logger));
 
         var configured = new[]
@@ -124,25 +124,30 @@ internal static class FirebasePhase
         }
     }
 
-    /// <summary>Camel→snake re-serialise of <c>firebase-web-config.json</c> into
-    /// <see cref="FirebaseWebClientConfig"/>. Every positional param (including nullable
-    /// <c>StorageBucket</c>) is required — a truncated console paste fails at bootstrap.</summary>
-    private static string? ReadWebPassthrough(string path, string outputDir, PhaseLogger logger)
+    /// <summary>Accepts the console <c>firebaseConfig</c> block or camelCase JSON.
+    /// <c>vapidKey</c> comes from the file when present, otherwise <see cref="FirebaseSection.WebPushKey"/>.</summary>
+    private static string? ReadWeb(FirebaseSection section, string outputDir, PhaseLogger logger)
     {
-        var resolved = ResolveOptional(path, outputDir, "webConfigPath", logger);
+        var resolved = ResolveOptional(section.WebConfigPath, outputDir, "webConfigPath", logger);
         if (resolved is null) return null;
 
         try
         {
-            var web = JsonSerializer.Deserialize(
-                File.ReadAllText(resolved), FirebaseCamelCaseReadContext.Default.FirebaseWebClientConfig)
-                ?? throw new InvalidDataException($"{resolved}: file is empty or JSON null");
+            var fields = FirebaseWebSnippet.Read(File.ReadAllText(resolved));
+            var vapid = !string.IsNullOrWhiteSpace(fields.VapidKey) ? fields.VapidKey : section.WebPushKey;
+            if (string.IsNullOrWhiteSpace(vapid))
+            {
+                throw new InvalidDataException(
+                    $"{resolved}: Web Push key is missing. Copy the key pair from Project settings, Cloud Messaging, Web Push certificates.");
+            }
+
             return JsonSerializer.Serialize(
-                web, FirebaseSnakeCaseWriteContext.Default.FirebaseWebClientConfig);
+                fields.WithVapid(vapid.Trim()),
+                FirebaseSnakeCaseWriteContext.Default.FirebaseWebClientConfig);
         }
         catch (Exception ex) when (ex is not InvalidDataException)
         {
-            throw new InvalidDataException($"Failed to parse {resolved} as firebase-web-config.json: {ex.Message}", ex);
+            throw new InvalidDataException($"Failed to parse {resolved} as a Firebase web config: {ex.Message}", ex);
         }
     }
 

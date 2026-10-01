@@ -9,6 +9,8 @@ namespace Interfold.Bootstrapper.UnitTests;
 
 /// <summary>Drives <see cref="GuidedConfigPrompt"/> through Spectre <c>TestConsole</c>.
 /// Selection prompts take Enter for the highlighted (first) choice and DownArrow to move.
+/// Sign-in is a multi-select: Space ticks the highlighted provider and Enter accepts.
+/// Providers already in the file start ticked, so Enter keeps them.
 /// Confirmation prompts require Enter after <c>y</c>/<c>n</c>; Enter alone accepts the default.
 /// <para><c>[NotInParallel("bootstrapper-console")]</c> shares the Spectre TestConsole lock
 /// with <see cref="ConfigInteractivePromptTests"/>.</para></summary>
@@ -38,6 +40,17 @@ public sealed class GuidedConfigPromptTests
     }
 
     private static void Accept(TestConsole console) => console.Input.PushKey(ConsoleKey.Enter);
+
+    private static void Tick(TestConsole console, int downArrows)
+    {
+        for (var i = 0; i < downArrows; i++)
+        {
+            console.Input.PushKey(ConsoleKey.DownArrow);
+        }
+
+        console.Input.PushKey(ConsoleKey.Spacebar);
+        console.Input.PushKey(ConsoleKey.Enter);
+    }
 
     private static void DeclineOptional(TestConsole console)
     {
@@ -129,7 +142,7 @@ public sealed class GuidedConfigPromptTests
         existing.Datastores.Persistence = PersistenceMode.ScyllaPostgres;
 
         var console = NewConsole();
-        for (var i = 0; i < 26; i++)
+        for (var i = 0; i < 25; i++)
         {
             Accept(console);
         }
@@ -171,7 +184,6 @@ public sealed class GuidedConfigPromptTests
         Accept(console);
         Accept(console);
         Accept(console);
-        Accept(console);
         DeclineOptional(console);
         Accept(console);
 
@@ -183,16 +195,40 @@ public sealed class GuidedConfigPromptTests
         await Assert.That(config.Edge.Routing.Mode).IsEqualTo(EdgeRoutingMode.Path);
         await Assert.That(config.Edge.Hosts).IsEquivalentTo(["192.168.1.42"]);
         await Assert.That(config.Edge.Certificates.TrustStoreInstall).IsTrue();
+        await Assert.That(console.Output).Contains("Ticked options are shown when someone signs in.");
+        await Assert.That(console.Output).Contains("Unticked options stay hidden.");
+        await Assert.That(console.Output).Contains("Google sign-in is not available for this address.");
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.SignInDiscord);
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.SignInApple);
+        await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.GoogleClientIdLabel);
         await Assert.That(config.Edge.Ports.Http).IsEqualTo(80);
         await Assert.That(config.Edge.Ports.Https).IsEqualTo(443);
         await Assert.That(config.Api.OAuth.AppleClientId).IsEmpty();
         await Assert.That(config.Edge.Cloudflare.Enabled).IsFalse();
         await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://192.168.1.42");
         await Assert.That(console.Output).Contains("Public API URL");
+        await Assert.That(console.Output).Contains("https://192.168.1.42/api/");
         await Assert.That(console.Output).DoesNotContain("Public Web URL");
         await Assert.That(config.Deployment.Backup.Enabled).IsFalse();
         await Assert.That(config.Deployment.Update.Enabled).IsFalse();
         await Assert.That(console.Output).Contains(GuidedConfigPrompt.UpdatesUnavailableMessage);
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.FirebaseConsolePage);
+        await Assert.That(console.Output).Contains("type a name for the project");
+        await Assert.That(console.Output).Contains("Choose the gear next to Project Overview, then Project settings.");
+        await Assert.That(console.Output).Contains("Generate new private key");
+        await Assert.That(console.Output).DoesNotContain("same Google Cloud project you created for Google sign-in");
+        await Assert.That(console.Output).DoesNotContain("pick the Google Cloud project you use for sign-in");
+        await Assert.That(console.Output).Contains("google-services.json");
+        var firebaseHint = string.Join(
+            ' ',
+            console.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        await Assert.That(firebaseHint).Contains("when who is fronting changes for a system");
+        await Assert.That(firebaseHint).Contains("Most people should leave this off.");
+        await Assert.That(firebaseHint).Contains("OpenTelemetry collector that is already running");
+        await Assert.That(firebaseHint).Contains("separate program");
+        await Assert.That(firebaseHint).Contains("forwards them to a dashboard you choose");
+        await Assert.That(firebaseHint).Contains(GuidedConfigPrompt.OtlpCollectorDocs);
+        await Assert.That(firebaseHint).Contains("full logging from the API, and from the app");
         await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.UpdateQuestion);
         await Assert.That(console.Output).Contains("not available (scheduled backups are off)");
         ConfigPhase.Validate(config);
@@ -209,19 +245,61 @@ public sealed class GuidedConfigPromptTests
         Accept(console);
         Accept(console);
         Accept(console);
-        Accept(console);
         DeclineOptional(console);
         Accept(console);
 
         var config = Run(console);
 
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.HostQuestionLan);
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.HostHintLan);
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.TrustQuestion);
+        await Assert.That(console.Output).Contains("Browsers warn that a home-network site is unsafe");
+        await Assert.That(console.Output).Contains("Phones and other computers still need the certificate installed on them.");
+        await Assert.That(console.Output).DoesNotContain("CIDR");
         await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.RoutingTitle);
         await Assert.That(config.Deployment.IncludeWeb).IsTrue();
         await Assert.That(config.Edge.Routing.Mode).IsEqualTo(EdgeRoutingMode.Path);
         await Assert.That(console.Output).Contains("IP hosts stay on one address");
         await Assert.That(console.Output).Contains("Public API URL");
         await Assert.That(console.Output).Contains("Public Web URL");
-        await Assert.That(console.Output).Contains("https://192.168.1.42");
+        await Assert.That(console.Output).Contains("https://192.168.1.42/api/");
+        await Assert.That(console.Output).Contains("https://192.168.1.42/ ");
+    }
+
+    [Test]
+    public async Task IpReconfigureDropsSavedSubdomainAndHidesGoogle()
+    {
+        var existing = new BootstrapConfig();
+        existing.Edge.Hosts = ["interfold.co.uk"];
+        existing.Edge.Routing.Mode = EdgeRoutingMode.Subdomain;
+        existing.Edge.Routing.ApiHost = "testapi.interfold.co.uk";
+        existing.Edge.Routing.WebHost = "testweb.interfold.co.uk";
+        existing.Deployment.IncludeWeb = true;
+        existing.Api.OAuth.GoogleClientId = "google-client";
+        existing.Api.OAuth.GoogleClientSecret = "google-secret";
+        existing.Api.OAuth.CallbackBaseUrl = "https://testapi.interfold.co.uk";
+
+        var console = NewConsole();
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Answer(console, "192.168.1.1");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console, existing: existing);
+
+        await Assert.That(config.Edge.Hosts).IsEquivalentTo(["192.168.1.1"]);
+        await Assert.That(config.Edge.Routing.Mode).IsEqualTo(EdgeRoutingMode.Path);
+        await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://192.168.1.1");
+        await Assert.That(config.Api.OAuth.GoogleClientId).IsEmpty();
+        await Assert.That(config.Api.OAuth.GoogleClientSecret).IsEmpty();
+        await Assert.That(console.Output).Contains("Google sign-in is not available for this address.");
+        await Assert.That(console.Output).DoesNotContain("] Google");
+        await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.GoogleClientIdLabel);
     }
 
     [Test]
@@ -232,10 +310,9 @@ public sealed class GuidedConfigPromptTests
         Accept(console);
         Answer(console, "y");
         Answer(console, "app.example.com");
-        Select(console, downArrows: 1);
-        Answer(console, "api.example.com");
-        Answer(console, "web.example.com");
         Accept(console);
+        Answer(console, "api");
+        Answer(console, "web");
         Accept(console);
         Accept(console);
         Accept(console);
@@ -245,12 +322,39 @@ public sealed class GuidedConfigPromptTests
         var config = Run(console);
 
         await Assert.That(config.Edge.Routing.Mode).IsEqualTo(EdgeRoutingMode.Subdomain);
-        await Assert.That(config.Edge.Routing.ApiHost).IsEqualTo("api.example.com");
-        await Assert.That(config.Edge.Routing.WebHost).IsEqualTo("web.example.com");
+        await Assert.That(config.Edge.Hosts).IsEquivalentTo(["app.example.com"]);
+        await Assert.That(config.Edge.Routing.ApiHost).IsEqualTo("api.app.example.com");
+        await Assert.That(config.Edge.Routing.WebHost).IsEqualTo("web.app.example.com");
         await Assert.That(config.Edge.TlsMode).IsEqualTo(EdgeTlsMode.PrivateCa);
-        await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://api.example.com");
-        await Assert.That(console.Output).Contains("https://api.example.com");
-        await Assert.That(console.Output).Contains("https://web.example.com");
+        await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://api.app.example.com");
+        await Assert.That(console.Output).Contains("https://api.app.example.com");
+        await Assert.That(console.Output).DoesNotContain("https://api.app.example.com/api/");
+        await Assert.That(console.Output).Contains("https://web.app.example.com");
+        ConfigPhase.Validate(config);
+    }
+
+    [Test]
+    public async Task SeparateHostnamesAcceptFullNameUnderTheSameHost()
+    {
+        var console = NewConsole();
+        Accept(console);
+        Accept(console);
+        Answer(console, "y");
+        Answer(console, "app.example.com");
+        Accept(console);
+        Answer(console, "api.app.example.com");
+        Answer(console, "web.app.example.com");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(config.Edge.Routing.ApiHost).IsEqualTo("api.app.example.com");
+        await Assert.That(config.Edge.Routing.WebHost).IsEqualTo("web.app.example.com");
+        await Assert.That(config.Edge.Hosts).IsEquivalentTo(["app.example.com"]);
         ConfigPhase.Validate(config);
     }
 
@@ -263,9 +367,8 @@ public sealed class GuidedConfigPromptTests
         Select(console, downArrows: 1);
         Answer(console, "y");
         Answer(console, "app.example.com");
-        Accept(console);
+        Select(console, downArrows: 1);
         Answer(console, token);
-        Accept(console);
         Accept(console);
         Accept(console);
         DeclineOptional(console);
@@ -273,7 +376,22 @@ public sealed class GuidedConfigPromptTests
 
         var config = Run(console);
 
+        var tokenHelp = string.Join(
+            ' ',
+            console.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        await Assert.That(tokenHelp).Contains(GuidedConfigPrompt.CloudflareTokenPage);
+        await Assert.That(tokenHelp).Contains("Core permissions:");
+        await Assert.That(tokenHelp).Contains("Cloudflare Tunnel → Edit");
+        await Assert.That(tokenHelp).Contains("Only if you plan to use Discord to sign in:");
+        await Assert.That(tokenHelp).Contains("Workers Scripts → Edit");
+        await Assert.That(tokenHelp).Contains("Do not use a token that has every permission.");
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.HostQuestionCloudflare);
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.HostHintCloudflare);
+        await Assert.That(console.Output).Contains("Cloudflare looks up your web address");
+        await Assert.That(console.Output).Contains("If Cloudflare does not look that name up, use the local network instead.");
         await Assert.That(console.Output).Contains(GuidedConfigPrompt.RoutingTitle);
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.RoutingSeparate);
+        await Assert.That(console.Output).Contains("One address keeps the website and the API on app.example.com.");
         await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.GoogleClientIdLabel);
         await Assert.That(console.Output).DoesNotContain(token);
         await Assert.That(config.Edge.Cloudflare.Enabled).IsTrue();
@@ -303,15 +421,30 @@ public sealed class GuidedConfigPromptTests
         Answer(console, "y");
         Answer(console, "person@example.com");
         Accept(console);
+        Tick(console, downArrows: 0);
         Answer(console, "google-client");
         Answer(console, "google-secret");
-        Accept(console);
-        Accept(console);
         DeclineOptional(console);
         Accept(console);
 
         var config = Run(console);
 
+        var flat = console.Output.ReplaceLineEndings(" ");
+        await Assert.That(flat).Contains("create a new project to hold these credentials");
+        await Assert.That(flat).Contains("https://console.cloud.google.com/apis/credentials");
+        await Assert.That(flat).Contains("Web application");
+        await Assert.That(flat).Contains(".local will not work.");
+        await Assert.That(flat).Contains("https://access.example.com/auth/google/callback");
+        await Assert.That(flat).Contains("https://access.example.com/auth/link/google/callback");
+        await Assert.That(flat).Contains("cloudflareaccess.com/cdn-cgi/access/callback");
+        await Assert.That(flat).Contains("example.com allows ada@example.com");
+        await Assert.That(flat).Contains("same Google Cloud project you created for Google sign-in");
+        await Assert.That(flat).Contains("pick the Google Cloud project you use for sign-in");
+        await Assert.That(flat).Contains("Leave out the import lines above it.");
+        await Assert.That(flat).Contains("Under Web Push certificates, copy the key pair.");
+        await Assert.That(flat).DoesNotContain("type a name for the project");
+        await Assert.That(console.Output).Contains("such as example.com");
+        await Assert.That(flat).DoesNotContain("discord.com/developers/applications");
         await Assert.That(console.Output).Contains(GuidedConfigPrompt.GoogleClientIdLabel);
         await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.DiscordClientIdLabel);
         await Assert.That(config.Edge.Cloudflare.Access.Enabled).IsTrue();
@@ -324,10 +457,73 @@ public sealed class GuidedConfigPromptTests
     }
 
     [Test]
-    public async Task LanPrefillKeepsHostnameBeforeDetectedAddress()
+    public async Task LanReconfigureFromAccessStillOffersDiscord()
+    {
+        var existing = new BootstrapConfig();
+        existing.Edge.Cloudflare.Enabled = true;
+        existing.Edge.Cloudflare.Access.Enabled = true;
+        existing.Edge.Hosts = ["interfold.co.uk"];
+        existing.Api.OAuth.DiscordClientId = "discord-client";
+        existing.Api.OAuth.DiscordClientSecret = "discord-secret";
+
+        var console = NewConsole();
+        Accept(console);
+        Select(console, downArrows: 1);
+        Accept(console);
+        Answer(console, "home.local");
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        Accept(console);
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console, existing: existing);
+
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.SignInTitle);
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.SignInDiscord);
+        await Assert.That(config.Edge.Cloudflare.Enabled).IsFalse();
+        await Assert.That(config.Edge.Cloudflare.Access.Enabled).IsFalse();
+        await Assert.That(config.Api.OAuth.DiscordClientId).IsEqualTo("discord-client");
+        await Assert.That(config.Api.OAuth.GoogleClientId).IsEmpty();
+    }
+
+    [Test]
+    public async Task LocalNameUsesDiscordForAccessAndSkipsGoogle()
     {
         var console = NewConsole();
         Accept(console);
+        Select(console, downArrows: 1);
+        Accept(console);
+        Answer(console, "home.local");
+        Answer(console, "cfat-access-token");
+        Answer(console, "y");
+        Answer(console, "person@example.com");
+        Accept(console);
+        Accept(console);
+        Answer(console, "discord-client");
+        Answer(console, "discord-secret");
+        DeclineOptional(console);
+        Accept(console);
+
+        var config = Run(console);
+
+        await Assert.That(console.Output).Contains("Google sign-in is not available for this address.");
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.AccessUsesDiscord);
+        await Assert.That(console.Output).Contains(GuidedConfigPrompt.DiscordClientIdLabel);
+        await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.GoogleClientIdLabel);
+        await Assert.That(config.Edge.Cloudflare.Access.Enabled).IsTrue();
+        await Assert.That(config.Api.OAuth.GoogleClientId).IsEmpty();
+        await Assert.That(config.Api.OAuth.DiscordClientId).IsEqualTo("discord-client");
+        await Assert.That(config.Api.OAuth.DiscordClientSecret).IsEqualTo("discord-secret");
+        ConfigPhase.Validate(config);
+    }
+
+    [Test]
+    public async Task LanPrefillKeepsHostnameBeforeDetectedAddress()
+    {
+        var console = NewConsole();
         Accept(console);
         Accept(console);
         Accept(console);
@@ -355,7 +551,6 @@ public sealed class GuidedConfigPromptTests
         Answer(console, "cfat-prefill-token");
         Accept(console);
         Accept(console);
-        Accept(console);
         DeclineOptional(console);
         Accept(console);
 
@@ -372,7 +567,6 @@ public sealed class GuidedConfigPromptTests
         Accept(console);
         Accept(console);
         Answer(console, "lan.example.com");
-        Accept(console);
         Accept(console);
         Accept(console);
         Accept(console);
@@ -518,6 +712,7 @@ public sealed class GuidedConfigPromptTests
         await Assert.That(config.Observability.OtlpEndpoint).IsEqualTo("https://otel.example.com/v1/traces");
         await Assert.That(config.Observability.AdvertiseOtlpToClients).IsFalse();
         await Assert.That(config.Observability.ClientOtlpHttpEndpoint).IsEmpty();
+        await Assert.That(console.Output).Contains("or a different one.");
         await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.OtlpClientOverrideLabel);
         await Assert.That(console.Output).Contains("not advertised");
         ConfigPhase.Validate(config);
@@ -557,7 +752,6 @@ public sealed class GuidedConfigPromptTests
         Answer(console, "8080");
         Answer(console, "8443");
         Accept(console);
-        Accept(console);
         DeclineOptional(console);
         Accept(console);
 
@@ -580,8 +774,7 @@ public sealed class GuidedConfigPromptTests
         Answer(console, "192.168.1.42");
         Accept(console);
         Accept(console);
-        Accept(console);
-        Answer(console, "y");
+        Tick(console, downArrows: 1);
         Answer(console, "com.example.interfold");
         Answer(console, "apple-secret");
         DeclineOptional(console);
@@ -592,6 +785,11 @@ public sealed class GuidedConfigPromptTests
         await Assert.That(config.Api.OAuth.AppleClientId).IsEqualTo("com.example.interfold");
         await Assert.That(config.Api.OAuth.AppleClientSecret).IsEqualTo("apple-secret");
         await Assert.That(config.Api.OAuth.GoogleClientId).IsEmpty();
+        var flat = console.Output.ReplaceLineEndings(" ");
+        await Assert.That(flat).Contains("Services ID is the client ID");
+        await Assert.That(flat).Contains("https://192.168.1.42/auth/apple/callback");
+        await Assert.That(flat).Contains("https://192.168.1.42/auth/link/apple/callback");
+        await Assert.That(flat).Contains("at most six months");
         await Assert.That(console.Output).DoesNotContain("apple-secret");
         await Assert.That(console.Output).Contains("Apple (set)");
     }
@@ -602,7 +800,6 @@ public sealed class GuidedConfigPromptTests
         Accept(console);
         Accept(console);
         Answer(console, "192.168.1.42");
-        Accept(console);
         Accept(console);
         Accept(console);
         Accept(console);
