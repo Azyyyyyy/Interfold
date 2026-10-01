@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration.Validation;
@@ -7,9 +8,10 @@ using Spectre.Console;
 
 namespace Interfold.Bootstrapper.Phases;
 
-/// <summary>First-run setup. Guided setup is the default selection; Advanced opens
-/// <see cref="ConfigPhase.PromptForConfig"/>. The summary can hand the guided answers
-/// to that same editor, or discard them and ask for the mode again.</summary>
+/// <summary>Guided or advanced setup. Guided setup is the default selection; Advanced opens
+/// <see cref="ConfigPhase.PromptForConfig"/>. On <c>--reconfigure</c> both paths start from
+/// the existing file, and guided Enter keeps the current answer. The summary can hand
+/// the result to that editor, or discard it and ask for the mode again.</summary>
 internal static class GuidedConfigPrompt
 {
     internal const string ChoiceGuided = "Guided setup (recommended)";
@@ -18,10 +20,6 @@ internal static class GuidedConfigPrompt
     internal const string ReachabilityTitle = "How will people reach this server?";
     internal const string ReachabilityLan = "This machine or my local network";
     internal const string ReachabilityCloudflare = "Public internet (Cloudflare Tunnel)";
-
-    internal const string PersistenceTitle = "Where should data be stored?";
-    internal const string PersistenceSqlite = "SQLite (recommended)";
-    internal const string PersistenceScylla = "Scylla and Postgres";
 
     internal const string RoutingTitle = "How should the site and API be addressed?";
     internal const string RoutingPath = "One address (site and API)";
@@ -62,7 +60,8 @@ internal static class GuidedConfigPrompt
         IAnsiConsole console,
         bool maskSecrets = false,
         Func<IPAddress?>? localAddressProbe = null,
-        Func<string?>? hostnameProbe = null)
+        Func<string?>? hostnameProbe = null,
+        BootstrapConfig? existing = null)
     {
         while (true)
         {
@@ -73,10 +72,11 @@ internal static class GuidedConfigPrompt
                 ChoiceAdvanced);
             if (mode == ChoiceAdvanced)
             {
-                return ConfigPhase.PromptForConfig(console, maskSecrets, localAddressProbe, hostnameProbe);
+                return ConfigPhase.PromptForConfig(
+                    console, maskSecrets, localAddressProbe, hostnameProbe, existing: existing);
             }
 
-            var (outcome, config) = Ask(console, maskSecrets, localAddressProbe, hostnameProbe);
+            var (outcome, config) = Ask(console, maskSecrets, localAddressProbe, hostnameProbe, existing);
             switch (outcome)
             {
                 case Outcome.Confirm:
@@ -92,15 +92,27 @@ internal static class GuidedConfigPrompt
         IAnsiConsole console,
         bool maskSecrets,
         Func<IPAddress?>? localAddressProbe,
-        Func<string?>? hostnameProbe)
+        Func<string?>? hostnameProbe,
+        BootstrapConfig? existing)
     {
-        var reach = Choose(console, $"[bold]{ReachabilityTitle}[/]", ReachabilityLan, ReachabilityCloudflare);
+        // Clone so Start over re-asks from the file, and so accepting defaults keeps
+        // fields this tree never asks about.
+        var config = existing is null ? new BootstrapConfig() : CloneConfig(existing);
+        var derived = DerivedInputs.Capture(config);
+
+        var reach = ChooseKeeping(
+            console,
+            $"[bold]{ReachabilityTitle}[/]",
+            config.Edge.Cloudflare.Enabled ? ReachabilityCloudflare : ReachabilityLan,
+            ReachabilityLan,
+            ReachabilityCloudflare);
         var lan = reach == ReachabilityLan;
 
-        var store = Choose(console, $"[bold]{PersistenceTitle}[/]", PersistenceSqlite, PersistenceScylla);
-        var includeWeb = AskYesNo(console, "Include the web UI (interfold-web)", fallback: false);
+        // Scylla and Postgres stay in the advanced editor. Guided always uses SQLite.
+        config.Datastores.Persistence = PersistenceMode.Sqlite;
+        var includeWeb = AskYesNo(console, "Include the web UI (interfold-web)", config.Deployment.IncludeWeb);
 
-        var seed = SeedHosts(localAddressProbe, hostnameProbe, dnsOnly: !lan);
+        var seed = SeedForPrompt(config.Edge.Hosts, localAddressProbe, hostnameProbe, dnsOnly: !lan);
         var hosts = PromptHosts(
             console,
             lan
@@ -109,30 +121,37 @@ internal static class GuidedConfigPrompt
             seed,
             dnsOnly: !lan);
 
-        var config = new BootstrapConfig();
         config.Deployment.IncludeWeb = includeWeb;
-        config.Datastores.Persistence = store == PersistenceSqlite
-            ? PersistenceMode.Sqlite
-            : PersistenceMode.ScyllaPostgres;
         config.Edge.Hosts = hosts;
 
         var anyDns = hosts.Any(IsDns);
         if (includeWeb && anyDns)
         {
-            var routing = Choose(console, $"[bold]{RoutingTitle}[/]", RoutingPath, RoutingSeparate);
+            var routingCurrent = config.Edge.Routing.Mode == EdgeRoutingMode.Subdomain
+                ? RoutingSeparate
+                : RoutingPath;
+            var routing = ChooseKeeping(
+                console, $"[bold]{RoutingTitle}[/]", routingCurrent, RoutingPath, RoutingSeparate);
             if (routing == RoutingSeparate)
             {
                 config.Edge.Routing.Mode = EdgeRoutingMode.Subdomain;
-                config.Edge.Routing.ApiHost = PromptDnsName(console, "API hostname");
-                config.Edge.Routing.WebHost = PromptDnsName(console, "Web hostname");
+                config.Edge.Routing.ApiHost = PromptDnsName(console, "API hostname", config.Edge.Routing.ApiHost);
+                config.Edge.Routing.WebHost = PromptDnsName(console, "Web hostname", config.Edge.Routing.WebHost);
+            }
+            else
+            {
+                config.Edge.Routing.Mode = EdgeRoutingMode.Path;
             }
         }
 
         if (lan)
         {
             config.Edge.TlsMode = EdgeTlsMode.PrivateCa;
+            config.Edge.Cloudflare.Enabled = false;
             config.Edge.Certificates.TrustStoreInstall = AskYesNo(
-                console, "Install the root CA into this machine's trust store", fallback: true);
+                console,
+                "Install the root CA into this machine's trust store",
+                config.Edge.Certificates.TrustStoreInstall);
             // Cloudflare does not publish host ports, so this question is LAN-only.
             PromptPublishedPorts(console, config);
         }
@@ -140,23 +159,35 @@ internal static class GuidedConfigPrompt
         {
             // ValidateEdge coerces tlsMode to none once the tunnel is on.
             config.Edge.Cloudflare.Enabled = true;
-            config.Edge.Cloudflare.ApiToken = PromptRequired(console, "Cloudflare API token", maskSecrets);
-            config.Edge.Cloudflare.Access.Enabled = AskYesNo(
-                console, "Restrict who can open the site with Cloudflare Access", fallback: false);
-            if (config.Edge.Cloudflare.Access.Enabled)
+            config.Edge.Cloudflare.ApiToken = PromptKeep(
+                console, "Cloudflare API token", config.Edge.Cloudflare.ApiToken, maskSecrets);
+            var access = config.Edge.Cloudflare.Access;
+            access.Enabled = AskYesNo(
+                console, "Restrict who can open the site with Cloudflare Access", access.Enabled);
+            if (access.Enabled)
             {
-                PromptAccessAllowlist(console, config.Edge.Cloudflare.Access);
-                config.Api.OAuth.GoogleClientId = PromptRequired(console, GoogleClientIdLabel, secret: false);
-                config.Api.OAuth.GoogleClientSecret = PromptRequired(console, "Google OAuth client secret", maskSecrets);
+                PromptAccessAllowlist(console, access);
+                config.Api.OAuth.GoogleClientId = PromptKeep(
+                    console, GoogleClientIdLabel, config.Api.OAuth.GoogleClientId, secret: false);
+                config.Api.OAuth.GoogleClientSecret = PromptKeep(
+                    console, "Google OAuth client secret", config.Api.OAuth.GoogleClientSecret, maskSecrets);
             }
         }
 
         if (config.Edge.Cloudflare.Access.Enabled)
         {
-            if (AskYesNo(console, "Add Discord sign-in", fallback: false))
+            var discordOn = !string.IsNullOrEmpty(config.Api.OAuth.DiscordClientId);
+            if (AskYesNo(console, "Add Discord sign-in", discordOn))
             {
-                config.Api.OAuth.DiscordClientId = PromptRequired(console, DiscordClientIdLabel, secret: false);
-                config.Api.OAuth.DiscordClientSecret = PromptRequired(console, "Discord OAuth client secret", maskSecrets);
+                config.Api.OAuth.DiscordClientId = PromptKeep(
+                    console, DiscordClientIdLabel, config.Api.OAuth.DiscordClientId, secret: false);
+                config.Api.OAuth.DiscordClientSecret = PromptKeep(
+                    console, "Discord OAuth client secret", config.Api.OAuth.DiscordClientSecret, maskSecrets);
+            }
+            else
+            {
+                config.Api.OAuth.DiscordClientId = string.Empty;
+                config.Api.OAuth.DiscordClientSecret = string.Empty;
             }
 
             PromptApple(console, config, maskSecrets);
@@ -167,6 +198,7 @@ internal static class GuidedConfigPrompt
         }
 
         PromptOptionalFeatures(console, config);
+        ClearDerivedIfChanged(derived, config);
 
         var outcome = ShowSummary(console, config, ipOnly: !anyDns);
         return (outcome, config);
@@ -198,6 +230,26 @@ internal static class GuidedConfigPrompt
         }
 
         return seed;
+    }
+
+    /// <summary>An existing host list wins over mDNS/IP detection so reconfigure keeps the
+    /// published name. Cloudflare still drops non-DNS entries.</summary>
+    private static List<string> SeedForPrompt(
+        IReadOnlyList<string> configured,
+        Func<IPAddress?>? localAddressProbe,
+        Func<string?>? hostnameProbe,
+        bool dnsOnly)
+    {
+        if (configured.Count > 0)
+        {
+            var kept = dnsOnly ? configured.Where(IsDns).ToList() : configured.ToList();
+            if (kept.Count > 0)
+            {
+                return kept;
+            }
+        }
+
+        return SeedHosts(localAddressProbe, hostnameProbe, dnsOnly);
     }
 
     private static List<string> PromptHosts(
@@ -268,12 +320,13 @@ internal static class GuidedConfigPrompt
         return ValidationResult.Success();
     }
 
-    private static string PromptDnsName(IAnsiConsole console, string label)
+    private static string PromptDnsName(IAnsiConsole console, string label, string current)
     {
-        return console.Prompt(new TextPrompt<string>($"{label}:")
+        var prompt = new TextPrompt<string>($"{label}:")
+            .AllowEmpty()
             .Validate(raw =>
             {
-                var trimmed = raw?.Trim() ?? string.Empty;
+                var trimmed = string.IsNullOrWhiteSpace(raw) ? current.Trim() : raw.Trim();
                 if (string.IsNullOrEmpty(trimmed) || trimmed.Contains(','))
                 {
                     return ValidationResult.Error("[red]enter a single DNS hostname[/]");
@@ -290,17 +343,28 @@ internal static class GuidedConfigPrompt
                 {
                     return ValidationResult.Error($"[red]{ex.Message}[/]");
                 }
-            })).Trim();
+            });
+        if (!string.IsNullOrWhiteSpace(current))
+        {
+            prompt.DefaultValue(current);
+        }
+
+        var answered = console.Prompt(prompt);
+        return string.IsNullOrWhiteSpace(answered) ? current.Trim() : answered.Trim();
     }
 
     private static void PromptAccessAllowlist(IAnsiConsole console, EdgeCloudflareAccessSection access)
     {
         while (true)
         {
-            access.AllowedEmails = PromptCsv(console, "Access allowed emails (comma-separated, blank to skip)");
-            access.AllowedEmailDomains = PromptCsv(console, "Access allowed email domains (comma-separated, blank to skip)");
-            if (access.AllowedEmails.Count > 0 || access.AllowedEmailDomains.Count > 0)
+            var emails = PromptCsv(
+                console, "Access allowed emails (comma-separated, blank to skip)", access.AllowedEmails);
+            var domains = PromptCsv(
+                console, "Access allowed email domains (comma-separated, blank to skip)", access.AllowedEmailDomains);
+            if (emails.Count > 0 || domains.Count > 0)
             {
+                access.AllowedEmails = emails;
+                access.AllowedEmailDomains = domains;
                 return;
             }
 
@@ -310,17 +374,37 @@ internal static class GuidedConfigPrompt
 
     private static void PromptSignIn(IAnsiConsole console, BootstrapConfig config, bool maskSecrets)
     {
-        var choice = Choose(console, $"[bold]{SignInTitle}[/]", SignInNone, SignInGoogle, SignInDiscord, SignInBoth);
+        var google = !string.IsNullOrEmpty(config.Api.OAuth.GoogleClientId);
+        var discord = !string.IsNullOrEmpty(config.Api.OAuth.DiscordClientId);
+        var current = (google, discord) switch
+        {
+            (true, true) => SignInBoth,
+            (true, false) => SignInGoogle,
+            (false, true) => SignInDiscord,
+            _ => SignInNone,
+        };
+        var choice = ChooseKeeping(
+            console, $"[bold]{SignInTitle}[/]", current, SignInNone, SignInGoogle, SignInDiscord, SignInBoth);
         if (choice is SignInGoogle or SignInBoth)
         {
-            config.Api.OAuth.GoogleClientId = PromptRequired(console, GoogleClientIdLabel, secret: false);
-            config.Api.OAuth.GoogleClientSecret = PromptRequired(console, "Google OAuth client secret", maskSecrets);
+            config.Api.OAuth.GoogleClientId = PromptKeep(console, GoogleClientIdLabel, config.Api.OAuth.GoogleClientId, secret: false);
+            config.Api.OAuth.GoogleClientSecret = PromptKeep(console, "Google OAuth client secret", config.Api.OAuth.GoogleClientSecret, maskSecrets);
+        }
+        else
+        {
+            config.Api.OAuth.GoogleClientId = string.Empty;
+            config.Api.OAuth.GoogleClientSecret = string.Empty;
         }
 
         if (choice is SignInDiscord or SignInBoth)
         {
-            config.Api.OAuth.DiscordClientId = PromptRequired(console, DiscordClientIdLabel, secret: false);
-            config.Api.OAuth.DiscordClientSecret = PromptRequired(console, "Discord OAuth client secret", maskSecrets);
+            config.Api.OAuth.DiscordClientId = PromptKeep(console, DiscordClientIdLabel, config.Api.OAuth.DiscordClientId, secret: false);
+            config.Api.OAuth.DiscordClientSecret = PromptKeep(console, "Discord OAuth client secret", config.Api.OAuth.DiscordClientSecret, maskSecrets);
+        }
+        else
+        {
+            config.Api.OAuth.DiscordClientId = string.Empty;
+            config.Api.OAuth.DiscordClientSecret = string.Empty;
         }
 
         PromptApple(console, config, maskSecrets);
@@ -328,19 +412,25 @@ internal static class GuidedConfigPrompt
 
     private static void PromptApple(IAnsiConsole console, BootstrapConfig config, bool maskSecrets)
     {
-        if (!AskYesNo(console, AppleQuestion, fallback: false))
+        var hasApple = !string.IsNullOrEmpty(config.Api.OAuth.AppleClientId);
+        if (!AskYesNo(console, AppleQuestion, hasApple))
         {
+            config.Api.OAuth.AppleClientId = string.Empty;
+            config.Api.OAuth.AppleClientSecret = string.Empty;
             return;
         }
 
-        config.Api.OAuth.AppleClientId = PromptRequired(console, AppleClientIdLabel, secret: false);
-        config.Api.OAuth.AppleClientSecret = PromptRequired(console, "Apple OAuth client secret", maskSecrets);
+        config.Api.OAuth.AppleClientId = PromptKeep(console, AppleClientIdLabel, config.Api.OAuth.AppleClientId, secret: false);
+        config.Api.OAuth.AppleClientSecret = PromptKeep(console, "Apple OAuth client secret", config.Api.OAuth.AppleClientSecret, maskSecrets);
     }
 
     private static void PromptPublishedPorts(IAnsiConsole console, BootstrapConfig config)
     {
-        if (AskYesNo(console, PortsQuestion, fallback: true))
+        var standard = config.Edge.Ports.Http == 80 && config.Edge.Ports.Https == 443;
+        if (AskYesNo(console, PortsQuestion, standard))
         {
+            config.Edge.Ports.Http = 80;
+            config.Edge.Ports.Https = 443;
             return;
         }
 
@@ -369,51 +459,96 @@ internal static class GuidedConfigPrompt
 
     private static void PromptOptionalFeatures(IAnsiConsole console, BootstrapConfig config)
     {
-        if (!AskYesNo(console, "Enable scheduled backups", fallback: false))
+        var backupsWereOn = config.Deployment.Backup.Enabled;
+        if (!AskYesNo(console, "Enable scheduled backups", backupsWereOn))
         {
+            config.Deployment.Backup.Enabled = false;
             console.MarkupLine($"[yellow]{UpdatesUnavailableMessage}[/]");
         }
         else
         {
             config.Deployment.Backup.Enabled = true;
-            config.Deployment.Backup.Schedule = PromptBackupSchedule(console);
+            config.Deployment.Backup.Schedule = PromptBackupSchedule(console, config.Deployment.Backup.Schedule);
             config.Deployment.Backup.RetainCount = console.Prompt(
                 new TextPrompt<int>("How many backup archives should be kept per database?")
                     .DefaultValue(config.Deployment.Backup.RetainCount)
                     .ValidationErrorMessage("[red]must be an integer in [[1..1000]][/]")
                     .Validate(n => n is >= 1 and <= 1000));
 
-            console.MarkupLine(
-                "[grey]Yes pulls new images and recreates containers. If the health check fails, the backup taken just before the update is restored. The release channel stays stable.[/]");
-            if (AskYesNo(console, UpdateQuestion, fallback: false))
+            var updatesWereOn = config.Deployment.Update.Enabled;
+            if (!updatesWereOn)
             {
-                ApplyImageUpdatePreset(config);
                 console.MarkupLine(
-                    "[grey]Yes runs update-self before the image update. If the health check fails, the previous bootstrapper binary is restored.[/]");
-                if (AskYesNo(console, BootstrapperUpdateQuestion, fallback: false))
+                    "[grey]Yes pulls new images and recreates containers. If the health check fails, the backup taken just before the update is restored. The release channel stays stable.[/]");
+            }
+
+            if (AskYesNo(console, UpdateQuestion, updatesWereOn))
+            {
+                if (!updatesWereOn)
                 {
-                    config.Deployment.Update.Bootstrapper.Enabled = true;
-                    config.Deployment.Update.Bootstrapper.AutoRollbackOnFailure = true;
+                    ApplyImageUpdatePreset(config);
                 }
+
+                var bootstrapperWasOn = config.Deployment.Update.Bootstrapper.Enabled;
+                if (!bootstrapperWasOn)
+                {
+                    console.MarkupLine(
+                        "[grey]Yes runs update-self before the image update. If the health check fails, the previous bootstrapper binary is restored.[/]");
+                }
+
+                if (AskYesNo(console, BootstrapperUpdateQuestion, bootstrapperWasOn))
+                {
+                    if (!bootstrapperWasOn)
+                    {
+                        config.Deployment.Update.Bootstrapper.Enabled = true;
+                        config.Deployment.Update.Bootstrapper.AutoRollbackOnFailure = true;
+                    }
+                }
+                else
+                {
+                    config.Deployment.Update.Bootstrapper.Enabled = false;
+                }
+            }
+            else
+            {
+                config.Deployment.Update.Enabled = false;
             }
         }
 
-        if (AskYesNo(console, FirebaseQuestion, fallback: false))
+        var firebaseWasOn = FirebaseConfigured(config.Api.Firebase);
+        if (AskYesNo(console, FirebaseQuestion, firebaseWasOn))
         {
             ConfigPhase.PromptGuidedFirebase(console, config.Api.Firebase);
         }
-
-        if (!AskYesNo(console, OtlpQuestion, fallback: false))
+        else
         {
+            config.Api.Firebase.AndroidConfigPath = string.Empty;
+            config.Api.Firebase.IosConfigPath = string.Empty;
+            config.Api.Firebase.WebConfigPath = string.Empty;
+            config.Api.Firebase.ServiceAccountPath = string.Empty;
+        }
+
+        var otlpWasOn = !string.IsNullOrWhiteSpace(config.Observability.OtlpEndpoint);
+        if (!AskYesNo(console, OtlpQuestion, otlpWasOn))
+        {
+            config.Observability.OtlpEndpoint = string.Empty;
+            config.Observability.AdvertiseOtlpToClients = false;
+            config.Observability.ClientOtlpHttpEndpoint = string.Empty;
             return;
         }
 
-        config.Observability.OtlpEndpoint = PromptHttpUrl(console, "OTLP collector URL", required: true);
+        config.Observability.OtlpEndpoint = PromptHttpUrl(
+            console, "OTLP collector URL", required: true, config.Observability.OtlpEndpoint);
         config.Observability.AdvertiseOtlpToClients = AskYesNo(
-            console, "Advertise that endpoint to clients", fallback: false);
+            console, "Advertise that endpoint to clients", config.Observability.AdvertiseOtlpToClients);
         if (config.Observability.AdvertiseOtlpToClients)
         {
-            config.Observability.ClientOtlpHttpEndpoint = PromptHttpUrl(console, OtlpClientOverrideLabel, required: false);
+            config.Observability.ClientOtlpHttpEndpoint = PromptHttpUrl(
+                console, OtlpClientOverrideLabel, required: false, config.Observability.ClientOtlpHttpEndpoint);
+        }
+        else
+        {
+            config.Observability.ClientOtlpHttpEndpoint = string.Empty;
         }
     }
 
@@ -428,9 +563,16 @@ internal static class GuidedConfigPrompt
         update.Bootstrapper.Channel = BootstrapperReleaseChannel.Stable;
     }
 
-    private static string PromptBackupSchedule(IAnsiConsole console)
+    private static string PromptBackupSchedule(IAnsiConsole console, string current)
     {
-        var cadence = Choose(console, "[bold]How often should backups run?[/]", CadenceDaily, CadenceWeekly, CadenceCustom);
+        var currentChoice = current switch
+        {
+            "daily" => CadenceDaily,
+            "weekly" => CadenceWeekly,
+            _ => CadenceCustom,
+        };
+        var cadence = ChooseKeeping(
+            console, "[bold]How often should backups run?[/]", currentChoice, CadenceDaily, CadenceWeekly, CadenceCustom);
         if (cadence == CadenceWeekly)
         {
             return "weekly";
@@ -441,21 +583,39 @@ internal static class GuidedConfigPrompt
             return "daily";
         }
 
-        return console.Prompt(new TextPrompt<string>("Backup schedule (systemd OnCalendar, e.g. daily, weekly, Mon..Fri 03:30):")
-            .Validate(raw => ConfigPhase.IsAllowedBackupSchedule(raw)
-                ? ValidationResult.Success()
-                : ValidationResult.Error(
-                    "[red]use letters, digits, spaces, and . - : , * / (for example daily, weekly, or Mon..Fri 03:30)[/]")));
+        var prompt = new TextPrompt<string>("Backup schedule (systemd OnCalendar, e.g. daily, weekly, Mon..Fri 03:30):")
+            .AllowEmpty()
+            .Validate(raw =>
+            {
+                var candidate = string.IsNullOrWhiteSpace(raw) ? current : raw;
+                return ConfigPhase.IsAllowedBackupSchedule(candidate)
+                    ? ValidationResult.Success()
+                    : ValidationResult.Error(
+                        "[red]use letters, digits, spaces, and . - : , * / (for example daily, weekly, or Mon..Fri 03:30)[/]");
+            });
+        if (ConfigPhase.IsAllowedBackupSchedule(current))
+        {
+            prompt.DefaultValue(current);
+        }
+
+        var answered = console.Prompt(prompt);
+        return string.IsNullOrWhiteSpace(answered) ? current.Trim() : answered.Trim();
     }
 
-    private static string PromptHttpUrl(IAnsiConsole console, string label, bool required)
+    private static string PromptHttpUrl(IAnsiConsole console, string label, bool required, string? current = null)
     {
+        var kept = current?.Trim() ?? string.Empty;
         var prompt = new TextPrompt<string>($"{label}:")
             .AllowEmpty()
             .Validate(raw =>
             {
                 if (string.IsNullOrWhiteSpace(raw))
                 {
+                    if (!string.IsNullOrEmpty(kept))
+                    {
+                        return ValidationResult.Success();
+                    }
+
                     return required
                         ? ValidationResult.Error("[red]an absolute http(s) URL is required[/]")
                         : ValidationResult.Success();
@@ -465,8 +625,18 @@ internal static class GuidedConfigPrompt
                     ? ValidationResult.Success()
                     : ValidationResult.Error("[red]must be an absolute http(s) URL[/]");
             });
+        if (!string.IsNullOrEmpty(kept))
+        {
+            prompt.DefaultValue(kept);
+        }
+
         var answered = console.Prompt(prompt);
-        return string.IsNullOrWhiteSpace(answered) ? string.Empty : answered.Trim();
+        if (string.IsNullOrWhiteSpace(answered))
+        {
+            return kept;
+        }
+
+        return answered.Trim();
     }
 
     private static string DescribeBackups(BootstrapConfig config)
@@ -494,7 +664,8 @@ internal static class GuidedConfigPrompt
         var bootstrapper = config.Deployment.Update.Bootstrapper.Enabled
             ? "on, bootstrapper updated, rollback on failure"
             : "on, bootstrapper not updated";
-        return $"{bootstrapper} (stable images, restore the pre-update backup if the health check fails)";
+        var images = config.Deployment.Update.Bootstrapper.Channel.ToWireValue() + " images";
+        return $"{bootstrapper} ({images}, restore the pre-update backup if the health check fails)";
     }
 
     private static string DescribeOtlp(BootstrapConfig config)
@@ -551,7 +722,11 @@ internal static class GuidedConfigPrompt
         Row("Updates", DescribeUpdates(config));
         Row("Firebase", ConfigPhase.ShowFirebaseState(config.Api.Firebase));
         Row("OTLP", DescribeOtlp(config));
-        Row("Public URL", config.Api.OAuth.CallbackBaseUrl);
+        Row("Public API URL", config.Api.OAuth.CallbackBaseUrl);
+        if (config.Deployment.IncludeWeb)
+        {
+            Row("Public Web URL", ConfigPhase.FormatPublicWebOrigin(config));
+        }
 
         console.Write(table);
         var choice = Choose(console,
@@ -641,29 +816,53 @@ internal static class GuidedConfigPrompt
         return string.Join(", ", providers);
     }
 
-    private static List<string> PromptCsv(IAnsiConsole console, string label)
+    private static List<string> PromptCsv(IAnsiConsole console, string label, IReadOnlyList<string>? current = null)
     {
-        var raw = console.Prompt(new TextPrompt<string>($"{label}:").AllowEmpty());
+        var prompt = new TextPrompt<string>($"{label}:").AllowEmpty();
+        if (current is { Count: > 0 })
+        {
+            prompt.DefaultValue(string.Join(",", current));
+        }
+
+        var raw = console.Prompt(prompt);
         if (string.IsNullOrWhiteSpace(raw))
         {
-            return [];
+            return current is { Count: > 0 } ? [.. current] : [];
         }
 
         return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
     }
 
-    private static string PromptRequired(IAnsiConsole console, string label, bool secret)
+    private static string PromptKeep(IAnsiConsole console, string label, string current, bool secret)
     {
-        var prompt = new TextPrompt<string>($"{label}:")
-            .Validate(raw => string.IsNullOrWhiteSpace(raw)
+        var hasCurrent = !string.IsNullOrEmpty(current);
+        var prompt = new TextPrompt<string>(
+                secret && hasCurrent ? $"{label} (blank keeps the current value):" : $"{label}:")
+            .AllowEmpty();
+        if (hasCurrent && !secret)
+        {
+            prompt.DefaultValue(current);
+        }
+
+        if (!hasCurrent)
+        {
+            prompt.Validate(raw => string.IsNullOrWhiteSpace(raw)
                 ? ValidationResult.Error("[red]required[/]")
                 : ValidationResult.Success());
+        }
+
         if (secret)
         {
             prompt.Secret('*');
         }
 
-        return console.Prompt(prompt).Trim();
+        var answered = console.Prompt(prompt);
+        if (string.IsNullOrWhiteSpace(answered))
+        {
+            return hasCurrent ? current : string.Empty;
+        }
+
+        return answered.Trim();
     }
 
     private static bool AskYesNo(IAnsiConsole console, string question, bool fallback) =>
@@ -671,6 +870,63 @@ internal static class GuidedConfigPrompt
 
     private static string Choose(IAnsiConsole console, string title, params string[] choices) =>
         console.Prompt(new SelectionPrompt<string>().Title(title).AddChoices(choices));
+
+    /// <summary>Highlights <paramref name="current"/> so Enter keeps the value already in the file.</summary>
+    private static string ChooseKeeping(IAnsiConsole console, string title, string current, params string[] choices)
+    {
+        if (Array.IndexOf(choices, current) > 0)
+        {
+            choices = [current, .. choices.Where(choice => choice != current)];
+        }
+
+        return Choose(console, title, choices);
+    }
+
+    private static BootstrapConfig CloneConfig(BootstrapConfig config)
+    {
+        var json = JsonSerializer.Serialize(config, BootstrapJsonContext.Default.BootstrapConfig);
+        return JsonSerializer.Deserialize(json, BootstrapJsonContext.Default.BootstrapConfig)
+            ?? new BootstrapConfig();
+    }
+
+    private readonly record struct DerivedInputs(
+        string Hosts,
+        EdgeRoutingMode Mode,
+        string ApiHost,
+        string WebHost,
+        int Http,
+        int Https,
+        EdgeTlsMode Tls,
+        bool Cloudflare)
+    {
+        public static DerivedInputs Capture(BootstrapConfig config) => new(
+            string.Join('\n', config.Edge.Hosts),
+            config.Edge.Routing.Mode,
+            config.Edge.Routing.ApiHost,
+            config.Edge.Routing.WebHost,
+            config.Edge.Ports.Http,
+            config.Edge.Ports.Https,
+            config.Edge.TlsMode,
+            config.Edge.Cloudflare.Enabled);
+    }
+
+    private static void ClearDerivedIfChanged(DerivedInputs before, BootstrapConfig config)
+    {
+        if (before == DerivedInputs.Capture(config))
+        {
+            return;
+        }
+
+        config.Api.OAuth.CallbackBaseUrl = string.Empty;
+        config.Api.OAuth.JwtAuthority = string.Empty;
+        config.Api.CorsAllowedOrigins = [];
+    }
+
+    private static bool FirebaseConfigured(FirebaseSection section) =>
+        !string.IsNullOrEmpty(section.AndroidConfigPath)
+        || !string.IsNullOrEmpty(section.IosConfigPath)
+        || !string.IsNullOrEmpty(section.WebConfigPath)
+        || !string.IsNullOrEmpty(section.ServiceAccountPath);
 
     private static bool IsDns(string raw)
     {

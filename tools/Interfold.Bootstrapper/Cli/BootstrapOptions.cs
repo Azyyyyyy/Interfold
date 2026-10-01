@@ -31,9 +31,10 @@ namespace Interfold.Bootstrapper.Cli;
 /// <param name="RestoreSqliteArchive">For <see cref="BootstrapCommand.Restore"/>: path to a specific SQLite <c>.db</c> archive to restore.</param>
 /// <param name="RestoreLatest">For <see cref="BootstrapCommand.Restore"/>: pick the newest archive by mtime under <c>{backupRoot}/{component}/</c> for every component that wasn't explicitly named on the CLI. Only meaningful when at least one archive exists.</param>
 /// <param name="RestoreForce">For <see cref="BootstrapCommand.Restore"/>: skip the interactive "this will wipe your data volumes" confirmation. Required in non-interactive mode; equivalent to typing "y" at the confirmation prompt in interactive mode.</param>
-/// <param name="Reconfigure">If true (bootstrap only), re-open the interactive config editor seeded
-/// from the existing <c>interfold.bootstrap.json</c>, persist on confirm, then continue the pipeline.
-/// Incompatible with <see cref="NonInteractive"/> / redirected stdin.</param>
+/// <param name="Reconfigure">If true (bootstrap only), ask for guided or advanced setup again
+/// from the existing <c>interfold.bootstrap.json</c>. Guided defaults each answer to the
+/// current value. Persist on confirm, then continue the pipeline. Incompatible with
+/// <see cref="NonInteractive"/> / redirected stdin.</param>
 public sealed record BootstrapOptions(
     BootstrapCommand Command,
     string? ConfigPath,

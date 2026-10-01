@@ -50,12 +50,17 @@ public sealed class GuidedConfigPromptTests
 
     private static void ConfirmAdvanced(TestConsole console) => Select(console, AdvancedFieldCount);
 
-    private static BootstrapConfig Run(TestConsole console, string? hostname = null, IPAddress? ip = null) =>
+    private static BootstrapConfig Run(
+        TestConsole console,
+        string? hostname = null,
+        IPAddress? ip = null,
+        BootstrapConfig? existing = null) =>
         GuidedConfigPrompt.Run(
             console,
             maskSecrets: true,
             localAddressProbe: () => ip,
-            hostnameProbe: () => hostname);
+            hostnameProbe: () => hostname,
+            existing: existing);
 
     [Test]
     public async Task ChoosingAdvancedSkipsGuidedQuestions()
@@ -74,10 +79,91 @@ public sealed class GuidedConfigPromptTests
     }
 
     [Test]
+    public async Task ReconfigureAdvancedKeepsTheExistingFile()
+    {
+        var existing = new BootstrapConfig();
+        existing.Edge.Hosts = ["kept.example.com"];
+        existing.Edge.Certificates.RootCaName = "Kept CA";
+
+        var console = NewConsole();
+        Select(console, downArrows: 1);
+        ConfirmAdvanced(console);
+
+        var config = Run(console, existing: existing);
+
+        await Assert.That(console.Output).Contains("How do you want to configure Interfold?");
+        await Assert.That(console.Output).DoesNotContain(GuidedConfigPrompt.ReachabilityTitle);
+        await Assert.That(config.Edge.Hosts).IsEquivalentTo(["kept.example.com"]);
+        await Assert.That(config.Edge.Certificates.RootCaName).IsEqualTo("Kept CA");
+    }
+
+    [Test]
+    public async Task ReconfigureGuidedKeepsCurrentAnswersOnEnter()
+    {
+        var existing = new BootstrapConfig();
+        existing.Edge.Hosts = ["kept.example.com"];
+        existing.Edge.TlsMode = EdgeTlsMode.PrivateCa;
+        existing.Edge.Certificates.RootCaName = "Kept CA";
+        existing.Edge.Ports.Http = 8080;
+        existing.Edge.Ports.Https = 8443;
+        existing.Deployment.IncludeWeb = true;
+        existing.Api.Image = "ghcr.io/example/interfold-api:pinned";
+        existing.Api.OAuth.GoogleClientId = "google-client";
+        existing.Api.OAuth.GoogleClientSecret = "google-secret";
+        existing.Api.OAuth.AppleClientId = "com.example.interfold";
+        existing.Api.OAuth.AppleClientSecret = "apple-secret";
+        existing.Api.OAuth.CallbackBaseUrl = "https://kept.example.com:8443";
+        existing.Deployment.Backup.Enabled = true;
+        existing.Deployment.Backup.Schedule = "weekly";
+        existing.Deployment.Backup.RetainCount = 7;
+        existing.Deployment.Backup.Directory = "/var/backups/interfold";
+        existing.Deployment.Update.Enabled = true;
+        existing.Deployment.Update.HealthCheckTimeoutSeconds = 240;
+        existing.Deployment.Update.Services = ["interfold-api"];
+        existing.Deployment.Update.AutoRestoreOnFailure = true;
+        existing.Deployment.Update.Bootstrapper.Enabled = true;
+        existing.Deployment.Update.Bootstrapper.AutoRollbackOnFailure = true;
+        existing.Deployment.Update.Bootstrapper.Channel = BootstrapperReleaseChannel.BleedingEdge;
+        existing.Api.Firebase.AndroidConfigPath = "/tmp/google-services.json";
+        existing.Observability.OtlpEndpoint = "https://otel.example.com/v1/traces";
+        existing.Datastores.Persistence = PersistenceMode.ScyllaPostgres;
+
+        var console = NewConsole();
+        for (var i = 0; i < 26; i++)
+        {
+            Accept(console);
+        }
+
+        var config = Run(console, existing: existing);
+
+        await Assert.That(config.Datastores.Persistence).IsEqualTo(PersistenceMode.Sqlite);
+        await Assert.That(console.Output).DoesNotContain("Where should data be stored?");
+        await Assert.That(config.Edge.Hosts).IsEquivalentTo(["kept.example.com"]);
+        await Assert.That(config.Edge.Certificates.RootCaName).IsEqualTo("Kept CA");
+        await Assert.That(config.Edge.Ports.Http).IsEqualTo(8080);
+        await Assert.That(config.Edge.Ports.Https).IsEqualTo(8443);
+        await Assert.That(config.Api.Image).IsEqualTo("ghcr.io/example/interfold-api:pinned");
+        await Assert.That(config.Api.OAuth.GoogleClientId).IsEqualTo("google-client");
+        await Assert.That(config.Api.OAuth.GoogleClientSecret).IsEqualTo("google-secret");
+        await Assert.That(config.Api.OAuth.AppleClientSecret).IsEqualTo("apple-secret");
+        await Assert.That(config.Api.OAuth.DiscordClientId).IsEmpty();
+        await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://kept.example.com:8443");
+        await Assert.That(config.Deployment.Backup.Directory).IsEqualTo("/var/backups/interfold");
+        await Assert.That(config.Deployment.Backup.Schedule).IsEqualTo("weekly");
+        await Assert.That(config.Deployment.Backup.RetainCount).IsEqualTo(7);
+        await Assert.That(config.Deployment.Update.HealthCheckTimeoutSeconds).IsEqualTo(240);
+        await Assert.That(config.Deployment.Update.Services).IsEquivalentTo(["interfold-api"]);
+        await Assert.That(config.Deployment.Update.Bootstrapper.Channel).IsEqualTo(BootstrapperReleaseChannel.BleedingEdge);
+        await Assert.That(config.Api.Firebase.AndroidConfigPath).IsEqualTo("/tmp/google-services.json");
+        await Assert.That(config.Observability.OtlpEndpoint).IsEqualTo("https://otel.example.com/v1/traces");
+        await Assert.That(console.Output).DoesNotContain("google-secret");
+        await Assert.That(console.Output).DoesNotContain("apple-secret");
+    }
+
+    [Test]
     public async Task LanConfirmUsesPrivateCaSqliteAndPath()
     {
         var console = NewConsole();
-        Accept(console);
         Accept(console);
         Accept(console);
         Accept(console);
@@ -92,6 +178,7 @@ public sealed class GuidedConfigPromptTests
         var config = Run(console);
 
         await Assert.That(config.Edge.TlsMode).IsEqualTo(EdgeTlsMode.PrivateCa);
+        await Assert.That(console.Output).DoesNotContain("Scylla and Postgres");
         await Assert.That(config.Datastores.Persistence).IsEqualTo(PersistenceMode.Sqlite);
         await Assert.That(config.Edge.Routing.Mode).IsEqualTo(EdgeRoutingMode.Path);
         await Assert.That(config.Edge.Hosts).IsEquivalentTo(["192.168.1.42"]);
@@ -101,6 +188,8 @@ public sealed class GuidedConfigPromptTests
         await Assert.That(config.Api.OAuth.AppleClientId).IsEmpty();
         await Assert.That(config.Edge.Cloudflare.Enabled).IsFalse();
         await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://192.168.1.42");
+        await Assert.That(console.Output).Contains("Public API URL");
+        await Assert.That(console.Output).DoesNotContain("Public Web URL");
         await Assert.That(config.Deployment.Backup.Enabled).IsFalse();
         await Assert.That(config.Deployment.Update.Enabled).IsFalse();
         await Assert.That(console.Output).Contains(GuidedConfigPrompt.UpdatesUnavailableMessage);
@@ -113,7 +202,6 @@ public sealed class GuidedConfigPromptTests
     public async Task IpOnlyHostSkipsSubdomainQuestion()
     {
         var console = NewConsole();
-        Accept(console);
         Accept(console);
         Accept(console);
         Answer(console, "y");
@@ -131,13 +219,15 @@ public sealed class GuidedConfigPromptTests
         await Assert.That(config.Deployment.IncludeWeb).IsTrue();
         await Assert.That(config.Edge.Routing.Mode).IsEqualTo(EdgeRoutingMode.Path);
         await Assert.That(console.Output).Contains("IP hosts stay on one address");
+        await Assert.That(console.Output).Contains("Public API URL");
+        await Assert.That(console.Output).Contains("Public Web URL");
+        await Assert.That(console.Output).Contains("https://192.168.1.42");
     }
 
     [Test]
     public async Task DnsHostWithWebCanChooseSeparateHostnames()
     {
         var console = NewConsole();
-        Accept(console);
         Accept(console);
         Accept(console);
         Answer(console, "y");
@@ -159,6 +249,8 @@ public sealed class GuidedConfigPromptTests
         await Assert.That(config.Edge.Routing.WebHost).IsEqualTo("web.example.com");
         await Assert.That(config.Edge.TlsMode).IsEqualTo(EdgeTlsMode.PrivateCa);
         await Assert.That(config.Api.OAuth.CallbackBaseUrl).IsEqualTo("https://api.example.com");
+        await Assert.That(console.Output).Contains("https://api.example.com");
+        await Assert.That(console.Output).Contains("https://web.example.com");
         ConfigPhase.Validate(config);
     }
 
@@ -169,7 +261,6 @@ public sealed class GuidedConfigPromptTests
         var console = NewConsole();
         Accept(console);
         Select(console, downArrows: 1);
-        Accept(console);
         Answer(console, "y");
         Answer(console, "app.example.com");
         Accept(console);
@@ -206,7 +297,6 @@ public sealed class GuidedConfigPromptTests
         var console = NewConsole();
         Accept(console);
         Select(console, downArrows: 1);
-        Accept(console);
         Accept(console);
         Answer(console, "access.example.com");
         Answer(console, "cfat-access-token");
@@ -245,7 +335,6 @@ public sealed class GuidedConfigPromptTests
         Accept(console);
         Accept(console);
         Accept(console);
-        Accept(console);
         DeclineOptional(console);
         Accept(console);
 
@@ -261,7 +350,6 @@ public sealed class GuidedConfigPromptTests
         var console = NewConsole();
         Accept(console);
         Select(console, downArrows: 1);
-        Accept(console);
         Accept(console);
         Accept(console);
         Answer(console, "cfat-prefill-token");
@@ -280,7 +368,6 @@ public sealed class GuidedConfigPromptTests
     public async Task SummaryAdvancedOpensEditorSeededFromGuidedAnswers()
     {
         var console = NewConsole();
-        Accept(console);
         Accept(console);
         Accept(console);
         Accept(console);
@@ -464,7 +551,6 @@ public sealed class GuidedConfigPromptTests
         Accept(console);
         Accept(console);
         Accept(console);
-        Accept(console);
         Answer(console, "192.168.1.42");
         Accept(console);
         Answer(console, "n");
@@ -491,7 +577,6 @@ public sealed class GuidedConfigPromptTests
         Accept(console);
         Accept(console);
         Accept(console);
-        Accept(console);
         Answer(console, "192.168.1.42");
         Accept(console);
         Accept(console);
@@ -513,7 +598,6 @@ public sealed class GuidedConfigPromptTests
 
     private static void PushThroughSignIn(TestConsole console)
     {
-        Accept(console);
         Accept(console);
         Accept(console);
         Accept(console);

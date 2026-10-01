@@ -265,9 +265,9 @@ First-time operators don't need to hand-author this file. Running `interfold-boo
 a real TTY without an existing `interfold.bootstrap.json` asks which setup to use.
 **Guided setup** (the recommended choice) asks how people will reach the server — this
 machine or the local network with a private CA, or the public internet through a
-Cloudflare Tunnel — then persistence (SQLite, or Scylla and Postgres at the built-in
-backend defaults), whether to include the web UI, and the hostname. Later questions
-follow from those answers. A local-network host offers to install the root CA into the
+Cloudflare Tunnel — then whether to include the web UI, and the hostname. Data is
+always stored in SQLite; Scylla and Postgres stay in the advanced editor. Later
+questions follow from those answers. A local-network host offers to install the root CA into the
 trust store. A Cloudflare hostname asks for an API token and, optionally, an Access
 allowlist; Access also collects the Google OAuth client, which Access requires.
 When the web UI is included and the host is a DNS name, the operator can keep one
@@ -286,7 +286,8 @@ failed health check then restores the previous bootstrapper binary. Firebase pus
 notifications and an OpenTelemetry collector are optional; saying yes asks only the
 follow-ups that choice needs. Backup directory, release channel, health-check
 timeout, and the service whitelist stay in the advanced editor. The bootstrapper then
-shows those answers and the public URL derived from them. **Confirm and continue** writes `interfold.bootstrap.json` and the rest of
+shows those answers, the public API URL, and the public web URL when the web UI is
+included. **Confirm and continue** writes `interfold.bootstrap.json` and the rest of
 bootstrap runs as usual. **Start over** returns to the mode question. **Open advanced
 editor** continues in the full field menu with the guided answers already filled in.
 
@@ -304,7 +305,10 @@ socket batch flush threshold) render an `<empty>` / `<default>` marker when unse
 the unset-vs-set distinction is visible; leaving them blank reproduces the
 pre-bootstrapper "env var unset" behaviour 1:1. Avatar storage root is also blankable
 but means "use `{outputDir}/data/avatars`" rather than disabling uploads.
-`--reconfigure` reopens this menu from an existing file. `--non-interactive` and
+`--reconfigure` asks for guided or advanced setup again. Advanced opens this menu
+seeded from the existing file. Guided asks the same questions with the current
+answers filled in: accepting a default keeps that setting, including OAuth client
+secrets and anything the questions do not ask. `--non-interactive` and
 `--config <path>` still bypass both setup paths for unattended runs.
 
 ### Hosts (`edge.hosts`)

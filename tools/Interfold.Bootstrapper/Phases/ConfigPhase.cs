@@ -38,9 +38,9 @@ internal static class ConfigPhase
                         "Omit --non-interactive and run from a terminal (stdin must not be redirected).");
                 }
 
-                logger.Info("    --reconfigure: opening interactive editor seeded from existing config");
+                logger.Info("    --reconfigure: choosing guided or advanced setup from the existing config");
                 var mdnsHostname = await ApplyPreFillMdnsCheckAsync(options, logger, ct).ConfigureAwait(false);
-                config = PromptForConfig(
+                config = GuidedConfigPrompt.Run(
                     AnsiConsole.Console,
                     maskSecrets: true,
                     hostnameProbe: () => mdnsHostname,
@@ -695,13 +695,20 @@ internal static class ConfigPhase
 
     internal const string FirebaseGuidedSkip = "Skip";
 
-    /// <summary>First-run Firebase setup. Clear is omitted because there is nothing to clear yet.</summary>
+    /// <summary>Firebase setup without Clear. Skip is listed first once a path is set, so Enter keeps it.</summary>
     internal static void PromptGuidedFirebase(IAnsiConsole console, FirebaseSection section)
     {
+        var configured = !string.IsNullOrEmpty(section.AndroidConfigPath)
+            || !string.IsNullOrEmpty(section.IosConfigPath)
+            || !string.IsNullOrEmpty(section.WebConfigPath)
+            || !string.IsNullOrEmpty(section.ServiceAccountPath);
+        var choices = configured
+            ? new[] { FirebaseGuidedSkip, FirebaseChoiceAutoDetect, FirebaseChoicePerFile }
+            : new[] { FirebaseChoiceAutoDetect, FirebaseChoicePerFile, FirebaseGuidedSkip };
         var choice = console.Prompt(
             new SelectionPrompt<string>()
                 .Title("[bold]Firebase push notifications[/]")
-                .AddChoices(FirebaseChoiceAutoDetect, FirebaseChoicePerFile, FirebaseGuidedSkip));
+                .AddChoices(choices));
 
         switch (choice)
         {
@@ -912,7 +919,49 @@ internal static class ConfigPhase
         var host = IsSubdomainPair(config)
             ? config.Edge.Routing.ApiHost.Trim()
             : HostParser.ToUrlHost(primary);
+        return FormatPublicOrigin(config, host);
+    }
 
+    /// <summary>Browser origin for <c>interfold-web</c>. Empty when the web UI is off.
+    /// Subdomain routing uses <c>webHost</c>; path routing uses the same primary host as the API.</summary>
+    internal static string FormatPublicWebOrigin(BootstrapConfig config)
+    {
+        if (!config.Deployment.IncludeWeb || config.Edge.Hosts.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var parsed = new List<HostEntry>(config.Edge.Hosts.Count);
+        foreach (var raw in config.Edge.Hosts)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+
+            try
+            {
+                parsed.Add(HostParser.Parse(raw));
+            }
+            catch (FormatException)
+            {
+            }
+        }
+
+        var primary = HostParser.PickPrimary(parsed);
+        if (primary is null && !IsSubdomainPair(config))
+        {
+            return string.Empty;
+        }
+
+        var host = IsSubdomainPair(config)
+            ? config.Edge.Routing.WebHost.Trim()
+            : HostParser.ToUrlHost(primary!);
+        return FormatPublicOrigin(config, host);
+    }
+
+    private static string FormatPublicOrigin(BootstrapConfig config, string host)
+    {
         if (config.Edge.Cloudflare.Enabled)
         {
             return $"https://{host}";
