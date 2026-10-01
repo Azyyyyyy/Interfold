@@ -55,9 +55,9 @@ public sealed class SqliteConnectionFactoryTests
             fk.CommandText = "PRAGMA foreign_keys;";
             var foreignKeys = Convert.ToInt64(await fk.ExecuteScalarAsync());
 
-            await Assert.That(journalMode.ToLowerInvariant()).IsEqualTo("wal");
-            // NORMAL == 1
-            await Assert.That(synchronous).IsEqualTo(1);
+            await Assert.That(journalMode.ToLowerInvariant()).IsEqualTo("delete");
+            // FULL == 2. Rollback journal is not crash-safe at NORMAL.
+            await Assert.That(synchronous).IsEqualTo(2);
             await Assert.That(foreignKeys).IsEqualTo(1);
         }
         finally
