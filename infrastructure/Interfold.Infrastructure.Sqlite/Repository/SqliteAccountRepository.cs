@@ -33,13 +33,17 @@ public sealed class SqliteAccountRepository : IAccountRepository
     {
         var systemKey = SqliteStorageKeys.Persist(systemId);
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var inserted = await connection.ExecuteAsync(
-            """
-            INSERT OR IGNORE INTO accounts (system_id, created_at, updated_at)
-            VALUES (@system_id, @now, @now)
-            """,
-            new { system_id = systemKey, now = nowMs });
+        int inserted;
+        await using (var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken))
+        {
+            inserted = await connection.ExecuteAsync(
+                """
+                INSERT OR IGNORE INTO accounts (system_id, created_at, updated_at)
+                VALUES (@system_id, @now, @now)
+                """,
+                new { system_id = systemKey, now = nowMs });
+        }
+
         if (inserted > 0)
         {
             await _encryptionStates.UpsertAsync(
@@ -421,9 +425,9 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
         var rawId = Guid.NewGuid().ToString("N");
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         try
         {
+            await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
             await connection.ExecuteAsync(insertSql, new { system_id = rawId, value, now = nowMs });
         }
         catch (SqliteException)

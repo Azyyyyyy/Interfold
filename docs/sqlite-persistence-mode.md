@@ -75,8 +75,11 @@ Recorded with the scaffolding slice so subsequent PRs do not re-litigate them:
   `TEXT` because SQLite `INTEGER` is signed 64-bit and snowflakes overflow
   `long.MaxValue` around 2084.
 - **Connection pragmas** applied at every open by `SqliteConnectionFactory`:
-  `PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;
-  PRAGMA busy_timeout=5000;`.
+  `PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
+  PRAGMA busy_timeout=5000;`. Pooling stays on, so many connections can be open.
+  WAL's `-shm` file returns `SQLITE_IOERR` on a Docker Desktop bind mount of a
+  Windows directory once a second connection exists. A rollback journal uses the
+  database file lock instead; a writer waits out `busy_timeout`.
 
 ---
 

@@ -10,8 +10,8 @@ public interface ISqliteConnectionFactory
 }
 
 /// <summary>
-/// Opens a SQLite connection and applies the locked-in pragmas (WAL, NORMAL sync,
-/// foreign keys, busy timeout). Repositories consume this factory.
+/// Opens a SQLite connection and applies the locked-in pragmas (rollback journal,
+/// FULL sync, foreign keys, busy timeout). Repositories consume this factory.
 /// </summary>
 public sealed class SqliteConnectionFactory : ISqliteConnectionFactory
 {
@@ -40,8 +40,11 @@ public sealed class SqliteConnectionFactory : ISqliteConnectionFactory
     {
         string[] pragmas =
         [
-            "PRAGMA journal_mode=WAL;",
-            "PRAGMA synchronous=NORMAL;",
+            // WAL needs a -shm file. That mmap fails with SQLITE_IOERR on a Docker
+            // Desktop bind mount once two connections are open. DELETE still allows
+            // a pool of connections; writers wait on busy_timeout instead.
+            "PRAGMA journal_mode=DELETE;",
+            "PRAGMA synchronous=FULL;",
             "PRAGMA foreign_keys=ON;",
             "PRAGMA busy_timeout=5000;",
         ];
