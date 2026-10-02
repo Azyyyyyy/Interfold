@@ -1,7 +1,7 @@
+using Interfold.Alters.Domain;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Friendships.Contracts.Events;
 using Interfold.Friendships.Domain.Abstractions.Repository;
-using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Journals.Domain.Abstractions.Repository;
 using Interfold.Polls.Domain.Abstractions.Repository;
 using Interfold.Settings.Contracts;
@@ -23,35 +23,38 @@ public sealed class DeleteAccountCommandHandler : IdempotentCommandHandler<Delet
     private readonly IClusterEventBus _eventBus;
     private readonly IAccountRepository _accountRepository;
     private readonly IAlterRepository _alterRepository;
+    private readonly IAlterDeletion _deletion;
     private readonly ITagRepository _tagRepository;
     private readonly IPollRepository _pollRepository;
     private readonly ISettingsFieldRepository _fieldRepository;
     private readonly IJournalRepository _journalRepository;
-    private readonly IFrontingRepository _frontingRepository;
     private readonly IFriendshipRepository _friendshipRepository;
+    private readonly IStorageTransactionFactory _transactions;
 
     public DeleteAccountCommandHandler(
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus,
         IAccountRepository accountRepository,
         IAlterRepository alterRepository,
+        IAlterDeletion deletion,
         ITagRepository tagRepository,
         IPollRepository pollRepository,
         ISettingsFieldRepository fieldRepository,
         IJournalRepository journalRepository,
-        IFrontingRepository frontingRepository,
-        IFriendshipRepository friendshipRepository)
+        IFriendshipRepository friendshipRepository,
+        IStorageTransactionFactory transactions)
         : base(idempotencyStore)
     {
         _eventBus = eventBus;
         _accountRepository = accountRepository;
         _alterRepository = alterRepository;
+        _deletion = deletion;
         _tagRepository = tagRepository;
         _pollRepository = pollRepository;
         _fieldRepository = fieldRepository;
         _journalRepository = journalRepository;
-        _frontingRepository = frontingRepository;
         _friendshipRepository = friendshipRepository;
+        _transactions = transactions;
     }
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsAccountDelete;
@@ -73,46 +76,43 @@ public sealed class DeleteAccountCommandHandler : IdempotentCommandHandler<Delet
             async ct =>
             {
                 var systemId = command.PrincipalId;
-
                 var alters = await _alterRepository.ListAsync(systemId, ct);
+                var tags = await _tagRepository.ListAsync(systemId, ct);
+                var polls = await _pollRepository.ListAsync(systemId, ct);
+                var fields = await _fieldRepository.ListAsync(systemId, ct);
+                var globalEntries = await _journalRepository.ListGlobalAsync(systemId, ct);
+
+                await using var transaction = await _transactions.BeginAsync(ct);
+
                 foreach (var alter in alters)
                 {
-                    await _alterRepository.DeleteAsync(systemId, alter.Id, ct);
+                    if (await _deletion.DeleteAsync(systemId, alter.Id, ct) is null)
+                        return false;
+
                     //TODO: Delete alter image if it exists
                 }
 
-                var tags = await _tagRepository.ListAsync(systemId, ct);
                 foreach (var tag in tags)
-                {
                     await _tagRepository.DeleteAsync(systemId, tag.Id, ct);
-                }
 
-                var polls = await _pollRepository.ListAsync(systemId, ct);
                 foreach (var poll in polls)
-                {
                     await _pollRepository.DeleteAsync(systemId, poll.Id, ct);
-                }
 
-                var fields = await _fieldRepository.ListAsync(systemId, ct);
                 foreach (var field in fields)
-                {
                     await _fieldRepository.DeleteAsync(systemId, field.Id, ct);
-                }
 
-                var globalEntries = await _journalRepository.ListGlobalAsync(systemId, ct);
                 foreach (var entry in globalEntries)
-                {
                     await _journalRepository.DeleteGlobalAsync(systemId, entry.Id, ct);
-                }
-
-                // Fronting records are tied to alters so no need to delete them here
 
                 var deletedIds = await _friendshipRepository.DeleteAllForSystemAsync(systemId, ct);
                 unfriendedIds.AddRange(deletedIds);
 
-                return await _accountRepository.DeleteAsync(systemId, ct);
+                if (!await _accountRepository.DeleteAsync(systemId, ct))
+                    return false;
 
                 //TODO: Delete account image if it exists
+                await transaction.CommitAsync(ct);
+                return true;
             },
             SettingsAction.AccountDeleted.ToFailedEntityRef(),
             SettingsAction.AccountDeleted,

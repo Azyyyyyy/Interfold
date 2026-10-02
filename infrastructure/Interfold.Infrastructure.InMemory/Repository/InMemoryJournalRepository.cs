@@ -201,9 +201,9 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         return Task.FromResult(store.TryRemove(entryId, out _));
     }
 
-    public Task<int> DeleteAllForAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
+    public Task<JournalAlterCascadeResult> DeleteAllForAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var removedAlterJournals = 0;
+        var deleted = new List<EntryId>();
 
         if (TryGetAlterStore(systemId, out var store))
         {
@@ -212,20 +212,20 @@ public sealed class InMemoryJournalRepository : IJournalRepository
             foreach (var entryId in toRemove)
             {
                 if (store.TryRemove(entryId, out _))
-                {
-                    removedAlterJournals++;
-                }
+                    deleted.Add(entryId);
             }
         }
 
         // Sweep every entry's alter map so the detached alter is dropped from every attached
         // global entry (mirrors ScyllaJournalRepository.global_journal_alters cleanup).
-        foreach (var alters in _entryAlters.Values)
+        var detached = new List<EntryId>();
+        foreach (var (key, alters) in _entryAlters)
         {
-            alters.TryRemove(alterId, out _);
+            if (alters.TryRemove(alterId, out _))
+                detached.Add(key.EntryId);
         }
 
-        return Task.FromResult(removedAlterJournals);
+        return Task.FromResult(new JournalAlterCascadeResult(deleted, detached));
     }
 
     public Task<bool> SetAlterLockedAsync(SystemId systemId, EntryId entryId, bool locked, CancellationToken cancellationToken = default)

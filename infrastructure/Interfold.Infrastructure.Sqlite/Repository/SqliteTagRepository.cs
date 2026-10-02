@@ -11,6 +11,7 @@ using Interfold.Shared.Domain.Observability;
 using Interfold.Tags.Contracts.Ids;
 using Interfold.Tags.Contracts.Models.Commands;
 using Interfold.Tags.Contracts.Models.Read;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Tags.Domain.Abstractions.Repository;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
@@ -165,31 +166,28 @@ public sealed class SqliteTagRepository : ITagRepository
         var systemKey = SqliteStorageKeys.Persist(systemId);
         var tagHex = tagId.Value.ToString("N");
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
 
-        if (!await TagExistsAsync(connection, tx, systemKey, tagHex))
-        {
+        if (!await TagExistsAsync(work.Connection, work.Transaction, systemKey, tagHex))
             return false;
-        }
 
-        await connection.ExecuteAsync(
+        await work.Connection.ExecuteAsync(
             """
             DELETE FROM alter_tags
             WHERE system_id = @system_id AND tag_id = @tag_id
             """,
             new { system_id = systemKey, tag_id = tagHex },
-            tx);
+            work.Transaction);
 
-        var removed = await connection.ExecuteAsync(
+        var removed = await work.Connection.ExecuteAsync(
             """
             DELETE FROM tags
             WHERE system_id = @system_id AND id = @id
             """,
             new { system_id = systemKey, id = tagHex },
-            tx);
+            work.Transaction);
 
-        await tx.CommitAsync(cancellationToken);
+        await work.CommitAsync(cancellationToken);
         return removed > 0;
     }
 
@@ -248,6 +246,36 @@ public sealed class SqliteTagRepository : ITagRepository
                 alter_id = alterId.Value,
             });
         return affected > 0;
+    }
+
+    public async Task<IReadOnlyList<TagId>> DetachAllForAlterAsync(
+        SystemId systemId,
+        AlterId alterId,
+        CancellationToken cancellationToken = default)
+    {
+        var systemKey = SqliteStorageKeys.Persist(systemId);
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var ids = (await work.Connection.QueryAsync<string>(
+            """
+            SELECT tag_id FROM alter_tags
+            WHERE system_id = @system_id AND alter_id = @alter_id
+            """,
+            new { system_id = systemKey, alter_id = alterId.Value },
+            work.Transaction)).Select(id => TagId.Parse(id, null)).ToArray();
+
+        if (ids.Length > 0)
+        {
+            await work.Connection.ExecuteAsync(
+                """
+                DELETE FROM alter_tags
+                WHERE system_id = @system_id AND alter_id = @alter_id
+                """,
+                new { system_id = systemKey, alter_id = alterId.Value },
+                work.Transaction);
+        }
+
+        await work.CommitAsync(cancellationToken);
+        return ids;
     }
 
     public async Task<TagId?> GetParentIdAsync(

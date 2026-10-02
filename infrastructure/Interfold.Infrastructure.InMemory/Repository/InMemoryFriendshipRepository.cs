@@ -26,26 +26,29 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
     private readonly ConcurrentDictionary<SystemId, ConcurrentDictionary<SystemId, FriendshipState>> _friendships = new();
     private readonly ConcurrentDictionary<SystemId, ConcurrentDictionary<SystemId, RequestState>> _outgoingRequests = new();
 
-    // accounts parameter kept for DI-signature stability; unused after the Discord
-    // dispatch lane was removed.
+    private readonly IAccountRepository? _accounts;
+
     public InMemoryFriendshipRepository(IAccountRepository? accounts = null)
     {
-        _ = accounts;
+        _accounts = accounts;
     }
 
-    public Task<SystemId?> ResolveUserIdAsync(FriendLookup lookup, CancellationToken cancellationToken = default)
+    public async Task<SystemId?> ResolveUserIdAsync(FriendLookup lookup, CancellationToken cancellationToken = default)
     {
-        // Mirrors ScyllaFriendshipRepository. InMemory has no username reverse-index, so
-        // Username collapses to null (surfaces as the 422 friend_request:no_user). Adding
-        // a FriendLookupKind requires an explicit branch here — silent-null would hide it.
-        SystemId? result = lookup.Kind switch
+        cancellationToken.ThrowIfCancellationRequested();
+        if (lookup.Kind == FriendLookupKind.Id)
+            return InMemoryStorageKeys.Normalize(new SystemId(lookup.Value));
+
+        if (lookup.Kind == FriendLookupKind.Username)
         {
-            FriendLookupKind.Id => InMemoryStorageKeys.Normalize(new SystemId(lookup.Value)),
-            FriendLookupKind.Username => null,
-            _ => throw new ArgumentOutOfRangeException(nameof(lookup), lookup.Kind,
-                $"Unhandled FriendLookupKind '{lookup.Kind}' in ResolveUserIdAsync."),
-        };
-        return Task.FromResult(result);
+            if (_accounts is null)
+                return null;
+
+            return await _accounts.TryFindSystemIdByUsernameAsync(new Username(lookup.Value), cancellationToken);
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(lookup), lookup.Kind,
+            $"Unhandled FriendLookupKind '{lookup.Kind}' in ResolveUserIdAsync.");
     }
 
     public Task<FriendshipLevel?> GetFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken = default)

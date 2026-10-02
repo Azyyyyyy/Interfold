@@ -32,6 +32,8 @@ public sealed class WireByteFreezeTests
         var second = EncryptionKey.DeriveKey(pepper, new(CanonicalScoped), recoveryCode, salt);
         var rawOnly = EncryptionKey.DeriveKey(pepper, new(CanonicalRaw), recoveryCode, salt);
 
+        await Assert.That(first.Value).IsEqualTo("WlAlV7Z4HyVXWXPwMQmMjHMokYnL3MWJ3KVJBbZnpuo=")
+            .Because("This is the Argon2id output for these inputs. A change means existing recovery codes will not derive the same key.");
         await Assert.That(first).IsEqualTo(second)
             .Because("DeriveKey must be deterministic — a diff between two calls with identical inputs means Argon2 params or salt handling drifted.");
         await Assert.That(first).IsNotEqualTo(rawOnly)

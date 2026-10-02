@@ -14,10 +14,23 @@ internal static class SqliteOnlineBackup
         if (File.Exists(destinationDbPath))
             File.Delete(destinationDbPath);
 
-        await using var source = new SqliteConnection($"Data Source={sourceDbPath}");
-        await source.OpenAsync(ct).ConfigureAwait(false);
-        await using var destination = new SqliteConnection($"Data Source={destinationDbPath}");
-        await destination.OpenAsync(ct).ConfigureAwait(false);
-        source.BackupDatabase(destination);
+        // Default pooling would keep this process's handle open after the method
+        // returns. update-images then recreates the API against the same file and
+        // the container open fails with SQLITE_IOERR.
+        try
+        {
+            await using var source = new SqliteConnection(Unpooled(sourceDbPath));
+            await source.OpenAsync(ct).ConfigureAwait(false);
+            await using var destination = new SqliteConnection(Unpooled(destinationDbPath));
+            await destination.OpenAsync(ct).ConfigureAwait(false);
+            source.BackupDatabase(destination);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+        }
     }
+
+    private static string Unpooled(string path) =>
+        new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString();
 }

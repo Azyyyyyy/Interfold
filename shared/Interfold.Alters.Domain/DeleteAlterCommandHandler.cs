@@ -2,34 +2,38 @@ using Interfold.Alters.Contracts;
 using Interfold.Alters.Contracts.Events;
 using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Fronting.Contracts.Events;
+using Interfold.Journals.Contracts.Events;
+using Interfold.Polls.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
+using Interfold.Tags.Contracts.Events;
 
 namespace Interfold.Alters.Domain;
 
 public sealed class DeleteAlterCommandHandler : IdempotentCommandHandler<DeleteAlterCommand, AlterCommandResult>
 {
     private readonly IAlterRepository _alterRepository;
-    private readonly IJournalAlterCascade _journalCascade;
+    private readonly IAlterDeletion _deletion;
     private readonly IClusterEventBus _eventBus;
 
     public DeleteAlterCommandHandler(
         IAlterRepository alterRepository,
-        IJournalAlterCascade journalCascade,
+        IAlterDeletion deletion,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-:base(idempotencyStore)    {
+        : base(idempotencyStore)
+    {
         _alterRepository = alterRepository;
-        _journalCascade = journalCascade;
+        _deletion = deletion;
         _eventBus = eventBus;
     }
 
-
     protected override EntityRef DuplicateEntityRef => EntityRefs.AlterDelete;
 
-protected override async Task<CommandExecutionResult<AlterCommandResult>> ExecuteCoreAsync (
+    protected override async Task<CommandExecutionResult<AlterCommandResult>> ExecuteCoreAsync(
         CommandEnvelope<DeleteAlterCommand> command,
         CancellationToken cancellationToken = default)
     {
@@ -39,22 +43,45 @@ protected override async Task<CommandExecutionResult<AlterCommandResult>> Execut
         if (await AlterCommandFlow.RejectIfAlterNotFoundAsync(command, _alterRepository, command.Payload.AlterId, EntityRefs.AlterNotFound, cancellationToken) is { } notFoundReject)
             return notFoundReject;
 
-        // Cascade BEFORE the alter row itself is removed so a journal-cleanup failure
-        // leaves the alter intact (caller can retry); the inverse order would orphan the
-        // journals if the alter delete succeeded but cleanup later threw. DeleteAllForAlterAsync
-        // also detaches the alter from any global journals it was attached to without
-        // deleting the global journal itself (multiple alters can share a group journal).
-        await _journalCascade.DeleteAllForAlterAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
-
         //TODO: Delete alter image if it exists
 
-        return await AlterCommandFlow.ExecuteMutationAsync(
-            command,
-            command.Payload.AlterId,
-            ct => _alterRepository.DeleteAsync(command.PrincipalId, command.Payload.AlterId, ct),
-            EntityRefs.AlterDeleteFailed,
-            ct => _eventBus.PublishAsync(new AlterDeletedEvent(command.PrincipalId, command.Payload.AlterId), ct),
-            cancellationToken);
+        var deletion = await _deletion.DeleteAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
+        if (deletion is null)
+            return AlterCommandFlow.RejectIfMutationFailed(command, succeeded: false, EntityRefs.AlterDeleteFailed)!;
+
+        await PublishCascadeAsync(command.PrincipalId, command.Payload.AlterId, deletion, cancellationToken);
+        await _eventBus.PublishAsync(new AlterDeletedEvent(command.PrincipalId, command.Payload.AlterId), cancellationToken);
+        return AlterCommandFlow.Success(command.PrincipalId, command.Payload.AlterId);
     }
 
+    private async ValueTask PublishCascadeAsync(
+        ScopedSystemId systemId,
+        AlterId alterId,
+        AlterDeletionResult deletion,
+        CancellationToken cancellationToken)
+    {
+        if (deletion.Fronts.PrimaryCleared)
+            await _eventBus.PublishAsync(new FrontingPrimaryChangedEvent(systemId, null), cancellationToken);
+
+        if (deletion.Fronts.HadActiveFront)
+        {
+            await _eventBus.PublishAsync(new FrontingStateChangedEvent(systemId), cancellationToken);
+            await _eventBus.PublishAsync(new FrontingEndedEvent(systemId, alterId), cancellationToken);
+        }
+
+        foreach (var frontId in deletion.Fronts.DeletedFrontIds)
+            await _eventBus.PublishAsync(new FrontDeletedEvent(systemId, frontId), cancellationToken);
+
+        foreach (var tagId in deletion.DetachedTagIds)
+            await _eventBus.PublishAsync(new TagUpdatedEvent(systemId, tagId), cancellationToken);
+
+        foreach (var entryId in deletion.Journals.DeletedEntryIds)
+            await _eventBus.PublishAsync(new AlterJournalEntryDeletedEvent(systemId, entryId), cancellationToken);
+
+        foreach (var entryId in deletion.Journals.DetachedGlobalJournalIds)
+            await _eventBus.PublishAsync(new GlobalJournalEntryUpdatedEvent(systemId, entryId), cancellationToken);
+
+        foreach (var pollId in deletion.UpdatedPollIds)
+            await _eventBus.PublishAsync(new PollUpdatedEvent(systemId, pollId), cancellationToken);
+    }
 }
