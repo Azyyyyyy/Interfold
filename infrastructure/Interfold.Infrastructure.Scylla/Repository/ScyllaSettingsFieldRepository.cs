@@ -148,16 +148,9 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 
             var removed = fields.RemoveAll(f => f.Id == fieldId.Value) > 0;
             if (!removed)
-            {
                 return false;
-            }
 
-            // Clear field values off every alter first so no leaked data survives the field delete.
-            var batch = await RemoveFieldValuesFromAltersAsync(session, keyspace, normalizedSystemId, fieldId.Value);
-            batch.Add(BuildPersistFieldsStatement(keyspace, fields, normalizedSystemId));
-
-            await session.ExecuteAsync(batch);
-
+            await session.ExecuteAsync(BuildPersistFieldsStatement(keyspace, fields, normalizedSystemId));
             return true;
         }, cancellationToken);
     }
@@ -266,45 +259,6 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 .Map(f => f.UpdatedAt, "updated_at"));
 
         UdtMappings.TryAdd(key, 0);
-    }
-
-    private static async Task<BatchStatement> RemoveFieldValuesFromAltersAsync(
-        ISession session,
-        string keyspace,
-        string normalizedSystemId,
-        Guid fieldId)
-    {
-        ScyllaAlterRepository.EnsureAlterFieldUdtMapping(session, keyspace);
-
-        var rows = await session.ExecuteAsync(new SimpleStatement(
-            $"SELECT id, fields FROM {keyspace}.alters WHERE user_id = ?",
-            normalizedSystemId));
-
-        var batch = new BatchStatement();
-
-        foreach (var row in rows)
-        {
-            var alterId = row.GetValue<short>("id");
-            var currentFields = row.GetValue<IEnumerable<AlterFieldUdt>?>("fields")?.ToList();
-            if (currentFields is null || currentFields.Count == 0)
-            {
-                continue;
-            }
-
-            var removedAny = currentFields.RemoveAll(x => x.Id == fieldId) > 0;
-            if (!removedAny)
-            {
-                continue;
-            }
-
-            batch.Add(new SimpleStatement(
-                $"UPDATE {keyspace}.alters SET fields = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
-                currentFields,
-                normalizedSystemId,
-                alterId));
-        }
-
-        return batch;
     }
 
     // Driver UDT serializer needs DateTimeOffset for `timestamp` columns; Nullable<DateTime>

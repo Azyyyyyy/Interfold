@@ -2,6 +2,8 @@ using Dapper;
 using Interfold.Friendships.Contracts.Ids;
 using Interfold.Friendships.Contracts.Models.Read;
 using Interfold.Friendships.Domain.Abstractions.Repository;
+using Interfold.Infrastructure.Sqlite;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Microsoft.Data.Sqlite;
@@ -13,23 +15,34 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
 {
     private readonly ISqliteConnectionFactory _connectionFactory;
     private readonly TimeProvider _timeProvider;
+    private readonly IAccountRepository? _accounts;
 
-    public SqliteFriendshipRepository(ISqliteConnectionFactory connectionFactory, TimeProvider timeProvider)
+    public SqliteFriendshipRepository(
+        ISqliteConnectionFactory connectionFactory,
+        TimeProvider timeProvider,
+        IAccountRepository? accounts = null)
     {
         _connectionFactory = connectionFactory;
         _timeProvider = timeProvider;
+        _accounts = accounts;
     }
 
     public async Task<SystemId?> ResolveUserIdAsync(FriendLookup lookup, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return lookup.Kind switch
+        if (lookup.Kind == FriendLookupKind.Id)
+            return SqliteStorageKeys.Normalize(new SystemId(lookup.Value));
+
+        if (lookup.Kind == FriendLookupKind.Username)
         {
-            FriendLookupKind.Id => SqliteStorageKeys.Normalize(new SystemId(lookup.Value)),
-            FriendLookupKind.Username => await ResolveByUsernameAsync(lookup.Value, cancellationToken),
-            _ => throw new ArgumentOutOfRangeException(nameof(lookup), lookup.Kind,
-                $"Unhandled FriendLookupKind '{lookup.Kind}' in ResolveUserIdAsync."),
-        };
+            if (_accounts is null)
+                return null;
+
+            return await _accounts.TryFindSystemIdByUsernameAsync(new Username(lookup.Value), cancellationToken);
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(lookup), lookup.Kind,
+            $"Unhandled FriendLookupKind '{lookup.Kind}' in ResolveUserIdAsync.");
     }
 
     public async Task<FriendshipLevel?> GetFriendshipLevelAsync(
@@ -368,53 +381,30 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         cancellationToken.ThrowIfCancellationRequested();
         var userKey = SqliteStorageKeys.Persist(systemId);
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            var friendKeys = (await connection.QueryAsync<string>(
-                "SELECT friend_id FROM friendships WHERE user_id = @user_id",
-                new { user_id = userKey },
-                tx)).ToArray();
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var friendKeys = (await work.Connection.QueryAsync<string>(
+            "SELECT friend_id FROM friendships WHERE user_id = @user_id",
+            new { user_id = userKey },
+            work.Transaction)).ToArray();
 
-            await connection.ExecuteAsync(
-                """
-                DELETE FROM friendships
-                WHERE user_id = @user_id OR friend_id = @user_id
-                """,
-                new { user_id = userKey },
-                tx);
-
-            await connection.ExecuteAsync(
-                """
-                DELETE FROM friend_requests
-                WHERE from_user_id = @user_id OR to_user_id = @user_id
-                """,
-                new { user_id = userKey },
-                tx);
-
-            await tx.CommitAsync(cancellationToken);
-            return friendKeys.Select(SqliteStorageKeys.ToWire).ToArray();
-        }
-        catch
-        {
-            await tx.RollbackAsync(cancellationToken);
-            throw;
-        }
-    }
-
-    private async Task<SystemId?> ResolveByUsernameAsync(string username, CancellationToken cancellationToken)
-    {
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var persisted = await connection.QueryFirstOrDefaultAsync<string>(
+        await work.Connection.ExecuteAsync(
             """
-            SELECT system_id
-            FROM accounts
-            WHERE username = @username COLLATE NOCASE
-            LIMIT 1
+            DELETE FROM friendships
+            WHERE user_id = @user_id OR friend_id = @user_id
             """,
-            new { username });
-        return persisted is null ? null : SqliteStorageKeys.ToWire(persisted);
+            new { user_id = userKey },
+            work.Transaction);
+
+        await work.Connection.ExecuteAsync(
+            """
+            DELETE FROM friend_requests
+            WHERE from_user_id = @user_id OR to_user_id = @user_id
+            """,
+            new { user_id = userKey },
+            work.Transaction);
+
+        await work.CommitAsync(cancellationToken);
+        return friendKeys.Select(SqliteStorageKeys.ToWire).ToArray();
     }
 
     private static FriendshipReadModel MapFriendship(FriendshipRow row)

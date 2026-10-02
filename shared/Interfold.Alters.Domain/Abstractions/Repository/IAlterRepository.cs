@@ -14,6 +14,8 @@ public interface IAlterRepository
 
     Task<bool> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default);
 
+    Task RemoveFieldValuesAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<AlterReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<BareAlter>> ListGuardedAsync(

@@ -87,7 +87,8 @@ public sealed class SqliteJournalRepositoryTests
             await Assert.That(listed.Count).IsEqualTo(1);
 
             var removed = await repo.DeleteAllForAlterAsync(systemId, alterId);
-            await Assert.That(removed).IsEqualTo(1);
+            await Assert.That(removed.DeletedEntryIds.Count).IsEqualTo(1);
+            await Assert.That(removed.DetachedGlobalJournalIds.Count).IsEqualTo(1);
             await Assert.That(await repo.GetAlterAsync(systemId, entryId.Value)).IsNull();
 
             var global = await repo.GetGlobalAsync(systemId, globalId.Value);

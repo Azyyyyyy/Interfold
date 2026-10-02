@@ -201,6 +201,17 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult(true);
     }
 
+    public Task<SystemId?> TryFindSystemIdByUsernameAsync(Username username, CancellationToken cancellationToken = default)
+    {
+        foreach (var pair in _usernameBySystem)
+        {
+            if (string.Equals(pair.Value.Value, username.Value, StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult<SystemId?>(new SystemId(pair.Key.RawId));
+        }
+
+        return Task.FromResult<SystemId?>(null);
+    }
+
     public Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);

@@ -140,6 +140,9 @@ public sealed class AlterCommandFlowExecutionTests
         public Task<bool> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException("DeleteAsync is not reachable from the UpdateAlterCommandHandler path.");
 
+        public Task RemoveFieldValuesAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("RemoveFieldValuesAsync is not reachable from the UpdateAlterCommandHandler path.");
+
         public Task<IReadOnlyList<AlterReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException("ListAsync is not reachable from the UpdateAlterCommandHandler path.");
 

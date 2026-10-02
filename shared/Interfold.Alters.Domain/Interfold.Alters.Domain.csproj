@@ -16,5 +16,12 @@
     <!-- Interfold.Alters.Domain -> Interfold.Journals.Contracts back-ref:
          DeleteAlterCommandHandler depends on IJournalAlterCascade. -->
     <ProjectReference Include="..\Interfold.Journals.Contracts\Interfold.Journals.Contracts.csproj" />
+    <!-- AlterDeletion calls the front, tag, and poll repositories; the handler publishes their events. -->
+    <ProjectReference Include="..\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
+    <ProjectReference Include="..\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
+    <ProjectReference Include="..\Interfold.Polls.Contracts\Interfold.Polls.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
   </ItemGroup>
 </Project>

@@ -119,6 +119,28 @@ public sealed class InMemoryTagRepository : ITagRepository
            return Task.FromResult(members.Remove(members.FirstOrDefault(x => x.Key.Id == alterId).Key, out _));
        }
 
+       public Task<IReadOnlyList<TagId>> DetachAllForAlterAsync(
+           SystemId systemId,
+           AlterId alterId,
+           CancellationToken cancellationToken = default)
+       {
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+           var detached = new List<TagId>();
+           foreach (var pair in _alterMemberships)
+           {
+               if (pair.Key.System != systemKey)
+                   continue;
+
+               var match = pair.Value.Keys.FirstOrDefault(alter => alter.Id == alterId);
+               if (match is null || !pair.Value.TryRemove(match, out _))
+                   continue;
+
+               detached.Add(pair.Key.TagId);
+           }
+
+           return Task.FromResult<IReadOnlyList<TagId>>(detached);
+       }
+
        public Task<TagId?> GetParentIdAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
        {
            if (TryGetTag(systemId, tagId, out _, out var state))

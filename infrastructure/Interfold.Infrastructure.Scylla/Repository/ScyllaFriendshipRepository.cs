@@ -2,6 +2,7 @@ using Cassandra;
 using Interfold.Friendships.Contracts.Ids;
 using Interfold.Friendships.Contracts.Models.Read;
 using Interfold.Friendships.Domain.Abstractions.Repository;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
@@ -13,25 +14,24 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 
 public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 {
-    // Derived from ScyllaKeyspace so the region list can't drift from the typed vocabulary.
-    private static readonly string[] CanonicalRegions =
-        Enum.GetValues<ScyllaKeyspace>().Select(k => k.ToWire()).ToArray();
-
     private readonly IScyllaSessionProvider _sessionProvider;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
     private readonly IScyllaScopeResolver _scopeResolver;
+    private readonly IAccountRepository _accounts;
 
     public ScyllaFriendshipRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaKeyspaceResolver keyspaceResolver,
         IScyllaScopeResolver scopeResolver,
+        IAccountRepository accounts,
         IOptions<PersistenceConfiguration> options)
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
         _options = options.Value;
         _scopeResolver = scopeResolver;
+        _accounts = accounts;
     }
 
     public async Task<SystemId?> ResolveUserIdAsync(FriendLookup lookup, CancellationToken cancellationToken = default)
@@ -447,7 +447,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
         return handle.Kind switch
         {
-            FriendLookupKind.Username => await LookupByUsernameFanoutAsync(session, handle.Value),
+            FriendLookupKind.Username => await _accounts.TryFindSystemIdByUsernameAsync(new Username(handle.Value), cancellationToken),
             FriendLookupKind.Id => await LookupByUserIdAsync(session, handle.Value),
             // A new FriendLookupKind needs an explicit routing lane; silently falling
             // through would mis-route and produce phantom nulls.
@@ -471,48 +471,6 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         return directRow is null
             ? null
             : new SystemId(directRow.GetValue<string>("user_id"));
-    }
-
-    private static async Task<SystemId?> LookupByUsernameFanoutAsync(ISession session, string username)
-    {
-        var existingKeyspaces = await GetExistingRegionalKeyspacesAsync(session);
-
-        // users_by_username is per-region with no global reverse index; skip
-        // unavailable/missing keyspaces so a partial cluster still resolves what it can.
-        foreach (var region in existingKeyspaces.Where(CanonicalRegions.Contains))
-        {
-            try
-            {
-                var userQuery = new SimpleStatement(
-                    $"SELECT user_id FROM {region}.users_by_username WHERE username = ? LIMIT 1",
-                    username);
-                var userRow = (await session.ExecuteAsync(userQuery)).FirstOrDefault();
-                if (userRow != null)
-                {
-                    return new(userRow.GetValue<string>("user_id"));
-                }
-            }
-            catch (UnavailableException)
-            {
-                continue;
-            }
-            catch (InvalidQueryException)
-            {
-                continue;
-            }
-        }
-
-        return null;
-    }
-
-    private static async Task<HashSet<string>> GetExistingRegionalKeyspacesAsync(ISession session)
-    {
-        var keyspacesQuery = new SimpleStatement("SELECT keyspace_name FROM system_schema.keyspaces");
-        var keyspaceRows = await session.ExecuteAsync(keyspacesQuery);
-
-        return keyspaceRows
-            .Select(row => row.GetValue<string>("keyspace_name").ToLowerInvariant())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     private static async Task<bool> ExistsRequestAsync(ISession session, string fromId, string toId)

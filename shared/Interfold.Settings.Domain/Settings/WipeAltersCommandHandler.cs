@@ -1,3 +1,4 @@
+using Interfold.Alters.Domain;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Settings.Contracts;
 using Interfold.Settings.Contracts.Events;
@@ -14,15 +15,21 @@ public sealed class WipeAltersCommandHandler : IdempotentCommandHandler<WipeAlte
 {
     private readonly IClusterEventBus _eventBus;
     private readonly IAlterRepository _alterRepository;
+    private readonly IAlterDeletion _deletion;
+    private readonly IStorageTransactionFactory _transactions;
 
     public WipeAltersCommandHandler(
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus,
-        IAlterRepository alterRepository)
+        IAlterRepository alterRepository,
+        IAlterDeletion deletion,
+        IStorageTransactionFactory transactions)
         : base(idempotencyStore)
     {
         _eventBus = eventBus;
         _alterRepository = alterRepository;
+        _deletion = deletion;
+        _transactions = transactions;
     }
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsAltersWipe;
@@ -36,12 +43,17 @@ public sealed class WipeAltersCommandHandler : IdempotentCommandHandler<WipeAlte
             {
                 var systemId = command.PrincipalId;
                 var alters = await _alterRepository.ListAsync(systemId, ct);
+
+                await using var transaction = await _transactions.BeginAsync(ct);
                 foreach (var alter in alters)
                 {
-                    await _alterRepository.DeleteAsync(systemId, alter.Id, ct);
+                    if (await _deletion.DeleteAsync(systemId, alter.Id, ct) is null)
+                        return false;
+
                     //TODO: Delete alter image if it exists
                 }
 
+                await transaction.CommitAsync(ct);
                 return true;
             },
             SettingsAction.AltersWiped.ToFailedEntityRef(),

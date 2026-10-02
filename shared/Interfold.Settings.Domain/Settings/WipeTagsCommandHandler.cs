@@ -14,15 +14,18 @@ public sealed class WipeTagsCommandHandler : IdempotentCommandHandler<WipeTagsCo
 {
     private readonly IClusterEventBus _eventBus;
     private readonly ITagRepository _tagRepository;
+    private readonly IStorageTransactionFactory _transactions;
 
     public WipeTagsCommandHandler(
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus,
-        ITagRepository tagRepository)
+        ITagRepository tagRepository,
+        IStorageTransactionFactory transactions)
         : base(idempotencyStore)
     {
         _eventBus = eventBus;
         _tagRepository = tagRepository;
+        _transactions = transactions;
     }
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsTagsWipe;
@@ -36,14 +39,12 @@ public sealed class WipeTagsCommandHandler : IdempotentCommandHandler<WipeTagsCo
             {
                 var systemId = command.PrincipalId;
                 var tags = await _tagRepository.ListAsync(systemId, ct);
-                foreach (var tag in tags)
-                {
-                    // Repository delete also removes alter_tag join rows in both backends, mirroring
-                    // Octocon.Accounts.wipe_tags/1 in the legacy stack which truncated both Tag and
-                    // AlterTag tables for the system.
-                    await _tagRepository.DeleteAsync(systemId, tag.Id, ct);
-                }
 
+                await using var transaction = await _transactions.BeginAsync(ct);
+                foreach (var tag in tags)
+                    await _tagRepository.DeleteAsync(systemId, tag.Id, ct);
+
+                await transaction.CommitAsync(ct);
                 return true;
             },
             SettingsAction.TagsWiped.ToFailedEntityRef(),

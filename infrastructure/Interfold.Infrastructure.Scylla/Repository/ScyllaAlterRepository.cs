@@ -12,7 +12,6 @@ using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Domain.Observability;
-using Interfold.Polls.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -25,7 +24,6 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly ISettingsFieldRepository _settingsFields;
     private readonly IAlterFieldDefinitions _alterFieldDefinitions;
-    private readonly IPollRepository _pollRepository;
     private readonly PersistenceConfiguration _options;
     private readonly ILogger<ScyllaAlterRepository> _logger;
     private static readonly ConcurrentDictionary<(int ClusterId, string Keyspace), byte> UdtMappings = new();
@@ -36,7 +34,6 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         IScyllaKeyspaceResolver keyspaceResolver,
         ISettingsFieldRepository settingsFields,
         IAlterFieldDefinitions alterFieldDefinitions,
-        IPollRepository pollRepository,
         IOptions<PersistenceConfiguration> options,
         ILogger<ScyllaAlterRepository> logger
     )
@@ -46,7 +43,6 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         _keyspaceResolver = keyspaceResolver;
         _settingsFields = settingsFields;
         _alterFieldDefinitions = alterFieldDefinitions;
-        _pollRepository = pollRepository;
         _options = options.Value;
         _logger = logger;
     }
@@ -227,152 +223,65 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var (session, keyspace, normalizedSystemId) = scope;
             var alterIdShort = alterId.Value;
 
-            var exists = await ExistsAsync(scope, alterId);
-            if (!exists)
-            {
+            if (!await ExistsAsync(scope, alterId))
                 return false;
-            }
 
-            var deleteBatch = new BatchStatement();
-            deleteBatch.Add(new SimpleStatement(
+            var aliasRow = (await session.ExecuteAsync(new SimpleStatement(
+                $"SELECT alias FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
+                normalizedSystemId,
+                alterIdShort))).FirstOrDefault();
+            var alias = aliasRow?.GetValue<string?>("alias");
+
+            await session.ExecuteAsync(new SimpleStatement(
                 $"DELETE FROM {keyspace}.alters WHERE user_id = ? AND id = ?",
                 normalizedSystemId,
                 alterIdShort));
-            deleteBatch.Add(new SimpleStatement(
-                $"DELETE FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ?",
-                normalizedSystemId,
-                alterIdShort));
-            await session.ExecuteAsync(deleteBatch);
-
-            var frontsTask = session.ExecuteAsync(new SimpleStatement(
-                $"SELECT id, time_start FROM {keyspace}.fronts_by_alter WHERE user_id = ? AND alter_id = ?",
-                normalizedSystemId,
-                alterIdShort));
-
-            var journalEntriesTask = session.ExecuteAsync(new SimpleStatement(
-                $"SELECT id FROM {keyspace}.alter_journals_by_alter WHERE user_id = ? AND alter_id = ?",
-                normalizedSystemId,
-                alterIdShort));
-
-            var tagsTask = session.ExecuteAsync(new SimpleStatement(
-                $"SELECT tag_id FROM {keyspace}.alter_tags_by_alter WHERE user_id = ? AND alter_id = ?",
-                normalizedSystemId,
-                alterIdShort));
-
-            var globalJournalAltersTask = session.ExecuteAsync(new SimpleStatement(
-                $"SELECT global_journal_id FROM {keyspace}.global_journal_alters WHERE user_id = ? AND alter_id = ? ALLOW FILTERING",
-                normalizedSystemId,
-                alterIdShort));
-
-            var aliasTask = session.ExecuteAsync(new SimpleStatement(
-                $"SELECT alias FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
-                normalizedSystemId,
-                alterIdShort));
-
-            var removePollsTask = _pollRepository.RemoveAlterFromPollsAsync(systemId, alterId, cancellationToken);
-
-            await Task.WhenAll(
-                frontsTask,
-                journalEntriesTask,
-                tagsTask,
-                globalJournalAltersTask,
-                removePollsTask,
-                aliasTask
-            );
-
-            var frontRows = await frontsTask;
-            var journalEntryRows = await journalEntriesTask;
-            var membershipRows = await tagsTask;
-            var globalJournalAlterRows = await globalJournalAltersTask;
-            var aliasRow = (await aliasTask).FirstOrDefault();
-            var alias = aliasRow?.GetValue<string?>("alias");
-
-            if (frontRows.Any())
-            {
-                var frontBatch = new BatchStatement();
-                foreach (var frontRow in frontRows)
-                {
-                    var frontId = frontRow.GetValue<Guid>("id");
-                    var timeStart = frontRow.GetValue<DateTimeOffset>("time_start");
-                    frontBatch.Add(new SimpleStatement(
-                        $"DELETE FROM {keyspace}.fronts WHERE user_id = ? AND id = ? AND time_start = ?",
-                        normalizedSystemId, frontId, timeStart));
-                    frontBatch.Add(new SimpleStatement(
-                        $"DELETE FROM {keyspace}.fronts_by_alter WHERE user_id = ? AND alter_id = ? AND id = ? AND time_start = ?",
-                        normalizedSystemId, alterIdShort, frontId, timeStart));
-                    // Delete unconditionally — closed-front-only rows are a no-op miss.
-                    frontBatch.Add(new SimpleStatement(
-                        $"DELETE FROM {keyspace}.fronts_by_time WHERE user_id = ? AND time_start = ? AND time_end = ? AND id = ?",
-                        normalizedSystemId, timeStart, DateTimeOffset.MaxValue, frontId));
-                    frontBatch.Add(new SimpleStatement(
-                        $"DELETE FROM {keyspace}.fronts_by_end_time WHERE user_id = ? AND time_end = ? AND time_start = ? AND id = ?",
-                        normalizedSystemId, DateTimeOffset.MaxValue, timeStart, frontId));
-                }
-                await session.ExecuteAsync(frontBatch);
-            }
-
-            if (journalEntryRows.Any())
-            {
-                var journalBatch = new BatchStatement();
-                foreach (var row in journalEntryRows)
-                {
-                    var journalId = row.GetValue<Guid>("id");
-                    journalBatch.Add(new SimpleStatement(
-                        $"DELETE FROM {keyspace}.alter_journals WHERE user_id = ? AND id = ? AND alter_id = ?",
-                        normalizedSystemId, journalId, alterIdShort));
-                    journalBatch.Add(new SimpleStatement(
-                        $"DELETE FROM {keyspace}.alter_journals_by_alter WHERE user_id = ? AND alter_id = ? AND id = ?",
-                        normalizedSystemId, alterIdShort, journalId));
-                }
-                await session.ExecuteAsync(journalBatch);
-            }
-
-            // Clear primary_front_alter if it points at the alter we're deleting.
-            var currentPrimary = await ScyllaSharedQueries.LoadPrimaryFrontAlterAsync(session, keyspace, normalizedSystemId);
-            if (currentPrimary == new AlterId(alterIdShort))
-            {
-                await session.ExecuteAsync(new SimpleStatement(
-                    $"UPDATE {keyspace}.users SET primary_front_alter = null WHERE id = ?",
-                    normalizedSystemId));
-            }
-
-            if (membershipRows.Any())
-            {
-                var tagBatch = new BatchStatement();
-                foreach (var row in membershipRows)
-                {
-                    var tagId = row.GetValue<Guid>("tag_id");
-                    tagBatch.Add(new SimpleStatement(
-                        $"DELETE FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ? AND alter_id = ?",
-                        normalizedSystemId, tagId, alterIdShort));
-                }
-                // Single-partition delete on alter_tags_by_alter.
-                tagBatch.Add(new SimpleStatement(
-                    $"DELETE FROM {keyspace}.alter_tags_by_alter WHERE user_id = ? AND alter_id = ?",
-                    normalizedSystemId, alterIdShort));
-                await session.ExecuteAsync(tagBatch);
-            }
-
-            if (globalJournalAlterRows.Any())
-            {
-                var gjaBatch = new BatchStatement();
-                foreach (var row in globalJournalAlterRows)
-                {
-                    gjaBatch.Add(new SimpleStatement(
-                        $"DELETE FROM {keyspace}.global_journal_alters WHERE user_id = ? AND global_journal_id = ? AND alter_id = ?",
-                        normalizedSystemId,
-                        row.GetValue<Guid>("global_journal_id"),
-                        alterIdShort));
-                }
-                await session.ExecuteAsync(gjaBatch);
-            }
 
             if (!string.IsNullOrWhiteSpace(alias))
             {
                 await session.ExecuteAsync(new SimpleStatement(
                     $"DELETE FROM {keyspace}.alters_by_alias WHERE user_id = ? AND alias = ?",
-                    normalizedSystemId, alias));
+                    normalizedSystemId,
+                    alias));
             }
+
+            return true;
+        }, cancellationToken);
+    }
+
+    public async Task RemoveFieldValuesAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default)
+    {
+        await _scopeResolver.ExecuteAsync(systemId, async scope =>
+        {
+            var (session, keyspace, normalizedSystemId) = scope;
+            EnsureAlterFieldUdtMapping(session, keyspace);
+
+            var rows = await session.ExecuteAsync(new SimpleStatement(
+                $"SELECT id, fields FROM {keyspace}.alters WHERE user_id = ?",
+                normalizedSystemId));
+
+            var batch = new BatchStatement();
+            var any = false;
+            foreach (var row in rows)
+            {
+                var alterIdShort = row.GetValue<short>("id");
+                var currentFields = row.GetValue<IEnumerable<AlterFieldUdt>?>("fields")?.ToList();
+                if (currentFields is null || currentFields.Count == 0)
+                    continue;
+
+                if (currentFields.RemoveAll(x => x.Id == fieldId.Value) == 0)
+                    continue;
+
+                any = true;
+                batch.Add(new SimpleStatement(
+                    $"UPDATE {keyspace}.alters SET fields = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
+                    currentFields,
+                    normalizedSystemId,
+                    alterIdShort));
+            }
+
+            if (any)
+                await session.ExecuteAsync(batch);
 
             return true;
         }, cancellationToken);

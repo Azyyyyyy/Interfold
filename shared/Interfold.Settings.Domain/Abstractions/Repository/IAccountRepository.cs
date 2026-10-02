@@ -50,6 +50,8 @@ public interface IAccountRepository
     /// </remarks>
     Task<SystemId?> TryFindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default);
 
+    Task<SystemId?> TryFindSystemIdByUsernameAsync(Username username, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// OAuth-login shape: returns the system id linked to the OAuth
     /// <paramref name="identity"/>, or auto-provisions a new account for it (with a

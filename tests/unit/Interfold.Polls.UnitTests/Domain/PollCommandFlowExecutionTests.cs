@@ -167,8 +167,8 @@ public sealed class PollCommandFlowExecutionTests
             return Task.FromResult(DeleteResult);
         }
 
-        public Task RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        public Task<IReadOnlyList<PollId>> RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<PollId>>([]);
     }
 
     private sealed class CountingEventBus : IClusterEventBus

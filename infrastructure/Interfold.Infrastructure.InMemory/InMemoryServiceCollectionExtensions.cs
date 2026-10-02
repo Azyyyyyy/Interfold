@@ -47,6 +47,7 @@ public static class InMemoryServiceCollectionExtensions
             .AddSingleton<IAccountRepository, InMemoryAccountRepository>()
             .AddSingleton<ISettingsFieldRepository, InMemorySettingsFieldRepository>()
             .AddSingleton<IPollRepository, InMemoryPollRepository>()
+            .AddSingleton<IStorageTransactionFactory, ImmediateStorageTransactionFactory>()
             .AddSingleton<IAlterRepository, InMemoryAlterRepository>()
             .AddSingleton<IFrontingRepository, InMemoryFrontingRepository>()
             .AddSingleton<IFriendshipRepository, InMemoryFriendshipRepository>()

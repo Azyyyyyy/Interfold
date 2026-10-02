@@ -7,7 +7,7 @@ using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Friendships.Domain.Abstractions.Repository;
-using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
@@ -25,7 +25,6 @@ public sealed class SqliteAlterRepository : IAlterRepository
     private readonly IFriendshipRepository _friendships;
     private readonly ISettingsFieldRepository _settingsFields;
     private readonly IAlterFieldDefinitions _alterFieldDefinitions;
-    private readonly IPollRepository _polls;
     private readonly ILogger<SqliteAlterRepository> _logger;
 
     public SqliteAlterRepository(
@@ -33,14 +32,12 @@ public sealed class SqliteAlterRepository : IAlterRepository
         IFriendshipRepository friendships,
         ISettingsFieldRepository settingsFields,
         IAlterFieldDefinitions alterFieldDefinitions,
-        IPollRepository polls,
         ILogger<SqliteAlterRepository> logger)
     {
         _connectionFactory = connectionFactory;
         _friendships = friendships;
         _settingsFields = settingsFields;
         _alterFieldDefinitions = alterFieldDefinitions;
-        _polls = polls;
         _logger = logger;
     }
 
@@ -198,67 +195,30 @@ public sealed class SqliteAlterRepository : IAlterRepository
     {
         var systemKey = SqliteStorageKeys.Persist(systemId);
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
-
-        if (!await RowExistsAsync(connection, tx, systemKey, alterId.Value))
-        {
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        if (!await RowExistsAsync(work.Connection, work.Transaction, systemKey, alterId.Value))
             return false;
-        }
 
-        await connection.ExecuteAsync(
+        await work.Connection.ExecuteAsync(
             """
             DELETE FROM alter_fields
             WHERE system_id = @system_id AND alter_id = @alter_id
             """,
             new { system_id = systemKey, alter_id = alterId.Value },
-            tx);
+            work.Transaction);
 
-        await connection.ExecuteAsync(
-            """
-            DELETE FROM alter_tags
-            WHERE system_id = @system_id AND alter_id = @alter_id
-            """,
-            new { system_id = systemKey, alter_id = alterId.Value },
-            tx);
-
-        // ListActiveAsync refuses an active front whose alter is gone, which fails socket join.
-        await connection.ExecuteAsync(
-            """
-            DELETE FROM current_fronts
-            WHERE user_id = @user_id AND alter_id = @alter_id
-            """,
-            new { user_id = systemKey, alter_id = alterId.Value },
-            tx);
-
-        await connection.ExecuteAsync(
-            """
-            DELETE FROM fronts
-            WHERE user_id = @user_id AND alter_id = @alter_id
-            """,
-            new { user_id = systemKey, alter_id = alterId.Value },
-            tx);
-
-        await connection.ExecuteAsync(
-            """
-            UPDATE front_primary
-            SET alter_id = NULL
-            WHERE user_id = @user_id AND alter_id = @alter_id
-            """,
-            new { user_id = systemKey, alter_id = alterId.Value },
-            tx);
-
-        var removed = await connection.ExecuteAsync(
+        var removed = await work.Connection.ExecuteAsync(
             """
             DELETE FROM alters
             WHERE system_id = @system_id AND id = @id
             """,
             new { system_id = systemKey, id = alterId.Value },
-            tx);
+            work.Transaction);
+        if (removed == 0)
+            return false;
 
-        await tx.CommitAsync(cancellationToken);
-        await _polls.RemoveAlterFromPollsAsync(systemId, alterId, cancellationToken);
-        return removed > 0;
+        await work.CommitAsync(cancellationToken);
+        return true;
     }
 
     public async Task<IReadOnlyList<AlterReadModel>> ListAsync(
@@ -386,19 +346,21 @@ public sealed class SqliteAlterRepository : IAlterRepository
         return found is not null;
     }
 
-    internal static async Task RemoveFieldValuesForSystemAsync(
-        ISqliteConnectionFactory connectionFactory,
-        string systemKey,
-        Guid fieldId,
-        CancellationToken cancellationToken)
+    public async Task RemoveFieldValuesAsync(
+        SystemId systemId,
+        FieldId fieldId,
+        CancellationToken cancellationToken = default)
     {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await connection.ExecuteAsync(
+        var systemKey = SqliteStorageKeys.Persist(systemId);
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        await work.Connection.ExecuteAsync(
             """
             DELETE FROM alter_fields
             WHERE system_id = @system_id AND field_id = @field_id
             """,
-            new { system_id = systemKey, field_id = fieldId.ToString("N") });
+            new { system_id = systemKey, field_id = fieldId.Value.ToString("N") },
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
     }
 
     private static async Task<bool> RowExistsAsync(

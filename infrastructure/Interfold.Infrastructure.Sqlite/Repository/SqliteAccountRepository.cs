@@ -3,6 +3,7 @@ using System.Text;
 using Dapper;
 using Interfold.Auth.Contracts.Ids;
 using Interfold.Settings.Contracts.Ids;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
@@ -302,11 +303,29 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
     public async Task<bool> DeleteAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await connection.ExecuteAsync(
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var rows = await work.Connection.ExecuteAsync(
             "DELETE FROM accounts WHERE system_id = @system_id",
-            new { system_id = SqliteStorageKeys.Persist(systemId) });
+            new { system_id = SqliteStorageKeys.Persist(systemId) },
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
         return rows > 0;
+    }
+
+    public async Task<SystemId?> TryFindSystemIdByUsernameAsync(
+        Username username,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        var persisted = await connection.QueryFirstOrDefaultAsync<string>(
+            """
+            SELECT system_id
+            FROM accounts
+            WHERE username = @username COLLATE NOCASE
+            LIMIT 1
+            """,
+            new { username = username.Value });
+        return persisted is null ? null : SqliteStorageKeys.ToWire(persisted);
     }
 
     public async Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(

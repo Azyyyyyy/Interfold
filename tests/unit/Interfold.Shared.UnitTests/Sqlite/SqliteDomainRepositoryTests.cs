@@ -1,10 +1,13 @@
 using Interfold.Alters.Contracts.Models.Commands;
+using Interfold.Friendships.Contracts.Ids;
+using Interfold.Alters.Domain;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Friendships.Contracts.Models.Read;
 using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Sqlite;
 using Interfold.Infrastructure.Sqlite.Repository;
+using Interfold.Journals.Domain;
 using Interfold.Polls.Contracts.Models.Commands;
 using Interfold.Polls.Domain.Abstractions.Repository;
 using Interfold.Settings.Domain;
@@ -68,6 +71,29 @@ public sealed class SqliteFriendshipRepositoryTests
             SqliteTestDb.Delete(path);
         }
     }
+
+    [Test]
+    public async Task ResolveUserId_Username_UsesAccountRepository()
+    {
+        var path = await SqliteTestDb.CreateMigratedAsync();
+        try
+        {
+            var factory = SqliteTestDb.Factory(path);
+            var encryption = new SqliteEncryptionStateRepository(factory, TimeProvider.System);
+            var accounts = new SqliteAccountRepository(factory, encryption, TimeProvider.System);
+            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System, accounts);
+            var systemId = new SystemId("nameusr");
+            await accounts.EnsureExistsAsync(systemId);
+            await accounts.UpdateUsernameAsync(systemId, new Username("Casey"));
+
+            var resolved = await friendships.ResolveUserIdAsync(FriendLookup.Parse("username:casey", provider: null));
+            await Assert.That(resolved).IsEqualTo(systemId);
+        }
+        finally
+        {
+            SqliteTestDb.Delete(path);
+        }
+    }
 }
 
 public sealed class SqliteFrontingRepositoryTests
@@ -82,9 +108,8 @@ public sealed class SqliteFrontingRepositoryTests
             var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
             var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
-            var polls = new SqlitePollRepository(factory, TimeProvider.System);
             IAlterRepository alters = new SqliteAlterRepository(
-                factory, friendships, settings, alterFields, polls,
+                factory, friendships, settings, alterFields,
                 NullLogger<SqliteAlterRepository>.Instance);
             IFrontingRepository repo = new SqliteFrontingRepository(
                 factory, friendships, alters, NullLogger<SqliteFrontingRepository>.Instance, TimeProvider.System);
@@ -134,9 +159,8 @@ public sealed class SqliteFrontingRepositoryTests
             var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
             var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
-            var polls = new SqlitePollRepository(factory, TimeProvider.System);
             IAlterRepository alters = new SqliteAlterRepository(
-                factory, friendships, settings, alterFields, polls,
+                factory, friendships, settings, alterFields,
                 NullLogger<SqliteAlterRepository>.Instance);
             IFrontingRepository fronts = new SqliteFrontingRepository(
                 factory, friendships, alters, NullLogger<SqliteFrontingRepository>.Instance, TimeProvider.System);
@@ -152,7 +176,23 @@ public sealed class SqliteFrontingRepositoryTests
             await fronts.StartAsync(systemId, wiped!.Value, "fronting", startedAt);
             await Assert.That(await fronts.SetPrimaryAsync(systemId, wiped.Value)).IsTrue();
 
-            await Assert.That(await alters.DeleteAsync(systemId, wiped.Value)).IsTrue();
+            var polls = new SqlitePollRepository(factory, TimeProvider.System);
+            var journals = new SqliteJournalRepository(factory, TimeProvider.System);
+            var tags = new SqliteTagRepository(
+                factory, friendships, alters, NullLogger<SqliteTagRepository>.Instance, TimeProvider.System);
+            var deletion = new AlterDeletion(
+                new SqliteStorageTransactionFactory(factory),
+                fronts,
+                tags,
+                new JournalAlterCascadeAdapter(journals),
+                polls,
+                alters);
+
+            var deleted = await deletion.DeleteAsync(systemId, wiped.Value);
+            await Assert.That(deleted).IsNotNull();
+            await Assert.That(deleted!.Fronts.DeletedFrontIds.Count).IsEqualTo(1);
+            await Assert.That(deleted.Fronts.HadActiveFront).IsTrue();
+            await Assert.That(deleted.Fronts.PrimaryCleared).IsTrue();
 
             var active = await fronts.ListActiveAsync(systemId);
             await Assert.That(active.Count).IsEqualTo(1);
@@ -162,6 +202,202 @@ public sealed class SqliteFrontingRepositoryTests
             var history = await fronts.ListAllAsync(systemId);
             await Assert.That(history.Count).IsEqualTo(1);
             await Assert.That(history[0].AlterId).IsEqualTo(kept.Value);
+        }
+        finally
+        {
+            SqliteTestDb.Delete(path);
+        }
+    }
+
+    [Test]
+    public async Task UncommittedFrontDelete_LeavesHistoryInPlace()
+    {
+        var path = await SqliteTestDb.CreateMigratedAsync();
+        try
+        {
+            var factory = SqliteTestDb.Factory(path);
+            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
+            var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
+            IAlterRepository alters = new SqliteAlterRepository(
+                factory, friendships, settings, alterFields,
+                NullLogger<SqliteAlterRepository>.Instance);
+            IFrontingRepository fronts = new SqliteFrontingRepository(
+                factory, friendships, alters, NullLogger<SqliteFrontingRepository>.Instance, TimeProvider.System);
+
+            var systemId = new SystemId("wipe002");
+            var alterId = await alters.CreateAsync(systemId, new CreateAlterCommand("StillHere", DateTimeOffset.UtcNow));
+            await Assert.That(alterId).IsNotNull();
+            await fronts.StartAsync(systemId, alterId!.Value, "fronting", DateTimeOffset.UtcNow.AddMinutes(-5));
+
+            var transactions = new SqliteStorageTransactionFactory(factory);
+            await using (var transaction = await transactions.BeginAsync())
+            {
+                await fronts.DeleteAllForAlterAsync(systemId, alterId.Value);
+            }
+
+            var history = await fronts.ListAllAsync(systemId);
+            await Assert.That(history.Count).IsEqualTo(1);
+            await Assert.That(history[0].AlterId).IsEqualTo(alterId.Value);
+            await Assert.That(await alters.ExistsAsync(systemId, alterId.Value)).IsTrue();
+        }
+        finally
+        {
+            SqliteTestDb.Delete(path);
+        }
+    }
+
+    [Test]
+    public async Task UncommittedAlterDeletion_LeavesAlterAndFront()
+    {
+        var path = await SqliteTestDb.CreateMigratedAsync();
+        try
+        {
+            var factory = SqliteTestDb.Factory(path);
+            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
+            var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
+            IAlterRepository alters = new SqliteAlterRepository(
+                factory, friendships, settings, alterFields,
+                NullLogger<SqliteAlterRepository>.Instance);
+            IFrontingRepository fronts = new SqliteFrontingRepository(
+                factory, friendships, alters, NullLogger<SqliteFrontingRepository>.Instance, TimeProvider.System);
+
+            var systemId = new SystemId("wipe003");
+            var alterId = await alters.CreateAsync(systemId, new CreateAlterCommand("StillHere", DateTimeOffset.UtcNow));
+            await Assert.That(alterId).IsNotNull();
+            await fronts.StartAsync(systemId, alterId!.Value, "fronting", DateTimeOffset.UtcNow.AddMinutes(-5));
+
+            var polls = new SqlitePollRepository(factory, TimeProvider.System);
+            var journals = new SqliteJournalRepository(factory, TimeProvider.System);
+            var tags = new SqliteTagRepository(
+                factory, friendships, alters, NullLogger<SqliteTagRepository>.Instance, TimeProvider.System);
+            var deletion = new AlterDeletion(
+                new SqliteStorageTransactionFactory(factory),
+                fronts,
+                tags,
+                new JournalAlterCascadeAdapter(journals),
+                polls,
+                alters);
+
+            var transactions = new SqliteStorageTransactionFactory(factory);
+            await using (var transaction = await transactions.BeginAsync())
+            {
+                var deleted = await deletion.DeleteAsync(systemId, alterId.Value);
+                await Assert.That(deleted).IsNotNull();
+            }
+
+            await Assert.That(await alters.ExistsAsync(systemId, alterId.Value)).IsTrue();
+            var history = await fronts.ListAllAsync(systemId);
+            await Assert.That(history.Count).IsEqualTo(1);
+            await Assert.That(history[0].AlterId).IsEqualTo(alterId.Value);
+        }
+        finally
+        {
+            SqliteTestDb.Delete(path);
+        }
+    }
+
+    [Test]
+    public async Task UncommittedFrontEndAndDelete_LeavesActiveFront()
+    {
+        var path = await SqliteTestDb.CreateMigratedAsync();
+        try
+        {
+            var factory = SqliteTestDb.Factory(path);
+            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
+            var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
+            IAlterRepository alters = new SqliteAlterRepository(
+                factory, friendships, settings, alterFields,
+                NullLogger<SqliteAlterRepository>.Instance);
+            IFrontingRepository fronts = new SqliteFrontingRepository(
+                factory, friendships, alters, NullLogger<SqliteFrontingRepository>.Instance, TimeProvider.System);
+
+            var systemId = new SystemId("front02");
+            var alterId = await alters.CreateAsync(systemId, new CreateAlterCommand("FrontAlter", DateTimeOffset.UtcNow));
+            await Assert.That(alterId).IsNotNull();
+            var frontId = await fronts.StartAsync(systemId, alterId!.Value, "fronting", DateTimeOffset.UtcNow.AddMinutes(-5));
+            await Assert.That(frontId).IsNotNull();
+
+            var transactions = new SqliteStorageTransactionFactory(factory);
+            await using (var transaction = await transactions.BeginAsync())
+            {
+                await Assert.That(await fronts.EndAsync(systemId, alterId.Value, DateTimeOffset.UtcNow)).IsTrue();
+                await Assert.That(await fronts.DeleteFrontByIdAsync(systemId, frontId!.Value)).IsTrue();
+            }
+
+            await Assert.That(await fronts.IsFrontingAsync(systemId, alterId.Value)).IsTrue();
+            await Assert.That((await fronts.ListAllAsync(systemId)).Count).IsEqualTo(1);
+
+            await using (var transaction = await transactions.BeginAsync())
+            {
+                await Assert.That(await fronts.EndAsync(systemId, alterId.Value, DateTimeOffset.UtcNow)).IsTrue();
+                await Assert.That(await fronts.DeleteFrontByIdAsync(systemId, frontId.Value)).IsTrue();
+                await transaction.CommitAsync();
+            }
+
+            await Assert.That(await fronts.IsFrontingAsync(systemId, alterId.Value)).IsFalse();
+            await Assert.That((await fronts.ListAllAsync(systemId)).Count).IsEqualTo(0);
+        }
+        finally
+        {
+            SqliteTestDb.Delete(path);
+        }
+    }
+
+    [Test]
+    public async Task UncommittedAlterWipe_LeavesEveryAlter()
+    {
+        var path = await SqliteTestDb.CreateMigratedAsync();
+        try
+        {
+            var factory = SqliteTestDb.Factory(path);
+            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
+            var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
+            IAlterRepository alters = new SqliteAlterRepository(
+                factory, friendships, settings, alterFields,
+                NullLogger<SqliteAlterRepository>.Instance);
+            IFrontingRepository fronts = new SqliteFrontingRepository(
+                factory, friendships, alters, NullLogger<SqliteFrontingRepository>.Instance, TimeProvider.System);
+            var polls = new SqlitePollRepository(factory, TimeProvider.System);
+            var journals = new SqliteJournalRepository(factory, TimeProvider.System);
+            var tags = new SqliteTagRepository(
+                factory, friendships, alters, NullLogger<SqliteTagRepository>.Instance, TimeProvider.System);
+            var deletion = new AlterDeletion(
+                new SqliteStorageTransactionFactory(factory),
+                fronts,
+                tags,
+                new JournalAlterCascadeAdapter(journals),
+                polls,
+                alters);
+
+            var systemId = new SystemId("wipe004");
+            var first = await alters.CreateAsync(systemId, new CreateAlterCommand("One", DateTimeOffset.UtcNow));
+            var second = await alters.CreateAsync(systemId, new CreateAlterCommand("Two", DateTimeOffset.UtcNow));
+            await Assert.That(first).IsNotNull();
+            await Assert.That(second).IsNotNull();
+
+            var transactions = new SqliteStorageTransactionFactory(factory);
+            await using (var transaction = await transactions.BeginAsync())
+            {
+                await Assert.That(await deletion.DeleteAsync(systemId, first!.Value)).IsNotNull();
+                await Assert.That(await deletion.DeleteAsync(systemId, second!.Value)).IsNotNull();
+            }
+
+            await Assert.That(await alters.ExistsAsync(systemId, first.Value)).IsTrue();
+            await Assert.That(await alters.ExistsAsync(systemId, second.Value)).IsTrue();
+
+            await using (var transaction = await transactions.BeginAsync())
+            {
+                await Assert.That(await deletion.DeleteAsync(systemId, first.Value)).IsNotNull();
+                await Assert.That(await deletion.DeleteAsync(systemId, second.Value)).IsNotNull();
+                await transaction.CommitAsync();
+            }
+
+            await Assert.That(await alters.ExistsAsync(systemId, first.Value)).IsFalse();
+            await Assert.That(await alters.ExistsAsync(systemId, second.Value)).IsFalse();
         }
         finally
         {
