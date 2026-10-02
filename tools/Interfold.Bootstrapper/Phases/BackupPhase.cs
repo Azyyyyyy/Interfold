@@ -65,7 +65,7 @@ internal static class BackupPhase
                     "Use --component=sqlite or --component=all.");
             }
 
-            await BackupSqliteAsync(options.OutputDir, backupRoot, timestamp, retainCount, logger, ct)
+            await BackupSqliteAsync(composeFile, options.OutputDir, backupRoot, timestamp, retainCount, logger, ct)
                 .ConfigureAwait(false);
             logger.PhaseDone(Phase);
             return 0;
@@ -304,6 +304,45 @@ internal static class BackupPhase
     }
 
     private static async Task BackupSqliteAsync(
+        string composeFile, string outputDir, string backupRoot, string timestamp, int retainCount,
+        PhaseLogger logger, CancellationToken ct)
+    {
+        // The container and this Windows process cannot share the bind-mounted file.
+        var apiWasRunning = await StopApiIfRunningAsync(composeFile, logger, ct).ConfigureAwait(false);
+        try
+        {
+            await WriteSqliteArchiveAsync(outputDir, backupRoot, timestamp, retainCount, logger, ct)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            if (apiWasRunning)
+            {
+                logger.Info($"    sqlite: starting {ComposeServices.InterfoldApi}");
+                await DockerCompose.StartAsync(composeFile, [ComposeServices.InterfoldApi], ct).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static async Task<bool> StopApiIfRunningAsync(
+        string composeFile, PhaseLogger logger, CancellationToken ct)
+    {
+        var ps = await DockerCompose.PsAsync(composeFile, ComposeServices.InterfoldApi, ct: ct).ConfigureAwait(false);
+        if (ps.ExitCode != 0 || string.IsNullOrWhiteSpace(ps.StdOut))
+            return false;
+
+        logger.Info($"    sqlite: stopping {ComposeServices.InterfoldApi}");
+        var stop = await DockerCompose.StopAsync(composeFile, [ComposeServices.InterfoldApi], ct: ct).ConfigureAwait(false);
+        if (stop.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"docker compose stop {ComposeServices.InterfoldApi} exited {stop.ExitCode}: {stop.StdErr.Trim()}");
+        }
+
+        return true;
+    }
+
+    private static async Task WriteSqliteArchiveAsync(
         string outputDir, string backupRoot, string timestamp, int retainCount,
         PhaseLogger logger, CancellationToken ct)
     {
