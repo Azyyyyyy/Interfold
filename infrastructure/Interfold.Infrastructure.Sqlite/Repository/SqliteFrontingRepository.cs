@@ -313,6 +313,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             WHERE user_id = @user_id
               AND time_start >= @start
               AND time_start <= @end
+              AND time_end IS NOT NULL
             ORDER BY time_start DESC
             """,
             new

@@ -52,6 +52,7 @@ public sealed class DeleteAlterCascadeEventTests
         await Assert.That(bus.Events).IsEquivalentTo(new object[]
         {
             new FrontingStateChangedEvent(Principal),
+            new FrontingEndedEvent(Principal, alterId),
             new FrontDeletedEvent(Principal, frontId),
             new FrontingPrimaryChangedEvent(Principal, null),
             new TagUpdatedEvent(Principal, tagId),

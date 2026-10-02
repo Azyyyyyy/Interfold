@@ -49,24 +49,28 @@ public sealed class DeleteAlterCommandHandler : IdempotentCommandHandler<DeleteA
         if (deletion is null)
             return AlterCommandFlow.RejectIfMutationFailed(command, succeeded: false, EntityRefs.AlterDeleteFailed)!;
 
-        await PublishCascadeAsync(command.PrincipalId, deletion, cancellationToken);
+        await PublishCascadeAsync(command.PrincipalId, command.Payload.AlterId, deletion, cancellationToken);
         await _eventBus.PublishAsync(new AlterDeletedEvent(command.PrincipalId, command.Payload.AlterId), cancellationToken);
         return AlterCommandFlow.Success(command.PrincipalId, command.Payload.AlterId);
     }
 
     private async ValueTask PublishCascadeAsync(
         ScopedSystemId systemId,
+        AlterId alterId,
         AlterDeletionResult deletion,
         CancellationToken cancellationToken)
     {
+        if (deletion.Fronts.PrimaryCleared)
+            await _eventBus.PublishAsync(new FrontingPrimaryChangedEvent(systemId, null), cancellationToken);
+
         if (deletion.Fronts.HadActiveFront)
+        {
             await _eventBus.PublishAsync(new FrontingStateChangedEvent(systemId), cancellationToken);
+            await _eventBus.PublishAsync(new FrontingEndedEvent(systemId, alterId), cancellationToken);
+        }
 
         foreach (var frontId in deletion.Fronts.DeletedFrontIds)
             await _eventBus.PublishAsync(new FrontDeletedEvent(systemId, frontId), cancellationToken);
-
-        if (deletion.Fronts.PrimaryCleared)
-            await _eventBus.PublishAsync(new FrontingPrimaryChangedEvent(systemId, null), cancellationToken);
 
         foreach (var tagId in deletion.DetachedTagIds)
             await _eventBus.PublishAsync(new TagUpdatedEvent(systemId, tagId), cancellationToken);

@@ -134,6 +134,10 @@ public sealed class SqliteFrontingRepositoryTests
 
             await Assert.That(await repo.UpdateCommentByFrontIdAsync(systemId, frontId!.Value, "updated")).IsTrue();
 
+            var openHistory = await repo.ListHistoryBetweenAsync(
+                systemId, startedAt.AddHours(-1), DateTimeOffset.UtcNow.AddHours(1));
+            await Assert.That(openHistory.Count).IsEqualTo(0);
+
             var endedAt = DateTimeOffset.UtcNow;
             await Assert.That(await repo.EndAsync(systemId, alterId.Value, endedAt)).IsTrue();
             await Assert.That(await repo.IsFrontingAsync(systemId, alterId.Value)).IsFalse();
@@ -142,6 +146,11 @@ public sealed class SqliteFrontingRepositoryTests
             await Assert.That(history.Count).IsEqualTo(1);
             await Assert.That(history[0].Comment).IsEqualTo("updated");
             await Assert.That(history[0].TimeEnd).IsNotNull();
+
+            var closedHistory = await repo.ListHistoryBetweenAsync(
+                systemId, startedAt.AddHours(-1), DateTimeOffset.UtcNow.AddHours(1));
+            await Assert.That(closedHistory.Count).IsEqualTo(1);
+            await Assert.That(closedHistory[0].TimeEnd).IsNotNull();
         }
         finally
         {

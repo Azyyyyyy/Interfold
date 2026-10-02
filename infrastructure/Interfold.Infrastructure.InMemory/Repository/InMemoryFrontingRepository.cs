@@ -233,7 +233,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
             }
 
             var results = history
-                .Where(x => x.StartedAt >= startInclusive && x.StartedAt <= endInclusive)
+                .Where(x => x.EndedAt is not null && x.StartedAt >= startInclusive && x.StartedAt <= endInclusive)
                 .OrderByDescending(x => x.StartedAt)
                 .Select(x => new FrontHistoryReadModel(x.FrontId, x.AlterId, x.Comment, x.StartedAt, x.EndedAt, systemId))
                 .ToArray();
