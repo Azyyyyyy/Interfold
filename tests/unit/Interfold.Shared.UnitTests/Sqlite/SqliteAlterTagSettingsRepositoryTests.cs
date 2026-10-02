@@ -18,7 +18,7 @@ public sealed class SqliteAlterRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var friendships = SqliteTestDb.Friendships(factory);
             var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
             var alters = new SqliteAlterRepository(
@@ -52,7 +52,7 @@ public sealed class SqliteTagRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var friendships = SqliteTestDb.Friendships(factory);
             var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
             var alters = new SqliteAlterRepository(
@@ -86,7 +86,7 @@ public sealed class SqliteTagRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var friendships = SqliteTestDb.Friendships(factory);
             var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
             var alters = new SqliteAlterRepository(
@@ -170,7 +170,7 @@ public sealed class SqliteSettingsFieldRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var friendships = SqliteTestDb.Friendships(factory);
             var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
             var alters = new SqliteAlterRepository(

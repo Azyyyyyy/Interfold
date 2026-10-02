@@ -1,4 +1,3 @@
-using Interfold.Alters.Contracts.Models;
 using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain;
 using Interfold.Alters.Domain.Abstractions.Repository;
@@ -7,6 +6,8 @@ using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
 
 namespace Interfold.Api.UnitTests.Domain;
 
@@ -24,13 +25,9 @@ public sealed class AlterCommandFlowExecutionTests
     [Test]
     public async Task UpdateAlter_MissingAlter_RejectsWithNotFoundAndDoesNotMutateOrPublish()
     {
-        var repo = new CountingAlterRepository { Exists = false };
-        var bus = new CountingEventBus();
-        var handler = new UpdateAlterCommandHandler(repo, new NoopIdempotencyStore(), bus);
+        var (repo, bus, handler) = Harness(exists: false);
 
-        var command = NewEnvelope(NewMutatingPayload("renamed"));
-
-        var result = await handler.HandleAsync(command);
+        var result = await handler.HandleAsync(NewEnvelope(NewMutatingPayload("renamed")));
 
         using (Assert.Multiple())
         {
@@ -38,13 +35,13 @@ public sealed class AlterCommandFlowExecutionTests
                 .Because("A missing alter must be rejected, never accepted.");
             await Assert.That(result.Conflict?.EntityRef).IsEqualTo(EntityRefs.AlterNotFound)
                 .Because("The rejection must be the not-found invariant, not a mutation-failed variant.");
-            await Assert.That(repo.ExistsCalls).IsEqualTo(1)
+            await Assert.That(Calls(repo, nameof(IAlterRepository.ExistsAsync))).IsEqualTo(1)
                 .Because("The existence check itself must run exactly once so the reject path is provable.");
-            await Assert.That(repo.UpdateCalls).IsEqualTo(0)
+            await Assert.That(Calls(repo, nameof(IAlterRepository.UpdateAsync))).IsEqualTo(0)
                 .Because("A not-found alter must never reach UpdateAsync — an eager-Task regression on ExecuteMutationAsync would raise this count.");
-            await Assert.That(bus.PublishCalls).IsEqualTo(0)
+            await Assert.That(Calls(bus, nameof(IClusterEventBus.PublishAsync))).IsEqualTo(0)
                 .Because("A not-found alter must never publish AlterUpdatedEvent — same eager-Task regression class.");
-            await Assert.That(repo.AliasTakenCalls).IsEqualTo(0)
+            await Assert.That(Calls(repo, nameof(IAlterRepository.AliasTakenByOtherAsync))).IsEqualTo(0)
                 .Because("The alias-collision probe is downstream of the existence check and must not run against a missing row.");
         }
     }
@@ -52,20 +49,16 @@ public sealed class AlterCommandFlowExecutionTests
     [Test]
     public async Task UpdateAlter_ExistsButMutationReturnsFalse_RejectsWithUpdateFailedAndDoesNotPublish()
     {
-        var repo = new CountingAlterRepository { Exists = true, UpdateResult = false };
-        var bus = new CountingEventBus();
-        var handler = new UpdateAlterCommandHandler(repo, new NoopIdempotencyStore(), bus);
+        var (repo, bus, handler) = Harness(exists: true, updateResult: false);
 
-        var command = NewEnvelope(NewMutatingPayload("renamed"));
-
-        var result = await handler.HandleAsync(command);
+        var result = await handler.HandleAsync(NewEnvelope(NewMutatingPayload("renamed")));
 
         using (Assert.Multiple())
         {
             await Assert.That(result.Accepted).IsFalse();
             await Assert.That(result.Conflict?.EntityRef).IsEqualTo(EntityRefs.AlterUpdateFailed);
-            await Assert.That(repo.UpdateCalls).IsEqualTo(1);
-            await Assert.That(bus.PublishCalls).IsEqualTo(0)
+            await Assert.That(Calls(repo, nameof(IAlterRepository.UpdateAsync))).IsEqualTo(1);
+            await Assert.That(Calls(bus, nameof(IClusterEventBus.PublishAsync))).IsEqualTo(0)
                 .Because("A mutation that reports no change must not surface an Updated event.");
         }
     }
@@ -73,19 +66,15 @@ public sealed class AlterCommandFlowExecutionTests
     [Test]
     public async Task UpdateAlter_HappyPath_CallsMutateOncePublishesOnceAndAccepts()
     {
-        var repo = new CountingAlterRepository { Exists = true, UpdateResult = true };
-        var bus = new CountingEventBus();
-        var handler = new UpdateAlterCommandHandler(repo, new NoopIdempotencyStore(), bus);
+        var (repo, bus, handler) = Harness(exists: true, updateResult: true);
 
-        var command = NewEnvelope(NewMutatingPayload("renamed"));
-
-        var result = await handler.HandleAsync(command);
+        var result = await handler.HandleAsync(NewEnvelope(NewMutatingPayload("renamed")));
 
         using (Assert.Multiple())
         {
             await Assert.That(result.Accepted).IsTrue();
-            await Assert.That(repo.UpdateCalls).IsEqualTo(1);
-            await Assert.That(bus.PublishCalls).IsEqualTo(1);
+            await Assert.That(Calls(repo, nameof(IAlterRepository.UpdateAsync))).IsEqualTo(1);
+            await Assert.That(Calls(bus, nameof(IClusterEventBus.PublishAsync))).IsEqualTo(1);
         }
     }
 
@@ -106,98 +95,31 @@ public sealed class AlterCommandFlowExecutionTests
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: payload);
 
-    // Only the members reachable from UpdateAlterCommandHandler are implemented; the
-    // rest throw so an unrelated method call fails loudly rather than returning defaults.
-    private sealed class CountingAlterRepository : IAlterRepository
+    private static (Mock<IAlterRepository> Repo, Mock<IClusterEventBus> Bus, UpdateAlterCommandHandler Handler) Harness(
+        bool exists,
+        bool updateResult = false)
     {
-        public bool Exists { get; set; }
-        public bool UpdateResult { get; set; }
-        public int ExistsCalls;
-        public int UpdateCalls;
-        public int AliasTakenCalls;
-
-        public Task<bool> ExistsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
-        {
-            Interlocked.Increment(ref ExistsCalls);
-            return Task.FromResult(Exists);
-        }
-
-        public Task<bool> UpdateAsync(SystemId systemId, UpdateAlterCommand command, CancellationToken cancellationToken = default)
-        {
-            Interlocked.Increment(ref UpdateCalls);
-            return Task.FromResult(UpdateResult);
-        }
-
-        public Task<bool> AliasTakenByOtherAsync(SystemId systemId, AlterId alterId, string alias, CancellationToken cancellationToken = default)
-        {
-            Interlocked.Increment(ref AliasTakenCalls);
-            return Task.FromResult(false);
-        }
-
-        public Task<AlterId?> CreateAsync(SystemId systemId, CreateAlterCommand command, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("CreateAsync is not reachable from the UpdateAlterCommandHandler path.");
-
-        public Task<bool> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("DeleteAsync is not reachable from the UpdateAlterCommandHandler path.");
-
-        public Task RemoveFieldValuesAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("RemoveFieldValuesAsync is not reachable from the UpdateAlterCommandHandler path.");
-
-        public Task<IReadOnlyList<AlterReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("ListAsync is not reachable from the UpdateAlterCommandHandler path.");
-
-        public Task<IReadOnlyList<BareAlter>> ListGuardedAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("ListGuardedAsync is not reachable from the UpdateAlterCommandHandler path.");
-
-        public Task<AlterReadModel?> GetAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("GetAsync is not reachable from the UpdateAlterCommandHandler path.");
-
-        public Task<BareAlter?> GetGuardedAsync(SystemId systemId, AlterId alterId, SystemId? viewerSystemId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("GetGuardedAsync is not reachable from the UpdateAlterCommandHandler path.");
+        var repo = IAlterRepository.Mock();
+        repo.ExistsAsync(Arg.Any<SystemId>(), Arg.Any<AlterId>(), Arg.Any<CancellationToken>()).Returns(exists);
+        repo.UpdateAsync(Arg.Any<SystemId>(), Arg.Any<UpdateAlterCommand>(), Arg.Any<CancellationToken>()).Returns(updateResult);
+        repo.AliasTakenByOtherAsync(Arg.Any<SystemId>(), Arg.Any<AlterId>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
+        var bus = IClusterEventBus.Mock();
+        var handler = new UpdateAlterCommandHandler(repo.Object, IdleStore(), bus.Object);
+        return (repo, bus, handler);
     }
 
-    private sealed class CountingEventBus : IClusterEventBus
+    private static IIdempotencyStore IdleStore()
     {
-        public int PublishCalls;
-
-        public ValueTask PublishAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : class
-        {
-            Interlocked.Increment(ref PublishCalls);
-            return ValueTask.CompletedTask;
-        }
-
-        public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(ScopedSystemId? targetSystemId, CancellationToken ct = default) where TEvent : class
-            => AsyncEnumerable.Empty<TEvent>();
+        var store = IIdempotencyStore.Mock();
+        store.FindAsync(
+                Arg.Any<SystemId>(),
+                Arg.Any<OperationId>(),
+                Arg.Any<IdempotencyKey>(),
+                Arg.Any<CancellationToken>())
+            .Returns((IdempotencyMatch?)null);
+        return store.Object;
     }
 
-    private sealed class NoopIdempotencyStore : IIdempotencyStore
-    {
-        public Task<IdempotencyMatch?> FindAsync(
-            SystemId principalId,
-            OperationId operationId,
-            IdempotencyKey idempotencyKey,
-            CancellationToken cancellationToken = default) => Task.FromResult<IdempotencyMatch?>(null);
-
-        public Task SaveAsync(
-            SystemId principalId,
-            OperationId operationId,
-            IdempotencyKey idempotencyKey,
-            string payloadHash,
-            string outcomeHash,
-            string? outcomePayload,
-            CancellationToken cancellationToken = default) => Task.CompletedTask;
-    }
-
-    private static class AsyncEnumerable
-    {
-        public static IAsyncEnumerable<T> Empty<T>() => new EmptyAsyncEnumerable<T>();
-
-        private sealed class EmptyAsyncEnumerable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
-        {
-            public IAsyncEnumerator<T> GetAsyncEnumerator(CancellationToken cancellationToken = default) => this;
-            public T Current => default!;
-            public ValueTask<bool> MoveNextAsync() => ValueTask.FromResult(false);
-            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        }
-    }
+    private static int Calls<T>(Mock<T> mock, string member) where T : class =>
+        Mock.Invocations(mock).Count(call => call.MemberName == member);
 }

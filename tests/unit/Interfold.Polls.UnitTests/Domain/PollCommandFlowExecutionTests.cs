@@ -1,6 +1,5 @@
 using Interfold.Polls.Contracts.Ids;
 using Interfold.Polls.Contracts.Models.Commands;
-using Interfold.Polls.Contracts.Models.Read;
 using Interfold.Polls.Domain;
 using Interfold.Polls.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
@@ -8,6 +7,8 @@ using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
 
 namespace Interfold.Api.UnitTests.Domain;
 
@@ -26,13 +27,9 @@ public sealed class PollCommandFlowExecutionTests
     [Test]
     public async Task DeletePoll_MissingPoll_DoesNotMutateOrPublish()
     {
-        var repo = new CountingPollRepository { Exists = false };
-        var bus = new CountingEventBus();
-        var handler = new DeletePollCommandHandler(repo, new NoopIdempotencyStore(), bus);
+        var (repo, bus, handler) = DeleteHarness(exists: false);
 
-        var command = NewEnvelope(OperationIds.PollDelete, new DeletePollCommand(AnyPollId));
-
-        var result = await handler.HandleAsync(command);
+        var result = await handler.HandleAsync(NewEnvelope(OperationIds.PollDelete, new DeletePollCommand(AnyPollId)));
 
         using (Assert.Multiple())
         {
@@ -40,11 +37,11 @@ public sealed class PollCommandFlowExecutionTests
                 .Because("A missing poll must be rejected with poll:not_found, not accepted.");
             await Assert.That(result.Conflict?.EntityRef).IsEqualTo(EntityRefs.PollNotFound)
                 .Because("The rejection must be the not-found invariant, not a mutation-failed variant.");
-            await Assert.That(repo.DeleteCalls).IsEqualTo(0)
+            await Assert.That(Calls(repo, nameof(IPollRepository.DeleteAsync))).IsEqualTo(0)
                 .Because("A not-found poll must never reach DeleteAsync — the eager-Task footgun would raise this count.");
-            await Assert.That(bus.PublishCalls).IsEqualTo(0)
+            await Assert.That(Calls(bus, nameof(IClusterEventBus.PublishAsync))).IsEqualTo(0)
                 .Because("A not-found poll must never publish PollDeletedEvent — the eager-Task footgun would raise this count.");
-            await Assert.That(repo.ExistsCalls).IsEqualTo(1)
+            await Assert.That(Calls(repo, nameof(IPollRepository.ExistsAsync))).IsEqualTo(1)
                 .Because("The existence check itself must run exactly once so the reject path is provable.");
         }
     }
@@ -52,20 +49,16 @@ public sealed class PollCommandFlowExecutionTests
     [Test]
     public async Task DeletePoll_ExistsButMutationReturnsFalse_RejectsWithDeleteFailedAndDoesNotPublish()
     {
-        var repo = new CountingPollRepository { Exists = true, DeleteResult = false };
-        var bus = new CountingEventBus();
-        var handler = new DeletePollCommandHandler(repo, new NoopIdempotencyStore(), bus);
+        var (repo, bus, handler) = DeleteHarness(exists: true, deleteResult: false);
 
-        var command = NewEnvelope(OperationIds.PollDelete, new DeletePollCommand(AnyPollId));
-
-        var result = await handler.HandleAsync(command);
+        var result = await handler.HandleAsync(NewEnvelope(OperationIds.PollDelete, new DeletePollCommand(AnyPollId)));
 
         using (Assert.Multiple())
         {
             await Assert.That(result.Accepted).IsFalse();
             await Assert.That(result.Conflict?.EntityRef).IsEqualTo(EntityRefs.PollDeleteFailed);
-            await Assert.That(repo.DeleteCalls).IsEqualTo(1);
-            await Assert.That(bus.PublishCalls).IsEqualTo(0)
+            await Assert.That(Calls(repo, nameof(IPollRepository.DeleteAsync))).IsEqualTo(1);
+            await Assert.That(Calls(bus, nameof(IClusterEventBus.PublishAsync))).IsEqualTo(0)
                 .Because("A mutation that reports no change must not surface a Deleted event.");
         }
     }
@@ -73,19 +66,15 @@ public sealed class PollCommandFlowExecutionTests
     [Test]
     public async Task DeletePoll_HappyPath_CallsMutateOncePublishesOnceAndAccepts()
     {
-        var repo = new CountingPollRepository { Exists = true, DeleteResult = true };
-        var bus = new CountingEventBus();
-        var handler = new DeletePollCommandHandler(repo, new NoopIdempotencyStore(), bus);
+        var (repo, bus, handler) = DeleteHarness(exists: true, deleteResult: true);
 
-        var command = NewEnvelope(OperationIds.PollDelete, new DeletePollCommand(AnyPollId));
-
-        var result = await handler.HandleAsync(command);
+        var result = await handler.HandleAsync(NewEnvelope(OperationIds.PollDelete, new DeletePollCommand(AnyPollId)));
 
         using (Assert.Multiple())
         {
             await Assert.That(result.Accepted).IsTrue();
-            await Assert.That(repo.DeleteCalls).IsEqualTo(1);
-            await Assert.That(bus.PublishCalls).IsEqualTo(1);
+            await Assert.That(Calls(repo, nameof(IPollRepository.DeleteAsync))).IsEqualTo(1);
+            await Assert.That(Calls(bus, nameof(IClusterEventBus.PublishAsync))).IsEqualTo(1);
         }
     }
 
@@ -94,9 +83,11 @@ public sealed class PollCommandFlowExecutionTests
     [Test]
     public async Task UpdatePoll_MissingPoll_DoesNotMutateOrPublish()
     {
-        var repo = new CountingPollRepository { Exists = false };
-        var bus = new CountingEventBus();
-        var handler = new UpdatePollCommandHandler(repo, new NoopIdempotencyStore(), bus);
+        var repo = IPollRepository.Mock();
+        repo.ExistsAsync(Arg.Any<SystemId>(), Arg.Any<PollId>(), Arg.Any<CancellationToken>()).Returns(false);
+        repo.UpdateAsync(Arg.Any<SystemId>(), Arg.Any<UpdatePollCommand>(), Arg.Any<CancellationToken>()).Returns(false);
+        var bus = IClusterEventBus.Mock();
+        var handler = new UpdatePollCommandHandler(repo.Object, IdleStore(), bus.Object);
 
         // Populate one mutable field so the handler doesn't short-circuit at
         // PollCommandValidation.HasNoMutableFields.
@@ -107,17 +98,15 @@ public sealed class PollCommandFlowExecutionTests
             TimeEnd: null,
             HasTimeEnd: false,
             Data: null);
-        var command = NewEnvelope(OperationIds.PollUpdate, payload);
-
-        var result = await handler.HandleAsync(command);
+        var result = await handler.HandleAsync(NewEnvelope(OperationIds.PollUpdate, payload));
 
         using (Assert.Multiple())
         {
             await Assert.That(result.Accepted).IsFalse();
             await Assert.That(result.Conflict?.EntityRef).IsEqualTo(EntityRefs.PollNotFound);
-            await Assert.That(repo.UpdateCalls).IsEqualTo(0)
+            await Assert.That(Calls(repo, nameof(IPollRepository.UpdateAsync))).IsEqualTo(0)
                 .Because("A not-found poll must never reach UpdateAsync — the eager-Task footgun would raise this count.");
-            await Assert.That(bus.PublishCalls).IsEqualTo(0)
+            await Assert.That(Calls(bus, nameof(IClusterEventBus.PublishAsync))).IsEqualTo(0)
                 .Because("A not-found poll must never publish PollUpdatedEvent — the eager-Task footgun would raise this count.");
         }
     }
@@ -131,88 +120,30 @@ public sealed class PollCommandFlowExecutionTests
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: payload);
 
-    private sealed class CountingPollRepository : IPollRepository
+    private static (Mock<IPollRepository> Repo, Mock<IClusterEventBus> Bus, DeletePollCommandHandler Handler) DeleteHarness(
+        bool exists,
+        bool deleteResult = false)
     {
-        public bool Exists { get; set; }
-        public bool DeleteResult { get; set; }
-        public bool UpdateResult { get; set; }
-        public int ExistsCalls;
-        public int DeleteCalls;
-        public int UpdateCalls;
-
-        public Task<IReadOnlyList<PollReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<PollReadModel>>(Array.Empty<PollReadModel>());
-
-        public Task<PollReadModel?> GetAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
-            => Task.FromResult<PollReadModel?>(null);
-
-        public Task<PollId?> CreateAsync(SystemId systemId, CreatePollCommand command, CancellationToken cancellationToken = default)
-            => Task.FromResult<PollId?>(null);
-
-        public Task<bool> ExistsAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
-        {
-            Interlocked.Increment(ref ExistsCalls);
-            return Task.FromResult(Exists);
-        }
-
-        public Task<bool> UpdateAsync(SystemId systemId, UpdatePollCommand command, CancellationToken cancellationToken = default)
-        {
-            Interlocked.Increment(ref UpdateCalls);
-            return Task.FromResult(UpdateResult);
-        }
-
-        public Task<bool> DeleteAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
-        {
-            Interlocked.Increment(ref DeleteCalls);
-            return Task.FromResult(DeleteResult);
-        }
-
-        public Task<IReadOnlyList<PollId>> RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<PollId>>([]);
+        var repo = IPollRepository.Mock();
+        repo.ExistsAsync(Arg.Any<SystemId>(), Arg.Any<PollId>(), Arg.Any<CancellationToken>()).Returns(exists);
+        repo.DeleteAsync(Arg.Any<SystemId>(), Arg.Any<PollId>(), Arg.Any<CancellationToken>()).Returns(deleteResult);
+        var bus = IClusterEventBus.Mock();
+        var handler = new DeletePollCommandHandler(repo.Object, IdleStore(), bus.Object);
+        return (repo, bus, handler);
     }
 
-    private sealed class CountingEventBus : IClusterEventBus
+    private static IIdempotencyStore IdleStore()
     {
-        public int PublishCalls;
-
-        public ValueTask PublishAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : class
-        {
-            Interlocked.Increment(ref PublishCalls);
-            return ValueTask.CompletedTask;
-        }
-
-        public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(ScopedSystemId? targetSystemId, CancellationToken ct = default) where TEvent : class
-            => AsyncEnumerable.Empty<TEvent>();
+        var store = IIdempotencyStore.Mock();
+        store.FindAsync(
+                Arg.Any<SystemId>(),
+                Arg.Any<OperationId>(),
+                Arg.Any<IdempotencyKey>(),
+                Arg.Any<CancellationToken>())
+            .Returns((IdempotencyMatch?)null);
+        return store.Object;
     }
 
-    private sealed class NoopIdempotencyStore : IIdempotencyStore
-    {
-        public Task<IdempotencyMatch?> FindAsync(
-            SystemId principalId,
-            OperationId operationId,
-            IdempotencyKey idempotencyKey,
-            CancellationToken cancellationToken = default) => Task.FromResult<IdempotencyMatch?>(null);
-
-        public Task SaveAsync(
-            SystemId principalId,
-            OperationId operationId,
-            IdempotencyKey idempotencyKey,
-            string payloadHash,
-            string outcomeHash,
-            string? outcomePayload,
-            CancellationToken cancellationToken = default) => Task.CompletedTask;
-    }
-
-    private static class AsyncEnumerable
-    {
-        public static IAsyncEnumerable<T> Empty<T>() => new EmptyAsyncEnumerable<T>();
-
-        private sealed class EmptyAsyncEnumerable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
-        {
-            public IAsyncEnumerator<T> GetAsyncEnumerator(CancellationToken cancellationToken = default) => this;
-            public T Current => default!;
-            public ValueTask<bool> MoveNextAsync() => ValueTask.FromResult(false);
-            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        }
-    }
+    private static int Calls<T>(Mock<T> mock, string member) where T : class =>
+        Mock.Invocations(mock).Count(call => call.MemberName == member);
 }

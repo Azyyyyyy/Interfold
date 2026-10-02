@@ -16,6 +16,8 @@ using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
 using Interfold.Tags.Contracts.Events;
 using Interfold.Tags.Contracts.Ids;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
 
 namespace Interfold.Api.UnitTests.Domain;
 
@@ -34,50 +36,52 @@ public sealed class DeleteAlterCascadeEventTests
         var globalId = new EntryId(Guid.NewGuid());
         var pollId = new PollId(Guid.NewGuid());
 
-        var repo = new StubAlterRepository();
-        var deletion = new StubDeletion
-        {
-            Result = new AlterDeletionResult(
+        var repo = IAlterRepository.Mock();
+        repo.ExistsAsync(Arg.Any<SystemId>(), Arg.Any<AlterId>(), Arg.Any<CancellationToken>()).Returns(true);
+        var deletion = IAlterDeletion.Mock();
+        deletion.DeleteAsync(Arg.Any<SystemId>(), Arg.Any<AlterId>(), Arg.Any<CancellationToken>()).Returns(
+            new AlterDeletionResult(
                 new FrontAlterRemoval([frontId], HadActiveFront: true, PrimaryCleared: true),
                 [tagId],
                 new JournalAlterCascadeResult([journalId], [globalId]),
-                [pollId]),
-        };
-        var bus = new RecordingEventBus();
-        var handler = new DeleteAlterCommandHandler(repo, deletion, new NoopIdempotencyStore(), bus);
+                [pollId]));
+        var bus = IClusterEventBus.Mock();
+        var handler = new DeleteAlterCommandHandler(repo.Object, deletion.Object, IdleStore(), bus.Object);
 
         var result = await handler.HandleAsync(Envelope(alterId));
 
+        var published = Published(bus);
         await Assert.That(result.Accepted).IsTrue();
-        await Assert.That(bus.Events).IsEquivalentTo(new object[]
+        await Assert.That(published).IsEquivalentTo(new object[]
         {
+            new FrontingPrimaryChangedEvent(Principal, null),
             new FrontingStateChangedEvent(Principal),
             new FrontingEndedEvent(Principal, alterId),
             new FrontDeletedEvent(Principal, frontId),
-            new FrontingPrimaryChangedEvent(Principal, null),
             new TagUpdatedEvent(Principal, tagId),
             new AlterJournalEntryDeletedEvent(Principal, journalId),
             new GlobalJournalEntryUpdatedEvent(Principal, globalId),
             new PollUpdatedEvent(Principal, pollId),
             new AlterDeletedEvent(Principal, alterId),
         });
-        await Assert.That(bus.Events[0]).IsTypeOf<FrontingStateChangedEvent>();
-        await Assert.That(bus.Events[^1]).IsTypeOf<AlterDeletedEvent>();
+        await Assert.That(published[0]).IsTypeOf<FrontingPrimaryChangedEvent>();
+        await Assert.That(published[^1]).IsTypeOf<AlterDeletedEvent>();
     }
 
     [Test]
     public async Task DeleteAlter_MissingAlter_DoesNotPublish()
     {
-        var repo = new StubAlterRepository { Exists = false };
-        var deletion = new StubDeletion();
-        var bus = new RecordingEventBus();
-        var handler = new DeleteAlterCommandHandler(repo, deletion, new NoopIdempotencyStore(), bus);
+        var repo = IAlterRepository.Mock();
+        repo.ExistsAsync(Arg.Any<SystemId>(), Arg.Any<AlterId>(), Arg.Any<CancellationToken>()).Returns(false);
+        var deletion = IAlterDeletion.Mock();
+        var bus = IClusterEventBus.Mock();
+        var handler = new DeleteAlterCommandHandler(repo.Object, deletion.Object, IdleStore(), bus.Object);
 
         var result = await handler.HandleAsync(Envelope(new AlterId(4)));
 
         await Assert.That(result.Accepted).IsFalse();
-        await Assert.That(bus.Events).IsEmpty();
-        await Assert.That(deletion.Calls).IsEqualTo(0);
+        await Assert.That(Published(bus)).IsEmpty();
+        await Assert.That(Calls(deletion, nameof(IAlterDeletion.DeleteAsync))).IsEqualTo(0);
     }
 
     private static CommandEnvelope<DeleteAlterCommand> Envelope(AlterId alterId) =>
@@ -89,91 +93,24 @@ public sealed class DeleteAlterCascadeEventTests
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new DeleteAlterCommand(alterId));
 
-    private sealed class StubAlterRepository : IAlterRepository
+    private static IIdempotencyStore IdleStore()
     {
-        public bool Exists { get; init; } = true;
-
-        public Task<bool> ExistsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
-            => Task.FromResult(Exists);
-
-        public Task<bool> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task RemoveFieldValuesAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<AlterId?> CreateAsync(SystemId systemId, Interfold.Alters.Contracts.Models.Commands.CreateAlterCommand command, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<bool> UpdateAsync(SystemId systemId, UpdateAlterCommand command, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<IReadOnlyList<Interfold.Alters.Contracts.Models.AlterReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<IReadOnlyList<Interfold.Alters.Contracts.Models.BareAlter>> ListGuardedAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<Interfold.Alters.Contracts.Models.AlterReadModel?> GetAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<Interfold.Alters.Contracts.Models.BareAlter?> GetGuardedAsync(SystemId systemId, AlterId alterId, SystemId? viewerSystemId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<bool> AliasTakenByOtherAsync(SystemId systemId, AlterId alterId, string alias, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        var store = IIdempotencyStore.Mock();
+        store.FindAsync(
+                Arg.Any<SystemId>(),
+                Arg.Any<OperationId>(),
+                Arg.Any<IdempotencyKey>(),
+                Arg.Any<CancellationToken>())
+            .Returns((IdempotencyMatch?)null);
+        return store.Object;
     }
 
-    private sealed class StubDeletion : IAlterDeletion
-    {
-        public int Calls;
-        public AlterDeletionResult? Result { get; init; }
+    private static object[] Published(Mock<IClusterEventBus> bus) =>
+        Mock.Invocations(bus)
+            .Where(call => call.MemberName == nameof(IClusterEventBus.PublishAsync))
+            .Select(call => call.Arguments[0]!)
+            .ToArray();
 
-        public Task<AlterDeletionResult?> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
-        {
-            Calls++;
-            return Task.FromResult(Result);
-        }
-    }
-
-    private sealed class RecordingEventBus : IClusterEventBus
-    {
-        public List<object> Events { get; } = [];
-
-        public ValueTask PublishAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : class
-        {
-            Events.Add(evt);
-            return ValueTask.CompletedTask;
-        }
-
-        public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(ScopedSystemId? targetSystemId, CancellationToken ct = default) where TEvent : class
-            => EmptyAsyncEnumerable<TEvent>.Instance;
-    }
-
-    private sealed class NoopIdempotencyStore : IIdempotencyStore
-    {
-        public Task<IdempotencyMatch?> FindAsync(
-            SystemId principalId,
-            OperationId operationId,
-            IdempotencyKey idempotencyKey,
-            CancellationToken cancellationToken = default) => Task.FromResult<IdempotencyMatch?>(null);
-
-        public Task SaveAsync(
-            SystemId principalId,
-            OperationId operationId,
-            IdempotencyKey idempotencyKey,
-            string payloadHash,
-            string outcomeHash,
-            string? outcomePayload,
-            CancellationToken cancellationToken = default) => Task.CompletedTask;
-    }
-
-    private sealed class EmptyAsyncEnumerable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
-    {
-        public static readonly EmptyAsyncEnumerable<T> Instance = new();
-        public IAsyncEnumerator<T> GetAsyncEnumerator(CancellationToken cancellationToken = default) => this;
-        public T Current => default!;
-        public ValueTask<bool> MoveNextAsync() => ValueTask.FromResult(false);
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-    }
+    private static int Calls<T>(Mock<T> mock, string member) where T : class =>
+        Mock.Invocations(mock).Count(call => call.MemberName == member);
 }

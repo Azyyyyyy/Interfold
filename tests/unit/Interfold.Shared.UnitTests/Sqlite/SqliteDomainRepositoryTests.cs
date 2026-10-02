@@ -25,7 +25,7 @@ public sealed class SqliteFriendshipRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var repo = new SqliteFriendshipRepository(SqliteTestDb.Factory(path), TimeProvider.System);
+            var repo = SqliteTestDb.Friendships(SqliteTestDb.Factory(path));
             var alice = new SystemId("alice01");
             var bob = new SystemId("bob0001");
 
@@ -58,7 +58,7 @@ public sealed class SqliteFriendshipRepositoryTests
         var path = await SqliteTestDb.CreateMigratedAsync();
         try
         {
-            var repo = new SqliteFriendshipRepository(SqliteTestDb.Factory(path), TimeProvider.System);
+            var repo = SqliteTestDb.Friendships(SqliteTestDb.Factory(path));
             var alice = new SystemId("alice02");
             var bob = new SystemId("bob0002");
 
@@ -105,7 +105,7 @@ public sealed class SqliteFrontingRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var friendships = SqliteTestDb.Friendships(factory);
             var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
             IAlterRepository alters = new SqliteAlterRepository(
@@ -165,7 +165,7 @@ public sealed class SqliteFrontingRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var friendships = SqliteTestDb.Friendships(factory);
             var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
             IAlterRepository alters = new SqliteAlterRepository(
@@ -225,7 +225,7 @@ public sealed class SqliteFrontingRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var friendships = SqliteTestDb.Friendships(factory);
             var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
             IAlterRepository alters = new SqliteAlterRepository(
@@ -263,7 +263,7 @@ public sealed class SqliteFrontingRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var friendships = SqliteTestDb.Friendships(factory);
             var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
             IAlterRepository alters = new SqliteAlterRepository(
@@ -314,7 +314,7 @@ public sealed class SqliteFrontingRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var friendships = SqliteTestDb.Friendships(factory);
             var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
             IAlterRepository alters = new SqliteAlterRepository(
@@ -362,7 +362,7 @@ public sealed class SqliteFrontingRepositoryTests
         try
         {
             var factory = SqliteTestDb.Factory(path);
-            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var friendships = SqliteTestDb.Friendships(factory);
             var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
             var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
             IAlterRepository alters = new SqliteAlterRepository(

@@ -15,12 +15,12 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
 {
     private readonly ISqliteConnectionFactory _connectionFactory;
     private readonly TimeProvider _timeProvider;
-    private readonly IAccountRepository? _accounts;
+    private readonly IAccountRepository _accounts;
 
     public SqliteFriendshipRepository(
         ISqliteConnectionFactory connectionFactory,
         TimeProvider timeProvider,
-        IAccountRepository? accounts = null)
+        IAccountRepository accounts)
     {
         _connectionFactory = connectionFactory;
         _timeProvider = timeProvider;
@@ -34,12 +34,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             return SqliteStorageKeys.Normalize(new SystemId(lookup.Value));
 
         if (lookup.Kind == FriendLookupKind.Username)
-        {
-            if (_accounts is null)
-                return null;
-
             return await _accounts.TryFindSystemIdByUsernameAsync(new Username(lookup.Value), cancellationToken);
-        }
 
         throw new ArgumentOutOfRangeException(nameof(lookup), lookup.Kind,
             $"Unhandled FriendLookupKind '{lookup.Kind}' in ResolveUserIdAsync.");
