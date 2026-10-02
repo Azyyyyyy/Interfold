@@ -66,7 +66,7 @@
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="6.*" />
 
     <!-- Cryptography -->
-    <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.*" />
+    <PackageVersion Include="Isopoh.Cryptography.Argon2" Version="2.*" />
 
     <!-- CLI / interactive surface — Spectre.Console is 0.x; per semver a
          0.x minor bump may break API. The floating `0.*` pattern accepts

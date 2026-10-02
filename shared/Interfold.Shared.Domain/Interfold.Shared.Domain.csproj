@@ -12,7 +12,6 @@
          repositories and adapters live in their feature.Domain / feature.Contracts projects. -->
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>
