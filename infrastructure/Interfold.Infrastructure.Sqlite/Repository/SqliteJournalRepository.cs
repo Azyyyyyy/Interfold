@@ -5,6 +5,8 @@ using Interfold.Journals.Contracts.Models.Read;
 using Interfold.Journals.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
+using Interfold.Infrastructure.Sqlite;
+using Interfold.Shared.Domain.Abstractions;
 using Microsoft.Data.Sqlite;
 
 namespace Interfold.Infrastructure.Sqlite.Repository;
@@ -101,39 +103,28 @@ public sealed class SqliteJournalRepository : IJournalRepository
         CancellationToken cancellationToken = default)
     {
         var userKey = SqliteStorageKeys.Persist(systemId);
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        if (!await ExistsGlobalCoreAsync(connection, systemId, entryId, cancellationToken))
-        {
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        if (!await ExistsGlobalCoreAsync(work.Connection, systemId, entryId, cancellationToken, work.Transaction))
             return false;
-        }
 
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            await connection.ExecuteAsync(
-                """
-                DELETE FROM global_journal_alters
-                WHERE user_id = @user_id AND global_journal_id = @id
-                """,
-                new { user_id = userKey, id = FormatEntryId(entryId.Value) },
-                tx);
+        await work.Connection.ExecuteAsync(
+            """
+            DELETE FROM global_journal_alters
+            WHERE user_id = @user_id AND global_journal_id = @id
+            """,
+            new { user_id = userKey, id = FormatEntryId(entryId.Value) },
+            work.Transaction);
 
-            var removed = await connection.ExecuteAsync(
-                """
-                DELETE FROM global_journals
-                WHERE user_id = @user_id AND id = @id
-                """,
-                new { user_id = userKey, id = FormatEntryId(entryId.Value) },
-                tx);
+        var removed = await work.Connection.ExecuteAsync(
+            """
+            DELETE FROM global_journals
+            WHERE user_id = @user_id AND id = @id
+            """,
+            new { user_id = userKey, id = FormatEntryId(entryId.Value) },
+            work.Transaction);
 
-            await tx.CommitAsync(cancellationToken);
-            return removed > 0;
-        }
-        catch
-        {
-            await tx.RollbackAsync(cancellationToken);
-            throw;
-        }
+        await work.CommitAsync(cancellationToken);
+        return removed > 0;
     }
 
     public Task<bool> SetGlobalLockedAsync(
@@ -314,40 +305,49 @@ public sealed class SqliteJournalRepository : IJournalRepository
         return removed > 0;
     }
 
-    public async Task<int> DeleteAllForAlterAsync(
+    public async Task<JournalAlterCascadeResult> DeleteAllForAlterAsync(
         SystemId systemId,
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
         var userKey = SqliteStorageKeys.Persist(systemId);
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            var removed = await connection.ExecuteAsync(
-                """
-                DELETE FROM alter_journals
-                WHERE user_id = @user_id AND alter_id = @alter_id
-                """,
-                new { user_id = userKey, alter_id = alterId.Value },
-                tx);
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var entryIds = (await work.Connection.QueryAsync<string>(
+            """
+            SELECT id FROM alter_journals
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = userKey, alter_id = alterId.Value },
+            work.Transaction)).ToArray();
 
-            await connection.ExecuteAsync(
-                """
-                DELETE FROM global_journal_alters
-                WHERE user_id = @user_id AND alter_id = @alter_id
-                """,
-                new { user_id = userKey, alter_id = alterId.Value },
-                tx);
+        var globalIds = (await work.Connection.QueryAsync<string>(
+            """
+            SELECT global_journal_id FROM global_journal_alters
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = userKey, alter_id = alterId.Value },
+            work.Transaction)).ToArray();
 
-            await tx.CommitAsync(cancellationToken);
-            return removed;
-        }
-        catch
-        {
-            await tx.RollbackAsync(cancellationToken);
-            throw;
-        }
+        await work.Connection.ExecuteAsync(
+            """
+            DELETE FROM alter_journals
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = userKey, alter_id = alterId.Value },
+            work.Transaction);
+
+        await work.Connection.ExecuteAsync(
+            """
+            DELETE FROM global_journal_alters
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = userKey, alter_id = alterId.Value },
+            work.Transaction);
+
+        await work.CommitAsync(cancellationToken);
+        return new JournalAlterCascadeResult(
+            entryIds.Select(id => new EntryId(ParseEntryId(id))).ToArray(),
+            globalIds.Select(id => new EntryId(ParseEntryId(id))).ToArray());
     }
 
     public Task<bool> SetAlterLockedAsync(
@@ -528,7 +528,8 @@ public sealed class SqliteJournalRepository : IJournalRepository
         SqliteConnection connection,
         SystemId systemId,
         EntryId entryId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SqliteTransaction? transaction = null)
     {
         var hit = await connection.ExecuteScalarAsync(
             """
@@ -540,7 +541,8 @@ public sealed class SqliteJournalRepository : IJournalRepository
             {
                 user_id = SqliteStorageKeys.Persist(systemId),
                 id = FormatEntryId(entryId.Value),
-            });
+            },
+            transaction);
         return hit is not null and not DBNull;
     }
 

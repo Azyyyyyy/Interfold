@@ -2,6 +2,7 @@ using Interfold.Journals.Contracts.Ids;
 using Interfold.Journals.Contracts.Models.Commands;
 using Interfold.Journals.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Domain.Abstractions;
 
 namespace Interfold.Journals.Domain.Abstractions.Repository;
 
@@ -31,25 +32,8 @@ public interface IJournalRepository
 
     Task<bool> DeleteAlterAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Cascade cleanup for <see cref="Interfold.Shared.Domain.Alters.DeleteAlterCommandHandler"/>:
-    /// wipes every per-alter journal entry the alter owned (both view tables in the Scylla
-    /// repository) and detaches the alter from any global journals it was attached to.
-    /// <para>
-    /// Global journal rows themselves are left intact - they may be attached to other
-    /// alters, and we do not want deleting one alter to silently delete a shared group
-    /// journal. The alter-id rows in the <c>global_journal_alters</c> join table are
-    /// removed so the deleted alter does not appear on any global journal's attached-alters
-    /// list after this returns.
-    /// </para>
-    /// <para>
-    /// Idempotent: returns gracefully when the alter has no journal entries and no global
-    /// journal attachments. Returns the number of per-alter journal entries that were
-    /// removed (the global-journal detach count is logged at the repository level but not
-    /// surfaced; the caller only needs the alter-journal count for telemetry).
-    /// </para>
-    /// </summary>
-    Task<int> DeleteAllForAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default);
+    /// <summary>Deletes the alter's journal entries and detaches it from global journals. Global journal rows stay.</summary>
+    Task<JournalAlterCascadeResult> DeleteAllForAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default);
 
     Task<bool> SetAlterLockedAsync(SystemId systemId, EntryId entryId, bool locked, CancellationToken cancellationToken = default);
 

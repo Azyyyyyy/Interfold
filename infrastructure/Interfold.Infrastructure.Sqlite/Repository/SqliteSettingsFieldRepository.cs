@@ -2,6 +2,7 @@ using Dapper;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Shared.Domain.Abstractions.Repository;
 using Microsoft.Data.Sqlite;
 using System.Data;
@@ -142,35 +143,21 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         var systemKey = SqliteStorageKeys.Persist(systemId);
         var fieldHex = fieldId.Value.ToString("N");
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
 
-        if (!await FieldExistsAsync(connection, tx, systemKey, fieldHex))
-        {
+        if (!await FieldExistsAsync(work.Connection, work.Transaction, systemKey, fieldHex))
             return false;
-        }
 
-        var removed = await connection.ExecuteAsync(
+        var removed = await work.Connection.ExecuteAsync(
             """
             DELETE FROM settings_fields
             WHERE system_id = @system_id AND id = @id
             """,
             new { system_id = systemKey, id = fieldHex },
-            tx);
+            work.Transaction);
 
-        await ReindexAsync(connection, tx, systemKey);
-        await tx.CommitAsync(cancellationToken);
-
-        try
-        {
-            await SqliteAlterRepository.RemoveFieldValuesForSystemAsync(
-                _connectionFactory, systemKey, fieldId.Value, cancellationToken);
-        }
-        catch
-        {
-            // best-effort cascade, tolerate missing alter_fields table mid-migration
-        }
-
+        await ReindexAsync(work.Connection, work.Transaction, systemKey);
+        await work.CommitAsync(cancellationToken);
         return removed > 0;
     }
 

@@ -233,7 +233,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
             }
 
             var results = history
-                .Where(x => x.StartedAt >= startInclusive && x.StartedAt <= endInclusive)
+                .Where(x => x.EndedAt is not null && x.StartedAt >= startInclusive && x.StartedAt <= endInclusive)
                 .OrderByDescending(x => x.StartedAt)
                 .Select(x => new FrontHistoryReadModel(x.FrontId, x.AlterId, x.Comment, x.StartedAt, x.EndedAt, systemId))
                 .ToArray();
@@ -381,6 +381,45 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
             }
 
             return Task.FromResult(true);
+        }
+    }
+
+    public Task<FrontAlterRemoval> DeleteAllForAlterAsync(
+        SystemId systemId,
+        AlterId alterId,
+        CancellationToken cancellationToken = default)
+    {
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+
+        lock (_sync)
+        {
+            var ids = new List<FrontId>();
+            var hadActiveFront = false;
+            if (TryGetActiveSet(systemKey, out var active) && active.TryRemove(alterId, out var current))
+            {
+                hadActiveFront = true;
+                ids.Add(current.FrontId);
+            }
+
+            if (TryGetHistory(systemKey, out var history))
+            {
+                for (var i = history.Count - 1; i >= 0; i--)
+                {
+                    if (history[i].AlterId != alterId)
+                        continue;
+
+                    if (!ids.Contains(history[i].FrontId))
+                        ids.Add(history[i].FrontId);
+
+                    history.RemoveAt(i);
+                }
+            }
+
+            var primaryCleared = _primaryBySystem.TryGetValue(systemKey, out var primary) && primary == alterId;
+            if (primaryCleared)
+                _primaryBySystem[systemKey] = null;
+
+            return Task.FromResult(new FrontAlterRemoval(ids, hadActiveFront, primaryCleared));
         }
     }
 

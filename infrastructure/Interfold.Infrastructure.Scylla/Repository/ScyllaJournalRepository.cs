@@ -5,6 +5,7 @@ using Interfold.Journals.Contracts.Ids;
 using Interfold.Journals.Contracts.Models.Commands;
 using Interfold.Journals.Contracts.Models.Read;
 using Interfold.Journals.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
@@ -490,7 +491,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         }, cancellationToken);
     }
 
-    public async Task<int> DeleteAllForAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
+    public async Task<JournalAlterCascadeResult> DeleteAllForAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
@@ -517,7 +518,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
 
             if (entryIds.Length == 0 && attachedGlobals.Length == 0)
             {
-                return 0;
+                return JournalAlterCascadeResult.None;
             }
 
             // All deletes share user_id, so this is a single-coordinator batch.
@@ -547,7 +548,9 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             }
 
             await session.ExecuteAsync(batch);
-            return entryIds.Length;
+            return new JournalAlterCascadeResult(
+                entryIds.Select(id => new EntryId(id)).ToArray(),
+                attachedGlobals.Select(id => new EntryId(id)).ToArray());
         }, cancellationToken);
     }
 

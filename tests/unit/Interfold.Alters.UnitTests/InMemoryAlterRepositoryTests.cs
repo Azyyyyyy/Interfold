@@ -6,7 +6,6 @@ using Interfold.Shared.Contracts.Ids;
 using Interfold.Api.UnitTests.Support;
 using Interfold.Friendships.Contracts.Models.Read;
 using Interfold.Infrastructure.InMemory.Repository;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Interfold.Api.UnitTests;
@@ -33,10 +32,9 @@ public sealed class InMemoryAlterRepositoryTests
         var friendships = new InMemoryFriendshipRepository();
         // Empty provider is safe: only used for cascade-delete of field definitions,
         // which these tests never trigger.
-        var fields = new InMemorySettingsFieldRepository(region, new ServiceCollection().BuildServiceProvider());
+        var fields = new InMemorySettingsFieldRepository(region);
         var alterFieldDefinitions = new AlterFieldDefinitionsAdapter(fields, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
-        var polls = new InMemoryPollRepository(region);
-        var alters = new InMemoryAlterRepository(region, friendships, fields, alterFieldDefinitions, polls, NullLogger<InMemoryAlterRepository>.Instance);
+        var alters = new InMemoryAlterRepository(region, friendships, fields, alterFieldDefinitions, NullLogger<InMemoryAlterRepository>.Instance);
         return new TestHarness(alters, friendships, fields);
     }
 

@@ -351,6 +351,48 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, cancellationToken);
     }
 
+    public async Task<SystemId?> TryFindSystemIdByUsernameAsync(Username username, CancellationToken cancellationToken = default)
+    {
+        var session = await _sessionProvider.GetSessionAsync(cancellationToken);
+        var existingKeyspaces = await GetExistingRegionalKeyspacesAsync(session);
+
+        // users_by_username is per-region with no global reverse index; skip
+        // unavailable/missing keyspaces so a partial cluster still resolves what it can.
+        var canonical = Enum.GetValues<ScyllaKeyspace>().Select(k => k.ToWire()).ToArray();
+        foreach (var region in existingKeyspaces.Where(canonical.Contains))
+        {
+            try
+            {
+                var userQuery = new SimpleStatement(
+                    $"SELECT user_id FROM {region}.users_by_username WHERE username = ? LIMIT 1",
+                    username.Value);
+                var userRow = (await session.ExecuteAsync(userQuery)).FirstOrDefault();
+                if (userRow != null)
+                    return new SystemId(userRow.GetValue<string>("user_id"));
+            }
+            catch (UnavailableException)
+            {
+                // partial cluster: skip a region that is down
+            }
+            catch (InvalidQueryException)
+            {
+                // partial cluster: skip a keyspace that has no username table
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<HashSet<string>> GetExistingRegionalKeyspacesAsync(ISession session)
+    {
+        var keyspaceRows = await session.ExecuteAsync(
+            new SimpleStatement("SELECT keyspace_name FROM system_schema.keyspaces"));
+
+        return keyspaceRows
+            .Select(row => row.GetValue<string>("keyspace_name").ToLowerInvariant())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>

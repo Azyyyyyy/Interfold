@@ -41,6 +41,7 @@ public static class ScyllaServiceCollectionExtensions
                 .AddSingleton<ITagRepository, ScyllaTagRepository>()
                 .AddSingleton<IJournalRepository, ScyllaJournalRepository>()
                 .AddSingleton<IPollRepository, ScyllaPollRepository>()
+                .AddSingleton<IStorageTransactionFactory, ImmediateStorageTransactionFactory>()
                 .AddSingleton<IImportOperationRepository, ScyllaImportOperationRepository>()
                 .AddHostedService<ScyllaMigrationService>()
                 // Ordering matters: migrations first (grants + column additions), then fixup
