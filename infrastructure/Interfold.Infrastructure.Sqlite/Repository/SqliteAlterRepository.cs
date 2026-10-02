@@ -222,6 +222,32 @@ public sealed class SqliteAlterRepository : IAlterRepository
             new { system_id = systemKey, alter_id = alterId.Value },
             tx);
 
+        // ListActiveAsync refuses an active front whose alter is gone, which fails socket join.
+        await connection.ExecuteAsync(
+            """
+            DELETE FROM current_fronts
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = systemKey, alter_id = alterId.Value },
+            tx);
+
+        await connection.ExecuteAsync(
+            """
+            DELETE FROM fronts
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = systemKey, alter_id = alterId.Value },
+            tx);
+
+        await connection.ExecuteAsync(
+            """
+            UPDATE front_primary
+            SET alter_id = NULL
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = systemKey, alter_id = alterId.Value },
+            tx);
+
         var removed = await connection.ExecuteAsync(
             """
             DELETE FROM alters

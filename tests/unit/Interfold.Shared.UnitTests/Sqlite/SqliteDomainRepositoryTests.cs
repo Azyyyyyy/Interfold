@@ -123,6 +123,51 @@ public sealed class SqliteFrontingRepositoryTests
             SqliteTestDb.Delete(path);
         }
     }
+
+    [Test]
+    public async Task DeleteAlter_ClearsActiveFront_SoListActiveSucceeds()
+    {
+        var path = await SqliteTestDb.CreateMigratedAsync();
+        try
+        {
+            var factory = SqliteTestDb.Factory(path);
+            var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System);
+            var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
+            var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
+            var polls = new SqlitePollRepository(factory, TimeProvider.System);
+            IAlterRepository alters = new SqliteAlterRepository(
+                factory, friendships, settings, alterFields, polls,
+                NullLogger<SqliteAlterRepository>.Instance);
+            IFrontingRepository fronts = new SqliteFrontingRepository(
+                factory, friendships, alters, NullLogger<SqliteFrontingRepository>.Instance, TimeProvider.System);
+
+            var systemId = new SystemId("wipe001");
+            var kept = await alters.CreateAsync(systemId, new CreateAlterCommand("Kept", DateTimeOffset.UtcNow));
+            var wiped = await alters.CreateAsync(systemId, new CreateAlterCommand("Wiped", DateTimeOffset.UtcNow));
+            await Assert.That(kept).IsNotNull();
+            await Assert.That(wiped).IsNotNull();
+
+            var startedAt = DateTimeOffset.UtcNow.AddMinutes(-5);
+            await fronts.StartAsync(systemId, kept!.Value, null, startedAt);
+            await fronts.StartAsync(systemId, wiped!.Value, "fronting", startedAt);
+            await Assert.That(await fronts.SetPrimaryAsync(systemId, wiped.Value)).IsTrue();
+
+            await Assert.That(await alters.DeleteAsync(systemId, wiped.Value)).IsTrue();
+
+            var active = await fronts.ListActiveAsync(systemId);
+            await Assert.That(active.Count).IsEqualTo(1);
+            await Assert.That(active[0].Alter.Id).IsEqualTo(kept.Value);
+            await Assert.That(active[0].Primary).IsFalse();
+
+            var history = await fronts.ListAllAsync(systemId);
+            await Assert.That(history.Count).IsEqualTo(1);
+            await Assert.That(history[0].AlterId).IsEqualTo(kept.Value);
+        }
+        finally
+        {
+            SqliteTestDb.Delete(path);
+        }
+    }
 }
 
 public sealed class SqlitePollRepositoryTests
