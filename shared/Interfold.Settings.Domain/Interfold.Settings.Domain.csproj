@@ -26,7 +26,7 @@
     <ProjectReference Include="..\Interfold.Systems.Contracts\Interfold.Systems.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
+    <PackageReference Include="Isopoh.Cryptography.Argon2" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>

@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Interfold.Settings.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
-using Konscious.Security.Cryptography;
+using Isopoh.Cryptography.Argon2;
 
 namespace Interfold.Settings.Domain;
 
@@ -24,16 +24,26 @@ public class EncryptionKey
         var hashInput = Encoding.UTF8.GetBytes(pepper + systemId.Value + recoveryCode.Value);
         var sha256Hash = SHA256.HashData(hashInput);
 
-        // Step 2: Argon2id(sha256_hash, salt, t_cost=12, m_cost=65536, parallelism=1, hash_len=32)
+        // Argon2id(sha256_hash, salt, t_cost=12, m_cost=65536, lanes=1, hash_len=32).
+        // Lanes is part of the KDF; the library default is 4.
         var saltBytes = Convert.FromBase64String(salt.Value);
-        using var argon2 = new Argon2id(sha256Hash);
-        argon2.Salt = saltBytes;
-        argon2.DegreeOfParallelism = 1;
-        argon2.MemorySize = 65536; // KB
-        argon2.Iterations = 12;
+        var config = new Argon2Config
+        {
+            Type = Argon2Type.HybridAddressing,
+            Version = Argon2Version.Nineteen,
+            TimeCost = 12,
+            MemoryCost = 65536,
+            Lanes = 1,
+            Threads = 1,
+            Password = sha256Hash,
+            Salt = saltBytes,
+            HashLength = 32,
+        };
 
-        var keyBytes = argon2.GetBytes(32);
-        return new(Convert.ToBase64String(keyBytes));
+        // Dispose zeroes the buffer after this return expression has encoded it.
+        using var argon2 = new Argon2(config);
+        using var hash = argon2.Hash();
+        return new(Convert.ToBase64String(hash.Buffer));
     }
 
     /// <summary>
