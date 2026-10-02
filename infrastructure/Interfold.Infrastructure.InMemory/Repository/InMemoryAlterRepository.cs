@@ -6,7 +6,6 @@ using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Friendships.Domain.Abstractions.Repository;
-using Interfold.Polls.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
@@ -49,7 +48,6 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     private readonly IFriendshipRepository _friendships;
     private readonly ISettingsFieldRepository _settingsFields;
     private readonly IAlterFieldDefinitions _alterFieldDefinitions;
-    private readonly IPollRepository _polls;
     private readonly ILogger<InMemoryAlterRepository> _logger;
 
     public InMemoryAlterRepository(
@@ -57,14 +55,12 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         IFriendshipRepository friendships,
         ISettingsFieldRepository settingsFields,
         IAlterFieldDefinitions alterFieldDefinitions,
-        IPollRepository polls,
         ILogger<InMemoryAlterRepository> logger)
     {
         _regionContext = regionContext;
         _friendships = friendships;
         _settingsFields = settingsFields;
         _alterFieldDefinitions = alterFieldDefinitions;
-        _polls = polls;
         _logger = logger;
     }
 
@@ -181,20 +177,18 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         return Task.FromResult(true);
     }
 
-    public async Task<bool> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
+    public Task<bool> DeleteAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
         if (!TryGetStore(systemId, out var store))
-        {
-            return false;
-        }
+            return Task.FromResult(false);
 
-        var removed = store.TryRemove(alterId, out _);
-        if (removed)
-        {
-            await _polls.RemoveAlterFromPollsAsync(systemId, alterId, cancellationToken);
-        }
+        return Task.FromResult(store.TryRemove(alterId, out _));
+    }
 
-        return removed;
+    public Task RemoveFieldValuesAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default)
+    {
+        RemoveFieldValuesForSystem(systemId, fieldId.Value);
+        return Task.CompletedTask;
     }
 
     public async Task<IReadOnlyList<AlterReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)

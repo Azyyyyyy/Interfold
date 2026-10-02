@@ -10,8 +10,8 @@ namespace Interfold.Friendships.IntegrationTests.Friendships;
 /// stack (controller → command handler → friendship repo → registry) is in play.
 ///
 /// <para>
-/// The tests run under all three fixtures via TUnit's <c>[ClassDataSource]</c>
-/// parameterisation. Cases split into two families:
+/// The tests run under every persistence fixture via TUnit's <c>[ClassDataSource]</c>
+/// parameterisation. Every case is backend-uniform:
 /// </para>
 ///
 /// <list type="bullet">
@@ -19,20 +19,11 @@ namespace Interfold.Friendships.IntegrationTests.Friendships;
 ///     <description>
 ///       <b>Backend-uniform</b> — dispatch matrix contracts that must hold regardless of
 ///       which persistence backend is behind the API. The surviving shapes are bare id,
-///       <c>id:</c>-prefixed, and <c>username:unknown</c> (all go through
-///       <see cref="Interfold.Friendships.Contracts.Ids.FriendLookup"/> route binding). The pre-merge
+///       <c>id:</c>-prefixed, and <c>username:</c> (known and unknown). Username lookup
+///       goes through <c>IAccountRepository</c> on every backend. The pre-merge
 ///       <c>discord:</c> and unknown-prefix shapes now fail
 ///       <c>FriendLookup.TryParse</c> and surface as a 400 at ASP.NET route binding —
 ///       pinned by <see cref="SendFriendRequest_UnparseableShape_Returns400"/> below.
-///     </description>
-///   </item>
-///   <item>
-///     <description>
-///       <b>Backend-specific</b> — <c>username:known</c> success requires the Scylla
-///       <c>users_by_username</c> reverse index; InMemory has no such index so the same
-///       route returns <c>NoUser</c>. That divergence is intentional (documented in the
-///       InMemory friendship-repo comment) and pinned by the two <see cref="RecipientBackend"/>
-///       branches below.
 ///     </description>
 ///   </item>
 /// </list>
@@ -44,12 +35,6 @@ namespace Interfold.Friendships.IntegrationTests.Friendships;
 [ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
-    private enum RecipientBackend { InMemory, Regional }
-
-    private RecipientBackend Backend => fixture is InMemoryWebFactoryFixture
-        ? RecipientBackend.InMemory
-        : RecipientBackend.Regional;
-
     // ---------------- Backend-uniform: bare id + id: prefix ----------------
 
     [Test]
@@ -127,10 +112,8 @@ public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : B
         }
     }
 
-    // ---------------- Backend-specific: username success -------------------
-
     [Test]
-    public async Task SendFriendRequest_UsernamePrefix_KnownUsername_DispatchMatchesBackendContract()
+    public async Task SendFriendRequest_UsernamePrefix_KnownUsername_Returns204()
     {
         using var client = fixture.Factory.CreateClient();
         var sender = UniqueId("s7-send-uname-a");
@@ -141,25 +124,9 @@ public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : B
         await EnsureUserExistsAsync(client, sender);
         await EnsureUserExistsAsync(client, recipientPrincipal, recipientUsername);
 
-        var (status, entityRef) = await SendFriendRequestWithEntityRefAsync(
-            client, sender, $"username:{recipientUsername}");
-
-        if (Backend == RecipientBackend.InMemory)
-        {
-            // InMemory has no users_by_username reverse index; the correct answer is
-            // "no such user" rather than fabricating a SystemId('username:...').
-            using (Assert.Multiple())
-            {
-                await Assert.That(status).IsEqualTo(HttpStatusCode.UnprocessableEntity);
-                await Assert.That(entityRef).IsEqualTo("friend_request:no_user")
-                    .Because("InMemory has no username reverse index — the Kind.Username branch returns null which surfaces as NoUser. This is documented in the InMemoryFriendshipRepository dispatch comment.");
-            }
-        }
-        else
-        {
-            await Assert.That(status).IsEqualTo(HttpStatusCode.NoContent)
-                .Because("Scylla/Cassandra populate users_by_username on /api/settings/username, so the username-prefixed friend request must resolve and land 204.");
-        }
+        var status = await SendFriendRequestAsync(client, sender, $"username:{recipientUsername}");
+        await Assert.That(status).IsEqualTo(HttpStatusCode.NoContent)
+            .Because("Every backend resolves username: through IAccountRepository, so a known username must land a 204.");
     }
 
     // ---------------- Helpers ----------------------------------------------

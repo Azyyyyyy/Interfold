@@ -42,5 +42,15 @@ public interface IFrontingRepository
 
     Task<bool> DeleteFrontByIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default);
 
+    Task<FrontAlterRemoval> DeleteAllForAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default);
+
     Task<bool> UpdateCommentByFrontIdAsync(SystemId systemId, FrontId frontId, string comment, CancellationToken cancellationToken = default);
+}
+
+public sealed record FrontAlterRemoval(
+    IReadOnlyList<FrontId> DeletedFrontIds,
+    bool HadActiveFront,
+    bool PrimaryCleared)
+{
+    public static FrontAlterRemoval None { get; } = new([], false, false);
 }

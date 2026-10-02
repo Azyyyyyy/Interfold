@@ -106,21 +106,23 @@ public sealed class InMemoryPollRepository : IPollRepository
     }
 
     // See PollDataJson for the blob shape (top-level "responses" array of alter votes).
-    public Task RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<PollId>> RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
         if (!TryGetStore(systemId, out var store))
-            return Task.CompletedTask;
+            return Task.FromResult<IReadOnlyList<PollId>>([]);
 
+        var updated = new List<PollId>();
         foreach (var poll in store.Values)
         {
             if (PollDataJson.TryRemoveAlterResponses(poll.Data, alterId, out var newData))
             {
                 poll.Data = newData;
                 poll.UpdatedAt = DateTime.UtcNow;
+                updated.Add(poll.PollId);
             }
         }
 
-        return Task.CompletedTask;
+        return Task.FromResult<IReadOnlyList<PollId>>(updated);
     }
 
     private bool TryGetStore(SystemId systemId, out ConcurrentDictionary<PollId, PollState> store)

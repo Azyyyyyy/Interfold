@@ -5,6 +5,7 @@ using Interfold.Polls.Contracts.Models;
 using Interfold.Polls.Contracts.Models.Commands;
 using Interfold.Polls.Contracts.Models.Read;
 using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Microsoft.Data.Sqlite;
@@ -129,22 +130,21 @@ public sealed class SqlitePollRepository : IPollRepository
         var userId = SqliteStorageKeys.Persist(systemId);
         var pollIdText = command.Id.Value.ToString("N");
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        if (!await ExistsOnConnectionAsync(connection, userId, pollIdText))
-        {
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        if (!await ExistsOnConnectionAsync(work.Connection, work.Transaction, userId, pollIdText))
             return false;
-        }
 
         if (command.Title is null
             && command.Description is null
             && !command.HasTimeEnd
             && command.Data is null)
         {
+            await work.CommitAsync(cancellationToken);
             return true;
         }
 
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
-        var updated = await connection.ExecuteAsync(
+        var updated = await work.Connection.ExecuteAsync(
             """
             UPDATE polls SET
                 title = COALESCE(@title, title),
@@ -167,7 +167,9 @@ public sealed class SqlitePollRepository : IPollRepository
                 updated_at = nowMs,
                 user_id = userId,
                 id = pollIdText,
-            });
+            },
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
         return updated > 0;
     }
 
@@ -179,18 +181,21 @@ public sealed class SqlitePollRepository : IPollRepository
         cancellationToken.ThrowIfCancellationRequested();
         var userId = SqliteStorageKeys.Persist(systemId);
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var affected = await connection.ExecuteAsync(
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var affected = await work.Connection.ExecuteAsync(
             "DELETE FROM polls WHERE user_id = @user_id AND id = @id",
-            new { user_id = userId, id = pollId.Value.ToString("N") });
+            new { user_id = userId, id = pollId.Value.ToString("N") },
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
         return affected > 0;
     }
 
-    public async Task RemoveAlterFromPollsAsync(
+    public async Task<IReadOnlyList<PollId>> RemoveAlterFromPollsAsync(
         SystemId systemId,
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
+        var updated = new List<PollId>();
         var polls = await ListAsync(systemId, cancellationToken);
         foreach (var poll in polls)
         {
@@ -203,11 +208,15 @@ public sealed class SqlitePollRepository : IPollRepository
                 systemId,
                 new UpdatePollCommand(poll.Id, null, null, null, false, newData),
                 cancellationToken);
+            updated.Add(poll.Id);
         }
+
+        return updated;
     }
 
     private static async Task<bool> ExistsOnConnectionAsync(
         SqliteConnection connection,
+        SqliteTransaction transaction,
         string userId,
         string pollId)
     {
@@ -217,7 +226,8 @@ public sealed class SqlitePollRepository : IPollRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = userId, id = pollId });
+            new { user_id = userId, id = pollId },
+            transaction);
         return found is not null;
     }
 

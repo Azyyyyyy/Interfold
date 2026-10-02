@@ -179,8 +179,9 @@ public sealed class ScyllaPollRepository : IPollRepository
     // The data blob's confirmed shape (see PollDataJson) keeps per-alter votes in the
     // top-level `responses` array as {"alter_id":<int>,...} entries; deleting an alter
     // filters those entries while leaving every other member untouched.
-    public async Task RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<PollId>> RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
+        var updated = new List<PollId>();
         var polls = await ListAsync(systemId, cancellationToken);
 
         foreach (var poll in polls)
@@ -198,7 +199,10 @@ public sealed class ScyllaPollRepository : IPollRepository
                 false,
                 newData
             ), cancellationToken);
+            updated.Add(poll.Id);
         }
+
+        return updated;
     }
 
     private static PollReadModel ToReadModel(Row row)

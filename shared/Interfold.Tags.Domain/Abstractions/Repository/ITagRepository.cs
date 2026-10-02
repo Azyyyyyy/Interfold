@@ -24,6 +24,8 @@ public interface ITagRepository
     /// <summary>Returns true if the alter was detached, false if the tag/alter combo does not exist.</summary>
     Task<bool> DetachAlterAsync(SystemId systemId, TagId tagId, AlterId alterId, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<TagId>> DetachAllForAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default);
+
     /// <summary>Returns the immediate parent tag ID, or null if none or tag does not exist.</summary>
     Task<TagId?> GetParentIdAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default);
 

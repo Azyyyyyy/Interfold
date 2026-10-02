@@ -1,6 +1,7 @@
+using Interfold.Infrastructure.Sqlite;
+using Interfold.Infrastructure.Sqlite.Repository;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Secrets;
-using Interfold.Infrastructure.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 
 // IdempotencyKey / OperationId / SystemId / Jti live in Shared.Contracts.Ids.
@@ -22,6 +23,15 @@ internal static class SqliteTestDb
 
     public static ISqliteConnectionFactory Factory(string path)
         => new SqliteConnectionFactory(ConnectionString(path));
+
+    public static SqliteFriendshipRepository Friendships(ISqliteConnectionFactory factory)
+    {
+        var time = TimeProvider.System;
+        return new SqliteFriendshipRepository(
+            factory,
+            time,
+            new SqliteAccountRepository(factory, new SqliteEncryptionStateRepository(factory, time), time));
+    }
 
     public static void Delete(string path)
     {
@@ -55,9 +65,9 @@ public sealed class SqliteConnectionFactoryTests
             fk.CommandText = "PRAGMA foreign_keys;";
             var foreignKeys = Convert.ToInt64(await fk.ExecuteScalarAsync());
 
-            await Assert.That(journalMode.ToLowerInvariant()).IsEqualTo("wal");
-            // NORMAL == 1
-            await Assert.That(synchronous).IsEqualTo(1);
+            await Assert.That(journalMode.ToLowerInvariant()).IsEqualTo("delete");
+            // FULL == 2. Rollback journal is not crash-safe at NORMAL.
+            await Assert.That(synchronous).IsEqualTo(2);
             await Assert.That(foreignKeys).IsEqualTo(1);
         }
         finally

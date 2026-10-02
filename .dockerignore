@@ -50,6 +50,9 @@ node_modules/
 .github/
 docs/
 
+# Local bootstrapper output (certs, secrets, sqlite). Not part of the API image.
+tools/Interfold.Bootstrapper/deploy/
+
 # Legacy / unrelated artifacts left over from the Elixir-era repo
 /cover/
 /doc/

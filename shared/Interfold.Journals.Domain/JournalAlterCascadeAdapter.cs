@@ -14,6 +14,6 @@ public sealed class JournalAlterCascadeAdapter : IJournalAlterCascade
         _journalRepository = journalRepository;
     }
 
-    public Task<int> DeleteAllForAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
+    public Task<JournalAlterCascadeResult> DeleteAllForAlterAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
         => _journalRepository.DeleteAllForAlterAsync(systemId, alterId, cancellationToken);
 }

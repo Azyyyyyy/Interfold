@@ -3,6 +3,7 @@ using System.Text;
 using Dapper;
 using Interfold.Auth.Contracts.Ids;
 using Interfold.Settings.Contracts.Ids;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
@@ -33,13 +34,17 @@ public sealed class SqliteAccountRepository : IAccountRepository
     {
         var systemKey = SqliteStorageKeys.Persist(systemId);
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var inserted = await connection.ExecuteAsync(
-            """
-            INSERT OR IGNORE INTO accounts (system_id, created_at, updated_at)
-            VALUES (@system_id, @now, @now)
-            """,
-            new { system_id = systemKey, now = nowMs });
+        int inserted;
+        await using (var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken))
+        {
+            inserted = await connection.ExecuteAsync(
+                """
+                INSERT OR IGNORE INTO accounts (system_id, created_at, updated_at)
+                VALUES (@system_id, @now, @now)
+                """,
+                new { system_id = systemKey, now = nowMs });
+        }
+
         if (inserted > 0)
         {
             await _encryptionStates.UpsertAsync(
@@ -298,11 +303,29 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
     public async Task<bool> DeleteAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await connection.ExecuteAsync(
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var rows = await work.Connection.ExecuteAsync(
             "DELETE FROM accounts WHERE system_id = @system_id",
-            new { system_id = SqliteStorageKeys.Persist(systemId) });
+            new { system_id = SqliteStorageKeys.Persist(systemId) },
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
         return rows > 0;
+    }
+
+    public async Task<SystemId?> TryFindSystemIdByUsernameAsync(
+        Username username,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        var persisted = await connection.QueryFirstOrDefaultAsync<string>(
+            """
+            SELECT system_id
+            FROM accounts
+            WHERE username = @username COLLATE NOCASE
+            LIMIT 1
+            """,
+            new { username = username.Value });
+        return persisted is null ? null : SqliteStorageKeys.ToWire(persisted);
     }
 
     public async Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(
@@ -421,9 +444,9 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
         var rawId = Guid.NewGuid().ToString("N");
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         try
         {
+            await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
             await connection.ExecuteAsync(insertSql, new { system_id = rawId, value, now = nowMs });
         }
         catch (SqliteException)

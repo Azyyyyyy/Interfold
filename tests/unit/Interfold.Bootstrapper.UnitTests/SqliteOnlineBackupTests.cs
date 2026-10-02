@@ -23,6 +23,7 @@ public sealed class SqliteOnlineBackupTests
             await store.UpsertAsync(SecretsStoreKeys.EncryptionPepper, "pepper-value", "bootstrap");
 
             await SqliteOnlineBackup.BackupAsync(source, dest, CancellationToken.None);
+            File.Delete(source);
 
             var restored = new SqliteSecretsStore(new SqliteConnectionFactory($"Data Source={dest}"), TimeProvider.System);
             await Assert.That(await restored.GetAsync(SecretsStoreKeys.EncryptionPepper)).IsEqualTo("pepper-value");

@@ -30,6 +30,7 @@ public static class SqliteServiceCollectionExtensions
 
         return services
             .AddSingleton<ISqliteConnectionFactory, SqliteConnectionFactory>()
+            .AddSingleton<IStorageTransactionFactory, SqliteStorageTransactionFactory>()
             .AddSingleton<ISecretsStore, SqliteSecretsStore>()
             .AddSingleton<IIdempotencyStore, SqliteIdempotencyStore>()
             .AddSingleton<IAuthTokenRevocationRepository, SqliteAuthTokenRevocationRepository>()

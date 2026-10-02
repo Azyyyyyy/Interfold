@@ -11,14 +11,18 @@ namespace Interfold.Fronting.Domain;
 public sealed class DeleteFrontByIdCommandHandler : IdempotentCommandHandler<DeleteFrontByIdCommand, FrontCommandResult>
 {
     private readonly IFrontingRepository _frontingRepository;
+    private readonly IStorageTransactionFactory _transactions;
     private readonly IClusterEventBus _eventBus;
 
     public DeleteFrontByIdCommandHandler(
         IFrontingRepository frontingRepository,
+        IStorageTransactionFactory transactions,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-:base(idempotencyStore)    {
+        : base(idempotencyStore)
+    {
         _frontingRepository = frontingRepository;
+        _transactions = transactions;
         _eventBus = eventBus;
     }
 
@@ -37,22 +41,21 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
         if (rejection is not null)
             return rejection;
 
+        await using var transaction = await _transactions.BeginAsync(cancellationToken);
         if (resolution!.WasActive)
         {
-            if (await FrontingCommandFlow.ExecuteMutationOrRejectAsync(
-                command,
-                ct => _frontingRepository.EndByFrontIdAsync(command.PrincipalId, command.Payload.FrontId, ct),
-                EntityRefs.FrontingDeleteFailed,
-                cancellationToken) is { } deleteReject)
+            var ended = await _frontingRepository.EndByFrontIdAsync(
+                command.PrincipalId, command.Payload.FrontId, cancellationToken);
+            if (FrontingCommandFlow.RejectIfMutationFailed(command, ended, EntityRefs.FrontingDeleteFailed) is { } deleteReject)
                 return deleteReject;
         }
 
-        if (await FrontingCommandFlow.ExecuteMutationOrRejectAsync(
-            command,
-            ct => _frontingRepository.DeleteFrontByIdAsync(command.PrincipalId, command.Payload.FrontId, ct),
-            EntityRefs.FrontingDeleteFailed,
-            cancellationToken) is { } historyDeleteReject)
+        var removed = await _frontingRepository.DeleteFrontByIdAsync(
+            command.PrincipalId, command.Payload.FrontId, cancellationToken);
+        if (FrontingCommandFlow.RejectIfMutationFailed(command, removed, EntityRefs.FrontingDeleteFailed) is { } historyDeleteReject)
             return historyDeleteReject;
+
+        await transaction.CommitAsync(cancellationToken);
 
         var alterId = resolution.AlterId;
 

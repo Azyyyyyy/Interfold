@@ -6,6 +6,7 @@ using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Fronting.Contracts.Ids;
 using Interfold.Fronting.Contracts.Models.Read;
 using Interfold.Fronting.Domain.Abstractions.Repository;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Domain.Observability;
@@ -133,59 +134,47 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         var userKey = SqliteStorageKeys.Persist(systemId);
         var endedMs = endedAt.ToUnixTimeMilliseconds();
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            var frontIdText = await connection.QueryFirstOrDefaultAsync<string>(
-                """
-                SELECT id FROM current_fronts
-                WHERE user_id = @user_id AND alter_id = @alter_id
-                LIMIT 1
-                """,
-                new { user_id = userKey, alter_id = alterId.Value },
-                tx);
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var frontIdText = await work.Connection.QueryFirstOrDefaultAsync<string>(
+            """
+            SELECT id FROM current_fronts
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            LIMIT 1
+            """,
+            new { user_id = userKey, alter_id = alterId.Value },
+            work.Transaction);
 
-            if (frontIdText is null)
-            {
-                await tx.RollbackAsync(cancellationToken);
-                return false;
-            }
+        if (frontIdText is null)
+            return false;
 
-            await connection.ExecuteAsync(
-                """
-                DELETE FROM current_fronts
-                WHERE user_id = @user_id AND alter_id = @alter_id
-                """,
-                new { user_id = userKey, alter_id = alterId.Value },
-                tx);
+        await work.Connection.ExecuteAsync(
+            """
+            DELETE FROM current_fronts
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = userKey, alter_id = alterId.Value },
+            work.Transaction);
 
-            await connection.ExecuteAsync(
-                """
-                UPDATE front_primary
-                SET alter_id = NULL
-                WHERE user_id = @user_id AND alter_id = @alter_id
-                """,
-                new { user_id = userKey, alter_id = alterId.Value },
-                tx);
+        await work.Connection.ExecuteAsync(
+            """
+            UPDATE front_primary
+            SET alter_id = NULL
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = userKey, alter_id = alterId.Value },
+            work.Transaction);
 
-            await connection.ExecuteAsync(
-                """
-                UPDATE fronts
-                SET time_end = @time_end
-                WHERE user_id = @user_id AND id = @id AND time_end IS NULL
-                """,
-                new { time_end = endedMs, user_id = userKey, id = frontIdText },
-                tx);
+        await work.Connection.ExecuteAsync(
+            """
+            UPDATE fronts
+            SET time_end = @time_end
+            WHERE user_id = @user_id AND id = @id AND time_end IS NULL
+            """,
+            new { time_end = endedMs, user_id = userKey, id = frontIdText },
+            work.Transaction);
 
-            await tx.CommitAsync(cancellationToken);
-            return true;
-        }
-        catch
-        {
-            await tx.RollbackAsync(cancellationToken);
-            throw;
-        }
+        await work.CommitAsync(cancellationToken);
+        return true;
     }
 
     public async Task<bool> SetPrimaryAsync(
@@ -324,6 +313,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             WHERE user_id = @user_id
               AND time_start >= @start
               AND time_start <= @end
+              AND time_end IS NOT NULL
             ORDER BY time_start DESC
             """,
             new
@@ -446,6 +436,70 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         return await EndAsync(systemId, found.Front.AlterId, _timeProvider.GetUtcNow(), cancellationToken);
     }
 
+    public async Task<FrontAlterRemoval> DeleteAllForAlterAsync(
+        SystemId systemId,
+        AlterId alterId,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = SqliteStorageKeys.Persist(systemId);
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+
+        var frontIds = (await work.Connection.QueryAsync<string>(
+            """
+            SELECT id FROM fronts
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = userId, alter_id = alterId.Value },
+            work.Transaction)).Select(id => FrontId.Parse(id, null)).ToArray();
+
+        var hadActiveFront = await work.Connection.ExecuteScalarAsync<long?>(
+            """
+            SELECT 1 FROM current_fronts
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            LIMIT 1
+            """,
+            new { user_id = userId, alter_id = alterId.Value },
+            work.Transaction) is not null;
+
+        var primaryCleared = await work.Connection.ExecuteScalarAsync<long?>(
+            """
+            SELECT 1 FROM front_primary
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            LIMIT 1
+            """,
+            new { user_id = userId, alter_id = alterId.Value },
+            work.Transaction) is not null;
+
+        // ListActiveAsync refuses an active front whose alter is gone, which fails socket join.
+        await work.Connection.ExecuteAsync(
+            """
+            DELETE FROM current_fronts
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = userId, alter_id = alterId.Value },
+            work.Transaction);
+
+        await work.Connection.ExecuteAsync(
+            """
+            DELETE FROM fronts
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = userId, alter_id = alterId.Value },
+            work.Transaction);
+
+        await work.Connection.ExecuteAsync(
+            """
+            UPDATE front_primary
+            SET alter_id = NULL
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = userId, alter_id = alterId.Value },
+            work.Transaction);
+
+        await work.CommitAsync(cancellationToken);
+        return new FrontAlterRemoval(frontIds, hadActiveFront, primaryCleared);
+    }
+
     public async Task<bool> DeleteFrontByIdAsync(
         SystemId systemId,
         FrontId frontId,
@@ -455,54 +509,42 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         var userKey = SqliteStorageKeys.Persist(systemId);
         var frontIdText = frontId.Value.ToString("N");
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            var alterRaw = await connection.QueryFirstOrDefaultAsync<long?>(
-                """
-                SELECT alter_id FROM fronts
-                WHERE user_id = @user_id AND id = @id
-                LIMIT 1
-                """,
-                new { user_id = userKey, id = frontIdText },
-                tx);
-            if (alterRaw is null)
-            {
-                await tx.RollbackAsync(cancellationToken);
-                return false;
-            }
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var alterRaw = await work.Connection.QueryFirstOrDefaultAsync<long?>(
+            """
+            SELECT alter_id FROM fronts
+            WHERE user_id = @user_id AND id = @id
+            LIMIT 1
+            """,
+            new { user_id = userKey, id = frontIdText },
+            work.Transaction);
+        if (alterRaw is null)
+            return false;
 
-            await connection.ExecuteAsync(
-                "DELETE FROM fronts WHERE user_id = @user_id AND id = @id",
-                new { user_id = userKey, id = frontIdText },
-                tx);
+        await work.Connection.ExecuteAsync(
+            "DELETE FROM fronts WHERE user_id = @user_id AND id = @id",
+            new { user_id = userKey, id = frontIdText },
+            work.Transaction);
 
-            await connection.ExecuteAsync(
-                """
-                DELETE FROM current_fronts
-                WHERE user_id = @user_id AND id = @id
-                """,
-                new { user_id = userKey, id = frontIdText },
-                tx);
+        await work.Connection.ExecuteAsync(
+            """
+            DELETE FROM current_fronts
+            WHERE user_id = @user_id AND id = @id
+            """,
+            new { user_id = userKey, id = frontIdText },
+            work.Transaction);
 
-            await connection.ExecuteAsync(
-                """
-                UPDATE front_primary
-                SET alter_id = NULL
-                WHERE user_id = @user_id AND alter_id = @alter_id
-                """,
-                new { user_id = userKey, alter_id = (short)alterRaw.Value },
-                tx);
+        await work.Connection.ExecuteAsync(
+            """
+            UPDATE front_primary
+            SET alter_id = NULL
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            """,
+            new { user_id = userKey, alter_id = (short)alterRaw.Value },
+            work.Transaction);
 
-            await tx.CommitAsync(cancellationToken);
-            return true;
-        }
-        catch
-        {
-            await tx.RollbackAsync(cancellationToken);
-            throw;
-        }
+        await work.CommitAsync(cancellationToken);
+        return true;
     }
 
     public async Task<bool> UpdateCommentByFrontIdAsync(
