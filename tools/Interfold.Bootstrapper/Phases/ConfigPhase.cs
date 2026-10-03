@@ -77,8 +77,12 @@ internal static class ConfigPhase
 
         Validate(config);
 
-        // Post-fill mDNS gate is bootstrap-only — other subcommands load JSON verbatim.
-        if (options.Command == BootstrapCommand.Bootstrap)
+        // These commands relaunch and then probe the public API name. A .local entry
+        // that does not resolve fails that probe, so drop it here. publish and up
+        // leave the saved file alone.
+        if (options.Command is BootstrapCommand.Bootstrap
+            or BootstrapCommand.RotateSecrets
+            or BootstrapCommand.RotateCerts)
         {
             var mutated = await ApplyMdnsGateAsync(config, options, logger, ct).ConfigureAwait(false);
             if (mutated)

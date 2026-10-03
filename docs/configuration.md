@@ -464,13 +464,15 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 >   hint instead. Decline the offer (or skip auto-install) and the `.local` name is
 >   omitted from the pre-fill — the row is still editable so the operator can type
 >   any host they like.
-> - **Post-fill safety gate (all `bootstrap` runs).** After the hosts list is finalised
->   (either by the interactive prompt or loaded from JSON), every `.local` entry is
->   re-probed. Unresolvable ones are removed from `edge.hosts` with a warning
->   naming the specific hosts + a copy-pasteable install hint, and **the current
->   `bootstrap` run continues to completion** with the reduced list. It never halts on
->   this — the mutation is re-persisted so subsequent runs see the pruned list without
->   re-emitting the warning. Re-running `bootstrap` after installing mDNS is *optional
+> - **Post-fill safety gate (`bootstrap`, `rotate-secrets`, `rotate-certs`).** After the
+>   hosts list is finalised (either by the interactive prompt or loaded from JSON), every
+>   `.local` entry is re-probed. Unresolvable ones are removed from `edge.hosts` with a
+>   warning naming the specific hosts + a copy-pasteable install hint, and **the current
+>   run continues to completion** with the reduced list. It never halts on this — the
+>   mutation is re-persisted so subsequent runs see the pruned list without re-emitting
+>   the warning. Those three commands relaunch and then probe the public API name, so a
+>   leftover `.local` entry would fail that check. `publish`, `up`, and `update-images`
+>   leave the saved file alone. Re-running `bootstrap` after installing mDNS is *optional
 >   recovery* to restore the stripped entries, not a required next step.
 >
 > `--non-interactive` skips the pre-prompt banner (there's no operator to talk to) but
