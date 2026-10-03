@@ -109,7 +109,6 @@ internal static class CloudflareAccessPhase
         var teamDomain = CloudflareTunnelClient.NormalizeTeamHost(org.AuthDomain);
         var callbackUri = BuildGoogleCallbackUri(teamDomain);
         logger.Info($"    cloudflare Access team={teamDomain}");
-        logger.Info($"    add this OAuth redirect URI on Google (and Discord, when used): {callbackUri}");
 
         var hostnames = CloudflareTunnelPhase.ResolvePublicHostnames(config);
         if (hostnames.Count == 0)
@@ -120,16 +119,36 @@ internal static class CloudflareAccessPhase
         var emails = config.Edge.Cloudflare.Access.AllowedEmails;
         var domains = config.Edge.Cloudflare.Access.AllowedEmailDomains;
 
+        var googleReady = HasGoogleOAuth(config.Api.OAuth);
         var discordReady = HasDiscordOAuth(config.Api.OAuth);
+        if (!googleReady && !discordReady)
+        {
+            throw new InvalidOperationException(
+                "Cloudflare Access needs a Google or Discord OAuth client.");
+        }
+
+        var redirectOn = (googleReady, discordReady) switch
+        {
+            (true, true) => "Google and Discord",
+            (true, false) => "Google",
+            _ => "Discord",
+        };
+        logger.Info($"    add this OAuth redirect URI on {redirectOn}: {callbackUri}");
+
         if (confirm)
         {
             var table = new Table().AddColumn("Hostname").AddColumn("IdP").AddColumn("Allowlist");
             var allowlist = string.Join(", ", emails.Concat(domains.Select(d => $"@{d}")));
-            var idpLabel = discordReady ? $"{GoogleIdpName}, {DiscordIdpName}" : GoogleIdpName;
+            var idpLabel = (googleReady, discordReady) switch
+            {
+                (true, true) => $"{GoogleIdpName}, {DiscordIdpName}",
+                (true, false) => GoogleIdpName,
+                _ => DiscordIdpName,
+            };
             foreach (var host in hostnames)
                 table.AddRow(host, idpLabel, allowlist);
             AnsiConsole.Write(table);
-            AnsiConsole.MarkupLine($"[yellow]Access callback URI (add on Google and Discord OAuth clients):[/] {callbackUri}");
+            AnsiConsole.MarkupLine($"[yellow]Access callback URI (add on the {redirectOn} OAuth client):[/] {callbackUri}");
             if (!AnsiConsole.Confirm("Apply Cloudflare Access apps and policies?", defaultValue: true))
             {
                 logger.Warn("operator declined Cloudflare Access configuration");
@@ -137,19 +156,39 @@ internal static class CloudflareAccessPhase
             }
         }
 
-        var googleIdpId = await client.EnsureGoogleIdentityProviderAsync(
-                accountId,
-                config.Api.OAuth.GoogleClientId.Trim(),
-                config.Api.OAuth.GoogleClientSecret.Trim(),
-                ct)
-            .ConfigureAwait(false);
-        logger.Info($"    cloudflare Access Google IdP id={googleIdpId} ({GoogleIdpName})");
+        string? googleIdpId = null;
+        if (googleReady)
+        {
+            googleIdpId = await client.EnsureGoogleIdentityProviderAsync(
+                    accountId,
+                    config.Api.OAuth.GoogleClientId.Trim(),
+                    config.Api.OAuth.GoogleClientSecret.Trim(),
+                    ct)
+                .ConfigureAwait(false);
+            logger.Info($"    cloudflare Access Google IdP id={googleIdpId} ({GoogleIdpName})");
+        }
 
         var discord = await TryEnsureDiscordAccessAsync(
-                client, config, accountId, outputDir, callbackUri, logger, ct)
+                client, config, accountId, outputDir, callbackUri, logger, required: !googleReady, ct)
             .ConfigureAwait(false);
-        var allowedIdps = discord is null ? new[] { googleIdpId } : [googleIdpId, discord.IdpId];
-        var autoRedirect = discord is null;
+        if (googleIdpId is null && discord is null)
+        {
+            throw new InvalidOperationException(
+                "Cloudflare Access needs a Google or Discord identity provider.");
+        }
+
+        var allowedIdps = new List<string>();
+        if (googleIdpId is not null)
+        {
+            allowedIdps.Add(googleIdpId);
+        }
+
+        if (discord is not null)
+        {
+            allowedIdps.Add(discord.IdpId);
+        }
+
+        var autoRedirect = allowedIdps.Count == 1;
 
         var priorToken = TryLoadServiceToken(outputDir);
         var serviceToken = await client.EnsureServiceTokenAsync(
@@ -211,7 +250,7 @@ internal static class CloudflareAccessPhase
         {
             TeamDomain = teamDomain,
             Aud = primaryAud,
-            IdentityProviderId = googleIdpId,
+            IdentityProviderId = googleIdpId ?? string.Empty,
             DiscordIdentityProviderId = discord?.IdpId ?? string.Empty,
             DiscordWorkerName = discord is null ? string.Empty : DiscordWorkerName,
             DiscordKvNamespaceId = discord?.KvNamespaceId ?? string.Empty,
@@ -223,6 +262,10 @@ internal static class CloudflareAccessPhase
         logger.Info($"    persisted Access state team={teamDomain} aud={primaryAud}");
         logger.Info($"    Access callback URI: {callbackUri}");
     }
+
+    internal static bool HasGoogleOAuth(ApiOAuthSection oauth)
+        => !string.IsNullOrWhiteSpace(oauth.GoogleClientId)
+           && !string.IsNullOrWhiteSpace(oauth.GoogleClientSecret);
 
     internal static bool HasDiscordOAuth(ApiOAuthSection oauth)
         => !string.IsNullOrWhiteSpace(oauth.DiscordClientId)
@@ -255,6 +298,7 @@ internal static class CloudflareAccessPhase
         string outputDir,
         string callbackUri,
         PhaseLogger logger,
+        bool required,
         CancellationToken ct)
     {
         if (!HasDiscordOAuth(config.Api.OAuth))
@@ -301,7 +345,7 @@ internal static class CloudflareAccessPhase
             logger.Info($"    cloudflare Access Discord IdP id={idpId} ({DiscordIdpName}) url={workerUrl}");
             return new DiscordAccessArtifacts(idpId, kvId, workerUrl);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!required && ex is not OperationCanceledException)
         {
             logger.Warn($"discord Access not applied; Google Access left in place: {ex.Message}");
             return null;

@@ -4,7 +4,7 @@ using Interfold.Bootstrapper.Util;
 namespace Interfold.Bootstrapper.UnitTests;
 
 [RequiresWindows]
-[NotInParallel("process-runner-path")]
+[NotInParallel("bootstrapper-process-environment")]
 public sealed class ProcessRunnerWindowsTests
 {
     [Test]

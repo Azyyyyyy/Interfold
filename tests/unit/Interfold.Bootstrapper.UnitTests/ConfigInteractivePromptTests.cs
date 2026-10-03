@@ -99,7 +99,7 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(config.Datastores.Postgres.Database).IsEqualTo("interfold");
         await Assert.That(config.Datastores.Cql.ClusterName).IsEqualTo("InterfoldCluster");
         await Assert.That(config.Datastores.Cql.Keyspace).IsEqualTo(ScyllaKeyspace.Nam);
-        await Assert.That(config.Api.Image).IsEqualTo(DefaultContainerImages.Api);
+        await Assert.That(config.Api.Image).IsEqualTo(BootstrapperApiImage.Default);
         await Assert.That(config.Deployment.WebImage).IsEqualTo(DefaultContainerImages.Web);
 
         // ApiRuntime: derivation happens in RunAsync / Validate, not PromptForConfig, so
@@ -1020,7 +1020,7 @@ public sealed class ConfigInteractivePromptTests
     private const string FirebaseServiceAccountFixture = /*lang=json,strict*/ """
     {
       "type": "service_account",
-      "project_id": "octocon-test",
+      "project_id": "interfold-test",
       "private_key_id": "abc",
       "private_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
       "client_email": "sa@octocon.iam.gserviceaccount.com",
@@ -1070,11 +1070,20 @@ public sealed class ConfigInteractivePromptTests
         var folder = scratch.Path;
         var android = Path.Combine(folder, "google-services.json");
         var ios = Path.Combine(folder, "GoogleService-Info.plist");
-        var web = Path.Combine(folder, "firebase-web-config.json");
+        var web = Path.Combine(folder, "firebaseConfig.js");
         var sa = Path.Combine(folder, "service-account.json");
         File.WriteAllText(android, "{}");
         File.WriteAllText(ios, "<plist/>");
-        File.WriteAllText(web, "{}");
+        File.WriteAllText(web, """
+            const firebaseConfig = {
+              apiKey: "AIzaSyTest-Web-Key",
+              authDomain: "interfold-test.firebaseapp.com",
+              projectId: "interfold-test",
+              storageBucket: "interfold-test.appspot.com",
+              messagingSenderId: "111222333444",
+              appId: "1:111222333444:web:1234567890abcdef"
+            };
+            """);
         File.WriteAllText(sa, FirebaseServiceAccountFixture);
 
         var console = NewConsole();
@@ -1085,6 +1094,7 @@ public sealed class ConfigInteractivePromptTests
         console.Input.PushTextWithEnter(android);
         console.Input.PushTextWithEnter(ios);
         console.Input.PushTextWithEnter(web);
+        console.Input.PushTextWithEnter("BOx-test-vapid-key");
         console.Input.PushTextWithEnter(sa);
         ConfirmForm(console);
 
@@ -1092,7 +1102,8 @@ public sealed class ConfigInteractivePromptTests
 
         await Assert.That(config.Api.Firebase.AndroidConfigPath).IsEqualTo(android);
         await Assert.That(config.Api.Firebase.IosConfigPath).IsEqualTo(ios);
-        await Assert.That(config.Api.Firebase.WebConfigPath).IsEqualTo(web);
+        await Assert.That(config.Api.Firebase.WebConfigPath).IsEqualTo(Path.Combine(folder, "firebase-web-config.json"));
+        await Assert.That(config.Api.Firebase.WebPushKey).IsEqualTo("BOx-test-vapid-key");
         await Assert.That(config.Api.Firebase.ServiceAccountPath).IsEqualTo(sa);
     }
 

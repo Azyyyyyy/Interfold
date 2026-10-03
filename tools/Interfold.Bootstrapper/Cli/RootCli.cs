@@ -50,7 +50,7 @@ public static class RootCli
         // Bootstrap-only: not on AddSharedOptions so publish/up/rotate-* reject unknown flags.
         var reconfigureOpt = new Option<bool>("--reconfigure")
         {
-            Description = "Re-open the interactive config editor seeded from the existing interfold.bootstrap.json, then continue bootstrap."
+            Description = "Ask for guided or advanced setup again from the existing interfold.bootstrap.json, then continue bootstrap."
         };
         // Hidden testability flags - not surfaced in help but accepted by the parser.
         var faultInjectOpt = new Option<string?>("--fault-inject") { Hidden = true };

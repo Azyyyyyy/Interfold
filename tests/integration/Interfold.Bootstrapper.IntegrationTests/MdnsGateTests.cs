@@ -36,12 +36,10 @@ public class MdnsGateTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task NonInteractiveBootstrapStripsUnresolvableLocalHostsAndContinues()
     {
-        // Must invoke `bootstrap` (not `publish`) — ApplyMdnsGateAsync is deliberately gated to
-        // BootstrapCommand.Bootstrap only (see ConfigPhase.cs's `if (options.Command == BootstrapCommand.Bootstrap)`
-        // guard around the gate call). The `publish` / `up` / `update-images` / etc. paths
-        // load the persisted JSON verbatim and never re-warn about stale .local entries — the
-        // operator re-runs `bootstrap` to pick up the strip. To keep the test fast we pair
-        // `bootstrap` with --skip-prereqs (avoids apt install) and --fault-inject=after-publish
+        // Must invoke `bootstrap` (not `publish`) — the mDNS gate runs on bootstrap,
+        // rotate-secrets, and rotate-certs. publish, up, and update-images load the
+        // saved JSON as-is. To keep the test fast we pair `bootstrap` with
+        // --skip-prereqs (avoids apt install) and --fault-inject=after-publish
         // (halts cleanly right after PublishPhase, so certs + compose YAML are produced but
         // db-init / launch / compose-up never run).
         var scratch = await dinD.CreateScratchAsync(

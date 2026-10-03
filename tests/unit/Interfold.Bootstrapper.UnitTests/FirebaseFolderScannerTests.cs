@@ -7,10 +7,10 @@ public sealed class FirebaseFolderScannerTests
     private const string ServiceAccountFixture = """
     {
       "type": "service_account",
-      "project_id": "octocon-test",
+      "project_id": "interfold-test",
       "private_key_id": "abc123xyz",
       "private_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
-      "client_email": "firebase-adminsdk@octocon-test.iam.gserviceaccount.com",
+      "client_email": "firebase-adminsdk@interfold-test.iam.gserviceaccount.com",
       "client_id": "111",
       "auth_uri": "https://accounts.google.com/o/oauth2/auth",
       "token_uri": "https://oauth2.googleapis.com/token"
@@ -38,6 +38,28 @@ public sealed class FirebaseFolderScannerTests
         await Assert.That(result.Section.ServiceAccountPath)
             .IsEqualTo(Path.GetFullPath(Path.Combine(folder, "octocon-firebase-adminsdk-abc123.json")));
         await Assert.That(result.Missing).IsEmpty();
+    }
+
+    [Test]
+    public async Task ScanFindsConsoleFirebaseConfigBlock()
+    {
+        using var scratch = TestSupport.NewScratchDir("firebase-scanner");
+        var folder = scratch.Path;
+        var snippet = Path.Combine(folder, "firebaseConfig.js");
+        File.WriteAllText(snippet, """
+            const firebaseConfig = {
+              apiKey: "AIzaSyTest-Web-Key",
+              authDomain: "interfold-test.firebaseapp.com",
+              projectId: "interfold-test",
+              messagingSenderId: "111222333444",
+              appId: "1:111222333444:web:1234567890abcdef"
+            };
+            """);
+
+        var result = FirebaseFolderScanner.Scan(folder);
+
+        await Assert.That(result.Section.WebConfigPath).IsEqualTo(Path.GetFullPath(snippet));
+        await Assert.That(result.Missing).DoesNotContain(FirebaseFolderScanner.WebPlatform);
     }
 
     [Test]

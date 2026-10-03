@@ -39,8 +39,8 @@ public sealed class FirebasePhaseTests
     {
       "project_info": {
         "project_number": "111222333444",
-        "project_id": "octocon-test",
-        "storage_bucket": "octocon-test.appspot.com"
+        "project_id": "interfold-test",
+        "storage_bucket": "interfold-test.appspot.com"
       },
       "client": [
         {
@@ -64,8 +64,8 @@ public sealed class FirebasePhaseTests
         <key>API_KEY</key><string>AIzaSyTest-Ios-Key</string>
         <key>GOOGLE_APP_ID</key><string>1:111222333444:ios:1234567890abcdef</string>
         <key>GCM_SENDER_ID</key><string>111222333444</string>
-        <key>PROJECT_ID</key><string>octocon-test</string>
-        <key>STORAGE_BUCKET</key><string>octocon-test.appspot.com</string>
+        <key>PROJECT_ID</key><string>interfold-test</string>
+        <key>STORAGE_BUCKET</key><string>interfold-test.appspot.com</string>
         <key>BUNDLE_ID</key><string>app.octocon.ios</string>
         <key>CLIENT_ID</key><string>111222333444-abc.apps.googleusercontent.com</string>
         <key>IS_ADS_ENABLED</key><false/>
@@ -76,9 +76,9 @@ public sealed class FirebasePhaseTests
     private const string WebFixture = /*lang=json,strict*/ """
     {
       "apiKey": "AIzaSyTest-Web-Key",
-      "authDomain": "octocon-test.firebaseapp.com",
-      "projectId": "octocon-test",
-      "storageBucket": "octocon-test.appspot.com",
+      "authDomain": "interfold-test.firebaseapp.com",
+      "projectId": "interfold-test",
+      "storageBucket": "interfold-test.appspot.com",
       "messagingSenderId": "111222333444",
       "appId": "1:111222333444:web:1234567890abcdef",
       "vapidKey": "BOx-test-vapid-key"
@@ -88,10 +88,10 @@ public sealed class FirebasePhaseTests
     private const string ServiceAccountFixture = /*lang=json,strict*/ """
     {
       "type": "service_account",
-      "project_id": "octocon-test",
+      "project_id": "interfold-test",
       "private_key_id": "abc123",
       "private_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
-      "client_email": "sa@octocon-test.iam.gserviceaccount.com",
+      "client_email": "sa@interfold-test.iam.gserviceaccount.com",
       "client_id": "111222333444"
     }
     """;
@@ -160,9 +160,9 @@ public sealed class FirebasePhaseTests
                 .Because("The bootstrapper's emitted JSON must deserialise cleanly into the API's typed record under the same snake_case options SecretsBootstrapService uses.");
             await Assert.That(parsed.ApiKey).IsEqualTo("AIzaSyTest-Android-Key");
             await Assert.That(parsed.ApplicationId).IsEqualTo("1:111222333444:android:abcdef1234567890");
-            await Assert.That(parsed.ProjectId).IsEqualTo("octocon-test");
+            await Assert.That(parsed.ProjectId).IsEqualTo("interfold-test");
             await Assert.That(parsed.GcmSenderId).IsEqualTo("111222333444");
-            await Assert.That(parsed.StorageBucket).IsEqualTo("octocon-test.appspot.com");
+            await Assert.That(parsed.StorageBucket).IsEqualTo("interfold-test.appspot.com");
         }
         finally { TryDelete(dir); }
     }
@@ -192,8 +192,8 @@ public sealed class FirebasePhaseTests
             await Assert.That(parsed.ApiKey).IsEqualTo("AIzaSyTest-Ios-Key");
             await Assert.That(parsed.GoogleAppId).IsEqualTo("1:111222333444:ios:1234567890abcdef");
             await Assert.That(parsed.GcmSenderId).IsEqualTo("111222333444");
-            await Assert.That(parsed.ProjectId).IsEqualTo("octocon-test");
-            await Assert.That(parsed.StorageBucket).IsEqualTo("octocon-test.appspot.com");
+            await Assert.That(parsed.ProjectId).IsEqualTo("interfold-test");
+            await Assert.That(parsed.StorageBucket).IsEqualTo("interfold-test.appspot.com");
             await Assert.That(parsed.BundleId).IsEqualTo("app.octocon.ios");
             await Assert.That(parsed.ClientId).IsEqualTo("111222333444-abc.apps.googleusercontent.com");
         }
@@ -224,11 +224,54 @@ public sealed class FirebasePhaseTests
             await Assert.That(parsed).IsNotNull()
                 .Because("The camelCase console output must be normalised into snake_case so the API's SnakeCaseLower deserialiser accepts the seeded row.");
             await Assert.That(parsed.ApiKey).IsEqualTo("AIzaSyTest-Web-Key");
-            await Assert.That(parsed.AuthDomain).IsEqualTo("octocon-test.firebaseapp.com");
-            await Assert.That(parsed.ProjectId).IsEqualTo("octocon-test");
-            await Assert.That(parsed.StorageBucket).IsEqualTo("octocon-test.appspot.com");
+            await Assert.That(parsed.AuthDomain).IsEqualTo("interfold-test.firebaseapp.com");
+            await Assert.That(parsed.ProjectId).IsEqualTo("interfold-test");
+            await Assert.That(parsed.StorageBucket).IsEqualTo("interfold-test.appspot.com");
             await Assert.That(parsed.MessagingSenderId).IsEqualTo("111222333444");
             await Assert.That(parsed.AppId).IsEqualTo("1:111222333444:web:1234567890abcdef");
+            await Assert.That(parsed.VapidKey).IsEqualTo("BOx-test-vapid-key");
+        }
+        finally { TryDelete(dir); }
+    }
+
+    [Test]
+    public async Task WebSnippet_FillsVapidFromOperatorKey()
+    {
+        var dir = NewTempDir();
+        try
+        {
+            var web = Path.Combine(dir, "firebaseConfig.js");
+            File.WriteAllText(web, """
+                import { initializeApp } from "firebase/app";
+                const firebaseConfig = {
+                  apiKey: "AIzaSyTest-Web-Key",
+                  authDomain: "interfold-test.firebaseapp.com",
+                  projectId: "interfold-test",
+                  storageBucket: "interfold-test.firebasestorage.app",
+                  messagingSenderId: "111222333444",
+                  appId: "1:111222333444:web:1234567890abcdef"
+                };
+                const app = initializeApp(firebaseConfig);
+                """);
+
+            var config = new BootstrapConfig
+            {
+                Api =
+                {
+                    Firebase = new FirebaseSection
+                    {
+                        WebConfigPath = web,
+                        WebPushKey = "BOx-test-vapid-key",
+                    },
+                },
+            };
+            var result = await FirebasePhase.RunAsync(TestOptions(dir), config, Logger(), CancellationToken.None);
+
+            var parsed = JsonSerializer.Deserialize(
+                result.WebClientJson!,
+                FirebaseSnakeCaseWriteContext.Default.FirebaseWebClientConfig)!;
+            await Assert.That(parsed.ApiKey).IsEqualTo("AIzaSyTest-Web-Key");
+            await Assert.That(parsed.StorageBucket).IsEqualTo("interfold-test.firebasestorage.app");
             await Assert.That(parsed.VapidKey).IsEqualTo("BOx-test-vapid-key");
         }
         finally { TryDelete(dir); }

@@ -3,6 +3,7 @@ using Interfold.Bootstrapper.Configuration;
 using Interfold.Infrastructure.Sqlite;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Secrets;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 
 namespace Interfold.Bootstrapper.Phases;
@@ -49,34 +50,47 @@ internal static class SqliteDatabaseInitPhase
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
-        var connectionString = $"Data Source={dbPath}";
-        logger.LogInformation("Sqlite db-init: migrating {Path}", dbPath);
-        await SqliteMigrationService.MigrateAsync(connectionString, logger, ct).ConfigureAwait(false);
-
-        var store = new SqliteSecretsStore(new SqliteConnectionFactory(connectionString), TimeProvider.System);
-        var existingPepper = await store.GetAsync(SecretsStoreKeys.EncryptionPepper, ct).ConfigureAwait(false);
-        if (existingPepper is not null)
+        // Pooling would keep the WAL lock in this process. The API container bind-mounts
+        // the same file and then fails the open with SQLITE_IOERR.
+        var connectionString = new SqliteConnectionStringBuilder
         {
-            logger.LogInformation("Sqlite db-init: secrets already present; skipping upsert");
-            return;
+            DataSource = dbPath,
+            Pooling = false,
+        }.ToString();
+        try
+        {
+            logger.LogInformation("Sqlite db-init: migrating {Path}", dbPath);
+            await SqliteMigrationService.MigrateAsync(connectionString, logger, ct).ConfigureAwait(false);
+
+            var store = new SqliteSecretsStore(new SqliteConnectionFactory(connectionString), TimeProvider.System);
+            var existingPepper = await store.GetAsync(SecretsStoreKeys.EncryptionPepper, ct).ConfigureAwait(false);
+            if (existingPepper is not null)
+            {
+                logger.LogInformation("Sqlite db-init: secrets already present; skipping upsert");
+                return;
+            }
+
+            await UpsertIfPresentAsync(store, SecretsStoreKeys.EncryptionPepper, secrets.EncryptionPepper, ct).ConfigureAwait(false);
+            await UpsertIfPresentAsync(store, SecretsStoreKeys.AuthDeepLinkSecret, secrets.DeepLinkSecret, ct).ConfigureAwait(false);
+            await UpsertIfPresentAsync(store, SecretsStoreKeys.AuthJwtRsa256PrivatePem, secrets.JwtRsa256PrivateKeyPem, ct).ConfigureAwait(false);
+            await UpsertIfPresentAsync(store, SecretsStoreKeys.AuthJwtEs256PrivatePem, secrets.JwtEs256PrivateKeyPem, ct).ConfigureAwait(false);
+            await UpsertIfPresentAsync(store, SecretsStoreKeys.CertsLeafPfxPassword, secrets.LeafPfxPassword, ct).ConfigureAwait(false);
+
+            await UpsertIfPresentAsync(store, SecretsStoreKeys.OAuthGoogleClientSecret, config.Api.OAuth.GoogleClientSecret, ct).ConfigureAwait(false);
+            await UpsertIfPresentAsync(store, SecretsStoreKeys.OAuthDiscordClientSecret, config.Api.OAuth.DiscordClientSecret, ct).ConfigureAwait(false);
+            await UpsertIfPresentAsync(store, SecretsStoreKeys.OAuthAppleClientSecret, config.Api.OAuth.AppleClientSecret, ct).ConfigureAwait(false);
+
+            await UpsertIfPresentAsync(store, SecretsStoreKeys.FirebaseClientAndroid, firebase.AndroidClientJson, ct).ConfigureAwait(false);
+            await UpsertIfPresentAsync(store, SecretsStoreKeys.FirebaseClientIos, firebase.IosClientJson, ct).ConfigureAwait(false);
+            await UpsertIfPresentAsync(store, SecretsStoreKeys.FirebaseClientWeb, firebase.WebClientJson, ct).ConfigureAwait(false);
+            await UpsertIfPresentAsync(store, SecretsStoreKeys.FcmServiceAccountJson, firebase.ServiceAccountJson, ct).ConfigureAwait(false);
+
+            logger.LogInformation("Sqlite db-init: wrote initial secrets");
         }
-
-        await UpsertIfPresentAsync(store, SecretsStoreKeys.EncryptionPepper, secrets.EncryptionPepper, ct).ConfigureAwait(false);
-        await UpsertIfPresentAsync(store, SecretsStoreKeys.AuthDeepLinkSecret, secrets.DeepLinkSecret, ct).ConfigureAwait(false);
-        await UpsertIfPresentAsync(store, SecretsStoreKeys.AuthJwtRsa256PrivatePem, secrets.JwtRsa256PrivateKeyPem, ct).ConfigureAwait(false);
-        await UpsertIfPresentAsync(store, SecretsStoreKeys.AuthJwtEs256PrivatePem, secrets.JwtEs256PrivateKeyPem, ct).ConfigureAwait(false);
-        await UpsertIfPresentAsync(store, SecretsStoreKeys.CertsLeafPfxPassword, secrets.LeafPfxPassword, ct).ConfigureAwait(false);
-
-        await UpsertIfPresentAsync(store, SecretsStoreKeys.OAuthGoogleClientSecret, config.Api.OAuth.GoogleClientSecret, ct).ConfigureAwait(false);
-        await UpsertIfPresentAsync(store, SecretsStoreKeys.OAuthDiscordClientSecret, config.Api.OAuth.DiscordClientSecret, ct).ConfigureAwait(false);
-        await UpsertIfPresentAsync(store, SecretsStoreKeys.OAuthAppleClientSecret, config.Api.OAuth.AppleClientSecret, ct).ConfigureAwait(false);
-
-        await UpsertIfPresentAsync(store, SecretsStoreKeys.FirebaseClientAndroid, firebase.AndroidClientJson, ct).ConfigureAwait(false);
-        await UpsertIfPresentAsync(store, SecretsStoreKeys.FirebaseClientIos, firebase.IosClientJson, ct).ConfigureAwait(false);
-        await UpsertIfPresentAsync(store, SecretsStoreKeys.FirebaseClientWeb, firebase.WebClientJson, ct).ConfigureAwait(false);
-        await UpsertIfPresentAsync(store, SecretsStoreKeys.FcmServiceAccountJson, firebase.ServiceAccountJson, ct).ConfigureAwait(false);
-
-        logger.LogInformation("Sqlite db-init: wrote initial secrets");
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+        }
     }
 
     private static async Task UpsertIfPresentAsync(

@@ -2,6 +2,7 @@ using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
 using Interfold.Shared.Contracts.Configuration;
+using Microsoft.Data.Sqlite;
 using static Interfold.Bootstrapper.Phases.CassandraImagePhase;
 
 namespace Interfold.Bootstrapper.Phases;
@@ -30,6 +31,21 @@ internal static class LaunchPhase
             await EnsureBuiltAsync(logger, ct).ConfigureAwait(false);
         }
 
+        // compose up leaves an existing tag in place. A cached ghcr image can predate
+        // SQLite, so the first bootstrap refreshes registry images before starting it.
+        if (options.Command == BootstrapCommand.Bootstrap)
+            await PullRegistryImagesAsync(composeFile, logger, ct).ConfigureAwait(false);
+
+        // Drop any host SQLite pool before the container bind-mounts the same file.
+        if (config.UsesSqlite)
+            SqliteConnection.ClearAllPools();
+
+        // api.host.local is not the mDNS name, so map it before anything tries to open it.
+        LocalNameHosts.Apply(
+            config,
+            logger,
+            canPrompt: !options.NonInteractive && !Console.IsInputRedirected);
+
         await Util.DockerCompose.UpCheckedAsync(composeFile, services: null, logger, ct).ConfigureAwait(false);
 
         try
@@ -53,6 +69,25 @@ internal static class LaunchPhase
         }
     }
 
+    private static async Task PullRegistryImagesAsync(string composeFile, PhaseLogger logger, CancellationToken ct)
+    {
+        var compose = await File.ReadAllTextAsync(composeFile, ct).ConfigureAwait(false);
+        var services = ComposeRegistryPull.ServicesToPull(compose);
+        if (services.Count == 0)
+            return;
+
+        logger.Info($"    docker compose pull {string.Join(' ', services)}");
+        var pull = await Util.DockerCompose.PullAsync(composeFile, services, ct).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(pull.StdOut)) logger.Info(pull.StdOut.Trim());
+        if (!string.IsNullOrWhiteSpace(pull.StdErr)) logger.Info(pull.StdErr.Trim());
+        if (pull.ExitCode != 0)
+        {
+            logger.PhaseFail("launch", PhaseFailureReasons.PullFailed);
+            throw new InvalidOperationException(
+                $"docker compose pull exited {pull.ExitCode}: {pull.StdErr.Trim()}");
+        }
+    }
+
     private static async Task WaitForApiHealthyAsync(BootstrapConfig config, PhaseLogger logger, CancellationToken ct)
     {
         var readyUrl = ApiReadinessProbe.ResolveReadyUrl(config);
@@ -62,8 +97,8 @@ internal static class LaunchPhase
         var err = await ApiReadinessProbe.TryWaitUntilAsync(config, deadline, logger, ct).ConfigureAwait(false);
         if (err is not null)
         {
-            throw new TimeoutException(
-                $"interfold-api did not become healthy at {readyUrl} within {HealthTimeout.TotalMinutes:F0} minutes.");
+            logger.Error(err);
+            throw new TimeoutException(err);
         }
     }
 

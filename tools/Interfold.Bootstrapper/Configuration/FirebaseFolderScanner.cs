@@ -15,7 +15,7 @@ namespace Interfold.Bootstrapper.Configuration;
 /// <list type="bullet">
 ///   <item>Android — file literally named <c>google-services.json</c>.</item>
 ///   <item>iOS — file literally named <c>GoogleService-Info.plist</c>.</item>
-///   <item>Web — file literally named <c>firebase-web-config.json</c>.</item>
+///   <item>Web — <c>firebase-web-config.json</c>, or another file in the folder that is the console <c>firebaseConfig</c> block.</item>
 ///   <item>Service account — glob <c>*-firebase-adminsdk-*.json</c> first (matches
 ///         Google's downloaded default <c>{project-id}-firebase-adminsdk-{hash}.json</c>);
 ///         if no glob hit, iterate every remaining <c>*.json</c> and pick the first one
@@ -93,8 +93,8 @@ public static class FirebaseFolderScanner
         if (File.Exists(iosPath)) section.IosConfigPath = Path.GetFullPath(iosPath);
         else missing.Add(IosPlatform);
 
-        var webPath = Path.Combine(folder, WebFileName);
-        if (File.Exists(webPath)) section.WebConfigPath = Path.GetFullPath(webPath);
+        var webPath = FindWebConfig(folder);
+        if (webPath is not null) section.WebConfigPath = webPath;
         else missing.Add(WebPlatform);
 
         var serviceAccountPath = FindServiceAccount(folder);
@@ -102,6 +102,34 @@ public static class FirebaseFolderScanner
         else missing.Add(ServiceAccountPlatform);
 
         return new FirebaseFolderScanResult(section, missing);
+    }
+
+    private static string? FindWebConfig(string folder)
+    {
+        var named = Path.Combine(folder, WebFileName);
+        if (File.Exists(named)) return Path.GetFullPath(named);
+
+        foreach (var candidate in Directory.EnumerateFiles(folder).OrderBy(p => p, StringComparer.Ordinal))
+        {
+            var name = Path.GetFileName(candidate);
+            if (name.Equals(AndroidFileName, StringComparison.OrdinalIgnoreCase)
+                || name.Equals(IosFileName, StringComparison.OrdinalIgnoreCase)
+                || name.Contains("adminsdk", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (FirebaseWebSnippet.TryRead(File.ReadAllText(candidate), out _))
+                    return Path.GetFullPath(candidate);
+            }
+            catch (IOException)
+            {
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
