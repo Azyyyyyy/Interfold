@@ -196,10 +196,11 @@ internal static class UpdateImagesPhase
     }
 
     /// <summary>Only cassandra mode, and only when <c>cassandra</c> is in scope; otherwise
-    /// <c>--service msg-db</c> would trigger an unrelated rebuild. Pull side is handled by
-    /// <see cref="PublishPhase.StampCassandraPullPolicyNever"/>.</summary>
+    /// <c>--service msg-db</c> would trigger an unrelated rebuild. Sqlite persistence has no
+    /// CQL image. Pull side is handled by <see cref="PublishPhase.StampCassandraPullPolicyNever"/>.</summary>
     internal static bool ShouldRebuildCassandra(BootstrapConfig config, IReadOnlyList<string> effectiveServices)
     {
+        if (config.UsesSqlite) return false;
         if (!CassandraImagePhase.IsCassandraDeployment(config)) return false;
         if (effectiveServices.Count == 0) return true;
         return effectiveServices.Contains(ComposeServices.Cassandra, StringComparer.Ordinal);
@@ -416,32 +417,75 @@ internal static class UpdateImagesPhase
         return ParseContainerImageFields(run.StdOut);
     }
 
-    /// <summary>Bounded probe across Postgres (pg_isready), Scylla/Cassandra (nodetool status),
-    /// and the API (<c>GET /health/ready</c>). Returns null on success, else an operator-facing
-    /// message. Shared deadline so no single tier can starve the others.</summary>
+    /// <summary>Tiers <c>update-images</c> probes after recreate. Sqlite has no Postgres or CQL container.</summary>
+    internal enum UpdateHealthProbe
+    {
+        Postgres,
+        Cql,
+        Api,
+    }
+
+    /// <summary>Sqlite probes the API only. CQL modes also wait on Postgres and Scylla/Cassandra.</summary>
+    internal static IReadOnlyList<UpdateHealthProbe> ResolveHealthProbes(BootstrapConfig config)
+        => config.UsesSqlite
+            ? [UpdateHealthProbe.Api]
+            : [UpdateHealthProbe.Postgres, UpdateHealthProbe.Cql, UpdateHealthProbe.Api];
+
+    /// <summary>Compose services whose logs are worth dumping when the health check fails.</summary>
+    internal static IReadOnlyList<string> ResolveHealthFailureLogServices(BootstrapConfig config)
+        => config.UsesSqlite
+            ? [ComposeServices.InterfoldApi, ComposeServices.InterfoldWeb]
+            : [
+                ComposeServices.Postgres,
+                ComposeServices.ScyllaSingle,
+                ComposeServices.ScyllaNam,
+                ComposeServices.Cassandra,
+                ComposeServices.InterfoldApi,
+                ComposeServices.InterfoldWeb,
+            ];
+
+    /// <summary>Bounded probe of <see cref="ResolveHealthProbes"/>. Returns null on success,
+    /// else an operator-facing message. Shared deadline so no single tier can starve the others.</summary>
     private static async Task<string?> CheckStackHealthAsync(
         string composeFile, BootstrapConfig config, string outputDir, TimeSpan totalTimeout,
         PhaseLogger logger, CancellationToken ct)
     {
+        var probes = ResolveHealthProbes(config);
         var deadline = DateTime.UtcNow + totalTimeout;
-        logger.Info($"    health-check: bounded to {totalTimeout.TotalSeconds:F0}s across postgres+scylla+api");
+        logger.Info($"    health-check: bounded to {totalTimeout.TotalSeconds:F0}s across {DescribeHealthProbes(probes)}");
 
-        // pg_isready TCP probe — succeeds only after the listener (not just the init Unix socket) is up.
-        var pgErr = await WaitForPostgresReadyAsync(composeFile, deadline, logger, ct).ConfigureAwait(false);
-        if (pgErr is not null) return pgErr;
+        if (probes.Contains(UpdateHealthProbe.Postgres))
+        {
+            // pg_isready TCP probe — succeeds only after the listener (not just the init Unix socket) is up.
+            var pgErr = await WaitForPostgresReadyAsync(composeFile, deadline, logger, ct).ConfigureAwait(false);
+            if (pgErr is not null) return pgErr;
+        }
 
-        // nodetool status is the leanest probe that doesn't need the app password; passes
-        // once the node reports UN.
-        var (scyllaService, _) = BackupPhase.ResolveScyllaSeed(config);
-        var scErr = await WaitForScyllaReadyAsync(composeFile, scyllaService, deadline, logger, ct).ConfigureAwait(false);
-        if (scErr is not null) return scErr;
+        if (probes.Contains(UpdateHealthProbe.Cql))
+        {
+            // nodetool status is the leanest probe that doesn't need the app password; passes
+            // once the node reports UN.
+            var (scyllaService, _) = BackupPhase.ResolveScyllaSeed(config);
+            var scErr = await WaitForScyllaReadyAsync(composeFile, scyllaService, deadline, logger, ct).ConfigureAwait(false);
+            if (scErr is not null) return scErr;
+        }
 
         var apiErr = await WaitForApiReadyAsync(config, outputDir, deadline, logger, ct).ConfigureAwait(false);
         if (apiErr is not null) return apiErr;
 
-        logger.Info("    health-check: all three tiers ready");
+        logger.Info(probes.Count == 1
+            ? "    health-check: api ready"
+            : "    health-check: all three tiers ready");
         return null;
     }
+
+    private static string DescribeHealthProbes(IReadOnlyList<UpdateHealthProbe> probes)
+        => string.Join('+', probes.Select(static probe => probe switch
+        {
+            UpdateHealthProbe.Postgres => "postgres",
+            UpdateHealthProbe.Cql => "scylla",
+            _ => "api",
+        }));
 
     private static Task<string?> WaitForPostgresReadyAsync(
         string composeFile, DateTime deadline, PhaseLogger logger, CancellationToken ct)
@@ -482,8 +526,8 @@ internal static class UpdateImagesPhase
         logger.Error($"health check failed: {healthErr}");
 
         // Best-effort log dump so operators don't have to shell in for a diagnosis.
-        var suspects = new[] { ComposeServices.Postgres, ComposeServices.ScyllaSingle, ComposeServices.ScyllaNam, ComposeServices.Cassandra, ComposeServices.InterfoldApi, ComposeServices.InterfoldWeb };
-        await ComposeLogDumper.DumpAsync(composeFile, suspects, tailLines: 200, logger, ct).ConfigureAwait(false);
+        await ComposeLogDumper.DumpAsync(
+            composeFile, ResolveHealthFailureLogServices(config), tailLines: 200, logger, ct).ConfigureAwait(false);
 
         // Clean stopped state so a restore/retry doesn't fight half-recreated containers.
         logger.Info("    docker compose down ...");
