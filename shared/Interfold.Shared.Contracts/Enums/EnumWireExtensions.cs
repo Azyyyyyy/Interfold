@@ -34,5 +34,5 @@ public static class EnumWireExtensions
         => ParseWithDefault(raw, ScyllaKeyspace.Nam, trimmed => $"Unrecognised scylla keyspace '{trimmed}'. Valid values: nam, eur, sam, sas, eas, ocn, gdpr.");
 
     public static PersistenceMode ParsePersistenceMode(string? raw)
-        => ParseWithDefault(raw, PersistenceMode.ScyllaPostgres, trimmed => $"Unsupported OCTOCON_PERSISTENCE value '{trimmed}'. Expected: scylla-postgres | inmemory.");
+        => ParseWithDefault(raw, PersistenceMode.ScyllaPostgres, trimmed => $"Unsupported OCTOCON_PERSISTENCE value '{trimmed}'. Expected: scylla-postgres | inmemory | sqlite.");
 }

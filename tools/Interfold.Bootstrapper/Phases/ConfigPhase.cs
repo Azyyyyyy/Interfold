@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Configuration.Validation;
 using Interfold.Shared.Contracts.Enums;
@@ -37,9 +38,9 @@ internal static class ConfigPhase
                         "Omit --non-interactive and run from a terminal (stdin must not be redirected).");
                 }
 
-                logger.Info("    --reconfigure: opening interactive editor seeded from existing config");
+                logger.Info("    --reconfigure: choosing guided or advanced setup from the existing config");
                 var mdnsHostname = await ApplyPreFillMdnsCheckAsync(options, logger, ct).ConfigureAwait(false);
-                config = PromptForConfig(
+                config = GuidedConfigPrompt.Run(
                     AnsiConsole.Console,
                     maskSecrets: true,
                     hostnameProbe: () => mdnsHostname,
@@ -60,9 +61,7 @@ internal static class ConfigPhase
             // mdnsHostname is null when .local won't resolve, so we don't pre-fill a broken name.
             var mdnsHostname = await ApplyPreFillMdnsCheckAsync(options, logger, ct).ConfigureAwait(false);
 
-            // Tests pass maskSecrets: false so Spectre's ReadKey secret path doesn't
-            // fight the TestConsole input queue.
-            config = PromptForConfig(
+            config = GuidedConfigPrompt.Run(
                 AnsiConsole.Console,
                 maskSecrets: true,
                 hostnameProbe: () => mdnsHostname);
@@ -78,8 +77,12 @@ internal static class ConfigPhase
 
         Validate(config);
 
-        // Post-fill mDNS gate is bootstrap-only — other subcommands load JSON verbatim.
-        if (options.Command == BootstrapCommand.Bootstrap)
+        // These commands relaunch and then probe the public API name. A .local entry
+        // that does not resolve fails that probe, so drop it here. publish and up
+        // leave the saved file alone.
+        if (options.Command is BootstrapCommand.Bootstrap
+            or BootstrapCommand.RotateSecrets
+            or BootstrapCommand.RotateCerts)
         {
             var mutated = await ApplyMdnsGateAsync(config, options, logger, ct).ConfigureAwait(false);
             if (mutated)
@@ -271,21 +274,47 @@ internal static class ConfigPhase
                                                     () => c.Edge.Ports.Https = PromptInt("Edge HTTPS port (ignored when tlsMode=none)", c.Edge.Ports.Https, 1, 65535))),
 
             Group("Datastores",
-                ("CQL backend",                     () => c.Datastores.Cql.Backend.ToWire(),
-                                                    () => c.Datastores.Cql.Backend = CqlBackendMapping.ParseWire(console.Prompt(
-                                                        new TextPrompt<string>("CQL backend:")
-                                                            .DefaultValue(c.Datastores.Cql.Backend.ToWire())
-                                                            .AddChoices(ValidCqlBackends)))),
-                ("Postgres application DB name",    () => c.Datastores.Postgres.Database,
-                                                    () => c.Datastores.Postgres.Database = PromptStr("Postgres application DB name", c.Datastores.Postgres.Database)),
-                ("Cluster name",                    () => c.Datastores.Cql.ClusterName,
-                                                    () => c.Datastores.Cql.ClusterName = PromptStr("Cluster name (Scylla/Cassandra)", c.Datastores.Cql.ClusterName)),
-                // AddChoices enforces the seven valid keyspaces (Validate mirrors this non-interactively).
-                ("Scylla keyspace (region)",        () => c.Datastores.Cql.Keyspace.ToWire(),
-                                                    () => c.Datastores.Cql.Keyspace = EnumWireExtensions.ParseScyllaKeyspace(console.Prompt(
-                                                        new TextPrompt<string>("Scylla keyspace (region):")
-                                                            .DefaultValue(c.Datastores.Cql.Keyspace.ToWire())
-                                                            .AddChoices(ValidScyllaKeyspaces))))),
+                ("Persistence",                     () => c.Datastores.Persistence == PersistenceMode.Sqlite
+                                                        ? PersistenceMode.Sqlite.ToWire()
+                                                        : PersistenceMode.ScyllaPostgres.ToWire(),
+                                                    () => c.Datastores.Persistence = EnumWireExtensions.ParseWithDefault(
+                                                        console.Prompt(new TextPrompt<string>("Persistence:")
+                                                            .DefaultValue(c.UsesSqlite
+                                                                ? PersistenceMode.Sqlite.ToWire()
+                                                                : PersistenceMode.ScyllaPostgres.ToWire())
+                                                            .AddChoices(ValidBootstrapPersistenceModes)),
+                                                        PersistenceMode.Sqlite,
+                                                        trimmed => $"Unrecognised persistence '{trimmed}'. Valid values: scylla-postgres, sqlite.")),
+                ("CQL backend",                     () => c.UsesSqlite ? "(n/a)" : c.Datastores.Cql.Backend.ToWire(),
+                                                    () =>
+                                                    {
+                                                        if (c.UsesSqlite) return;
+                                                        c.Datastores.Cql.Backend = CqlBackendMapping.ParseWire(console.Prompt(
+                                                            new TextPrompt<string>("CQL backend:")
+                                                                .DefaultValue(c.Datastores.Cql.Backend.ToWire())
+                                                                .AddChoices(ValidCqlBackends)));
+                                                    }),
+                ("Postgres application DB name",    () => c.UsesSqlite ? "(n/a)" : c.Datastores.Postgres.Database,
+                                                    () =>
+                                                    {
+                                                        if (c.UsesSqlite) return;
+                                                        c.Datastores.Postgres.Database = PromptStr("Postgres application DB name", c.Datastores.Postgres.Database);
+                                                    }),
+                ("Cluster name",                    () => c.UsesSqlite ? "(n/a)" : c.Datastores.Cql.ClusterName,
+                                                    () =>
+                                                    {
+                                                        if (c.UsesSqlite) return;
+                                                        c.Datastores.Cql.ClusterName = PromptStr("Cluster name (Scylla/Cassandra)", c.Datastores.Cql.ClusterName);
+                                                    }),
+                ("Scylla keyspace (region)",        () => c.UsesSqlite ? "(n/a)" : c.Datastores.Cql.Keyspace.ToWire(),
+                                                    () =>
+                                                    {
+                                                        if (c.UsesSqlite) return;
+                                                        c.Datastores.Cql.Keyspace = EnumWireExtensions.ParseScyllaKeyspace(console.Prompt(
+                                                            new TextPrompt<string>("Scylla keyspace (region):")
+                                                                .DefaultValue(c.Datastores.Cql.Keyspace.ToWire())
+                                                                .AddChoices(ValidScyllaKeyspaces)));
+                                                    })),
 
             // Derivable rows snapshot into ResolveDerivedDefaults so the menu paints the
             // computed default before Enter.
@@ -615,7 +644,7 @@ internal static class ConfigPhase
     }
 
     /// <summary>Menu-row summary: <c>off</c> or <c>N/4 configured (...)</c>.</summary>
-    private static string ShowFirebaseState(FirebaseSection section)
+    internal static string ShowFirebaseState(FirebaseSection section)
     {
         var platforms = new List<string>(4);
         if (!string.IsNullOrEmpty(section.AndroidConfigPath)) platforms.Add("android");
@@ -653,8 +682,7 @@ internal static class ConfigPhase
                     "Path to google-services.json", section.AndroidConfigPath);
                 section.IosConfigPath = PromptFirebasePath(console,
                     "Path to GoogleService-Info.plist", section.IosConfigPath);
-                section.WebConfigPath = PromptFirebasePath(console,
-                    "Path to firebase-web-config.json", section.WebConfigPath);
+                PromptFirebaseWeb(console, section);
                 section.ServiceAccountPath = PromptFirebasePath(console,
                     "Path to FCM v1 service-account JSON", section.ServiceAccountPath);
                 break;
@@ -663,7 +691,43 @@ internal static class ConfigPhase
                 section.AndroidConfigPath = string.Empty;
                 section.IosConfigPath = string.Empty;
                 section.WebConfigPath = string.Empty;
+                section.WebPushKey = string.Empty;
                 section.ServiceAccountPath = string.Empty;
+                break;
+        }
+    }
+
+    internal const string FirebaseGuidedSkip = "Skip";
+
+    /// <summary>Firebase setup without Clear. Skip is listed first once a path is set, so Enter keeps it.</summary>
+    internal static void PromptGuidedFirebase(IAnsiConsole console, FirebaseSection section)
+    {
+        var configured = !string.IsNullOrEmpty(section.AndroidConfigPath)
+            || !string.IsNullOrEmpty(section.IosConfigPath)
+            || !string.IsNullOrEmpty(section.WebConfigPath)
+            || !string.IsNullOrEmpty(section.ServiceAccountPath);
+        var choices = configured
+            ? new[] { FirebaseGuidedSkip, FirebaseChoiceAutoDetect, FirebaseChoicePerFile }
+            : new[] { FirebaseChoiceAutoDetect, FirebaseChoicePerFile, FirebaseGuidedSkip };
+        var choice = console.Prompt(
+            new SelectionPrompt<string>()
+                .Title("[bold]Firebase push notifications[/]")
+                .AddChoices(choices));
+
+        switch (choice)
+        {
+            case FirebaseChoiceAutoDetect:
+                PromptFirebaseFolder(console, section);
+                break;
+
+            case FirebaseChoicePerFile:
+                section.AndroidConfigPath = PromptFirebasePath(console,
+                    "Path to google-services.json", section.AndroidConfigPath);
+                section.IosConfigPath = PromptFirebasePath(console,
+                    "Path to GoogleService-Info.plist", section.IosConfigPath);
+                PromptFirebaseWeb(console, section);
+                section.ServiceAccountPath = PromptFirebasePath(console,
+                    "Path to FCM v1 service-account JSON", section.ServiceAccountPath);
                 break;
         }
     }
@@ -689,8 +753,68 @@ internal static class ConfigPhase
         section.IosConfigPath = result.Section.IosConfigPath;
         section.WebConfigPath = result.Section.WebConfigPath;
         section.ServiceAccountPath = result.Section.ServiceAccountPath;
+        if (!string.IsNullOrEmpty(section.WebConfigPath))
+            ApplyWebPushKey(console, section);
 
         RenderFirebaseScanSummary(console, result);
+    }
+
+    private static void PromptFirebaseWeb(IAnsiConsole console, FirebaseSection section)
+    {
+        console.MarkupLine("[grey]Save only the firebaseConfig block from Project settings, Your apps, Web.[/]");
+        console.MarkupLine("[grey]It looks like const firebaseConfig = { ... };[/]");
+        console.MarkupLine("[grey]Leave out the import lines above it.[/]");
+        while (true)
+        {
+            var fallback = string.IsNullOrEmpty(section.WebConfigPath) ? string.Empty : section.WebConfigPath;
+            var path = PromptFirebasePath(console, "Path to that firebaseConfig file", fallback);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                section.WebConfigPath = string.Empty;
+                section.WebPushKey = string.Empty;
+                return;
+            }
+
+            if (!FirebaseWebSnippet.TryRead(File.ReadAllText(path), out var fields))
+            {
+                console.MarkupLine("[red]That file is not the firebaseConfig block.[/]");
+                section.WebConfigPath = string.Empty;
+                continue;
+            }
+
+            var saved = SaveWebConfig(console, section, path, fields);
+            section.WebConfigPath = saved;
+            return;
+        }
+    }
+
+    private static void ApplyWebPushKey(IAnsiConsole console, FirebaseSection section)
+    {
+        if (!FirebaseWebSnippet.TryRead(File.ReadAllText(section.WebConfigPath), out var fields))
+            return;
+
+        section.WebConfigPath = SaveWebConfig(console, section, section.WebConfigPath, fields);
+    }
+
+    private static string SaveWebConfig(
+        IAnsiConsole console,
+        FirebaseSection section,
+        string sourcePath,
+        FirebaseWebSnippetFields fields)
+    {
+        var vapidDefault = !string.IsNullOrWhiteSpace(fields.VapidKey)
+            ? fields.VapidKey!
+            : section.WebPushKey;
+        var vapid = console.Prompt(
+            new TextPrompt<string>("Web Push key (from Cloud Messaging, Web Push certificates):")
+                .DefaultValue(vapidDefault)
+                .Validate(value => string.IsNullOrWhiteSpace(value)
+                    ? ValidationResult.Error("[red]Copy the key pair from Web Push certificates.[/]")
+                    : ValidationResult.Success()));
+        section.WebPushKey = vapid.Trim();
+        var directory = Path.GetDirectoryName(Path.GetFullPath(sourcePath))
+            ?? throw new InvalidOperationException($"Firebase web config '{sourcePath}' has no directory.");
+        return FirebaseWebSnippet.Save(directory, fields.WithVapid(section.WebPushKey));
     }
 
     /// <summary>Blank leaves the platform unwired; non-blank must resolve to an existing
@@ -825,6 +949,12 @@ internal static class ConfigPhase
         .Select(b => b.ToWire())
         .ToArray();
 
+    internal static readonly string[] ValidBootstrapPersistenceModes =
+    [
+        PersistenceMode.ScyllaPostgres.ToWire(),
+        PersistenceMode.Sqlite.ToWire(),
+    ];
+
     internal static readonly string[] ValidEdgeTlsModes = Enum
         .GetValues<EdgeTlsMode>()
         .Select(m => m.ToWire())
@@ -847,12 +977,82 @@ internal static class ConfigPhase
            && !string.IsNullOrWhiteSpace(config.Edge.Routing.ApiHost)
            && !string.IsNullOrWhiteSpace(config.Edge.Routing.WebHost);
 
+    internal static string FormatPublicApiOrigin(BootstrapConfig config)
+    {
+        if (IsSubdomainPair(config))
+        {
+            return FormatPublicOrigin(config, config.Edge.Routing.ApiHost.Trim());
+        }
+
+        var parsed = new List<HostEntry>();
+        foreach (var raw in config.Edge.Hosts)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+
+            try
+            {
+                parsed.Add(HostParser.Parse(raw));
+            }
+            catch (FormatException)
+            {
+            }
+        }
+
+        var primary = HostParser.PickPrimary(parsed);
+        return primary is null ? string.Empty : FormatPublicApiOrigin(config, primary);
+    }
+
     private static string FormatPublicApiOrigin(BootstrapConfig config, HostEntry primary)
     {
         var host = IsSubdomainPair(config)
             ? config.Edge.Routing.ApiHost.Trim()
             : HostParser.ToUrlHost(primary);
+        return FormatPublicOrigin(config, host);
+    }
 
+    /// <summary>Browser origin for <c>interfold-web</c>. Empty when the web UI is off.
+    /// Subdomain routing uses <c>webHost</c>; path routing uses the same primary host as the API.</summary>
+    internal static string FormatPublicWebOrigin(BootstrapConfig config)
+    {
+        if (!config.Deployment.IncludeWeb || config.Edge.Hosts.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var parsed = new List<HostEntry>(config.Edge.Hosts.Count);
+        foreach (var raw in config.Edge.Hosts)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+
+            try
+            {
+                parsed.Add(HostParser.Parse(raw));
+            }
+            catch (FormatException)
+            {
+            }
+        }
+
+        var primary = HostParser.PickPrimary(parsed);
+        if (primary is null && !IsSubdomainPair(config))
+        {
+            return string.Empty;
+        }
+
+        var host = IsSubdomainPair(config)
+            ? config.Edge.Routing.WebHost.Trim()
+            : HostParser.ToUrlHost(primary!);
+        return FormatPublicOrigin(config, host);
+    }
+
+    private static string FormatPublicOrigin(BootstrapConfig config, string host)
+    {
         if (config.Edge.Cloudflare.Enabled)
         {
             return $"https://{host}";
@@ -1021,6 +1221,14 @@ internal static class ConfigPhase
 
         ValidatePort(config.Edge.Ports.Http, nameof(config.Edge.Ports.Http));
         ValidatePort(config.Edge.Ports.Https, nameof(config.Edge.Ports.Https));
+
+        if (config.Datastores.Persistence is not PersistenceMode.ScyllaPostgres
+            and not PersistenceMode.Sqlite)
+        {
+            throw new InvalidOperationException(
+                $"config.datastores.persistence='{config.Datastores.Persistence.ToWire()}' is not a deployable mode. " +
+                "Expected: scylla-postgres | sqlite.");
+        }
 
         var portFields = new List<(string Name, int Port)>(2)
         {
@@ -1274,11 +1482,12 @@ internal static class ConfigPhase
                     "config.edge.cloudflare.access.enabled=true requires cloudflare.enabled=true (Access sits on tunnel hostnames).");
             }
 
-            if (string.IsNullOrWhiteSpace(config.Api.OAuth.GoogleClientId)
-                || string.IsNullOrWhiteSpace(config.Api.OAuth.GoogleClientSecret))
+            var googleReady = CloudflareAccessPhase.HasGoogleOAuth(config.Api.OAuth);
+            var discordReady = CloudflareAccessPhase.HasDiscordOAuth(config.Api.OAuth);
+            if (!googleReady && !discordReady)
             {
                 throw new InvalidOperationException(
-                    "config.api.oauth.googleClientId and googleClientSecret are required when cloudflare.access.enabled=true.");
+                    "config.api.oauth googleClientId and googleClientSecret, or discordClientId and discordClientSecret, are required when cloudflare.access.enabled=true.");
             }
 
             var emails = edge.Cloudflare.Access.AllowedEmails
@@ -1368,6 +1577,9 @@ internal static class ConfigPhase
     /// </summary>
     private static readonly Regex BackupSchedulePattern =
         new(@"^[A-Za-z0-9 .,:\-*/]{1,256}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    internal static bool IsAllowedBackupSchedule(string? schedule) =>
+        !string.IsNullOrWhiteSpace(schedule) && BackupSchedulePattern.IsMatch(schedule);
 
     private static void ValidatePort(int port, string field)
     {

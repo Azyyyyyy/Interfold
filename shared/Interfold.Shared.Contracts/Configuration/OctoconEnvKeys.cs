@@ -10,6 +10,7 @@ public static class OctoconEnvKeys
     public const string Persistence = "OCTOCON_PERSISTENCE";
     public const string ScyllaKeyspace = "OCTOCON_SCYLLA_KEYSPACE";
     public const string PostgresConnection = "OCTOCON_POSTGRES_CONNECTION";
+    public const string SqliteConnection = "OCTOCON_SQLITE_CONNECTION";
     public const string SingleScyllaInstance = "OCTOCON_SINGLE_SCYLLA_INSTANCE";
     public const string DbRetryAttempts = "OCTOCON_DB_RETRY_ATTEMPTS";
     public const string DbRetryInitialDelayMs = "OCTOCON_DB_RETRY_INITIAL_DELAY_MS";

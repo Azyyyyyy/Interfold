@@ -3,6 +3,7 @@ using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
 using Interfold.Bootstrapper.Util;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using TUnit.Core.Exceptions;
 
@@ -128,6 +129,7 @@ public sealed class EmbeddedSupportFilesTests
     {
         using var scratch = TestSupport.NewScratchDir("interfold-publish-support");
         var config = new BootstrapConfig();
+        config.Datastores.Persistence = PersistenceMode.ScyllaPostgres;
         config.Datastores.Cql.Backend = CqlBackend.ScyllaSingle;
         config.Edge.Hosts = ["api.example.com"];
         ConfigPhase.ResolveDerivedDefaults(config);

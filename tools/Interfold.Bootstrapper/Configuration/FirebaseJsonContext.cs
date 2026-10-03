@@ -6,7 +6,7 @@ namespace Interfold.Bootstrapper.Configuration;
 
 /// <summary>Source-gen contexts for <see cref="FirebasePhase"/> JSON I/O.
 /// Naming policies differ per input (Google snake_case vs console camelCase) and the
-/// seeded output is always snake_case — three contexts keep each policy compile-time.</summary>
+/// seeded output is always snake_case. The saved web file is indented camelCase.</summary>
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
@@ -21,7 +21,15 @@ internal sealed partial class FirebaseSnakeCaseReadContext : JsonSerializerConte
     PropertyNameCaseInsensitive = true,
     RespectRequiredConstructorParameters = true)]
 [JsonSerializable(typeof(FirebaseWebClientConfig))]
+[JsonSerializable(typeof(FirebaseWebSnippetFields))]
 internal sealed partial class FirebaseCamelCaseReadContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    WriteIndented = true,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(FirebaseWebClientConfig))]
+internal sealed partial class FirebaseCamelCaseWriteContext : JsonSerializerContext;
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,

@@ -21,5 +21,6 @@ public static class AltersModuleServiceCollectionExtensions
             .AddSingleton<CreateAlterCommandHandler>()
             .AddSingleton<UpdateAlterCommandHandler>()
             .AddSingleton<DeleteAlterCommandHandler>()
+            .AddSingleton<IAlterDeletion, AlterDeletion>()
             .AddSingleton<IAlterExistenceCheck, AlterExistenceCheckAdapter>();
 }

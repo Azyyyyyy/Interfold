@@ -19,4 +19,7 @@ public enum PersistenceMode
 
     [JsonStringEnumMemberName("scylla-postgres")]
     ScyllaPostgres,
+
+    [JsonStringEnumMemberName("sqlite")]
+    Sqlite,
 }

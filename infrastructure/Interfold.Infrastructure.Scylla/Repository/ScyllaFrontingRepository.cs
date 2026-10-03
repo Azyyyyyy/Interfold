@@ -210,7 +210,8 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
                     if (!alterById.TryGetValue(alterId, out var alter))
                     {
-                        alter = BareAlter.CreatePlaceholder(alterId);
+                        throw new InvalidOperationException(
+                            $"Alter {alterId.Value} is missing but referenced by an active front.");
                     }
 
                     return new FrontActiveReadModel(alter, front, primaryAlterId == alterId);
@@ -348,7 +349,8 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             BareAlter alter;
             if (alterRow is null)
             {
-                alter = BareAlter.CreatePlaceholder(new(alterId));
+                throw new InvalidOperationException(
+                    $"Alter {alterId} is missing but referenced by an active front.");
             }
             else
             {
@@ -501,6 +503,72 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 comment, normalizedSystemId, current.AlterId, current.FrontId, current.StartedAt));
             await session.ExecuteAsync(commentBatch);
             return true;
+        }, cancellationToken);
+    }
+
+    public async Task<FrontAlterRemoval> DeleteAllForAlterAsync(
+        SystemId systemId,
+        AlterId alterId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
+        {
+            var (session, keyspace, normalizedSystemId) = scope;
+            var alterIdShort = alterId.Value;
+
+            var activeFront = await session.ExecuteAsync(new SimpleStatement(
+                $"SELECT alter_id FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ? LIMIT 1",
+                normalizedSystemId,
+                alterIdShort));
+            var hadActiveFront = activeFront.Any();
+
+            await session.ExecuteAsync(new SimpleStatement(
+                $"DELETE FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ?",
+                normalizedSystemId,
+                alterIdShort));
+
+            var frontRows = await session.ExecuteAsync(new SimpleStatement(
+                $"SELECT id, time_start FROM {keyspace}.fronts_by_alter WHERE user_id = ? AND alter_id = ?",
+                normalizedSystemId,
+                alterIdShort));
+
+            if (frontRows.Any())
+            {
+                var frontBatch = new BatchStatement();
+                foreach (var frontRow in frontRows)
+                {
+                    var frontId = frontRow.GetValue<Guid>("id");
+                    var timeStart = frontRow.GetValue<DateTimeOffset>("time_start");
+                    frontBatch.Add(new SimpleStatement(
+                        $"DELETE FROM {keyspace}.fronts WHERE user_id = ? AND id = ? AND time_start = ?",
+                        normalizedSystemId, frontId, timeStart));
+                    frontBatch.Add(new SimpleStatement(
+                        $"DELETE FROM {keyspace}.fronts_by_alter WHERE user_id = ? AND alter_id = ? AND id = ? AND time_start = ?",
+                        normalizedSystemId, alterIdShort, frontId, timeStart));
+                    // Closed-front rows are stored under their real time_end, so this misses them.
+                    frontBatch.Add(new SimpleStatement(
+                        $"DELETE FROM {keyspace}.fronts_by_time WHERE user_id = ? AND time_start = ? AND time_end = ? AND id = ?",
+                        normalizedSystemId, timeStart, DateTimeOffset.MaxValue, frontId));
+                    frontBatch.Add(new SimpleStatement(
+                        $"DELETE FROM {keyspace}.fronts_by_end_time WHERE user_id = ? AND time_end = ? AND time_start = ? AND id = ?",
+                        normalizedSystemId, DateTimeOffset.MaxValue, timeStart, frontId));
+                }
+                await session.ExecuteAsync(frontBatch);
+            }
+
+            var currentPrimary = await ScyllaSharedQueries.LoadPrimaryFrontAlterAsync(session, keyspace, normalizedSystemId);
+            var primaryCleared = currentPrimary == new AlterId(alterIdShort);
+            if (primaryCleared)
+            {
+                await session.ExecuteAsync(new SimpleStatement(
+                    $"UPDATE {keyspace}.users SET primary_front_alter = null WHERE id = ?",
+                    normalizedSystemId));
+            }
+
+            return new FrontAlterRemoval(
+                frontRows.Select(row => new FrontId(row.GetValue<Guid>("id"))).ToArray(),
+                hadActiveFront,
+                primaryCleared);
         }, cancellationToken);
     }
 

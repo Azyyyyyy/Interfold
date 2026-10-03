@@ -1,6 +1,7 @@
 using Interfold.AppHost;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Configuration;
 
@@ -12,12 +13,17 @@ public sealed class PublishEnvPostProcessingTests
 {
     private static (BootstrapConfig Config, GeneratedSecrets Secrets) MakeInputs(
         string? apiImage = null,
-        CqlBackend backend = CqlBackend.ScyllaSingle)
+        CqlBackend backend = CqlBackend.ScyllaSingle,
+        PersistenceMode persistence = PersistenceMode.ScyllaPostgres)
     {
         var config = new BootstrapConfig
         {
             Api = { Image = apiImage ?? DefaultContainerImages.Api },
-            Datastores = { Cql = { Backend = backend } },
+            Datastores =
+            {
+                Persistence = persistence,
+                Cql = { Backend = backend },
+            },
         };
         // Edge.Hosts has no placeholder; without a seed ResolveDerivedDefaults has
         // nothing to feed CallbackBaseUrl / JwtAuthority / CorsAllowedOrigins from.
@@ -435,12 +441,37 @@ public sealed class PublishEnvPostProcessingTests
     }
 
     [Test]
+    public async Task TranslateDatabaseModeSqliteDisablesCqlBackends()
+    {
+        var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Sqlite);
+
+        await Assert.That(includeScylla).IsFalse();
+        await Assert.That(includeCassandra).IsFalse();
+        await Assert.That(topology).IsEqualTo(ScyllaTopology.Single);
+    }
+
+    [Test]
+    public async Task SqliteModeAddsApiSqliteDataBindMountAndOmitsRackdc()
+    {
+        var (config, secrets) = MakeInputs(persistence: PersistenceMode.Sqlite);
+        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out/deploy");
+
+        var sqliteKey = $"{ComposeServices.InterfoldApi}:{ContainerMountPaths.InterfoldSqliteData}";
+        await Assert.That(replacements.BindMounts.ContainsKey(sqliteKey)).IsTrue();
+        await Assert.That(replacements.BindMounts[sqliteKey])
+            .IsEqualTo(PublishPhase.ResolveSqliteDataHostDir("/out/deploy"));
+
+        await Assert.That(replacements.BindMounts.Keys.Any(k => k.Contains("cassandra-rackdc"))).IsFalse();
+    }
+
+    [Test]
     public async Task TranslateDatabaseModeRejectsUnknownValue()
     {
         // Fail-fast for callers that bypass ConfigPhase.Validate.
         var ex = Assert.Throws<InvalidOperationException>(() => PublishPhase.TranslateDatabaseMode((DatabaseMode)999));
 
         await Assert.That(ex.Message).Contains("databaseMode");
+        await Assert.That(ex.Message).Contains("sqlite");
     }
 
     [Test]

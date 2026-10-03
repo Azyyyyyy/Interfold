@@ -6,7 +6,9 @@ using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
-[NotInParallel("bootstrapper-release-env")]
+// Environment variables are process-wide on Unix; share the lock with every suite that
+// mutates env vars or creates HttpClient instances while those mutations may be observed.
+[NotInParallel("bootstrapper-process-environment")]
 public sealed class BootstrapperReleaseClientTests
 {
     [Test]

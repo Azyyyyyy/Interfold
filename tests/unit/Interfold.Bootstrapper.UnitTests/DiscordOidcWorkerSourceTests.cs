@@ -6,7 +6,7 @@ using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
-[NotInParallel("discord-oidc-source-env")]
+[NotInParallel("bootstrapper-process-environment")]
 public sealed class DiscordOidcWorkerSourceTests
 {
     [Test]

@@ -13,9 +13,6 @@ namespace Interfold.Infrastructure.InMemory.Repository;
 
 public sealed class InMemoryAccountRepository : IAccountRepository
 {
-    // Matches the Scylla port's 5-minute link-token expiry.
-    private static readonly TimeSpan LinkTokenTtl = TimeSpan.FromMinutes(5);
-
     private readonly record struct LinkTokenEntry(ScopedSystemId Scoped, DateTimeOffset ExpiresAt);
 
     // Identity-side reverse dicts key on raw string to preserve
@@ -45,6 +42,12 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         _regionContext = regionContext;
         _encryptionStates = encryptionStates;
         _timeProvider = timeProvider ?? TimeProvider.System;
+    }
+
+    public Task EnsureExistsAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    {
+        EnsureEncryptionSaltForSystem(ResolveScoped(systemId));
+        return Task.CompletedTask;
     }
 
     public Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
@@ -91,7 +94,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return new(Convert.ToHexString(hash)[..32].ToLowerInvariant());
         });
 
-        _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkTokenTtl));
+        _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkToken.Ttl));
 
         return Task.FromResult(token);
     }
@@ -196,6 +199,17 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         UnlinkIdentifier(systemId, _appleBySystem, _systemByApple, static id => id.Value);
 
         return Task.FromResult(true);
+    }
+
+    public Task<SystemId?> TryFindSystemIdByUsernameAsync(Username username, CancellationToken cancellationToken = default)
+    {
+        foreach (var pair in _usernameBySystem)
+        {
+            if (string.Equals(pair.Value.Value, username.Value, StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult<SystemId?>(new SystemId(pair.Key.RawId));
+        }
+
+        return Task.FromResult<SystemId?>(null);
     }
 
     public Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(SystemId systemId, CancellationToken cancellationToken = default)

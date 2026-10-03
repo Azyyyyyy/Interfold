@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Interfold.Bootstrapper.Util;
 using Interfold.Settings.Contracts.Configuration;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 
@@ -28,6 +29,8 @@ public sealed class BootstrapConfig
 
     [JsonPropertyName("observability")]
     public ObservabilitySection Observability { get; set; } = new();
+
+    internal bool UsesSqlite => Datastores.Persistence == PersistenceMode.Sqlite;
 }
 
 public sealed class DeploymentSection
@@ -134,6 +137,9 @@ public sealed class EdgeCloudflareAccessSection
 
 public sealed class DatastoresSection
 {
+    [JsonPropertyName("persistence")]
+    public PersistenceMode Persistence { get; set; } = PersistenceMode.Sqlite;
+
     [JsonPropertyName("postgres")]
     public PostgresDatastoreSection Postgres { get; set; } = new();
 
@@ -162,7 +168,7 @@ public sealed class CqlDatastoreSection
 public sealed class ApiSection
 {
     [JsonPropertyName("image")]
-    public string Image { get; set; } = DefaultContainerImages.Api;
+    public string Image { get; set; } = BootstrapperApiImage.Default;
 
     [JsonPropertyName("nodeGroup")]
     public NodeGroup NodeGroup { get; set; } = NodeGroup.Auxiliary;
@@ -317,6 +323,10 @@ public sealed class FirebaseSection
 
     [JsonPropertyName("webConfigPath")]
     public string WebConfigPath { get; set; } = string.Empty;
+
+    // The console firebaseConfig block has no Web Push key. This fills vapidKey at ingest.
+    [JsonPropertyName("webPushKey")]
+    public string WebPushKey { get; set; } = string.Empty;
 
     [JsonPropertyName("serviceAccountPath")]
     public string ServiceAccountPath { get; set; } = string.Empty;

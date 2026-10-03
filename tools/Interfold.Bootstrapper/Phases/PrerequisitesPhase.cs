@@ -2,10 +2,10 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Principal;
-using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Phases;
@@ -23,7 +23,7 @@ internal static partial class PrerequisitesPhase
     private const string SysctlDropIn = "/etc/sysctl.d/99-interfold.conf";
 
     /// <summary>Raw-string overload for the pre-validation peek in
-    /// <see cref="PeekScyllaNodeCountAsync"/>.</summary>
+    /// <see cref="PeekPersistenceModeAsync"/>.</summary>
     internal static int ResolveScyllaNodeCount(string? cqlBackendWire)
         => ResolveScyllaNodeCount(CqlBackendMapping.ToDatabaseMode(CqlBackendMapping.ParseWire(cqlBackendWire)));
 
@@ -31,6 +31,7 @@ internal static partial class PrerequisitesPhase
     {
         DatabaseMode.Multi => 7,
         DatabaseMode.Cassandra => 0,
+        DatabaseMode.Sqlite => 0,
         _ => 1,
     };
 
@@ -63,40 +64,47 @@ internal static partial class PrerequisitesPhase
         await EnsureDockerAsync(distro, logger, ct).ConfigureAwait(false);
         await EnsureOpenSslAsync(distro, logger, ct).ConfigureAwait(false);
 
-        // Tolerant peek — defaults to single-node baseline on missing/malformed/unrecognised.
+        // Tolerant peek — defaults to sqlite (skip Seastar AIO) on missing/malformed files.
         // ConfigPhase still owns full schema validation.
-        var scyllaNodes = await PeekScyllaNodeCountAsync(options, logger, ct).ConfigureAwait(false);
-        await EnsureAioLimitAsync(scyllaNodes, logger, ct).ConfigureAwait(false);
+        var peekedPersistence = await PeekPersistenceModeAsync(options, logger, ct).ConfigureAwait(false);
+        if (peekedPersistence == PersistenceMode.Sqlite)
+        {
+            logger.Info("    persistence=sqlite; skipping fs.aio-max-nr Seastar tuning");
+        }
+        else
+        {
+            var peekedCql = await PeekCqlDatabaseModeAsync(options, logger, ct).ConfigureAwait(false);
+            await EnsureAioLimitAsync(ResolveScyllaNodeCount(peekedCql), logger, ct).ConfigureAwait(false);
+        }
 
         logger.PhaseDone(Phase);
     }
 
-    private static async Task<int> PeekScyllaNodeCountAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
+    private static async Task<PersistenceMode> PeekPersistenceModeAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(options.ConfigPath) || !File.Exists(options.ConfigPath))
-        {
-            return ResolveScyllaNodeCount(null);
-        }
-
         try
         {
-            await using var stream = File.OpenRead(options.ConfigPath);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
-            if (doc.RootElement.TryGetProperty("datastores", out var datastores)
-                && datastores.TryGetProperty("cql", out var cql)
-                && cql.TryGetProperty("backend", out var backendElement)
-                && backendElement.ValueKind == JsonValueKind.String)
-            {
-                return ResolveScyllaNodeCount(backendElement.GetString());
-            }
+            return await BootstrapConfigPeek.PeekPersistenceModeAsync(options.ConfigPath, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             // ConfigPhase will surface a useful error against the same file next.
-            logger.Warn($"could not pre-read datastores.cql.backend from {options.ConfigPath} for AIO sizing ({ex.GetType().Name}); defaulting to single-node baseline.");
+            logger.Warn($"could not pre-read datastores.persistence from {options.ConfigPath} for AIO sizing ({ex.GetType().Name}); defaulting to sqlite.");
+            return PersistenceMode.Sqlite;
         }
+    }
 
-        return ResolveScyllaNodeCount(null);
+    private static async Task<DatabaseMode> PeekCqlDatabaseModeAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
+    {
+        try
+        {
+            return await BootstrapConfigPeek.PeekCqlDatabaseModeAsync(options.ConfigPath, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.Warn($"could not pre-read datastores.cql.backend from {options.ConfigPath} for AIO sizing ({ex.GetType().Name}); defaulting to single-node baseline.");
+            return DatabaseMode.Single;
+        }
     }
 
     private static void EnsureLinux(PhaseLogger logger)
@@ -422,8 +430,16 @@ internal static partial class PrerequisitesPhase
             await EnsureDockerDesktopRunningAsync(logger, ct).ConfigureAwait(false);
         }
 
-        var scyllaNodes = await PeekScyllaNodeCountAsync(options, logger, ct).ConfigureAwait(false);
-        await ProbeContainerAioAsync(scyllaNodes, logger, ct).ConfigureAwait(false);
+        var peekedPersistence = await PeekPersistenceModeAsync(options, logger, ct).ConfigureAwait(false);
+        if (peekedPersistence == PersistenceMode.Sqlite)
+        {
+            logger.Info("    persistence=sqlite; skipping container AIO probe");
+        }
+        else
+        {
+            var peekedCql = await PeekCqlDatabaseModeAsync(options, logger, ct).ConfigureAwait(false);
+            await ProbeContainerAioAsync(ResolveScyllaNodeCount(peekedCql), logger, ct).ConfigureAwait(false);
+        }
     }
 
     internal static async Task<bool> DockerComposeReadyAsync(CancellationToken ct = default)

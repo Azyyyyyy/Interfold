@@ -1,24 +1,20 @@
 using System.Collections.Concurrent;
-using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Domain.Abstractions;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
 public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
 {
     private readonly IRegionContext _regionContext;
-    private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<ScopedSystemId, List<SettingsFieldReadModel>> _bySystem = new();
 
-    public InMemorySettingsFieldRepository(IRegionContext regionContext, IServiceProvider serviceProvider)
+    public InMemorySettingsFieldRepository(IRegionContext regionContext)
     {
         _regionContext = regionContext;
-        _serviceProvider = serviceProvider;
     }
 
     public Task<IReadOnlyList<SettingsFieldReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
@@ -105,20 +101,6 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
 
             store.RemoveAt(index);
             Reindex(store);
-        }
-
-        // Cascade delete field values from alters in the in-memory alter repository (if present)
-        try
-        {
-            var alterRepo = _serviceProvider?.GetService<IAlterRepository>();
-            if (alterRepo is InMemoryAlterRepository regional)
-            {
-                regional.RemoveFieldValuesForSystem(systemId, fieldId.Value);
-            }
-        }
-        catch
-        {
-            // Best-effort cascade; don't fail deletion if alters update isn't available
         }
 
         return Task.FromResult(true);

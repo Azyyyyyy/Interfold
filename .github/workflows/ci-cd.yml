@@ -191,7 +191,7 @@ jobs:
         run: dotnet build Interfold.slnx --configuration Release --no-restore
 
       # Tag pins (bootstrap-v*) stamp InformationalVersion without the `bootstrap-v`
-      # prefix. Rolling builds use `{last bootstrap-v* core}+{short commit id}`.
+      # prefix. Rolling builds use `{last bootstrap-v* core}+{short commit id}.{run id}.{run attempt}`.
       # Channel (stable / bleeding-edge / pin) is stamped as AssemblyMetadata.
       - name: Resolve bootstrapper version stamp
         if: needs.prepare.outputs.bootstrapper == 'true'
@@ -787,10 +787,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Unique tag per run: immutable releases lock tags after publish, so fixed
-          # rolling names cannot be reused. The InformationalVersion stamp is part of
-          # the tag (bootstrap-stable-{version} / bootstrap-bleeding-edge-{version});
-          # clients strip the prefix for update comparison and verify assets via the
+          # Unique tag per workflow attempt. Immutable releases lock a tag after
+          # publish, so each run creates bootstrap-stable-{version} /
+          # bootstrap-bleeding-edge-{version}.
+          # `{version}` is the InformationalVersion stamp (includes run id and attempt).
+          # Clients strip the prefix for update comparison and verify assets via the
           # Releases API `digest` field — no version.txt / SHA256SUMS assets.
           version='${{ steps.boot_ver.outputs.version }}'
           if [ -z "$version" ]; then
@@ -809,22 +810,38 @@ jobs:
 
       # Draft first so assets attach before immutability locks the release (required for
       # prereleases on immutable-release repos; safe for full releases too).
+      # `gh release create` publishes a new release. An existing tag is a hard failure
+      # so this step never deletes assets on an immutable release.
       - name: Publish rolling GitHub Release (draft)
         if: github.ref_type != 'tag'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.rolling.outputs.tag }}
-          name: ${{ steps.rolling.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          draft: true
-          prerelease: ${{ steps.rolling.outputs.prerelease == 'true' }}
-          make_latest: false
-          files: |
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ steps.rolling.outputs.tag }}'
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists. Refusing to replace an immutable release." >&2
+            exit 1
+          fi
+          args=(
+            release create "$tag"
+            --draft
+            --target '${{ github.sha }}'
+            --title "$tag"
+            --notes ""
+          )
+          if [ '${{ steps.rolling.outputs.prerelease }}' = 'true' ]; then
+            args+=(--prerelease)
+          fi
+          args+=(
             bootstrap-release/interfold-bootstrap-linux-x64.tar.gz
             bootstrap-release/interfold-bootstrap-linux-arm.tar.gz
             bootstrap-release/interfold-bootstrap-linux-arm64.tar.gz
             bootstrap-release/interfold-bootstrap-win-x64.zip
             bootstrap-release/interfold-bootstrap-win-arm64.zip
+          )
+          gh "${args[@]}"
 
       - name: Finalize rolling GitHub Release
         if: github.ref_type != 'tag'

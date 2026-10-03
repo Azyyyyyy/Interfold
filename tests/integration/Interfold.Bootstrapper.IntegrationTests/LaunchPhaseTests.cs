@@ -92,9 +92,11 @@ public class LaunchPhaseTests(UbuntuDinDFixture dinD)
             "--skip-prereqs");
 
         var combined = result.Stdout + result.Stderr;
-        var expectedUrl = $"https://localhost:{scratch.Ports.EdgeHttps}/health/ready";
-        await Assert.That(combined).Contains(expectedUrl)
-            .Because($"LaunchPhase should poll the edge-proxied ready URL ({expectedUrl}): {result.Stderr}");
+        var expectedPort = $":{scratch.Ports.EdgeHttps}/health/ready";
+        await Assert.That(combined).Contains(expectedPort)
+            .Because($"LaunchPhase should poll the public ready URL on the allocated port ({expectedPort}): {result.Stderr}");
+        await Assert.That(combined).DoesNotContain("https://localhost")
+            .Because($"LaunchPhase should poll the address people open, not localhost: {result.Stderr}");
     }
 }
 

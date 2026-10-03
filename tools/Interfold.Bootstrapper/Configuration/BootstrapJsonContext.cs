@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.Configuration;
 
@@ -13,6 +14,7 @@ namespace Interfold.Bootstrapper.Configuration;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.Never)]
 [JsonSerializable(typeof(BootstrapConfig))]
+[JsonSerializable(typeof(BootstrapDatastoresPeek))]
 [JsonSerializable(typeof(GeneratedSecrets))]
 [JsonSerializable(typeof(Interfold.Bootstrapper.Util.CloudflareTunnelState))]
 [JsonSerializable(typeof(Interfold.Bootstrapper.Util.CloudflareAccessState))]

@@ -415,6 +415,21 @@ public sealed class CertificateGenerationTests
     }
 
     [Test]
+    public async Task LeafHostsNamesSubdomainApiAndWeb()
+    {
+        var config = new BootstrapConfig();
+        config.Edge.Hosts = ["example.com"];
+        config.Edge.Routing.Mode = EdgeRoutingMode.Subdomain;
+        config.Edge.Routing.ApiHost = "api.example.com";
+        config.Edge.Routing.WebHost = "web.example.com";
+
+        var leaf = CertificatePhase.LeafHosts(config, config.Edge.Hosts.Select(HostParser.Parse).ToList());
+
+        await Assert.That(leaf.Select(host => host.Raw).ToList())
+            .IsEquivalentTo(["example.com", "api.example.com", "web.example.com"]);
+    }
+
+    [Test]
     public async Task LeafSanIncludesIPv6AsIpAddress()
     {
         using var artifacts = await RunPhaseAsync(hosts: ["fe80::1234"]);

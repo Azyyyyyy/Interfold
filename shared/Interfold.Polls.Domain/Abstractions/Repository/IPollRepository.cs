@@ -18,5 +18,6 @@ public interface IPollRepository
     Task<bool> UpdateAsync(SystemId systemId, UpdatePollCommand command, CancellationToken cancellationToken = default);
 
     Task<bool> DeleteAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default);
-    Task RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default);
+    /// <summary>Polls whose response list lost <paramref name="alterId"/>.</summary>
+    Task<IReadOnlyList<PollId>> RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default);
 }

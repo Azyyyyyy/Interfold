@@ -179,9 +179,9 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
 | Field | Default | Notes |
 | ----- | ------- | ----- |
 | `enabled` | `false` | When `true`, origin stays private (no host-published edge ports). Publish creates/reuses a remotely-managed tunnel; Launch starts `cloudflared`; a post-launch phase registers hostnames + proxied DNS CNAMEs. |
-| `apiToken` | `""` | Cloudflare API token with **Account → Cloudflare Tunnel Edit**, **Zone → Zone Edit**, **Zone → DNS Edit**, **Zone → SSL and Certificates Edit**, **Access: Apps and Policies Edit**, **Access: Service Tokens Edit**, **Workers Scripts Edit**, **Workers KV Storage Edit**, and organization read. Scope the token to one account: a missing zone is created there. Used only by the bootstrapper — never passed to `cloudflared`. |
+| `apiToken` | `""` | Cloudflare API token. Create it at https://dash.cloudflare.com/profile/api-tokens (Create Token, then Create Custom Token). Core permissions: **Account → Cloudflare Tunnel → Edit**, **Zone → Zone → Edit**, **Zone → DNS → Edit**, **Zone → SSL and Certificates → Edit**, **Account → Access: Apps and Policies → Edit**, **Account → Access: Service Tokens → Edit**, and **Account → Organization → Read**. Add **Account → Workers Scripts → Edit** and **Account → Workers KV Storage → Edit** only if you plan to use Discord for signing in (those deploy the Discord Access Worker). Scope the token to one account: a missing zone is created there. Do not grant every permission. Used only by the bootstrapper — never passed to `cloudflared`. |
 | `tunnelName` | `interfold` | Stable name for create-or-reuse of the tunnel object. |
-| `access.enabled` | `false` | When `true`, Cloudflare Access gates public hostnames. Requires tunnel enabled, Interfold Google client id **and** secret, and at least one of `allowedEmails` / `allowedEmailDomains`. |
+| `access.enabled` | `false` | When `true`, Cloudflare Access gates public hostnames. Requires tunnel enabled, a Google client id **and** secret or a Discord client id **and** secret, and at least one of `allowedEmails` / `allowedEmailDomains`. |
 | `access.allowedEmails` | `[]` | Exact addresses allowed through Access (Google or Discord, when Discord OAuth is configured). Enforced at Access only — the API does not re-check the list. Discord users need a verified email on this list. |
 | `access.allowedEmailDomains` | `[]` | Email domains (e.g. `example.com`) allowed through Access. At least one email or domain is required when Access is on. |
 
@@ -237,7 +237,7 @@ Downloads are verified against the GitHub Releases API asset `digest` (`sha256:�
 
 | Field | Default | Notes |
 | ----- | ------- | ----- |
-| `image` | `ghcr.io/azyyyyyy/interfold-api:latest` | Full image reference consumed by `publish` / `update-images`. Independent of bootstrapper `deployment.update.bootstrapper.channel`. |
+| `image` | `ghcr.io/azyyyyyy/interfold-api:bleeding-edge` for a Debug build; `ghcr.io/azyyyyyy/interfold-api:latest` for a Release build | Full image reference consumed by `publish` / `update-images`. A new config takes that default. An existing `image` value is kept. Bootstrap pulls registry-hosted images before the first `docker compose up`, so a tag already on disk is replaced. Local-only tags are left in place. Independent of bootstrapper `deployment.update.bootstrapper.channel`. |
 
 Useful tags (from `api-v*` releases and rolling branch pushes):
 
@@ -261,26 +261,74 @@ GitHub tag namespaces: `api-v*` (API image SemVer releases), `bootstrap-v*` (boo
 
 When `includeWeb` is true, AppHost sets `INTERFOLD_DEFAULT_API_ENDPOINT` on `interfold-web` from the public API origin it already builds for the edge (scheme and host only; wasm paths already include `/api/…`). The image renders that into `runtime-config.js` at container start. A browser with no saved server URL uses it; a saved URL is left unchanged. Publish uses `routing.apiHost` when set, otherwise `edge` server name. Cloudflare tunnel is `https` with no port; other modes follow `tlsMode` and omit the default port. `_` leaves the variable empty, which keeps the client's built-in endpoint.
 
-First-time operators don't need to hand-author this file — running `interfold-bootstrap` on
-a real TTY without an existing `interfold.bootstrap.json` drops into a Spectre.Console
-navigable form: every field on `BootstrapConfig` is shown as a menu row with its current
-value next to its label, grouped under section headers (Deployment / Edge / Datastores /
-API / Observability). The operator arrow-keys between rows and presses Enter to edit any field (inline validation
-re-prompts on bad input, OAuth client secrets are masked in both the editor echo and the
-menu row; client IDs are shown verbatim because they're public), then chooses `Confirm and
-save` to write the JSON. The derivable `api.oauth.callbackBaseUrl` / `api.oauth.jwtAuthority`
-and prompt default with the value `ConfigPhase.ResolveDerivedDefaults` computes from
-`edge` — operators can press Enter to accept or type to override, and either way the
-bootstrapper persists the resolved value. The three "disabled when blank" rows (avatar
-public base, OTLP endpoint, socket batch flush threshold) render an
-`<empty>` / `<default>` marker in the menu when unset, so the unset-vs-set distinction is
-visible at a glance; leaving them blank reproduces the pre-bootstrapper "env var unset"
-behaviour 1:1. Avatar storage root is also blankable but means "use `{outputDir}/data/avatars`"
-rather than disabling uploads. There is no separate walkthrough phase: experienced operators jump straight
-to the rows they care about and Confirm; first-time operators just Enter every row
-top-to-bottom. The bootstrapper writes the resulting JSON to the path above on
-confirmation; `--non-interactive` and `--config <path>` still bypass the form for
-unattended runs.
+First-time operators don't need to hand-author this file. Running `interfold-bootstrap` on
+a real TTY without an existing `interfold.bootstrap.json` asks which setup to use.
+**Guided setup** (the recommended choice) asks how people will reach the server — this
+machine or the local network with a private CA, or the public internet through
+Cloudflare. The internet choice only works when Cloudflare looks up that web address. If Cloudflare does not look the name up, use the local network instead.
+Then it asks whether to include the web UI, and the address people
+will use to open it. Data is
+always stored in SQLite; Scylla and Postgres stay in the advanced editor. Later
+questions follow from those answers. A local-network install asks whether this computer
+should trust Interfold's certificate, so the browser stops warning that the site is unsafe.
+Other devices still need that certificate installed on them. A Cloudflare hostname asks for an API token. The prompt links to the Cloudflare API tokens page, lists the core permissions, lists the extra permissions only Discord sign-in needs, and says not to grant every permission. Access is optional.
+When the web UI is included and the host is a name, the operator can keep one
+web address or use two. Two is the recommended choice: the API at `api.example.com`
+and the website at `web.example.com`. Typing the full name is kept when it already ends with that host.
+An IP-only host stays on path routing.
+A local-network install also asks whether to keep the standard web ports, 80 and 443;
+saying no asks for the two ports to publish instead. Cloudflare does not publish host
+ports, so that question is skipped. Sign-in is one list of Google, Discord, and
+Apple. Ticked options are shown when someone signs in, and unticked options stay
+hidden. Tick any combination; the prompt then asks for that provider's client ID
+and secret, and which redirect addresses to register on the public API URL. A
+`.local` name or a numeric address leaves Google off the list and explains why.
+Cloudflare Access needs Google or Discord ticked. When Google is not available,
+Discord starts ticked. Guided setup then asks
+about scheduled backups. Declining them prints that automatic updates are not
+available, because updates run after each successful backup. Accepting them asks how
+often to back up and how many archives to keep, then whether to install updates after
+each backup. Yes pulls new images, recreates containers, and restores the pre-update
+backup if the health check fails. A follow-up can also update the bootstrapper; a
+failed health check then restores the previous bootstrapper binary. Firebase push
+notifications are optional. The prompt explains that Firebase tells phones and
+browsers when who is fronting changes for a system, and that saying no leaves those alerts
+off. When Google sign-in was set up, it asks you to add Firebase to that same
+Google Cloud project. Otherwise it walks through creating a project. It then says
+where each file is: Project settings for the app downloads, Cloud Messaging for
+the web push key, and Service accounts for the private key. The web step takes only
+the `const firebaseConfig = { ... };` block. Leave out the import lines above it. The Web Push key is typed separately
+and saved into `firebase-web-config.json`. An OpenTelemetry collector is optional. The prompt says most people should
+leave it off. A collector is a separate program that receives the API's logs, traces,
+and performance numbers and forwards them to a dashboard. The prompt links to
+https://opentelemetry.io/docs/collector/ for how to run one, then asks for that
+collector's address. Advertising it tells clients where to send their own logs.
+They can use the API's collector, or a different one. Backup directory, release channel, health-check
+timeout, and the service whitelist stay in the advanced editor. The bootstrapper then
+shows those answers, the public API URL, and the public web URL when the web UI is
+included. Path routing appends `/api/` on the API URL and `/` on the web URL. **Confirm and continue** writes `interfold.bootstrap.json` and the rest of
+bootstrap runs as usual. **Start over** returns to the mode question. **Open advanced
+editor** continues in the full field menu with the guided answers already filled in.
+
+**Advanced (all options)** is that Spectre.Console menu: every field on `BootstrapConfig`
+is a row with its current value, grouped under section headers (Deployment / Edge /
+Datastores / API / Observability). Arrow keys move between rows and Enter edits one
+(inline validation re-prompts on bad input; OAuth client secrets are masked in both
+the editor echo and the menu row; client IDs are shown verbatim because they're
+public). `Confirm and save` writes the JSON. The derivable
+`api.oauth.callbackBaseUrl` / `api.oauth.jwtAuthority` prompt default to the value
+`ConfigPhase.ResolveDerivedDefaults` computes from `edge` — Enter accepts it, or the
+operator types an override, and either way the bootstrapper persists the resolved
+value. The three "disabled when blank" rows (avatar public base, OTLP endpoint,
+socket batch flush threshold) render an `<empty>` / `<default>` marker when unset, so
+the unset-vs-set distinction is visible; leaving them blank reproduces the
+pre-bootstrapper "env var unset" behaviour 1:1. Avatar storage root is also blankable
+but means "use `{outputDir}/data/avatars`" rather than disabling uploads.
+`--reconfigure` asks for guided or advanced setup again. Advanced opens this menu
+seeded from the existing file. Guided asks the same questions with the current
+answers filled in: accepting a default keeps that setting, including OAuth client
+secrets and anything the questions do not ask. `--non-interactive` and
+`--config <path>` still bypass both setup paths for unattended runs.
 
 ### Hosts (`edge.hosts`)
 
@@ -416,13 +464,15 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 >   hint instead. Decline the offer (or skip auto-install) and the `.local` name is
 >   omitted from the pre-fill — the row is still editable so the operator can type
 >   any host they like.
-> - **Post-fill safety gate (all `bootstrap` runs).** After the hosts list is finalised
->   (either by the interactive prompt or loaded from JSON), every `.local` entry is
->   re-probed. Unresolvable ones are removed from `edge.hosts` with a warning
->   naming the specific hosts + a copy-pasteable install hint, and **the current
->   `bootstrap` run continues to completion** with the reduced list. It never halts on
->   this — the mutation is re-persisted so subsequent runs see the pruned list without
->   re-emitting the warning. Re-running `bootstrap` after installing mDNS is *optional
+> - **Post-fill safety gate (`bootstrap`, `rotate-secrets`, `rotate-certs`).** After the
+>   hosts list is finalised (either by the interactive prompt or loaded from JSON), every
+>   `.local` entry is re-probed. Unresolvable ones are removed from `edge.hosts` with a
+>   warning naming the specific hosts + a copy-pasteable install hint, and **the current
+>   run continues to completion** with the reduced list. It never halts on this — the
+>   mutation is re-persisted so subsequent runs see the pruned list without re-emitting
+>   the warning. Those three commands relaunch and then probe the public API name, so a
+>   leftover `.local` entry would fail that check. `publish`, `up`, and `update-images`
+>   leave the saved file alone. Re-running `bootstrap` after installing mDNS is *optional
 >   recovery* to restore the stripped entries, not a required next step.
 >
 > `--non-interactive` skips the pre-prompt banner (there's no operator to talk to) but
@@ -444,6 +494,20 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 > On Windows, enable the **Function Discovery Resource Publication** service or install
 > Bonjour Print Services, then confirm `{hostname}.local` resolves before the next
 > `bootstrap` run.
+>
+> mDNS publishes that one name only. `api.{host}.local` and `web.{host}.local` are
+> different names, so subdomain routing does not resolve them on the LAN. On `bootstrap`
+> and `up`, when the tunnel is off, the bootstrapper adds those `.local` names to the
+> system hosts file (`127.0.0.1` and `::1`) so this computer can open them. Phones and
+> other computers still cannot. Use one web address when those devices should open the
+> site by name. When the process cannot write that file, an interactive run asks
+> before an administrator prompt (Windows approval or sudo). Declining, or a
+> non-interactive run, prints the lines to add and the launch continues.
+>
+> Launch and `up` poll `{public API origin}/health/ready`. That is the address a browser
+> opens, including `api.{host}` when routing is subdomain. A name that does not resolve
+> fails the check after a few attempts. Connection refused keeps retrying until the
+> health budget ends, because the containers are still starting.
 
 ## Layer 3 — Environment variables
 
@@ -902,13 +966,16 @@ rows seeded and the whole flow degrades gracefully:
   `NullFCMService` so `FrontNotifierBackgroundService` no-ops the send path — no
   fronting-change push, no crash, no operator action required.
 
+Use the Google Cloud project that already holds Google sign-in, and add Firebase to it at https://console.firebase.google.com/. Create a new Firebase project only when Google sign-in is not in use.
+
 Operators supply the source files via `BootstrapConfig.firebase.*`:
 
 | Field                                | File the operator points at                                         | How to obtain it                                                                                                       |
 | ------------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `firebase.androidConfigPath`         | `google-services.json`                                              | Firebase Console → Project Settings → General → Your apps → Android → *google-services.json*                           |
 | `firebase.iosConfigPath`             | `GoogleService-Info.plist`                                          | Firebase Console → Project Settings → General → Your apps → iOS → *GoogleService-Info.plist*                           |
-| `firebase.webConfigPath`             | flat `firebase-web-config.json` (matches the client DTO 1:1)         | Firebase Console → Project Settings → General → Your apps → Web → *SDK setup and configuration* + inject the VAPID key from Cloud Messaging → Web configuration → Web Push certificates |
+| `firebase.webConfigPath`             | Console `firebaseConfig` block saved as a file, or `firebase-web-config.json` | Project settings → General → Your apps → Web → copy only `const firebaseConfig = { ... };` and save it. Leave out the import lines above it. The block has no Web Push key. |
+| `firebase.webPushKey`                | Public Web Push key (`vapidKey`)                                    | Project settings → Cloud Messaging → Web Push certificates → key pair. The bootstrapper writes it into `firebase-web-config.json` next to the block. |
 | `firebase.serviceAccountPath`        | FCM v1 service-account credential JSON                              | Firebase Console → Project Settings → Service accounts → *Generate new private key*                                    |
 
 The `firebase-phase` in the bootstrapper (`Interfold.Bootstrapper/Phases/FirebasePhase.cs`)

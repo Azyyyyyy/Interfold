@@ -84,7 +84,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 null,
                 null,
                 (short)VisibilityLevel.Private,
-                command.InsertedAtUtc
+                ScyllaTimestamps.AsUtc(command.InsertedAtUtc)
             );
 
             await session.ExecuteAsync(insert);
@@ -558,6 +558,41 @@ public sealed class ScyllaTagRepository : ITagRepository
             .ToArray();
 
         return visible;
+    }
+
+    public async Task<IReadOnlyList<TagId>> DetachAllForAlterAsync(
+        SystemId systemId,
+        AlterId alterId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _scopeResolver.ExecuteAsync<IReadOnlyList<TagId>>(systemId, async scope =>
+        {
+            var (session, keyspace, normalizedSystemId) = scope;
+            var membershipRows = await session.ExecuteAsync(new SimpleStatement(
+                $"SELECT tag_id FROM {keyspace}.alter_tags_by_alter WHERE user_id = ? AND alter_id = ?",
+                normalizedSystemId,
+                alterId.Value));
+
+            var ids = membershipRows.Select(row => new TagId(row.GetValue<Guid>("tag_id"))).ToArray();
+            if (ids.Length == 0)
+                return ids;
+
+            var tagBatch = new BatchStatement();
+            foreach (var tagId in ids)
+            {
+                tagBatch.Add(new SimpleStatement(
+                    $"DELETE FROM {keyspace}.alter_tags WHERE user_id = ? AND tag_id = ? AND alter_id = ?",
+                    normalizedSystemId,
+                    tagId.Value,
+                    alterId.Value));
+            }
+            tagBatch.Add(new SimpleStatement(
+                $"DELETE FROM {keyspace}.alter_tags_by_alter WHERE user_id = ? AND alter_id = ?",
+                normalizedSystemId,
+                alterId.Value));
+            await session.ExecuteAsync(tagBatch);
+            return ids;
+        }, cancellationToken);
     }
 
     private static TagId? ToTagId(Guid? guid)

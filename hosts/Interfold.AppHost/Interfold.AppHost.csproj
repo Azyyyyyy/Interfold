@@ -19,6 +19,9 @@
          AppHost can run the same in-process seed the tests use. Publish mode keeps this out
          of the emitted graph — the bootstrapper's DatabaseInitPhase owns compose-exec seeding. -->
     <ProjectReference Include="..\..\shared\Interfold.DatabaseBootstrap\Interfold.DatabaseBootstrap.csproj" IsAspireProjectResource="false" />
+    <!-- Sqlite DevSeed (RunMode + Parameters:persistence=sqlite) migrates + seeds secrets
+         into the host-side .db before the API's SecretsPreBuildLoader runs. -->
+    <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Sqlite\Interfold.Infrastructure.Sqlite.csproj" IsAspireProjectResource="false" />
   </ItemGroup>
 
   <ItemGroup>

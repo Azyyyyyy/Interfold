@@ -20,7 +20,7 @@ internal static class CassandraImagePhase
     internal const string LocalImageTag = "interfold-cassandra:local";
 
     internal static bool IsCassandraDeployment(BootstrapConfig config) =>
-        config.Datastores.Cql.Backend == CqlBackend.Cassandra;
+        !config.UsesSqlite && config.Datastores.Cql.Backend == CqlBackend.Cassandra;
 
     /// <summary>Argv for <c>docker build -t … -f - &lt;contextDir&gt;</c> with Dockerfile on stdin.</summary>
     internal static IReadOnlyList<string> BuildDockerBuildArgs(string contextDir) =>

@@ -15,6 +15,7 @@ namespace Interfold.Auth.IntegrationTests.Controllers;
 
 [Category("Auth")]
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
+[ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
@@ -130,41 +131,8 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.InternalServerError);
     }
 
-    /// <summary>
-    /// Build a private, Primary-node-pinned <see cref="InterfoldWebApplicationFactory"/>
-    /// that mirrors the parent fixture's backend wiring (Postgres connection string,
-    /// CQL endpoint port). Persistence mode is read off
-    /// <see cref="InterfoldWebApplicationFactory.PersistenceMode"/> so no fixture-type
-    /// switch is needed here — the enum on the shared factory is the single source of
-    /// truth, and <see cref="EnumWireExtensions.ToWire{TEnum}"/> inside the factory ctor
-    /// produces the wire spelling.
-    /// </summary>
+    // CreatePrivateFactory copies each backend's connection wiring (incl. Sqlite CS).
     private InterfoldWebApplicationFactory CreatePrimaryNodeFactory()
-    {
-        var factory = new InterfoldWebApplicationFactory(fixture.Factory.PersistenceMode)
+        => fixture.CreatePrivateFactory()
             .WithConfiguration(OctoconEnvKeys.NodeGroup, NodeGroup.Primary.ToWire());
-
-        // CQL-backed fixtures still need the operator-supplied connection details the shared
-        // fixture layered onto its own factory. Only Scylla and Cassandra carry this shape;
-        // InMemory has no external backend and needs no extra config beyond the mode above.
-        (string PostgresConnection, int CqlPort)? backend = fixture switch
-        {
-            ScyllaWebFactoryFixture s    => (s.Aspire.PostgresConnectionString, s.Aspire.ScyllaPort!.Value),
-            CassandraWebFactoryFixture c => (c.Aspire.PostgresConnectionString, c.Aspire.CassandraPort!.Value),
-            _ => null,
-        };
-
-        if (backend is { } b)
-        {
-            factory
-                .WithConfiguration("OCTOCON_POSTGRES_CONNECTION", b.PostgresConnection)
-                .WithConfiguration("OCTOCON_SCYLLA_PORT", b.CqlPort.ToString())
-                .WithConfiguration("OCTOCON_SINGLE_SCYLLA_INSTANCE", "true")
-                .WithConfiguration("OCTOCON_DB_RETRY_ATTEMPTS", "10")
-                .WithConfiguration("OCTOCON_DB_RETRY_INITIAL_DELAY_MS", "500")
-                .WithConfiguration("OCTOCON_DB_RETRY_MAX_DELAY_MS", "3000");
-        }
-
-        return factory;
-    }
 }

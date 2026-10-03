@@ -8,19 +8,13 @@
     <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
-    <!-- Six peer feature.Domain refs — DeleteAccountCommandHandler injects every peer repo
-         interface (IAlterRepository, ITagRepository, IPollRepository, IJournalRepository,
-         IFrontingRepository, IFriendshipRepository) plus WipeAlters/WipeTags each pin one of
-         them, so the fan-in is unavoidable while the "settings-shape account teardown"
-         handlers stay co-located. Each feature.Domain transitively re-exports its own
-         feature.Contracts (which carries the events the handlers publish — FriendshipRemovedEvent
-         from DeleteAccount, for instance). -->
+    <!-- Peer feature.Domain refs for account teardown. Fronts are removed with the alter
+         through IAlterDeletion, so this project does not take IFrontingRepository. -->
     <ProjectReference Include="..\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
     <ProjectReference Include="..\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
     <ProjectReference Include="..\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
     <ProjectReference Include="..\Interfold.Journals.Domain\Interfold.Journals.Domain.csproj" />
     <ProjectReference Include="..\Interfold.Friendships.Domain\Interfold.Friendships.Domain.csproj" />
-    <ProjectReference Include="..\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
     <!-- Auth.Contracts for AuthenticationConfiguration (SetupEncryptionCommandHandler +
          RecoverEncryptionCommandHandler resolve IOptionsMonitor<AuthenticationConfiguration>
          to read the encryption pepper). -->
@@ -32,7 +26,7 @@
     <ProjectReference Include="..\Interfold.Systems.Contracts\Interfold.Systems.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
+    <PackageReference Include="Isopoh.Cryptography.Argon2" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>

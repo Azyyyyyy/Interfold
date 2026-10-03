@@ -3,6 +3,7 @@ using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -34,6 +35,7 @@ public sealed class ConfigValidationTests
         },
         Datastores =
         {
+            Persistence = PersistenceMode.ScyllaPostgres,
             Cql = { Backend = CqlBackend.ScyllaSingle },
         },
     };
@@ -423,6 +425,21 @@ public sealed class ConfigValidationTests
         cfg.Api.OAuth.DiscordClientId = "discord-only-id";
         ConfigPhase.Validate(cfg);
         await Assert.That(CloudflareAccessPhase.HasDiscordOAuth(cfg.Api.OAuth)).IsFalse();
+    }
+
+    [Test]
+    public async Task EdgeCloudflareAccessWithDiscordOnlyPasses()
+    {
+        var cfg = MakeValid();
+        cfg.Edge.Cloudflare.Enabled = true;
+        cfg.Edge.Cloudflare.ApiToken = "cf-token";
+        cfg.Edge.Cloudflare.TunnelName = "interfold";
+        cfg.Edge.Cloudflare.Access.Enabled = true;
+        cfg.Edge.Cloudflare.Access.AllowedEmails = ["ops@example.com"];
+        cfg.Api.OAuth.DiscordClientId = "discord-id";
+        cfg.Api.OAuth.DiscordClientSecret = "discord-secret";
+        ConfigPhase.Validate(cfg);
+        await Assert.That(cfg.Edge.TlsMode).IsEqualTo(EdgeTlsMode.None);
     }
 
     [Test]
