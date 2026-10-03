@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Interfold.Bootstrapper.IntegrationTests.Fixtures;
 
@@ -50,14 +52,19 @@ internal static class BootstrapperBuild
 
     private static async Task<string> BuildAndSaveApiImageAsync()
     {
+        // The API image must embed the same migration set as the bootstrapper binary. A fixed
+        // local tag can survive a source update and silently pair a newly migrated database
+        // with an older API image, which then rejects its own database at startup.
+        var versionedImageRef = $"interfold-api:test-{GetSqliteMigrationFingerprint()}";
+
         // Skip the `dotnet publish /t:PublishContainer` step if the local Docker daemon already
-        // has a tagged `interfold-api:test` image. The PublishContainer task always re-fetches
+        // has the migration-fingerprinted API image. The PublishContainer task always re-fetches
         // the base layer manifest from mcr.microsoft.com, and that goes through whatever
         // credential helper Docker Desktop has configured. When the helper fails (no creds in
         // keychain, or MCR rate-limit + new auth-required tier) the whole test session aborts
-        // before any DinD work runs. As long as we still have a fresh-enough cached build the
-        // rebuild adds no signal — we just need *some* tarball to load into DinD.
-        var alreadyExists = await DockerImageExistsAsync(ApiImageRef).ConfigureAwait(false);
+        // before any DinD work runs. A matching fingerprint guarantees the image's migrations
+        // are still current while avoiding unnecessary pulls/builds.
+        var alreadyExists = await DockerImageExistsAsync(versionedImageRef).ConfigureAwait(false);
         if (!alreadyExists)
         {
             await RunDotnetAsync(
@@ -66,10 +73,14 @@ internal static class BootstrapperBuild
                 "-c", "Release",
                 "/t:PublishContainer",
                 "/p:ContainerImageName=interfold-api",
-                "/p:ContainerImageTag=test",
+                $"/p:ContainerImageTag={versionedImageRef[(versionedImageRef.IndexOf(':') + 1)..]}",
                 "--os", "linux",
                 "--arch", "x64").ConfigureAwait(false);
         }
+
+        // Compose fixtures intentionally keep a stable image name in their checked-in configs.
+        await RunAsync("docker", new[] { "tag", versionedImageRef, ApiImageRef }, workingDir: RepoRoot.Path)
+            .ConfigureAwait(false);
 
         PruneStaleSessions();
         var tarPath = Path.Combine(StagingRoot, $"api-{Environment.ProcessId}.tar");
@@ -77,6 +88,22 @@ internal static class BootstrapperBuild
 
         await RunAsync("docker", new[] { "save", ApiImageRef, "-o", tarPath }, workingDir: RepoRoot.Path).ConfigureAwait(false);
         return tarPath;
+    }
+
+    private static string GetSqliteMigrationFingerprint()
+    {
+        var migrationsDir = Path.Combine(
+            RepoRoot.Path, "infrastructure", "Interfold.Infrastructure.Sqlite", "Migrations");
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var path in Directory.EnumerateFiles(migrationsDir, "*.sql")
+                     .OrderBy(Path.GetFileName, StringComparer.Ordinal))
+        {
+            hash.AppendData(Encoding.UTF8.GetBytes(Path.GetFileName(path)));
+            hash.AppendData(new byte[] { 0 });
+            hash.AppendData(File.ReadAllBytes(path));
+        }
+
+        return Convert.ToHexString(hash.GetHashAndReset())[..16].ToLowerInvariant();
     }
 
     // Removes `run-{pid}-{ts}/` dirs and `api-{pid}.tar` files whose PID is no longer
