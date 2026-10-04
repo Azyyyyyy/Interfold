@@ -14,31 +14,31 @@ public sealed class ComposeImagesParseTests
     {
         const string payload = """
         [
-            {"ID":"aaa111","Image":"sha256:img1","Service":"msg-db","Name":"deploy-msg-db-1"},
-            {"ID":"bbb222","Image":"sha256:img2","Service":"scylla","Name":"deploy-scylla-1"}
+            {"ID":"aaa111","Image":"sha256:img1","Service":"interfold-api","Name":"deploy-interfold-api-1"},
+            {"ID":"bbb222","Image":"sha256:img2","Service":"interfold-web","Name":"deploy-interfold-web-1"}
         ]
         """;
 
         var parsed = UpdateImagesPhase.ParseComposePsJson(payload);
 
         await Assert.That(parsed.Count).IsEqualTo(2);
-        await Assert.That(parsed.Single(r => r.Service == "msg-db").ContainerId).IsEqualTo("aaa111");
-        await Assert.That(parsed.Single(r => r.Service == "scylla").ContainerId).IsEqualTo("bbb222");
+        await Assert.That(parsed.Single(r => r.Service == "interfold-api").ContainerId).IsEqualTo("aaa111");
+        await Assert.That(parsed.Single(r => r.Service == "interfold-web").ContainerId).IsEqualTo("bbb222");
     }
 
     [Test]
     public async Task ParsesPsJsonLinesShape()
     {
         const string payload = """
-        {"ID":"aaa111","Image":"postgres:16","Service":"msg-db","Name":"deploy-msg-db-1"}
-        {"ID":"bbb222","Image":"scylla:2026.1","Service":"scylla","Name":"deploy-scylla-1"}
-        {"ID":"ccc333","Image":"api:latest","Service":"interfold-api","Name":"deploy-interfold-api-1"}
+        {"ID":"aaa111","Image":"api:1.0","Service":"interfold-api","Name":"deploy-interfold-api-1"}
+        {"ID":"bbb222","Image":"web:1.0","Service":"interfold-web","Name":"deploy-interfold-web-1"}
+        {"ID":"ccc333","Image":"nginx:1.0","Service":"edge-nginx","Name":"deploy-edge-nginx-1"}
         """;
 
         var parsed = UpdateImagesPhase.ParseComposePsJson(payload);
 
         await Assert.That(parsed.Count).IsEqualTo(3);
-        await Assert.That(parsed.Single(r => r.Service == "interfold-api").ContainerId).IsEqualTo("ccc333");
+        await Assert.That(parsed.Single(r => r.Service == "edge-nginx").ContainerId).IsEqualTo("ccc333");
     }
 
     [Test]
@@ -59,16 +59,16 @@ public sealed class ComposeImagesParseTests
     public async Task MalformedPsJsonLineIsSkipped()
     {
         const string payload = """
-        {"ID":"aaa","Image":"sha256:a","Service":"msg-db"}
+        {"ID":"aaa","Image":"sha256:a","Service":"interfold-api"}
         not json at all
-        {"ID":"bbb","Image":"sha256:b","Service":"scylla"}
+        {"ID":"bbb","Image":"sha256:b","Service":"interfold-web"}
         """;
 
         var parsed = UpdateImagesPhase.ParseComposePsJson(payload);
 
         await Assert.That(parsed.Count).IsEqualTo(2);
-        await Assert.That(parsed.Any(r => r.Service == "msg-db")).IsTrue();
-        await Assert.That(parsed.Any(r => r.Service == "scylla")).IsTrue();
+        await Assert.That(parsed.Any(r => r.Service == "interfold-api")).IsTrue();
+        await Assert.That(parsed.Any(r => r.Service == "interfold-web")).IsTrue();
     }
 
     [Test]
@@ -102,16 +102,16 @@ public sealed class ComposeImagesParseTests
     public async Task ParseContainerImageFieldsSplitsTabSeparatedLines()
     {
         const string payload = """
-        sha256:run1	postgres:16
-        sha256:run2	interfold-cassandra:local
+        sha256:run1	interfold-api:latest
+        sha256:run2	interfold-web:latest
         """;
 
         var parsed = UpdateImagesPhase.ParseContainerImageFields(payload);
 
         await Assert.That(parsed.Count).IsEqualTo(2);
         await Assert.That(parsed[0].RunningImageId).IsEqualTo("sha256:run1");
-        await Assert.That(parsed[0].ConfigImage).IsEqualTo("postgres:16");
-        await Assert.That(parsed[1].ConfigImage).IsEqualTo("interfold-cassandra:local");
+        await Assert.That(parsed[0].ConfigImage).IsEqualTo("interfold-api:latest");
+        await Assert.That(parsed[1].ConfigImage).IsEqualTo("interfold-web:latest");
     }
 
     [Test]

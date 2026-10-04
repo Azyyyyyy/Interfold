@@ -6,7 +6,7 @@ namespace Interfold.Api.UnitTests.Infrastructure;
 // InMemoryRegionContext strip-before-hash invariant: scoped {region}:{rawId} and raw
 // {rawId} shapes of the same principal must resolve to the same region, otherwise
 // InMemory reads through a raw URL segment 404 against writes seeded through a JWT-
-// derived scoped principal. Persistent-backend equivalent lives in RegionContextCachingTests.
+// derived scoped principal.
 public sealed class InMemoryRegionContextTests
 {
     private const string RawId = "sys-region-context-test";
@@ -52,9 +52,8 @@ public sealed class InMemoryRegionContextTests
             .Because("The resolver must still discriminate between principals — if it degenerates to a single region for every id (e.g. by hashing a constant, or by falling through to CurrentRegion for non-empty inputs), the InMemory backend loses its multi-region routing and every test sharing a WebApplicationFactory sees a single-partition collision surface.");
     }
 
-    // Blank inputs must short-circuit to CurrentRegion — ScyllaKeyspaceResolver relies on
-    // this default rather than throwing. All three IsNullOrWhiteSpace shapes are pinned so
-    // a refactor to a single guard clause can't drop one.
+    // Blank inputs must short-circuit to CurrentRegion rather than throwing.
+    // All three IsNullOrWhiteSpace shapes are pinned so a refactor to a single guard clause can't drop one.
     [Test]
     public async Task DefaultSystemId_FallsBackToCurrentRegion()
     {
@@ -63,7 +62,7 @@ public sealed class InMemoryRegionContextTests
         var region = ctx.ResolveUserRegion(default);
 
         await Assert.That(region).IsEqualTo(ScyllaKeyspace.Eur)
-            .Because("default(SystemId).Value is null — this branch must fall through to the constructor-supplied CurrentRegion. The ScyllaKeyspaceResolver default-keyspace path depends on it and would NRE otherwise.");
+            .Because("default(SystemId).Value is null — this branch must fall through to the constructor-supplied CurrentRegion.");
     }
 
     [Test]

@@ -5,7 +5,7 @@ using Interfold.Infrastructure.InMemory.Repository;
 namespace Interfold.Api.UnitTests.Friendships;
 
 // FriendLookup-driven dispatch matrix on InMemoryFriendshipRepository.ResolveUserIdAsync.
-// Scylla dispatch runs through SendFriendRequestPrefixTests end-to-end. Wire universe is
+// Dispatch runs through SendFriendRequestPrefixTests end-to-end. Wire universe is
 // narrowed to Id + Username; other shapes fail FriendLookup.TryParse (400 at route bind).
 public sealed class ResolveUserIdDispatchTests
 {

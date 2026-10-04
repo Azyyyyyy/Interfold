@@ -11,8 +11,7 @@ namespace Interfold.Api.UnitTests;
 // every front that has a time_start (accounts.ex:1215). The two existing reads on
 // IFrontingRepository (ListActiveAsync + ListHistoryBetweenAsync) cannot cover that
 // contract: ListActiveAsync drops closed rows, ListHistoryBetweenAsync stitches
-// fronts_by_time which is only populated on close (see the CQL migration at
-// infrastructure/Interfold.Infrastructure.Scylla/Migrations/002_create_interfold_schema.templated.cql:306-320).
+// fronts_by_time which is only populated on close.
 public sealed class InMemoryFrontingRepositoryListAllTests
 {
     private static readonly SystemId OwnerId = new("owner01");

@@ -1,212 +1,95 @@
-# `PersistenceMode.Sqlite` — full-stack SQLite mode for small self-hosts
+# `PersistenceMode.Sqlite` — full-stack SQLite mode
 
-Last updated: 2026-08-16
-Status: **Scaffolding + domain repos + AppHost + Bootstrapper Sqlite path landed — KMP follow-on remains.**
+Status: **Active**, alongside `PersistenceMode.InMemory`.
 
-Adds a third `PersistenceMode` alongside `ScyllaPostgres` and `InMemory` that
-runs the entire persistence surface — domain repositories, idempotency store,
-auth-token revocation, notification-token store, secrets store — from a
-single SQLite file. Target audience: Raspberry Pi Zero 2W / Pi 3 /
-low-memory-x86 self-hosts where the current Cassandra + Postgres compose
-stack is too heavy, and any operator who wants a single-file, no-Docker
-install.
+`PersistenceMode.Sqlite` runs the entire persistence surface — domain repositories, idempotency store,
+auth-token revocation, notification-token store, secrets store — from a single SQLite file. Target audience:
+single-file, zero-external-dependency self-hosts and local development.
 
 ---
 
-## Motivation
+## Architecture
 
-The current low-powered-device path lives in
-[`tools/Interfold.Bootstrapper`](../tools/Interfold.Bootstrapper/): swap
-**Cassandra** in for Scylla (arm64 base image built at compose-up time by
-`CassandraImagePhase`), keep Postgres alongside for the auth / idempotency /
-secrets surfaces that Scylla is the wrong tool for. On a Pi 4 (4 GB) or Pi 5
-(8 GB) this is tight but workable; on smaller hardware it doesn't fit. A
-SQLite mode collapses the stack.
-
-Rough baseline resource comparison:
-
-| Mode | RSS at rest | Startup | Docker | ARM support |
-| --- | --- | --- | --- | --- |
-| `ScyllaPostgres` (Scylla + Postgres) | ~3 GB | ~60 s | Yes | x86 only (Scylla) |
-| `ScyllaPostgres` (Cassandra + Postgres) | ~2 GB | ~60 s | Yes | arm64 via custom image |
-| `Sqlite` (proposed) | ~10–20 MB | < 1 s | No | Native everywhere |
-
----
-
-## Decision
-
-- **One mode, `PersistenceMode.Sqlite`, all-in-one file.** No mixed
-  configurations (no "Cassandra domain + SQLite auth", no "SQLite domain +
-  Postgres auth"). The combinatorial explosion isn't worth it for the target
-  audience.
-- **SQLite absorbs every persistence surface currently in `Interfold.Infrastructure.Postgres`:**
-  `IIdempotencyStore`, `IAuthTokenRevocationRepository`,
-  `INotificationTokenRepository`, secrets store — in addition to every
-  domain repository. The whole point is to remove the Postgres dependency
-  entirely, not just replace CQL.
-- **No automated migration between modes.** If a `ScyllaPostgres` operator
-  wants to switch to `Sqlite`, they export via API and re-import into a
-  fresh deployment. Direct data-file migration is out of scope.
-- **No multi-node SQLite.** No rqlite, no LiteFS. This mode is
-  single-machine by construction.
-- **Avatars stay on `LocalAvatarStorage`.** No BLOB-in-SQLite for avatars —
-  the current `LocalAvatarStorage` disk pattern already works and there's
-  no reason to change it for this mode.
+- **One mode, `PersistenceMode.Sqlite`, all-in-one file.**
+- **SQLite absorbs every persistence surface:** `IIdempotencyStore`, `IAuthTokenRevocationRepository`, `INotificationTokenRepository`, `ISecretsStore`, in addition to every domain repository.
+- **No multi-node SQLite.** SQLite mode is single-machine by construction.
+- **Avatars stay on `LocalAvatarStorage`.** No BLOB-in-SQLite for avatars.
 
 ---
 
 ## Locked-in decisions
 
-Recorded with the scaffolding slice so subsequent PRs do not re-litigate them:
-
 - **Package**: `Microsoft.Data.Sqlite` (AOT-safe, no EF Core, no reflection JSON).
-- **AOT**: `Interfold.Infrastructure.Sqlite` sets
-  `<IsAotCompatible>true</IsAotCompatible>`; all JSON goes through
-  `System.Text.Json` source-generated contexts (mirrors the Postgres project's
-  approach).
-- **KMP-shareable schema**: schema DDL lives in embedded `.sql` resource files
-  under `infrastructure/Interfold.Infrastructure.Sqlite/Migrations/` (kept
-  dialect-neutral SQLite — no `WITHOUT ROWID`, no `STRICT` for now, no
-  `AUTOINCREMENT`). A future Kotlin Multiplatform client (via SQLDelight or
-  Room-KMP) reads the same `.sql` bytes. Type conventions: `TEXT` for UUIDs /
-  JSON / emails / Discord snowflakes / import-enum wires; `INTEGER` for booleans
-  (0/1), unix-ms timestamps, and short-backed enum ordinals (same codes as Scylla
-  `smallint`); no `BLOB` (avatars stay on `LocalAvatarStorage`). Discord ids stay
-  `TEXT` because SQLite `INTEGER` is signed 64-bit and snowflakes overflow
-  `long.MaxValue` around 2084.
-- **Connection pragmas** applied at every open by `SqliteConnectionFactory`:
-  `PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
-  PRAGMA busy_timeout=5000;`. Pooling stays on, so many connections can be open.
-  WAL's `-shm` file returns `SQLITE_IOERR` on a Docker Desktop bind mount of a
-  Windows directory once a second connection exists. A rollback journal uses the
-  database file lock instead; a writer waits out `busy_timeout`.
+- **AOT**: `Interfold.Infrastructure.Sqlite` sets `<IsAotCompatible>true</IsAotCompatible>`; all JSON goes through `System.Text.Json` source-generated contexts.
+- **KMP-shareable schema**: schema DDL lives in embedded `.sql` resource files under `infrastructure/Interfold.Infrastructure.Sqlite/Migrations/` (kept dialect-neutral SQLite — no `WITHOUT ROWID`, no `STRICT` for now, no `AUTOINCREMENT`). Type conventions: `TEXT` for UUIDs / JSON / emails / Discord snowflakes / import-enum wires; `INTEGER` for booleans (0/1), unix-ms timestamps, and short-backed enum ordinals; no `BLOB` (avatars stay on `LocalAvatarStorage`). Discord ids stay `TEXT` because SQLite `INTEGER` is signed 64-bit and snowflakes overflow `long.MaxValue` around 2084.
+- **Connection pragmas** applied at every open by `SqliteConnectionFactory`: `PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;`.
 
 ---
 
-## Prerequisites
+## Integration test matrix
 
-1. **Feature-module split through Phase 4+.** Landed — per-feature `.Domain`
-   projects give SQLite repository implementations clean seams. The scaffolding
-   project already references the same `.Domain` set as
-   `Interfold.Infrastructure.Scylla`.
-2. **KMP client is a consumer, not a blocker.** A future Kotlin Multiplatform
-   client (separate repo) will consume the `Migrations/*.sql` bytes published
-   from this workstream. Client-store SQLite is no longer a prerequisite for
-   API-side SQLite work; schemas stay identical by construction so the client
-   can attach later via SQLDelight / Room-KMP.
+Integration test suites run against `SqliteWebFactoryFixture` and `InMemoryWebFactoryFixture`:
 
-The three stores that are **new** to the API SQLite mode (not needed by the
-client) are `SqliteIdempotencyStore`, `SqliteAuthTokenRevocationRepository`,
-and a SQLite-backed secrets store. Each is a mechanical port of its
-Postgres counterpart in `Interfold.Infrastructure.Postgres`.
+| Suite | Status |
+| --- | --- |
+| AltersControllerTests | green |
+| AuthControllerTests / AuthLinkControllerTests | green |
+| Friends* / SendFriendRequestPrefixTests | green |
+| FrontingControllerTests | green |
+| Journals* | green |
+| NodeRoleControllerTests | green |
+| PollsControllerTests | green |
+| Settings* / AvatarSourceTests | green |
+| WebSocket* / ReplayParityTests | green |
+| PublicSystemsControllerTests / TagsControllerTests | green |
 
 ---
 
-## Target project layout
+## Implementation status
 
-Project: `Interfold.Infrastructure.Sqlite` (scaffolded).
+The SQLite implementation is complete. Per-feature repositories and cross-cutting
+stores use `SqliteConnectionFactory`; migrations and the SQLite health check are
+registered by the API host. The schema remains available as embedded SQL resources
+for clients that need to consume the same local-store format.
 
-- References every per-feature `Interfold.<Feature>.Domain` project (mirrors
-  `Interfold.Infrastructure.Scylla`).
+---
+
+## Project layout
+
+Project: `Interfold.Infrastructure.Sqlite`.
+
+- References every per-feature `Interfold.<Feature>.Domain` project.
 - Package: `Microsoft.Data.Sqlite`.
-- `SqliteServiceCollectionExtensions.Register()` self-registers into the
-  persistence dispatcher and currently throws
-  `NotImplementedException` so `OCTOCON_PERSISTENCE=sqlite` fails fast with a
-  clear message.
-- `SqliteConnectionFactory` applies the locked-in pragmas; repositories in
-  follow-on slices consume it.
-- Placeholder `Migrations/000_placeholder.sql` + README describing KMP-shareable
-  schema conventions.
+- `SqliteServiceCollectionExtensions.Register()` registers the complete SQLite
+  persistence graph.
+- `SqliteConnectionFactory` applies the configured connection pragmas for every
+  repository and store.
+- `Migrations/` contains the embedded schema and migration ledger resources.
 
 ---
 
-## Scope of what changes elsewhere
+## Host and test integration
 
-The following are all small, targeted changes rather than restructures:
-
-- **`shared/Interfold.Shared.Contracts/PersistenceMode.cs`** — enum member
-  `Sqlite` with wire value `"sqlite"` (landed in scaffolding).
-- **`shared/Interfold.Shared.Contracts/Enums/EnumWireExtensions.cs`** — error
-  message includes `sqlite` (landed).
-- **`SqliteServiceCollectionExtensions.Register()`** + host `Program.cs`
-  registration call (landed; develop uses self-registration rather than a
-  switch inside `ServiceCollectionExtensions`).
-- **`hosts/Interfold.Api.Host/Program.cs` health-check block** — new branch
-  registering `AddReadyAndStartup<SqliteHealthChecker>("sqlite")` when `Sqlite`
-  mode is active (landed).
-- **`hosts/Interfold.Api.Host/Services/Secrets/SecretsPreBuildLoader.cs`** —
-  three-way switch: `InMemory` / `Postgres (ScyllaPostgres)` / `Sqlite`
-  (landed).
-- **`hosts/Interfold.AppHost/InterfoldAppHost.cs`** — Sqlite-mode bootstrap
-  path that skips CQL and Postgres compose resources; bind-mounted `.db`
-  volume (landed — `Parameters:persistence=sqlite`).
-- **`tools/Interfold.Bootstrapper`** — Sqlite bootstrap variant: skip
-  Cassandra/Postgres phases; create data dir, run migrations, seed; wire
-  `backup` / `restore` to SQLite online-backup API (landed — `databaseMode: sqlite`).
-- **Integration tests** — `SqliteWebFactoryFixture` landed as an **additive**
-  ClassDataSource leg alongside InMemory / Scylla / Cassandra. The default
-  multi-backend matrix is not narrowed (see Open questions).
+- The API registers the SQLite health check and the SQLite persistence graph when
+  `OCTOCON_PERSISTENCE=sqlite` is selected.
+- `SecretsPreBuildLoader` supports the two active modes: SQLite and InMemory.
+- AppHost runs `SqliteDevSeed`, sets `OCTOCON_PERSISTENCE` and
+  `OCTOCON_SQLITE_CONNECTION`, and stores the development database below
+  `hosts/Interfold.AppHost/.data/sqlite/`.
+- The bootstrapper uses `datastores.persistence: sqlite`, initializes the data directory,
+  migrates and seeds it, and routes backup/restore to the SQLite database.
+- Integration suites use `SqliteWebFactoryFixture` and
+  `InMemoryWebFactoryFixture` only. All feature suites have green SQLite and
+  InMemory legs.
 
 ---
 
-## Follow-on work
+## Workload characteristics
 
-Each item is its own PR:
-
-1. **Cross-cutting stores** — `SqliteIdempotencyStore`,
-   `SqliteAuthTokenRevocationRepository`, `SqliteSecretsStore` +
-   `SqliteMigrationService` + `SqliteHealthChecker`. Mechanical ports of the
-   Postgres equivalents under
-   [`infrastructure/Interfold.Infrastructure.Postgres/`](../infrastructure/Interfold.Infrastructure.Postgres/).
-2. **Domain repositories (11)**, one feature per PR, mirroring InMemory +
-   Scylla: Account · Alter · EncryptionState · Friendship · Fronting ·
-   ImportOperation · Journal · NotificationToken · Poll · SettingsField · Tag.
-   Each consumes `SqliteConnectionFactory`.
-3. **Program.cs wiring** — health-check branch registering
-   `AddReadyAndStartup<SqliteHealthChecker>("sqlite")`; three-way switch in
-   `SecretsPreBuildLoader.cs`.
-4. **AppHost** — Sqlite bootstrap path in `InterfoldAppHost.cs` that skips
-   Scylla/Postgres compose resources and bind-mounts the `.db` volume onto the
-   API resource. **Done (2026-08-16):** set `Parameters:persistence=sqlite`
-   (or `aspire run --parameter persistence=sqlite`). Forces Postgres/Scylla/
-   Cassandra off, stamps `OCTOCON_PERSISTENCE` + `OCTOCON_SQLITE_CONNECTION`,
-   runs `SqliteDevSeed` (migrate + secrets) before the API starts, and stores
-   the host-side file under `hosts/Interfold.AppHost/.data/sqlite/interfold.db`.
-5. **Bootstrapper** — Sqlite variant in `tools/Interfold.Bootstrapper/Phases/`:
-   skips `CassandraImagePhase` + Postgres phases; new phase creates data dir +
-   runs schema migrations + seeds. `backup` / `restore` wired to SQLite
-   online-backup API. **Done (2026-08-16):** set `databaseMode: sqlite` in
-   `interfold.bootstrap.json`. Publish injects `Parameters:persistence=sqlite`
-   and bind-mounts `{outputDir}/data/sqlite` onto the API; `SqliteDatabaseInitPhase`
-   migrates + seeds secrets; `backup --component sqlite|all` uses the online
-   backup API; `restore --restore-sqlite` / `--restore-latest` replaces the host `.db`.
-6. **Tests** — `SqliteWebFactoryFixture` alongside `InMemoryWebFactoryFixture`
-   under `tests/integration/Interfold.IntegrationTests.Shared/`. **Done
-   (additive):** ClassDataSource suites include Sqlite **in addition to**
-   existing InMemory / Scylla / Cassandra legs. Do **not** shrink the default
-   CI matrix to InMemory+Sqlite only — that would greenwash red CQL backends.
-7. **KMP client integration** — separate repo; publish the `Migrations/*.sql`
-   bytes as an artefact the KMP client can consume via SQLDelight/Room-KMP
-   against an identical schema.
-
----
-
-## Workload sanity check
-
-Family-scale self-host (5–20 users) baseline:
-
-- Peak writes: < 10/s (domain mutations + idempotency + occasional auth
-  event). SQLite WAL sustains ~400 K writes/s on modest hardware; three
-  orders of magnitude of headroom.
-- Peak concurrent reads: dozens (WebSocket clients + REST calls). WAL mode
-  does not serialise readers against a single writer.
-- Bulk imports (SP / PK) are the shape to watch — implement as batched
-  transactions with periodic commits so live user traffic gets writer
-  slots between batches. Same pattern the current Postgres path uses.
-
-Above the target audience (~100+ concurrent write-heavy users), single-writer
-serialisation starts to bite; that deployment should stay on
-`ScyllaPostgres`. This is documented as a non-goal below.
+SQLite is intended for a single host, family deployment, or small community service.
+Its single-writer design provides ample capacity for ordinary API traffic, while
+large imports should use bounded transactions so interactive requests continue to
+make progress. Use the bootstrapper backup command rather than copying a live file.
 
 ---
 
@@ -246,81 +129,38 @@ the last year" style aggregations). Captured under Open questions.
 
 ## Non-goals
 
-- **Mixed modes** (`CassandraSqlite`, `SqlitePostgres`, etc.). Two modes:
-  full CQL+Pg or full SQLite.
-- **Multi-node SQLite.** SQLite mode is single-machine.
-- **Automated data migration** between `ScyllaPostgres` and `Sqlite`.
-  Operators export/import via API.
-- **Enterprise / large-team deploys.** SQLite mode targets personal,
-  family, and small-community self-hosts; larger deployments stay on
-  `ScyllaPostgres`.
-- **Retiring `InMemory` mode.** InMemory stays for unit tests — it does no
-  I/O and is fastest for isolated repo behaviour tests. Sqlite mode
-  complements it rather than replacing it.
-- **Retiring `ScyllaPostgres` mode.** The high-end path stays exactly as
-  it is.
+- Multi-machine or multi-writer SQLite clustering.
+- Automatic migration between unrelated persistence engines.
+- Storing avatar binaries in SQLite.
+- Replacing InMemory for fast, isolated tests.
+- Adding another durable persistence engine as part of the SQLite implementation.
 
 ---
 
-## Open questions
+## Operational follow-up
 
-- **First-boot schema strategy.** Migration ledger like Postgres has
-  (rows in `internal.migration_history`), or one-shot `CREATE TABLE IF
-  NOT EXISTS` at boot? Provisional call: migration ledger for symmetry
-  with the Postgres path.
-- **Backup story.** SQLite online backup API + `sqlite3_backup_step`
-  triggered from a systemd timer, or leave `cp interfold.db backup.db`
-  (with a WAL checkpoint step) to the operator? Provisional call: bootstrap
-  an operator-friendly `interfold-bootstrap backup` command that does the
-  right thing (checkpoint + online backup + WAL rotate).
-- **Encrypted at rest?** SQLite has SEE (commercial), SQLCipher (LGPL),
-  or the "encrypt the whole disk" option. For a personal-device
-  self-host, disk-level encryption is usually the operator's answer.
-  Decide when the mode is closer to landing.
-- **DuckDB analytics attach — worth it, and when?** Provisional call:
-  add nothing now. Revisit if a concrete analytical use case appears
-  (large-import dashboards, historical aggregations). The attach model
-  means it would be additive — a new `Interfold.<Feature>.LocalStore.Analytics`
-  project that references DuckDB.NET, opens the SQLite file read-only,
-  runs the query. Zero impact on the write path.
-- **InMemory idempotency / revocation fakes vs `:memory:` SQLite.** The
-  `InMemory` mode has fake implementations of `IIdempotencyStore` and
-  `IAuthTokenRevocationRepository`. Once Sqlite mode exists, we could
-  point InMemory at `:memory:` SQLite and delete the duplicate fakes.
-  Provisional call: keep both. The InMemory fakes are trivial and fast;
-  a `:memory:` SQLite pays real I/O overhead. Revisit when the fakes
-  drift out of parity.
-- **Test-suite runtime cost.** Adding Sqlite as a ClassDataSource leg grows
-  CI wall-clock. **Locked decision:** keep the full default matrix
-  (InMemory + Sqlite + Scylla + Cassandra). Do not demote Scylla/Cassandra
-  to nightly-only — PR CI must still fail where those backends diverge.
-  Accept longer runs; fix parity rather than hide it.
+- Keep the migration ledger and embedded migration files immutable after release;
+  schema changes should use a new migration.
+- Protect SQLite backups because they include the durable secrets store.
+- Consider filesystem or volume encryption when the deployment's threat model
+  requires encryption at rest.
+- Keep both active modes: InMemory is deliberately optimized for isolated tests,
+  while SQLite provides durable state.
 
 ---
 
 ## Progress
 
-- 2026-07-22 — Roadmap entry captured. No code work started; awaiting
-  feature-module split completion + client-store SQLite work.
-- 2026-08-13 — Scaffolding slice landed: `PersistenceMode.Sqlite` wire value,
-  DI self-registration stub, `Interfold.Infrastructure.Sqlite` project with
-  pragma helper + placeholder migration, design doc moved to
-  `docs/sqlite-persistence-mode.md` with locked-in decisions and follow-on
-  work list. KMP client reframed as consumer of schemas, not a prerequisite.
-- 2026-08-13 — Cross-cutting stores landed (secrets / idempotency / auth
-  tokens / migration ledger / health checker) with unit tests; domain
-  repositories registered as NotImplemented stubs.
-- 2026-08-13 — Host wiring: `SecretsPreBuildLoader` three-way switch +
-  `SqliteHealthChecker` readiness registration.
-- 2026-08-13 — `SqliteWebFactoryFixture` attached alongside InMemory on the
-  default multi-backend ClassDataSource suites (scoreboard below). Expect
-  red until domain repositories land.
+- `PersistenceMode.Sqlite` and `PersistenceMode.InMemory` are the active wire values.
+- SQLite domain repositories, cross-cutting stores, migrations, and health checks are
+  implemented and registered by the host.
+- AppHost and the bootstrapper initialize SQLite, seed secrets, and expose SQLite
+  backup/restore operations.
+- Integration suites are green against the SQLite and InMemory fixtures.
 
 ## Integration scoreboard
 
-Suites with `[ClassDataSource<SqliteWebFactoryFixture>]` (additive to
-InMemory / Scylla / Cassandra). Sqlite legs verified green locally on
-2026-08-16 (Scylla/Cassandra still require Docker / DinD independently):
+All feature suites use the two active fixture types and are verified green locally:
 
 | Suite | Sqlite ClassDataSource |
 | --- | --- |
@@ -337,36 +177,4 @@ InMemory / Scylla / Cassandra). Sqlite legs verified green locally on
 | NodeRoleControllerTests | green |
 | ReplayParityTests | green |
 
-Parity tracker for these ClassDataSource suites is closed for Sqlite.
-
-Domain repository status:
-
-| Slice | Status |
-| --- | --- |
-| Account | implemented |
-| EncryptionState | implemented |
-| SettingsField | implemented |
-| Alter | implemented |
-| Tag | implemented |
-| Fronting | implemented |
-| Friendship | implemented |
-| Journal | implemented |
-| Poll | implemented |
-| NotificationToken | implemented |
-| ImportOperation | implemented |
-
-- 2026-08-13 — Domain repositories (11) ported from InMemory behavioural contracts onto
-  SQLite tables + `ISqliteConnectionFactory`. NotImplemented stubs removed. Integration
-  ClassDataSource legs remain the progress tracker for behavioural parity.
-- 2026-08-16 — AppHost Sqlite path: `Parameters:persistence=sqlite` skips msg-db/CQL,
-  mounts / seeds `hosts/Interfold.AppHost/.data/sqlite/interfold.db`, and wires
-  `OCTOCON_PERSISTENCE` + `OCTOCON_SQLITE_CONNECTION` for both AddProject and
-  container API resources.
-- 2026-08-16 — Bootstrapper Sqlite path: `databaseMode: sqlite` injects persistence +
-  host data bind path, `SqliteDatabaseInitPhase` migrate/seed, online
-  `backup`/`restore` for the host `.db`.
-- 2026-08-16 — Sqlite ClassDataSource integration legs green across the scoreboard
-  suites. AuthLink private Primary-node factory now uses
-  `IWebFactoryFixture.CreatePrivateFactory()` so Sqlite gets
-  `OCTOCON_SQLITE_CONNECTION` (previously only Scylla/Cassandra connection
-  details were copied).
+Parity is covered by the same controller and socket suites for both active modes.

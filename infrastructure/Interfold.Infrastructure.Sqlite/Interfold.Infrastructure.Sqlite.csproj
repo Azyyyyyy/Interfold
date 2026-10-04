@@ -15,7 +15,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
-      <!-- Mirror Scylla: feature repo interfaces live in per-feature .Domain projects. -->
+      <!-- Feature repo interfaces live in per-feature .Domain projects. -->
       <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
       <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
       <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />

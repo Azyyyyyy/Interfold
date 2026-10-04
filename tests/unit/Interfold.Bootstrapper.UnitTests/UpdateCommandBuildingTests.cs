@@ -31,11 +31,11 @@ public sealed class UpdateCommandBuildingTests
     [Test]
     public async Task ImageInspectIdArgsPinFormat()
     {
-        var args = UpdateImagesPhase.BuildImageInspectIdArgs("interfold-cassandra:local");
+        var args = UpdateImagesPhase.BuildImageInspectIdArgs("interfold-api:latest");
 
         await Assert.That(args).IsEquivalentTo(new[]
         {
-            "image", "inspect", "--format", "{{.Id}}", "interfold-cassandra:local",
+            "image", "inspect", "--format", "{{.Id}}", "interfold-api:latest",
         });
     }
 
@@ -56,7 +56,7 @@ public sealed class UpdateCommandBuildingTests
         // CLI --service wins over config.update.services. The operator's ad-hoc override
         // is always the more specific intent.
         var options = TestSupport.MakeOptions(updateServices: ["interfold-api"]);
-        var config = new BootstrapConfig { Deployment = { Update = { Services = ["msg-db", "scylla"] } } };
+        var config = new BootstrapConfig { Deployment = { Update = { Services = ["interfold-api", "edge-nginx"] } } };
 
         var resolved = UpdateImagesPhase.ResolveServiceWhitelist(options, config);
 
@@ -68,11 +68,11 @@ public sealed class UpdateCommandBuildingTests
     {
         // No CLI → use the persistent config value.
         var options = TestSupport.MakeOptions(updateServices: null);
-        var config = new BootstrapConfig { Deployment = { Update = { Services = ["msg-db"] } } };
+        var config = new BootstrapConfig { Deployment = { Update = { Services = ["interfold-api"] } } };
 
         var resolved = UpdateImagesPhase.ResolveServiceWhitelist(options, config);
 
-        await Assert.That(resolved).IsEquivalentTo(new[] { "msg-db" });
+        await Assert.That(resolved).IsEquivalentTo(new[] { "interfold-api" });
     }
 
     [Test]
@@ -110,14 +110,14 @@ public sealed class UpdateCommandBuildingTests
         // services stay off the recreate list, which is the whole point of the diff.
         var before = new Dictionary<string, string>
         {
-            ["msg-db"] = "sha256:aaa",
-            ["scylla"] = "sha256:bbb",
+            ["interfold-web"] = "sha256:aaa",
+            ["edge-nginx"] = "sha256:bbb",
             ["interfold-api"] = "sha256:ccc",
         };
         var after = new Dictionary<string, string>
         {
-            ["msg-db"] = "sha256:aaa",
-            ["scylla"] = "sha256:bbb",
+            ["interfold-web"] = "sha256:aaa",
+            ["edge-nginx"] = "sha256:bbb",
             ["interfold-api"] = "sha256:ddd",
         };
 
@@ -128,10 +128,10 @@ public sealed class UpdateCommandBuildingTests
     [Test]
     public async Task DiffDigestsHandlesNewService()
     {
-        var before = new Dictionary<string, string> { ["msg-db"] = "sha256:aaa" };
+        var before = new Dictionary<string, string> { ["interfold-web"] = "sha256:aaa" };
         var after = new Dictionary<string, string>
         {
-            ["msg-db"] = "sha256:aaa",
+            ["interfold-web"] = "sha256:aaa",
             ["new-svc"] = "sha256:new",
         };
 
@@ -144,10 +144,10 @@ public sealed class UpdateCommandBuildingTests
     {
         var before = new Dictionary<string, string>
         {
-            ["msg-db"] = "sha256:aaa",
+            ["interfold-web"] = "sha256:aaa",
             ["dropped"] = "sha256:x",
         };
-        var after = new Dictionary<string, string> { ["msg-db"] = "sha256:aaa" };
+        var after = new Dictionary<string, string> { ["interfold-web"] = "sha256:aaa" };
 
         var changed = UpdateImagesPhase.DiffDigests(before, after);
         await Assert.That(changed).Contains("dropped");
@@ -160,73 +160,17 @@ public sealed class UpdateCommandBuildingTests
         // here and skips the recreate + health check + downtime.
         var before = new Dictionary<string, string>
         {
-            ["msg-db"] = "sha256:aaa",
-            ["scylla"] = "sha256:bbb",
+            ["interfold-web"] = "sha256:aaa",
+            ["edge-nginx"] = "sha256:bbb",
         };
         var after = new Dictionary<string, string>
         {
-            ["msg-db"] = "sha256:aaa",
-            ["scylla"] = "sha256:bbb",
+            ["interfold-web"] = "sha256:aaa",
+            ["edge-nginx"] = "sha256:bbb",
         };
 
         var changed = UpdateImagesPhase.DiffDigests(before, after);
         await Assert.That(changed.Count).IsEqualTo(0);
-    }
-
-    [Test]
-    public async Task ShouldRebuildCassandraFalseInScyllaMode()
-    {
-        // databaseMode=single (Scylla) never triggers a Cassandra rebuild — the local
-        // interfold-cassandra:local image isn't part of a Scylla-only stack, and any
-        // whitelist value must be ignored here. Pins the mode gate.
-        var config = TestSupport.MakeConfig(CqlBackend.ScyllaSingle);
-
-        await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, [])).IsFalse();
-        await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["cassandra"])).IsFalse();
-        await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["msg-db", "cassandra"])).IsFalse();
-    }
-
-    [Test]
-    public async Task ShouldRebuildCassandraTrueInCassandraModeWithEmptyWhitelist()
-    {
-        // Empty whitelist = "act on every service" (compose semantics propagated by
-        // ResolveServiceWhitelist), so cassandra is implicitly in scope and must rebuild.
-        var config = TestSupport.MakeConfig(CqlBackend.Cassandra);
-
-        await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, [])).IsTrue();
-    }
-
-    [Test]
-    public async Task ShouldRebuildCassandraTrueWhenWhitelistNamesCassandra()
-    {
-        // Explicit ["cassandra"] whitelist means "just rebuild the DB image" — this is the
-        // deliberate "I patched the Dockerfile, only re-cook the Cassandra layer" path.
-        var config = TestSupport.MakeConfig(CqlBackend.Cassandra);
-
-        await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["cassandra"])).IsTrue();
-        await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["cassandra", "interfold-api"])).IsTrue();
-    }
-
-    [Test]
-    public async Task ShouldRebuildCassandraFalseWhenWhitelistExcludesCassandra()
-    {
-        // The whole point of the scoped rebuild: an operator narrowing an update with
-        // `--service msg-db` must NOT get an unrelated Cassandra rebuild that would
-        // pay the docker-build cost (and potentially reset the running container's
-        // Dockerfile-baked customisations) for no reason.
-        var config = TestSupport.MakeConfig(CqlBackend.Cassandra);
-
-        await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["msg-db"])).IsFalse();
-        await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["interfold-api", "interfold-web"])).IsFalse();
-    }
-
-    [Test]
-    public async Task ShouldRebuildCassandraFalseWhenPersistenceIsSqlite()
-    {
-        var config = new BootstrapConfig { Datastores = { Cql = { Backend = CqlBackend.Cassandra } } };
-
-        await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, [])).IsFalse();
-        await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["cassandra"])).IsFalse();
     }
 
     [Test]
@@ -240,31 +184,13 @@ public sealed class UpdateCommandBuildingTests
     }
 
     [Test]
-    public async Task ResolveHealthProbesCqlIncludesDatastores()
-    {
-        var config = TestSupport.MakeConfig();
-
-        var probes = UpdateImagesPhase.ResolveHealthProbes(config);
-
-        await Assert.That(probes).IsEquivalentTo(new[]
-        {
-            UpdateImagesPhase.UpdateHealthProbe.Postgres,
-            UpdateImagesPhase.UpdateHealthProbe.Cql,
-            UpdateImagesPhase.UpdateHealthProbe.Api,
-        });
-    }
-
-    [Test]
     public async Task ResolveHealthFailureLogServicesOmitsDatastoresForSqlite()
     {
         var sqlite = UpdateImagesPhase.ResolveHealthFailureLogServices(new BootstrapConfig());
-        var cql = UpdateImagesPhase.ResolveHealthFailureLogServices(TestSupport.MakeConfig());
 
         await Assert.That(sqlite).DoesNotContain("msg-db");
         await Assert.That(sqlite).DoesNotContain("scylla");
         await Assert.That(sqlite).Contains("interfold-api");
-        await Assert.That(cql).Contains("msg-db");
-        await Assert.That(cql).Contains("scylla");
     }
 }
 

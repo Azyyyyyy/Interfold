@@ -8,9 +8,8 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// <summary>
 /// Covers the backfill logic in <see cref="SecretsPhase.RunAsync"/>. A pre-existing
 /// <c>secrets.json</c> written by an older bootstrapper version may be missing keys that newer
-/// phases require (e.g. <c>postgresInitPassword</c>, <c>postgresAdminPassword</c>,
-/// <c>scyllaAdminPassword</c>, or the four JWT PEMs). The phase must detect the missing keys,
-/// mint replacements, and persist the result while leaving other already-populated fields alone.
+/// phases require, such as the four JWT PEMs. The phase must detect the missing keys, mint
+/// replacements, and persist the result while leaving other already-populated fields alone.
 /// </summary>
 public sealed class SecretsBackfillTests
 {
@@ -66,42 +65,10 @@ public sealed class SecretsBackfillTests
     }
 
     [Test]
-    public async Task BackfillsMissingPostgresInitPassword()
-    {
-        using var setup = await RunBackfillAsync(p => p.PostgresInitPassword = string.Empty);
-        await Assert.That(setup.Result.PostgresInitPassword).IsNotEmpty();
-        var reloaded = await LoadPersistedAsync(setup.Scratch.Path);
-        await Assert.That(reloaded.PostgresInitPassword).IsEqualTo(setup.Result.PostgresInitPassword);
-        await Assert.That(reloaded.PostgresPassword).IsEqualTo(setup.Prior.PostgresPassword);
-    }
-
-    [Test]
-    public async Task BackfillsMissingPostgresAdminPassword()
-    {
-        using var setup = await RunBackfillAsync(p => p.PostgresAdminPassword = string.Empty);
-        await Assert.That(setup.Result.PostgresAdminPassword).IsNotEmpty();
-        var reloaded = await LoadPersistedAsync(setup.Scratch.Path);
-        await Assert.That(reloaded.PostgresAdminPassword).IsEqualTo(setup.Result.PostgresAdminPassword);
-        await Assert.That(reloaded.PostgresPassword).IsEqualTo(setup.Prior.PostgresPassword);
-    }
-
-    [Test]
-    public async Task BackfillsMissingScyllaAdminPassword()
-    {
-        using var setup = await RunBackfillAsync(p => p.ScyllaAdminPassword = string.Empty);
-        await Assert.That(setup.Result.ScyllaAdminPassword).IsNotEmpty();
-        var reloaded = await LoadPersistedAsync(setup.Scratch.Path);
-        await Assert.That(reloaded.ScyllaAdminPassword).IsEqualTo(setup.Result.ScyllaAdminPassword);
-        await Assert.That(reloaded.ScyllaPassword).IsEqualTo(setup.Prior.ScyllaPassword);
-    }
-
-    [Test]
     public async Task RotateSecretsPreservesLeafPfxPassword()
     {
         using var setup = await RunBackfillAsync(p => p.LeafPfxPassword = "well-known-pfx-password-do-not-rotate-on-secrets-rotate", rotateSecrets: true);
         await Assert.That(setup.Result.LeafPfxPassword).IsEqualTo(setup.Prior.LeafPfxPassword);
-        await Assert.That(setup.Result.PostgresPassword).IsNotEqualTo(setup.Prior.PostgresPassword);
-        await Assert.That(setup.Result.ScyllaPassword).IsNotEqualTo(setup.Prior.ScyllaPassword);
     }
 
     [Test]
@@ -120,7 +87,6 @@ public sealed class SecretsBackfillTests
         await Assert.That(setup.Result.DeepLinkSecret).IsNotEmpty();
         var reloaded = await LoadPersistedAsync(setup.Scratch.Path);
         await Assert.That(reloaded.DeepLinkSecret).IsEqualTo(setup.Result.DeepLinkSecret);
-        await Assert.That(reloaded.PostgresPassword).IsEqualTo(setup.Prior.PostgresPassword);
     }
 
     [Test]

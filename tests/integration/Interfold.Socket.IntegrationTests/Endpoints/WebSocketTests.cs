@@ -15,12 +15,10 @@ using Microsoft.AspNetCore.TestHost;
 namespace Interfold.Socket.IntegrationTests.Endpoints;
 
 // 5 minute timeout since we want to ensure this does end up timing out if a connection gets stuck but we also 
-// need to account for Cassandra's slower performance with bootstrapping.
+// need to account for bootstrapping.
 [Timeout(1000 * 300)]
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     internal static string UniqueId(string prefix) => TestIds.NewSystemId(prefix, maxLen: int.MaxValue);

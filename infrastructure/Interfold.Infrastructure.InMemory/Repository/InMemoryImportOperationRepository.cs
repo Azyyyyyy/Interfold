@@ -6,9 +6,9 @@ using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
-/// <summary>In-memory <see cref="IImportOperationRepository"/> — Cassandra's LWT mutex
+/// <summary>In-memory <see cref="IImportOperationRepository"/> — mutual exclusion
 /// is emulated via <see cref="ConcurrentDictionary{TKey,TValue}.TryAdd"/>. Same
-/// <see cref="ImportOperationClaim"/> contract as the Scylla port so InMemory-backed
+/// <see cref="ImportOperationClaim"/> contract so InMemory-backed
 /// integration tests are a meaningful proxy for the production semantics.</summary>
 public sealed class InMemoryImportOperationRepository : IImportOperationRepository
 {
@@ -26,7 +26,7 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
         ImportOperationId newOperationId = new(Guid.NewGuid());
         var key = (systemId, kind);
 
-        // In-memory equivalent of Cassandra LWT IF NOT EXISTS.
+        // Atomic check-and-set.
         if (!_active.TryAdd(key, newOperationId))
         {
             var existing = _active[key];
@@ -175,7 +175,7 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
         return Task.FromResult<IReadOnlyList<ImportOperationSnapshot>>(stale);
     }
 
-    // Conditional-swap release — mirrors Scylla's DELETE … IF operation_id = ? so a stale
+    // Conditional-swap release so a stale
     // terminal call can't evict a different in-flight operation that took the slot after.
     private void ReleaseSlot(SystemId systemId, ImportOperationKind kind, ImportOperationId operationId)
     {

@@ -116,7 +116,7 @@ public class BaseEndpointTest
     /// relationship gate. Returns <c>(Owner, NonFriend, Friend, Trusted)</c>.
     /// <para>
     /// The composed IDs carry an 8-hex per-invocation nonce so bench-shared idempotency
-    /// state (<c>PostgresIdempotencyStore</c>, single Postgres across every leaf project
+    /// state (<c>SqliteIdempotencyStore</c>, SQLite across leaf projects
     /// under the centralised test-bench) can't replay a previous run's response and hand
     /// back an <c>AlterId</c> the current backend never wrote — same failure mode as
     /// <see cref="ReplayParityTests"/>. Callers must therefore not assume the returned

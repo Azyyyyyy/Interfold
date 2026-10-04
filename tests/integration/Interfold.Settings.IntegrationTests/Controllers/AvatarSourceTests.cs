@@ -12,8 +12,6 @@ namespace Interfold.Settings.IntegrationTests.Controllers;
 
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     private const string ExternalSystemAvatar = "https://cdn.example.com/system-avatar.png";

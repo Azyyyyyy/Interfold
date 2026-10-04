@@ -274,47 +274,13 @@ internal static class ConfigPhase
                                                     () => c.Edge.Ports.Https = PromptInt("Edge HTTPS port (ignored when tlsMode=none)", c.Edge.Ports.Https, 1, 65535))),
 
             Group("Datastores",
-                ("Persistence",                     () => c.Datastores.Persistence == PersistenceMode.Sqlite
-                                                        ? PersistenceMode.Sqlite.ToWire()
-                                                        : PersistenceMode.ScyllaPostgres.ToWire(),
+                ("Persistence",                     () => c.Datastores.Persistence.ToWire(),
                                                     () => c.Datastores.Persistence = EnumWireExtensions.ParseWithDefault(
                                                         console.Prompt(new TextPrompt<string>("Persistence:")
-                                                            .DefaultValue(c.UsesSqlite
-                                                                ? PersistenceMode.Sqlite.ToWire()
-                                                                : PersistenceMode.ScyllaPostgres.ToWire())
+                                                            .DefaultValue(c.Datastores.Persistence.ToWire())
                                                             .AddChoices(ValidBootstrapPersistenceModes)),
                                                         PersistenceMode.Sqlite,
-                                                        trimmed => $"Unrecognised persistence '{trimmed}'. Valid values: scylla-postgres, sqlite.")),
-                ("CQL backend",                     () => c.UsesSqlite ? "(n/a)" : c.Datastores.Cql.Backend.ToWire(),
-                                                    () =>
-                                                    {
-                                                        if (c.UsesSqlite) return;
-                                                        c.Datastores.Cql.Backend = CqlBackendMapping.ParseWire(console.Prompt(
-                                                            new TextPrompt<string>("CQL backend:")
-                                                                .DefaultValue(c.Datastores.Cql.Backend.ToWire())
-                                                                .AddChoices(ValidCqlBackends)));
-                                                    }),
-                ("Postgres application DB name",    () => c.UsesSqlite ? "(n/a)" : c.Datastores.Postgres.Database,
-                                                    () =>
-                                                    {
-                                                        if (c.UsesSqlite) return;
-                                                        c.Datastores.Postgres.Database = PromptStr("Postgres application DB name", c.Datastores.Postgres.Database);
-                                                    }),
-                ("Cluster name",                    () => c.UsesSqlite ? "(n/a)" : c.Datastores.Cql.ClusterName,
-                                                    () =>
-                                                    {
-                                                        if (c.UsesSqlite) return;
-                                                        c.Datastores.Cql.ClusterName = PromptStr("Cluster name (Scylla/Cassandra)", c.Datastores.Cql.ClusterName);
-                                                    }),
-                ("Scylla keyspace (region)",        () => c.UsesSqlite ? "(n/a)" : c.Datastores.Cql.Keyspace.ToWire(),
-                                                    () =>
-                                                    {
-                                                        if (c.UsesSqlite) return;
-                                                        c.Datastores.Cql.Keyspace = EnumWireExtensions.ParseScyllaKeyspace(console.Prompt(
-                                                            new TextPrompt<string>("Scylla keyspace (region):")
-                                                                .DefaultValue(c.Datastores.Cql.Keyspace.ToWire())
-                                                                .AddChoices(ValidScyllaKeyspaces)));
-                                                    })),
+                                                        trimmed => $"Unrecognised persistence '{trimmed}'. Valid values: sqlite."))),
 
             // Derivable rows snapshot into ResolveDerivedDefaults so the menu paints the
             // computed default before Enter.
@@ -932,26 +898,13 @@ internal static class ConfigPhase
     private static string ShowOrEmpty(string value) =>
         string.IsNullOrEmpty(value) ? "<empty>" : value;
 
-    /// <summary>Wire spellings of every <see cref="ScyllaKeyspace"/>. Must stay aligned with
-    /// <c>InterfoldAppHost.Configure</c>'s region list and <see cref="PublishPhase.BuildEnvReplacements"/>.</summary>
-    internal static readonly string[] ValidScyllaKeyspaces = Enum
-        .GetValues<ScyllaKeyspace>()
-        .Select(k => k.ToWire())
-        .ToArray();
-
     internal static readonly string[] ValidNodeGroups = Enum
         .GetValues<NodeGroup>()
         .Select(g => g.ToWire())
         .ToArray();
 
-    internal static readonly string[] ValidCqlBackends = Enum
-        .GetValues<CqlBackend>()
-        .Select(b => b.ToWire())
-        .ToArray();
-
     internal static readonly string[] ValidBootstrapPersistenceModes =
     [
-        PersistenceMode.ScyllaPostgres.ToWire(),
         PersistenceMode.Sqlite.ToWire(),
     ];
 
@@ -966,7 +919,7 @@ internal static class ConfigPhase
         .ToArray();
 
     /// <summary>Must match <c>builder.AddContainer(...)</c> names in
-    /// <c>InterfoldAppHost.Configure</c>; the regional entries mirror <see cref="ValidScyllaKeyspaces"/>.</summary>
+    /// <c>InterfoldAppHost.Configure</c>.</summary>
     internal static readonly string[] ValidUpdateServices = ComposeServices.AllValidUpdateServices;
 
     private const int DefaultHttpPort = 80;
@@ -1222,12 +1175,11 @@ internal static class ConfigPhase
         ValidatePort(config.Edge.Ports.Http, nameof(config.Edge.Ports.Http));
         ValidatePort(config.Edge.Ports.Https, nameof(config.Edge.Ports.Https));
 
-        if (config.Datastores.Persistence is not PersistenceMode.ScyllaPostgres
-            and not PersistenceMode.Sqlite)
+        if (config.Datastores.Persistence is not PersistenceMode.Sqlite)
         {
             throw new InvalidOperationException(
                 $"config.datastores.persistence='{config.Datastores.Persistence.ToWire()}' is not a deployable mode. " +
-                "Expected: scylla-postgres | sqlite.");
+                "Expected: sqlite.");
         }
 
         var portFields = new List<(string Name, int Port)>(2)
@@ -1256,35 +1208,6 @@ internal static class ConfigPhase
             throw new InvalidOperationException(
                 "config.deployment.webImage must be a non-empty container image reference " +
                 $"(default: '{DefaultContainerImages.Web}').");
-        }
-
-        // Postgres-safe identifier: quoting-free at both bind sites (connection string +
-        // CREATE DATABASE) within the 63-byte NAMEDATALEN budget.
-        if (string.IsNullOrWhiteSpace(config.Datastores.Postgres.Database))
-        {
-            throw new InvalidOperationException(
-                "config.datastores.postgres.database must be a non-empty Postgres identifier (default: 'interfold').");
-        }
-        if (!PostgresIdentifierPattern.IsMatch(config.Datastores.Postgres.Database))
-        {
-            throw new InvalidOperationException(
-                $"config.datastores.postgres.database='{config.Datastores.Postgres.Database}' is not a safe Postgres identifier. " +
-                "Allowed: 1..63 chars matching [A-Za-z_][A-Za-z0-9_]*.");
-        }
-
-        // Intersection of what Cassandra's cassandra.yaml rewrite and Scylla's argv accept
-        // without quoting gymnastics; 1..64 matches Cassandra's documented limit.
-        if (string.IsNullOrWhiteSpace(config.Datastores.Cql.ClusterName))
-        {
-            throw new InvalidOperationException(
-                "config.datastores.cql.clusterName must be a non-empty cluster identifier (default: 'InterfoldCluster').");
-        }
-        if (!ClusterNamePattern.IsMatch(config.Datastores.Cql.ClusterName))
-        {
-            throw new InvalidOperationException(
-                $"config.datastores.cql.clusterName='{config.Datastores.Cql.ClusterName}' contains characters that would break " +
-                "Cassandra's cassandra.yaml rewrite or Scylla's CLI argument parsing. " +
-                "Allowed: 1..64 chars matching [A-Za-z0-9 ._-].");
         }
 
         // Derive first so JSON-load callers see the same post-derivation values as the form.
@@ -1381,7 +1304,7 @@ internal static class ConfigPhase
             "must be an absolute path (systemd-driven backup invocations have an unpredictable CWD; " +
             "relative paths would not resolve consistently). Leave blank to default to '{outputDir}/backups'.");
 
-        // Range covers realistic cold-starts (Postgres+Scylla+API ~60-120s on modest hardware);
+        // Range covers realistic cold-starts (API ~60-120s on modest hardware);
         // 3600s cap matches UpdateImagesPhase's "give up eventually" contract.
         ValidateIntRange(
             config.Deployment.Update.HealthCheckTimeoutSeconds, 1, 3600,
@@ -1563,12 +1486,6 @@ internal static class ConfigPhase
                 $"{fieldLabel}={value} is outside the allowed [{min}..{max}] range.");
         }
     }
-
-    private static readonly Regex PostgresIdentifierPattern =
-        new("^[A-Za-z_][A-Za-z0-9_]{0,62}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
-    private static readonly Regex ClusterNamePattern =
-        new("^[A-Za-z0-9 ._-]{1,64}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     /// <summary>
     /// Character allow-list for <c>OnCalendar=</c>. Grammar validation is deferred to

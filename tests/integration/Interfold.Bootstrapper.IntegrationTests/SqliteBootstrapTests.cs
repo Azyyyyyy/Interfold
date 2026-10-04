@@ -10,7 +10,7 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 /// <summary>
 /// End-to-end sqlite persistence path: publish omits CQL/Postgres, db-init seeds a host-side
 /// <c>interfold.db</c>, launch brings API+edge up against that file, and backup copies it.
-/// Shares <see cref="UbuntuDinDFixture"/> with the scylla-mode suite (no extra image preload).
+/// Shares <see cref="UbuntuDinDFixture"/> across suites.
 /// </summary>
 [RequiresDocker]
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
@@ -37,13 +37,11 @@ public class SqliteBootstrapTests(UbuntuDinDFixture dinD)
             .Because("compose missing interfold-api service");
         await Assert.That(compose).Contains($"{ComposeServices.EdgeNginx}:")
             .Because("compose missing edge-nginx service");
-        await Assert.That(compose).DoesNotContain($"{ComposeServices.Postgres}:")
+        await Assert.That(compose).DoesNotContain("msg-db:")
             .Because("sqlite persistence must not emit a msg-db service");
-        await Assert.That(compose).DoesNotContain($"{ComposeServices.ScyllaSingle}:")
+        await Assert.That(compose).DoesNotContain("scylla:")
             .Because("sqlite persistence must not emit a scylla service or network");
-        await Assert.That(compose).DoesNotContain($"{ComposeServices.Cassandra}:")
-            .Because("sqlite persistence must not emit a cassandra service");
-        await Assert.That(compose).DoesNotContain($"{ComposeNetworks.Postgres}:")
+        await Assert.That(compose).DoesNotContain("postgres:")
             .Because("sqlite persistence must not declare the postgres compose network");
         await Assert.That(compose).DoesNotContain("${Parameters_")
             .Because("unresolved parameter placeholder leaked into compose");
@@ -81,9 +79,9 @@ public class SqliteBootstrapTests(UbuntuDinDFixture dinD)
         await Assert.That(ps.ExitCode).IsEqualTo(0L);
         await Assert.That(ps.Stdout).Contains("\"State\":\"running\"").Or.Contains("\"Health\":\"healthy\"")
             .Because("expected at least one healthy/running service after sqlite bootstrap");
-        await Assert.That(ps.Stdout).DoesNotContain($"\"Service\":\"{ComposeServices.Postgres}\"")
+        await Assert.That(ps.Stdout).DoesNotContain("\"Service\":\"msg-db\"")
             .Because("sqlite stack must not start msg-db");
-        await Assert.That(ps.Stdout).DoesNotContain($"\"Service\":\"{ComposeServices.ScyllaSingle}\"")
+        await Assert.That(ps.Stdout).DoesNotContain("\"Service\":\"scylla\"")
             .Because("sqlite stack must not start scylla");
 
         var second = await dinD.RunOnScratchAsync(

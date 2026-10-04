@@ -6,7 +6,7 @@ using TUnit.Core.Exceptions;
 namespace Interfold.Bootstrapper.IntegrationTests;
 
 /// <summary>
-/// Thin native Windows <c>publish</c> smoke (no compose up / Scylla). Skips when
+/// Thin native Windows <c>publish</c> smoke (no compose up). Skips when
 /// Docker Desktop is not reachable — GHA windows-latest often has no Linux engine;
 /// local Docker Desktop still exercises the path.
 /// </summary>

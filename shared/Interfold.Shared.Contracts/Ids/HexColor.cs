@@ -56,7 +56,7 @@ public readonly record struct HexColor : IParsable<HexColor>
         return true;
     }
 
-    /// <summary>Scylla row rehydration: unset (<c>null</c>) stays null; any non-null
+    /// <summary>Database row rehydration: unset (<c>null</c>) stays null; any non-null
     /// value must already be well-formed or read fails — corrupt stored colours surface
     /// at list/join time. <see cref="HexColorFixupService"/> normalises legacy bare hex
     /// before reads rely on this.</summary>

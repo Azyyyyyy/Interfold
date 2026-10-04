@@ -17,7 +17,7 @@ public sealed class InMemoryRegionContext : IRegionContext
 
     public ScyllaKeyspace ResolveUserRegion(SystemId systemId)
     {
-        // default(SystemId) has Value == null. Mirror ScyllaKeyspaceResolver's fallback.
+        // default(SystemId) has Value == null. Fall back to CurrentRegion.
         if (string.IsNullOrWhiteSpace(systemId))
         {
             return CurrentRegion;

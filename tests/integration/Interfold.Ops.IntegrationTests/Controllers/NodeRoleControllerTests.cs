@@ -8,8 +8,6 @@ namespace Interfold.Ops.IntegrationTests.Controllers;
 
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class NodeRoleControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     [Test]

@@ -324,7 +324,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
     }
 
-    // Idempotent success matches the Scylla adapter — "nothing to unlink" is not an error.
+    // Idempotent success matches the storage contract — "nothing to unlink" is not an error.
     private bool UnlinkIdentifier<TIdentity>(
         SystemId systemId,
         ConcurrentDictionary<ScopedSystemId, TIdentity> identifierBySystem,

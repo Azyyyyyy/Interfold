@@ -79,17 +79,6 @@ internal static class PublishPhase
         FillEnvFile(envPath, AppContext.BaseDirectory, options.OutputDir, config, secrets, logger);
         EnsureAvatarHostDirectory(config, options.OutputDir, logger);
 
-        // Cassandra mode: stamp `pull_policy: never` on the cassandra service. This is NOT the
-        // update mechanism (CassandraImagePhase.EnsureBuiltAsync runs `docker build` before any
-        // compose step); it prevents `docker compose pull` in update-images from erroring on
-        // `interfold-cassandra:local` (no registry entry → "manifest not found" → non-zero exit
-        // before the digest diff runs). With the stamp compose reports cassandra as Skipped on
-        // pull (docker/compose#9376) and every other lifecycle step still targets the local build.
-        if (CassandraImagePhase.IsCassandraDeployment(config))
-        {
-            StampCassandraPullPolicyNever(composePath, logger);
-        }
-
         logger.PhaseDone(Phase);
     }
 
@@ -102,52 +91,17 @@ internal static class PublishPhase
         IReadOnlyDictionary<string, string> Parameters,
         IReadOnlyDictionary<string, string> BindMounts);
 
-    /// <summary>Translates the operator-facing <see cref="CqlBackend"/> value
-    /// into the orthogonal AppHost toggles <c>InterfoldAppHost</c> reads. The throw guards
-    /// internal callers (unit tests) that bypass <see cref="ConfigPhase.Validate"/>.</summary>
-    internal static (bool IncludeScylla, bool IncludeCassandra, ScyllaTopology ScyllaTopology) TranslateDatabaseMode(
-        DatabaseMode databaseMode) => databaseMode switch
-        {
-            DatabaseMode.Single => (true, false, ScyllaTopology.Single),
-            DatabaseMode.Multi => (true, false, ScyllaTopology.Multi),
-            DatabaseMode.Cassandra => (false, true, ScyllaTopology.Single),
-            DatabaseMode.Sqlite => (false, false, ScyllaTopology.Single),
-            _ => throw new InvalidOperationException(
-                $"Unhandled databaseMode '{databaseMode}'. Expected: single | multi | cassandra | sqlite."),
-        };
-
     /// <summary>Host directory for the SQLite database file under the bootstrapper output tree.</summary>
     internal static string ResolveSqliteDataHostDir(string outputDir)
         => Path.GetFullPath(Path.Combine(outputDir, "data", "sqlite"));
 
     /// <summary>Single source of truth for every operator-tunable Aspire parameter that must
     /// appear in BOTH the <c>.env</c> replacement dictionary (<see cref="BuildEnvReplacements"/>)
-    /// AND the <c>Parameters:*</c> injection dictionary (<c>PublishInProcessAsync</c>).
-    /// <c>ConfigKey</c> is the <see cref="AppHostParameterKeys"/> IConfiguration key.
-    /// <c>EnvKey</c> is the upper-snake spelling Aspire emits into .env; explicit (not derived) so
-    /// an Aspire rename is a one-line edit — round-trip asserted in
-    /// <c>PublishSharedAspireParametersTests</c>. Nullable inputs collapse to empty to reproduce
-    /// the API's "unset env var" branch. Absent by design: graph-only knobs
-    /// (cluster/topology/image/dashboard/web/ports) that don't round-trip through .env, plus
-    /// <c>CASSANDRA_IMAGE</c> which flows in via <see cref="CassandraImagePhase"/>.</summary>
+    /// AND the <c>Parameters:*</c> injection dictionary (<c>PublishInProcessAsync</c>).</summary>
     internal static IEnumerable<(string ConfigKey, string EnvKey, string Value)>
         EnumerateSharedAspireParameters(BootstrapConfig config, GeneratedSecrets secrets, string? outputDir = null)
     {
-        // POSTGRES_INIT_PASSWORD carries the *initial* db_init password so operators who nuke
-        // pgdata can rerun the bootstrap; DatabaseInitPhase scrambles it again in-cluster.
-        yield return (AppHostParameterKeys.PostgresUser, "POSTGRES_USER", secrets.PostgresUser);
-        yield return (AppHostParameterKeys.PostgresPassword, "POSTGRES_PASSWORD", secrets.PostgresPassword);
-        yield return (AppHostParameterKeys.PostgresDb, "POSTGRES_DB", config.Datastores.Postgres.Database);
-        yield return (AppHostParameterKeys.PostgresInitPassword, "POSTGRES_INIT_PASSWORD", secrets.PostgresInitPassword);
-
-        // Scylla admin password is intentionally absent — that role is created by
-        // DatabaseInitPhase and its password only lives in internal.secrets.
-        yield return (AppHostParameterKeys.ScyllaUser, "SCYLLA_USER", secrets.ScyllaUser);
-        yield return (AppHostParameterKeys.ScyllaPassword, "SCYLLA_PASSWORD", secrets.ScyllaPassword);
-
-        // Bootstrap encryption key only. All other secrets (OAuth client secrets, JWT signing keys,
-        // deep-link HMAC, leaf PFX password, encryption pepper) live in internal.secrets, seeded
-        // by DatabaseInitPhase and read via SecretsBootstrapService at startup.
+        // Bootstrap encryption key only. All other secrets live in internal.secrets.
         yield return (AppHostParameterKeys.EncryptionPrivateKey, "ENCRYPTION_PRIVATE_KEY", secrets.EncryptionPrivateKeyB64);
 
         // OAuth client IDs are public identifiers (not secrets); empty is a valid
@@ -158,7 +112,6 @@ internal static class PublishPhase
 
         // API runtime config → OCTOCON_* env vars. ConfigPhase.ResolveDerivedDefaults fills
         // empties before Validate; CORS list joined with commas to match the wire format.
-        yield return (AppHostParameterKeys.ScyllaKeyspace, "SCYLLA_KEYSPACE", config.Datastores.Cql.Keyspace.ToWire());
         yield return (AppHostParameterKeys.OAuthCallbackBaseUrl, "OAUTH_CALLBACK_BASE_URL", config.Api.OAuth.CallbackBaseUrl);
         yield return (AppHostParameterKeys.JwtAuthority, "JWT_AUTHORITY", config.Api.OAuth.JwtAuthority);
         yield return (AppHostParameterKeys.JwtAudience, "JWT_AUDIENCE", config.Api.OAuth.JwtAudience);
@@ -168,11 +121,7 @@ internal static class PublishPhase
         yield return (AppHostParameterKeys.CorsAllowedOrigins, "CORS_ALLOWED_ORIGINS",
             CorsOriginsWithAccessCallback(config.Api.CorsAllowedOrigins, access?.TeamDomain));
 
-        // Non-secret operator tuning knobs. Nullable/disabled-when-empty fields serialise as
-        // "" — the API's binders normalise empty → null, matching the "env var unset" branch.
-        // AvatarStorageRoot is intentionally absent: the container always sees
-        // /app/data/avatars (baked via WithEnvironment); the host path is a bind-mount
-        // source filled by BuildEnvReplacements, not an Aspire parameter.
+        // Non-secret operator tuning knobs.
         yield return (AppHostParameterKeys.NodeGroup, "NODE_GROUP", config.Api.NodeGroup.ToWire());
         yield return (AppHostParameterKeys.AvatarPublicBase, "AVATAR_PUBLIC_BASE", config.Api.Storage.AvatarPublicBase ?? string.Empty);
         yield return (AppHostParameterKeys.OtlpEndpoint, "OTLP_ENDPOINT", config.Observability.OtlpEndpoint ?? string.Empty);
@@ -212,16 +161,7 @@ internal static class PublishPhase
         var parameters = EnumerateSharedAspireParameters(config, secrets, outputDir)
             .ToDictionary(p => p.EnvKey, p => p.Value, StringComparer.Ordinal);
 
-        if (CassandraImagePhase.IsCassandraDeployment(config))
-        {
-            // Aspire emits `image: "${CASSANDRA_IMAGE}"` for AddDockerfile resources;
-            // without this entry compose starts the service with an empty image ref.
-            parameters["CASSANDRA_IMAGE"] = CassandraImagePhase.LocalImageTag;
-        }
-
-        // Bind-mount lookup. Aspire emits `# Bind mount source for <service>:<target>` above each
-        // placeholder; we key on "service:target" to resolve the host path. A rename or reorder
-        // in a future Aspire release surfaces via the unit tests.
+        // Bind-mount lookup.
         var bindMountLookup = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [$"{ComposeServices.InterfoldApi}:{ContainerMountPaths.InterfoldAvatars}"] =
@@ -250,53 +190,17 @@ internal static class PublishPhase
                 CloudflareTunnelPhase.ConnectorTokenPath(outputDir);
         }
 
-        // Region-keyed rackdc mount; single mode → one "scylla" node in "nam", multi mode → one
-        // node per region. Derived from ScyllaKeyspace so the list can't drift. Sqlite has no CQL.
-        if (!config.UsesSqlite)
-        {
-            var databaseMode = CqlBackendMapping.ToDatabaseMode(config.Datastores.Cql.Backend);
-            if (databaseMode != DatabaseMode.Cassandra)
-            {
-                foreach (var region in ResolveScyllaRegions(config))
-                {
-                    var nodeName = ComposeServices.ToScyllaNodeName(region, multiNode: databaseMode == DatabaseMode.Multi);
-                    bindMountLookup[$"{nodeName}:/etc/scylla/cassandra-rackdc.properties"] =
-                        EmbeddedSupportFiles.SupportFilePath(outputDir, EmbeddedSupportFiles.RackDcRelative(region));
-                }
-            }
-        }
-        else
-        {
-            var sqliteHostDir = ResolveSqliteDataHostDir(outputDir);
-            bindMountLookup[$"{ComposeServices.InterfoldApi}:{ContainerMountPaths.InterfoldSqliteData}"] =
-                sqliteHostDir;
-        }
+        var sqliteHostDir = ResolveSqliteDataHostDir(outputDir);
+        bindMountLookup[$"{ComposeServices.InterfoldApi}:{ContainerMountPaths.InterfoldSqliteData}"] =
+            sqliteHostDir;
 
         return new EnvReplacements(parameters, bindMountLookup);
     }
-
-    internal static string[] ResolveScyllaRegions(BootstrapConfig config) =>
-        CqlBackendMapping.ToDatabaseMode(config.Datastores.Cql.Backend) == DatabaseMode.Multi
-            ? Enum.GetValues<ScyllaKeyspace>().Select(k => k.ToWire()).ToArray()
-            : [ScyllaKeyspace.Nam.ToWire()];
 
     /// <summary>Materializes embedded bind-mount sources under <c>{outputDir}/support</c>.</summary>
     internal static void StagePublishSupportFiles(BootstrapConfig config, string outputDir, PhaseLogger logger)
     {
         var materialized = 0;
-
-        if (!config.UsesSqlite
-            && CqlBackendMapping.ToDatabaseMode(config.Datastores.Cql.Backend) != DatabaseMode.Cassandra)
-        {
-            foreach (var region in ResolveScyllaRegions(config))
-            {
-                var relative = EmbeddedSupportFiles.RackDcRelative(region);
-                var target = EmbeddedSupportFiles.SupportFilePath(outputDir, relative);
-                if (EmbeddedSupportFiles.Materialize(relative, target, logger))
-                    materialized++;
-            }
-        }
-
         StageEdgeSupportFiles(config, outputDir, logger, ref materialized);
 
         if (materialized > 0)
@@ -433,38 +337,6 @@ internal static class PublishPhase
         return (rewritten, skipped);
     }
 
-    /// <summary>Inserts <c>pull_policy: never</c> after <c>image: "${CASSANDRA_IMAGE}"</c> on
-    /// the cassandra service; idempotent. Uses the placeholder token as the anchor (unique to
-    /// the cassandra service in Aspire's <c>AddDockerfile("cassandra", ...)</c> emission) so we
-    /// never stamp another service. Targeted find+insert avoids a full YAML round-trip that
-    /// could reorder Aspire's other keys or reflow compose anchors.</summary>
-    internal static void StampCassandraPullPolicyNever(string composePath, PhaseLogger? logger = null)
-    {
-        var lines = File.ReadAllLines(composePath).ToList();
-        for (var i = 0; i < lines.Count; i++)
-        {
-            var line = lines[i];
-            if (!line.Contains("${CASSANDRA_IMAGE}", StringComparison.Ordinal)) continue;
-
-            // Idempotency guard so re-runs of `bootstrap publish` don't double-stamp.
-            var next = lines.Skip(i + 1).FirstOrDefault(l => !string.IsNullOrWhiteSpace(l));
-            if (string.Equals(next?.Trim(), "pull_policy: never", StringComparison.Ordinal))
-            {
-                logger?.Info("    compose: cassandra service already has pull_policy: never");
-                return;
-            }
-
-            var indent = line[..(line.Length - line.TrimStart().Length)];
-            lines.Insert(i + 1, $"{indent}pull_policy: never");
-            File.WriteAllLines(composePath, lines);
-            logger?.Info("    compose: stamped pull_policy: never on cassandra service");
-            return;
-        }
-        // No cassandra service in the compose file — older cassandra-mode setups that skip
-        // AddDockerfile don't need the stamp. No-op rather than throw.
-        logger?.Warn("compose: no ${CASSANDRA_IMAGE} anchor found; pull_policy stamp skipped");
-    }
-
     private static string SetupAnchor(string outputDir)
     {
         var anchor = Path.Combine(outputDir, Path.Combine(AnchorSegments));
@@ -496,31 +368,11 @@ internal static class PublishPhase
             DisableDashboard = true,
         });
 
-        var (includeScylla, includeCassandra, scyllaTopology) =
-            TranslateDatabaseMode(CqlBackendMapping.ToEffectiveDatabaseMode(config));
-        var useSqlite = config.UsesSqlite;
-
-        // Parameters:* injected via IConfiguration; Aspire writes secret parameter values into
-        // the .env file rather than the compose YAML at publish time. Seeded from the shared
-        // enumerator; extras below are graph-only knobs (topology, image, ports, cluster name)
-        // that never round-trip through .env.
         var injected = EnumerateSharedAspireParameters(config, secrets, options.OutputDir)
             .ToDictionary(p => p.ConfigKey, p => (string?)p.Value, StringComparer.Ordinal);
 
-        // ClusterName is IConfiguration-read (like include-scylla / scylla-topology) rather than
-        // an Aspire Parameter — it also feeds Scylla's WithArgs list and that overload takes
-        // plain strings. Baked into compose as both CASSANDRA_CLUSTER_NAME and --cluster-name.
-        injected[AppHostParameterKeys.ClusterName] = config.Datastores.Cql.ClusterName;
-        injected[AppHostParameterKeys.IncludeScylla] = BoolWire.ToWireValue(includeScylla);
-        injected[AppHostParameterKeys.IncludeCassandra] = BoolWire.ToWireValue(includeCassandra);
-        injected[AppHostParameterKeys.ScyllaTopology] = scyllaTopology.ToWireValue();
-        injected[AppHostParameterKeys.Persistence] = useSqlite
-            ? PersistenceMode.Sqlite.ToWire()
-            : PersistenceMode.ScyllaPostgres.ToWire();
-        if (useSqlite)
-        {
-            injected[AppHostParameterKeys.SqliteDataHostPath] = ResolveSqliteDataHostDir(options.OutputDir);
-        }
+        injected[AppHostParameterKeys.Persistence] = PersistenceMode.Sqlite.ToWire();
+        injected[AppHostParameterKeys.SqliteDataHostPath] = ResolveSqliteDataHostDir(options.OutputDir);
         // Bootstrapper always uses a pre-built API image; this switches off the AddProject<> path.
         injected[AppHostParameterKeys.ApiImage] = config.Api.Image;
         injected[AppHostParameterKeys.WebImage] = config.Deployment.WebImage;

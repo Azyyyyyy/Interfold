@@ -30,7 +30,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         public string? Pronouns { get; set; }
         public string? ProxyName { get; set; }
         public string Name { get; set; } = string.Empty;
-        // Matches Scylla insert semantics: alters are Private until owner opens visibility.
+        // Alters are Private until owner opens visibility.
         public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Private;
         public Dictionary<FieldId, string?> Fields { get; } = new();
         public bool Untracked { get; set; }

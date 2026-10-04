@@ -112,7 +112,7 @@ public sealed class InMemoryAccountRepositoryIdentityRegressionTests
     }
 
     // Unlink on a user with nothing linked must return true (idempotent) — parity with
-    // the Scylla adapter's contract that drives the settings-command flow's Accepted/Replay.
+    // the database adapter's contract that drives the settings-command flow's Accepted/Replay.
     [Test]
     public async Task UnlinkDiscordAsync_UserWithNothingLinked_ReturnsTrue()
     {
@@ -120,7 +120,7 @@ public sealed class InMemoryAccountRepositoryIdentityRegressionTests
         var result = await repo.UnlinkDiscordAsync(new("nam:never-linked"));
 
         await Assert.That(result).IsTrue()
-            .Because("Unlink on a user with no linked Discord id must return true — parity with the Scylla adapter, which returns true for the same shape and drives the settings-command flow's Accepted/Replay envelope.");
+            .Because("Unlink on a user with no linked Discord id must return true — parity with the database adapter, which returns true for the same shape and drives the settings-command flow's Accepted/Replay envelope.");
     }
 
     [Test]
@@ -152,7 +152,7 @@ public sealed class InMemoryAccountRepositoryIdentityRegressionTests
 
         var deleted = await repo.DeleteAsync(systemId);
         await Assert.That(deleted).IsTrue()
-            .Because("DeleteAsync returns true on success — matches the Scylla adapter's contract.");
+            .Because("DeleteAsync returns true on success — matches the database adapter's contract.");
 
         // Discord has TryFind; email/apple only surface via a fresh FindOrCreate — same
         // invariant: post-delete the account must be undiscoverable from every side.

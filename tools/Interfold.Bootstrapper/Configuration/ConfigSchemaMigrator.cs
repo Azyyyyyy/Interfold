@@ -117,8 +117,7 @@ internal static class ConfigSchemaMigrator
         var edge = EnsureObject(root, "edge");
         var api = EnsureObject(root, "api");
         var datastores = EnsureObject(root, "datastores");
-        var postgres = EnsureObject(datastores, "postgres");
-        var cql = EnsureObject(datastores, "cql");
+        datastores["persistence"] = "sqlite";
 
         if (deployment.TryGetPropertyValue("hosts", out var hostsNode))
         {
@@ -162,7 +161,6 @@ internal static class ConfigSchemaMigrator
         }
 
         MoveBackupUpdate(root, deployment);
-        HoistDatastoreFields(root, datastores, postgres, cql);
         HoistApiFields(root, api);
 
         root["deployment"] = deployment;
@@ -361,63 +359,6 @@ internal static class ConfigSchemaMigrator
         }
     }
 
-    private static void HoistDatastoreFields(JsonObject root, JsonObject datastores, JsonObject postgres, JsonObject cql)
-    {
-        if (root.TryGetPropertyValue("postgresDatabase", out var db))
-        {
-            postgres["database"] = db?.DeepClone();
-        }
-
-        // Always stamp persistence on V1→V2. Pre-persistence V1 implied Scylla+Postgres
-        // (except databaseMode=sqlite); without an explicit wire the V2 sqlite default
-        // would flip those stacks.
-        if (root.TryGetPropertyValue("databaseMode", out var mode))
-        {
-            var wire = mode?.GetValue<string>() ?? "single";
-            if (wire.Trim().Equals("sqlite", StringComparison.OrdinalIgnoreCase))
-            {
-                datastores["persistence"] = "sqlite";
-            }
-            else
-            {
-                datastores["persistence"] = "scylla-postgres";
-                cql["backend"] = MapDatabaseModeToBackend(mode);
-            }
-        }
-        else if (root.TryGetPropertyValue("scyllaMode", out var scyllaMode))
-        {
-            datastores["persistence"] = "scylla-postgres";
-            cql["backend"] = MapDatabaseModeToBackend(scyllaMode);
-        }
-        else if (!datastores.ContainsKey("persistence"))
-        {
-            datastores["persistence"] = "scylla-postgres";
-        }
-
-        if (root.TryGetPropertyValue("clusterName", out var clusterName))
-        {
-            cql["clusterName"] = clusterName?.DeepClone();
-        }
-
-        if (root.TryGetPropertyValue("scyllaKeyspace", out var keyspace))
-        {
-            cql["keyspace"] = keyspace?.DeepClone();
-        }
-    }
-
-    private static JsonNode MapDatabaseModeToBackend(JsonNode? modeNode)
-    {
-        var wire = modeNode?.GetValue<string>() ?? "single";
-        return wire.Trim().ToLowerInvariant() switch
-        {
-            "single" => "scylla-single",
-            "multi" => "scylla-multi",
-            "cassandra" => "cassandra",
-            "scylla-single" => "scylla-single",
-            "scylla-multi" => "scylla-multi",
-            _ => "scylla-single",
-        };
-    }
 
     private static void HoistApiFields(JsonObject root, JsonObject api)
     {

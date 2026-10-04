@@ -63,18 +63,8 @@
   <ItemGroup>
     <!-- LogicalName `support/<path>` is the contract EmbeddedSupportFiles reads at runtime;
          keep new entries under that prefix. Materialize to disk only when Docker needs a host path. -->
-    <EmbeddedResource Include="..\..\db\scylla\cassandra-rackdc.*.properties"
-                      LogicalName="support/db/scylla/%(Filename)%(Extension)" />
-    <EmbeddedResource Include="..\..\scripts\docker\ensure-host-aio.sh"
-                      LogicalName="support/scripts/docker/ensure-host-aio.sh" />
     <EmbeddedResource Include="..\..\support\edge\nginx\*"
                       LogicalName="support/edge/nginx/%(Filename)%(Extension)" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- CassandraImagePhase docker-builds from this embed via stdin (-f -). -->
-    <EmbeddedResource Include="..\..\db\cassandra\Dockerfile"
-                      LogicalName="support/db/cassandra/Dockerfile" />
   </ItemGroup>
 
   <ItemGroup>

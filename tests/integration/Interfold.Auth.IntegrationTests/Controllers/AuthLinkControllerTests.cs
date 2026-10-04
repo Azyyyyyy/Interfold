@@ -16,8 +16,6 @@ namespace Interfold.Auth.IntegrationTests.Controllers;
 [Category("Auth")]
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     private static string UniqueId(string prefix) => TestIds.NewSystemId(prefix, maxLen: 24);
@@ -81,7 +79,7 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
 
         // 3. Verify in repository that identity is linked. Repositories return the scoped
         // wire form (e.g. "nam:link-flow-u-abc") — the raw region tag varies per adapter
-        // (InMemory hashes the id, Scylla resolves by the operator-configured keyspace),
+        // (InMemory hashes the id, Sqlite resolves by the operator-configured region),
         // so compare on the region-stripped raw id, which is stable across all backends.
         var accountRepo = factory.Services.GetRequiredService<IAccountRepository>();
         var linkedSystemId = await accountRepo.TryFindSystemIdByDiscordIdAsync(new DiscordId(discordIdStr));

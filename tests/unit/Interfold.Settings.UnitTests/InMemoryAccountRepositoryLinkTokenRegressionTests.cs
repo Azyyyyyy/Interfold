@@ -8,7 +8,7 @@ using Interfold.Api.UnitTests.Support;
 namespace Interfold.Api.UnitTests;
 
 // Regression suite for InMemoryAccountRepository's link-token map. Each test pins a
-// previously-latent failure mode: TTL parity with Scylla, resolve-miss forward-scrub,
+// previously-latent failure mode: TTL parity, resolve-miss forward-scrub,
 // and Compose-vs-hand-concat double-prefix on the reverse-map key.
 public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
 {
@@ -30,7 +30,7 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
 
         var resolved = await repo.ResolveSystemIdByLinkTokenAsync(token);
         await Assert.That(resolved).IsNull()
-            .Because("Bug A regression: a stale token past the 5-minute TTL must not resolve — otherwise the InMemory adapter diverges from Scylla's expiry contract.");
+            .Because("Bug A regression: a stale token past the 5-minute TTL must not resolve — otherwise the InMemory adapter diverges from the expiry contract.");
     }
 
     [Test]

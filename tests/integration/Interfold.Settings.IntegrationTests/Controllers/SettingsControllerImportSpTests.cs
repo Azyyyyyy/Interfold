@@ -17,11 +17,8 @@ namespace Interfold.Settings.IntegrationTests.Controllers;
 /// status mapping, body serialisation of <c>ImportDispatchResponse</c>).
 ///
 /// <para>
-/// We run against the in-memory fixture only. Cassandra and Scylla variants would
-/// re-test the same controller code path with no additional coverage and would slow the
-/// CI suite measurably. The repository-port equivalence is pinned separately by
-/// <c>InMemoryImportOperationRepositoryTests</c> and a future
-/// <c>ScyllaImportOperationRepositoryTests</c> integration.
+/// We run against the in-memory fixture only. The controller code path needs no
+/// persistent backend to exercise HTTP envelope and bus publication mechanics.
 /// </para>
 ///
 /// <para>

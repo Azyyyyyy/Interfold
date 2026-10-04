@@ -39,8 +39,7 @@ public sealed class ConfigSchemaMigrationTests
         await Assert.That(root.GetProperty("edge").GetProperty("hosts")[0].GetString()).IsEqualTo("api.example.com");
         await Assert.That(root.GetProperty("deployment").GetProperty("includeWeb").GetBoolean()).IsFalse();
         await Assert.That(root.TryGetProperty("datastores", out var datastores) && datastores.ValueKind == JsonValueKind.Object).IsTrue();
-        await Assert.That(datastores.GetProperty("persistence").GetString()).IsEqualTo("scylla-postgres");
-        await Assert.That(datastores.GetProperty("cql").GetProperty("backend").GetString()).IsEqualTo("scylla-single");
+        await Assert.That(datastores.GetProperty("persistence").GetString()).IsEqualTo("sqlite");
         await Assert.That(root.TryGetProperty("ports", out _)).IsFalse();
         await Assert.That(root.GetProperty("deployment").TryGetProperty("edge", out _)).IsFalse();
         await Assert.That(root.GetProperty("deployment").TryGetProperty("webHttps", out _)).IsFalse();
@@ -63,7 +62,7 @@ public sealed class ConfigSchemaMigrationTests
     }
 
     [Test]
-    public async Task V1MissingDatabaseModeStillStampsScyllaPostgresPersistence()
+    public async Task V1MissingDatabaseModeStillStampsSqlitePersistence()
     {
         const string json = """
             {
@@ -74,7 +73,7 @@ public sealed class ConfigSchemaMigrationTests
         var result = Migrate(json);
         using var doc = JsonDocument.Parse(result.Json);
         await Assert.That(doc.RootElement.GetProperty("datastores").GetProperty("persistence").GetString())
-            .IsEqualTo("scylla-postgres");
+            .IsEqualTo("sqlite");
     }
 
     [Test]
@@ -134,8 +133,7 @@ public sealed class ConfigSchemaMigrationTests
                 "ports": { "http": 80, "https": 443 }
               },
               "datastores": {
-                "postgres": { "database": "interfold" },
-                "cql": { "backend": "scylla-single", "clusterName": "InterfoldCluster", "keyspace": "nam" }
+                "persistence": "sqlite"
               }
             }
             """;

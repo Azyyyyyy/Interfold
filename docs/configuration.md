@@ -5,14 +5,14 @@ self-hosting and just want the short list of env vars you must set by hand, jump
 [README configuration block](../README.md#configuration--integrations) — it links back here
 for the deep dive.
 
-> **Audience.** Operators reading this should already understand Docker Compose, Postgres
-> roles, and Kestrel HTTPS. Maintainers extending it should already know
+> **Audience.** Operators reading this should already understand Docker Compose, SQLite
+> persistence, and Kestrel HTTPS. Maintainers extending it should already know
 > `IOptionsMonitor<T>`, `IHostedLifecycleService`, and the Aspire AppHost model.
 
 ## TL;DR
 
 There are four configuration layers. Each row in a layer eventually lands on a strongly-typed
-options object inside the API process or on a seeded row inside Postgres.
+options object inside the API process or on a seeded row inside the SQLite secrets store.
 
 
 | Layer                        | Source of truth                             | Where it lives at rest                              | Read by                            |
@@ -20,12 +20,12 @@ options object inside the API process or on a seeded row inside Postgres.
 | **1. Compile-time defaults** | C# constants and property initialisers      | Source code (`Interfold.Contracts.Configuration.*`) | DI binding helpers                 |
 | **2. Operator file**         | `deploy/interfold.bootstrap.json`           | Operator's working copy                             | `Interfold.Bootstrapper` only      |
 | **3. Environment variables** | `deploy/.env` (compose-bound) + process env | `OCTOCON_*`, `ASPNETCORE_*`, `Parameters:*`         | API at DI bind time                |
-| **4. `internal.secrets`**    | Postgres row `internal.secrets` table       | Inside the application database (default `interfold`, configurable via `BootstrapConfig.datastores.postgres.database`) | API at startup via `ISecretsStore` |
+| **4. `internal.secrets`**    | SQLite `secrets` table                      | Inside the application database (`deploy/data/sqlite/interfold.db`) | API at startup via `ISecretsStore` |
 
 
 Layers cascade right-to-left at boot: env binds first, then `SecretsBootstrapService`
 overlays values from `internal.secrets` on top of `AuthenticationConfiguration`. The leaf
-PFX password takes a separate one-shot Postgres lookup *before* the host is built so Kestrel
+PFX password takes a separate one-shot SQLite lookup *before* the host is built so Kestrel
 can unlock the cert when it binds the HTTPS endpoint.
 
 ## Layer 1 — Compile-time defaults
@@ -37,7 +37,7 @@ the defaults aim for "loud failure in production, useful behaviour in dev".
 Reference:
 
 - `[PersistenceConfiguration](../shared/Interfold.Contracts/Configuration/PersistenceConfiguration.cs)`
-— DB mode, keyspace, retry/backoff knobs.
+— DB mode, connection string, retry/backoff knobs.
 - `[AuthenticationConfiguration](../shared/Interfold.Contracts/Configuration/AuthenticationConfiguration.cs)`
 — JWT signing keys, OAuth client IDs, deep-link HMAC secret, encryption pepper, challenge
 scheme metadata.
@@ -62,15 +62,15 @@ Each `Apply`* method is the single source of truth for that section's env → op
 
 This file is the operator-facing input to the bootstrapper. It is *not* read by the API
 directly — its values flow through the bootstrapper into either `secrets.json` (auto-generated
-output) or the `internal.secrets` table (seeded by `DatabaseInitPhase`).
+output) or the `internal.secrets` table (seeded by `SqliteDatabaseInitPhase`).
 
 > **Windows host.** `interfold-bootstrap` runs natively on Windows as a Docker Desktop
 > operator. CI ships `win-x64` and `win-arm64` zips alongside the Linux tarballs (there is
 > no `win-arm` RID in modern .NET, so `linux-arm` has no Windows peer). The prereqs phase
 > verifies `docker` + `docker compose`, and if they are missing tries `winget` then `choco`
 > to install Docker Desktop (Administrator required only for that install). Host
-> `fs.aio-max-nr` sysctl is Linux-only; Windows probes the value inside a throwaway
-> container and warns if Scylla's floor is not met. `trustStoreInstall` writes the private
+> `fs.aio-max-nr` sysctl tuning is skipped since SQLite persistence does not require Seastar
+> AIO overrides. `trustStoreInstall` writes the private
 > CA to `CurrentUser\Root` (no admin). `install-service` registers Task Scheduler jobs
 > instead of systemd. macOS is still unsupported.
 
@@ -126,12 +126,7 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
     }
   },
   "datastores": {
-    "postgres": { "database": "interfold" },
-    "cql": {
-      "backend": "scylla-single",
-      "clusterName": "InterfoldCluster",
-      "keyspace": "nam"
-    }
+    "persistence": "sqlite"
   },
   "api": {
     "image": "ghcr.io/azyyyyyy/interfold-api:latest",
@@ -216,7 +211,7 @@ The bootstrapper carries them through as plain Aspire parameters (no masking, no
 into `deploy/.env` as `GOOGLE_OAUTH_CLIENT_ID` / `DISCORD_OAUTH_CLIENT_ID` /
 `APPLE_OAUTH_CLIENT_ID`, which the API container picks up as `OCTOCON_*_OAUTH_CLIENT_ID`
 via `InterfoldAppHost.ConfigureApiSelfHostEnv`. The matching client **secrets** live in
-`internal.secrets` (seeded by `DatabaseInitPhase`) and are patched onto
+`internal.secrets` (seeded by `SqliteDatabaseInitPhase`) and are patched onto
 `AuthenticationConfiguration` by `SecretsBootstrapService` at API startup — they never
 appear in `.env`.
 
@@ -268,7 +263,7 @@ machine or the local network with a private CA, or the public internet through
 Cloudflare. The internet choice only works when Cloudflare looks up that web address. If Cloudflare does not look the name up, use the local network instead.
 Then it asks whether to include the web UI, and the address people
 will use to open it. Data is
-always stored in SQLite; Scylla and Postgres stay in the advanced editor. Later
+always stored in SQLite (or InMemory for test harnesses). Later
 questions follow from those answers. A local-network install asks whether this computer
 should trust Interfold's certificate, so the browser stops warning that the site is unsafe.
 Other devices still need that certificate installed on them. A Cloudflare hostname asks for an API token. The prompt links to the Cloudflare API tokens page, lists the core permissions, lists the extra permissions only Discord sign-in needs, and says not to grant every permission. Access is optional.
@@ -378,16 +373,14 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 `https://192.168.1.42/` cleanly through edge-nginx.
 
 > **Public surface and network isolation.** The bootstrapper always emits `edge-nginx` as
-> the sole service with host port mappings. API, web (when included), Postgres, and
-> Scylla/Cassandra stay on internal Docker networks — no direct host access.
+> the sole service with host port mappings. API and web (when included) stay on internal Docker networks — no direct host access. SQLite data is stored locally in the host data directory and bind-mounted to the API container.
 >
 > | Actor | May reach | Must not reach |
 > | --- | --- | --- |
-> | **API** | Postgres, Scylla/Cassandra, edge via `edge-api` | Host (no published ports), web container |
-> | **Web** | Nothing server-side (static wasm only) | API, Postgres, Scylla, edge networks |
-> | **Edge** | API (`edge-api`), web (`edge-web` when `includeWeb`) | Postgres, Scylla |
-> | **Postgres / Scylla** | Each other only via API as client | Host, web, edge |
-> | **Host / browser** | Edge public ports only | API, web, DB ports directly |
+> | **API** | Edge via `edge-api`, SQLite mount | Host (no published ports), web container |
+> | **Web** | Nothing server-side (static wasm only) | API, edge networks |
+> | **Edge** | API (`edge-api`), web (`edge-web` when `includeWeb`) | API internal data |
+> | **Host / browser** | Edge public ports only | API, web container directly |
 >
 > The browser calls the API through edge (`/api/` or subdomain routing); the web container
 > does not join `edge-api`. When `cloudflare.enabled`, edge has no host-published ports —
@@ -602,20 +595,16 @@ publish phase. Variables marked **(operator)** must be supplied by hand.
 
 | Env var                             | Default                                           | Notes                                                                                                  |
 | ----------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `OCTOCON_PERSISTENCE`               | `scylla-postgres`                                 | `scylla-postgres` or `inmemory`. (bootstrapper-managed)                                                |
-| `OCTOCON_POSTGRES_CONNECTION`       | localhost fallback                                | Built from `Parameters:postgres-*` (including `Parameters:postgres-db`, default `interfold`, sourced from `BootstrapConfig.postgresDatabase`). (bootstrapper-managed) |
-| `OCTOCON_SCYLLA_KEYSPACE`           | `nam`                                             | Per-instance region identity. **Single source.** No store fallback. Sourced from `BootstrapConfig.scyllaKeyspace` via Aspire parameter `scylla-keyspace`; restricted to the seven canonical regional values (`nam`/`eur`/`sam`/`sas`/`eas`/`ocn`/`gdpr`). (bootstrapper-managed) |
-| `OCTOCON_SINGLE_SCYLLA_INSTANCE`    | `true` (`single`/`cassandra`) / `false` (`multi`) | Whether the migration service creates all regional keyspaces or just one. (bootstrapper-managed)       |
-| `OCTOCON_DB_RETRY_ATTEMPTS`         | `3`                                               | Sourced from `BootstrapConfig.persistence.dbRetryAttempts` via Aspire parameter `db-retry-attempts`; bounded 1..100 by `ConfigPhase.Validate`. (bootstrapper-managed) |
-| `OCTOCON_DB_RETRY_INITIAL_DELAY_MS` | `100`                                             | Sourced from `BootstrapConfig.persistence.dbRetryInitialDelayMs` via Aspire parameter `db-retry-initial-delay-ms`; bounded 1..60000 and must be `<= dbRetryMaxDelayMs`. (bootstrapper-managed) |
-| `OCTOCON_DB_RETRY_MAX_DELAY_MS`     | `1500`                                            | Sourced from `BootstrapConfig.persistence.dbRetryMaxDelayMs` via Aspire parameter `db-retry-max-delay-ms`; bounded 1..600000 and must be `>= dbRetryInitialDelayMs`. (bootstrapper-managed) |
-| `OCTOCON_HYDRATION_MAX_CONCURRENCY` | `8`                                               | Sourced from `BootstrapConfig.persistence.hydrationMaxConcurrency` via Aspire parameter `hydration-max-concurrency`; bounded 1..1024. (bootstrapper-managed) |
+| `OCTOCON_PERSISTENCE`               | `sqlite`                                          | `sqlite` or `inmemory`. (bootstrapper-managed)                                                         |
+| `OCTOCON_SQLITE_CONNECTION`         | `Data Source=/app/data/sqlite/interfold.db`       | SQLite connection string. Sourced from the host SQLite mount path or AppHost dev data directory. (bootstrapper-managed) |
+| `OCTOCON_DB_RETRY_ATTEMPTS`         | `3`                                               | Sourced from `BootstrapConfig.api.resilience.dbRetryAttempts` via Aspire parameter `db-retry-attempts`; bounded 1..100 by `ConfigPhase.Validate`. (bootstrapper-managed) |
+| `OCTOCON_DB_RETRY_INITIAL_DELAY_MS` | `100`                                             | Sourced from `BootstrapConfig.api.resilience.dbRetryInitialDelayMs` via Aspire parameter `db-retry-initial-delay-ms`; bounded 1..60000 and must be `<= dbRetryMaxDelayMs`. (bootstrapper-managed) |
+| `OCTOCON_DB_RETRY_MAX_DELAY_MS`     | `1500`                                            | Sourced from `BootstrapConfig.api.resilience.dbRetryMaxDelayMs` via Aspire parameter `db-retry-max-delay-ms`; bounded 1..600000 and must be `>= dbRetryInitialDelayMs`. (bootstrapper-managed) |
+| `OCTOCON_HYDRATION_MAX_CONCURRENCY` | `8`                                               | Sourced from `BootstrapConfig.api.resilience.hydrationMaxConcurrency` via Aspire parameter `hydration-max-concurrency`; bounded 1..1024. (bootstrapper-managed) |
 
-`OCTOCON_COMPATIBILITY_MODE` was a "Postgres isn't reachable" escape hatch that forced
-idempotency + token revocation into in-memory stores. It's been removed — Postgres is now
-a hard dependency (`SecretsBootstrapService` requires `ISecretsStore` to load the
-encryption pepper, and the API refuses to boot without it). If the value is still in your
-`.env` it's a dead row — the API no longer reads it.
+`OCTOCON_COMPATIBILITY_MODE` was a legacy escape hatch that has been removed — SQLite/InMemory is
+the persistence backend, and `SecretsBootstrapService` requires `ISecretsStore` to load the
+encryption pepper.
 
 
 #### Authentication / OAuth
@@ -750,10 +739,6 @@ unsupported-clients list.
 | ------------------------------------ | ----------- | ----------- |
 | `OCTOCON_RUN_API_INTEGRATION`        | `false`     | (test-only) |
 | `OCTOCON_RUN_LIVE_INTEGRATION`       | `false`     | (test-only) |
-| `OCTOCON_TEST_SCYLLA_CONTACT_POINTS` | `127.0.0.1` | (test-only) |
-| `OCTOCON_TEST_SCYLLA_USERNAME`       | `cassandra` | (test-only) |
-| `OCTOCON_TEST_SCYLLA_PASSWORD`       | `cassandra` | (test-only) |
-| `OCTOCON_TEST_REGION`                | `nam`       | (test-only) |
 
 
 ## Trust distribution
@@ -904,47 +889,31 @@ consequences:
    an explicit rotate. `rootCA.sha256.txt` is similarly backfilled on first run after
    upgrading, with no regeneration of the CA.
 
-## Layer 4 — `internal.secrets`
+## Layer 4 — `secrets`
 
-The `internal.secrets` table is the durable, in-cluster source of truth for everything
+The `secrets` table (in SQLite) is the durable source of truth for everything
 sensitive that the API needs at runtime. It is:
 
-- created by `DatabaseInitPhase` inside the bootstrapper, owned by the `<app>_admin` role;
-- read-only granted to the app `interfold` user;
+- created by `SqliteDatabaseInitPhase` inside the bootstrapper;
 - seeded once on first bootstrap and re-seeded whenever the bootstrapper runs (writes are
 idempotent — empty values are skipped to avoid clobbering operator-set rows).
 
 Row inventory (see `[SeedKeys.cs](../shared/Interfold.DatabaseBootstrap/SeedKeys.cs)`):
 
-
-| Key                           | Origin                                      | Consumer                                                                                                                                 | Empty-skip? |
-| ----------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `oauth:google:client_secret`  | `BootstrapConfig.OAuth.GoogleClientSecret`  | `SecretsBootstrapService` → `AuthenticationConfiguration.GoogleOAuthClientSecret`                                                        | yes         |
-| `oauth:discord:client_secret` | `BootstrapConfig.OAuth.DiscordClientSecret` | `SecretsBootstrapService` → `AuthenticationConfiguration.DiscordOAuthClientSecret`                                                       | yes         |
-| `oauth:apple:client_secret`   | `BootstrapConfig.OAuth.AppleClientSecret`   | `SecretsBootstrapService` → `AuthenticationConfiguration.AppleOAuthClientSecret`                                                         | yes         |
-| `encryption:pepper`           | `GeneratedSecrets.EncryptionPepper`         | `SecretsBootstrapService` → `AuthenticationConfiguration.EncryptionPepper`                                                               | no          |
-| `postgres:admin_username`     | constant `interfold_admin`                  | `PostgresMigrationService` (DDL connection)                                                                                              | no          |
-| `postgres:admin_password`     | `GeneratedSecrets.PostgresAdminPassword`    | `PostgresMigrationService`                                                                                                               | no          |
-| `scylla:admin_username`       | `GeneratedSecrets.ScyllaUser + "_admin"`    | `ScyllaMigrationService` (keyspace DDL)                                                                                                  | no          |
-| `scylla:admin_password`       | `GeneratedSecrets.ScyllaAdminPassword`      | `ScyllaMigrationService`                                                                                                                 | no          |
-| `scylla:contact_points`       | AppHost-resolved Scylla host                | `ScyllaSessionProvider` / health checker                                                                                                 | no          |
-| `scylla:local_datacenter`     | `nam`                                       | `ScyllaSessionProvider`                                                                                                                  | no          |
-| `scylla:username`             | `GeneratedSecrets.ScyllaUser`               | `ScyllaSessionProvider` (app session)                                                                                                    | no          |
-| `scylla:password`             | `GeneratedSecrets.ScyllaPassword`           | `ScyllaSessionProvider`                                                                                                                  | no          |
-| `scylla:port`                 | container CQL port `9042` (compose network) | `ScyllaSessionProvider`                                                                                                                  | no          |
-| `auth:jwt_rsa256_private_pem` | `GeneratedSecrets.JwtRsa256PrivateKeyPem`   | `SecretsBootstrapService.PatchRsa256` — populates `Rsa256PrivateKey` + derives `Rsa256PublicKey`                                         | yes         |
-| `auth:jwt_es256_private_pem`  | `GeneratedSecrets.JwtEs256PrivateKeyPem`    | `SecretsBootstrapService.PatchEs256` — populates `JwtEs256PrivateKeyPem` + seeds `JwtEs256VerificationKeyPems[0]`                        | yes         |
-| `auth:deep_link_secret`       | `GeneratedSecrets.DeepLinkSecret`           | `SecretsBootstrapService` → `AuthenticationConfiguration.DeepLinkSecret`                                                                 | yes         |
-| `certs:leaf_pfx_password`     | `GeneratedSecrets.LeafPfxPassword`          | `SecretsPreBuildLoader` — injected into `IConfiguration[Kestrel:Certificates:Default:Password]` before host build | yes         |
-| `firebase:client:android`     | `FirebasePhase` parses `google-services.json` | `SecretsBootstrapService` → `FirebaseClientConfiguration.Android` — served by `GET /api/settings/firebase-config?platform=android`      | yes         |
+| Key                           | Origin                                          | Consumer                                                                                                                                 | Empty-skip? |
+| ----------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `oauth:google:client_secret`  | `BootstrapConfig.api.oauth.GoogleClientSecret`  | `SecretsBootstrapService` → `AuthenticationConfiguration.GoogleOAuthClientSecret`                                                        | yes         |
+| `oauth:discord:client_secret` | `BootstrapConfig.api.oauth.DiscordClientSecret` | `SecretsBootstrapService` → `AuthenticationConfiguration.DiscordOAuthClientSecret`                                                       | yes         |
+| `oauth:apple:client_secret`   | `BootstrapConfig.api.oauth.AppleClientSecret`   | `SecretsBootstrapService` → `AuthenticationConfiguration.AppleOAuthClientSecret`                                                         | yes         |
+| `encryption:pepper`           | `GeneratedSecrets.EncryptionPepper`             | `SecretsBootstrapService` → `AuthenticationConfiguration.EncryptionPepper`                                                               | no          |
+| `auth:jwt_rsa256_private_pem` | `GeneratedSecrets.JwtRsa256PrivateKeyPem`       | `SecretsBootstrapService.PatchRsa256` — populates `Rsa256PrivateKey` + derives `Rsa256PublicKey`                                         | yes         |
+| `auth:jwt_es256_private_pem`  | `GeneratedSecrets.JwtEs256PrivateKeyPem`        | `SecretsBootstrapService.PatchEs256` — populates `JwtEs256PrivateKeyPem` + seeds `JwtEs256VerificationKeyPems[0]`                        | yes         |
+| `auth:deep_link_secret`       | `GeneratedSecrets.DeepLinkSecret`               | `SecretsBootstrapService` → `AuthenticationConfiguration.DeepLinkSecret`                                                                 | yes         |
+| `certs:leaf_pfx_password`     | `GeneratedSecrets.LeafPfxPassword`              | `SecretsPreBuildLoader` — injected into `IConfiguration[Kestrel:Certificates:Default:Password]` before host build                         | yes         |
+| `firebase:client:android`     | `FirebasePhase` parses `google-services.json`   | `SecretsBootstrapService` → `FirebaseClientConfiguration.Android` — served by `GET /api/settings/firebase-config?platform=android`      | yes         |
 | `firebase:client:ios`         | `FirebasePhase` parses `GoogleService-Info.plist` | `SecretsBootstrapService` → `FirebaseClientConfiguration.Ios` — served by `GET /api/settings/firebase-config?platform=ios`          | yes         |
 | `firebase:client:web`         | `FirebasePhase` reads `firebase-web-config.json` | `SecretsBootstrapService` → `FirebaseClientConfiguration.Web` — served by `GET /api/settings/firebase-config?platform=web`         | yes         |
-| `fcm:service_account_json`    | `FirebasePhase` reads verbatim from operator-supplied file | `IFCMService` DI factory in `ClusterServiceCollectionExtensions` — absent row → `NullFCMService` fallback, present → `FirebaseFCMService` | yes         |
-
-
-> **Deliberately absent:** there is no `scylla:keyspace` row. Keyspace is per-node region
-> identity and must come from the deployment env (`OCTOCON_SCYLLA_KEYSPACE`), not from a
-> shared cluster row.
+| `fcm:service_account_json`    | `FirebasePhase` reads verbatim from operator file | `IFCMService` DI factory in `ClusterServiceCollectionExtensions` — absent row → `NullFCMService` fallback, present → `FirebaseFCMService` | yes         |
 
 The OAuth client-IDs do **not** appear in this table by design. They are public values; the
 asymmetric split (IDs in env, secrets in store) is intentional and the seed list reflects it.
@@ -981,9 +950,9 @@ Operators supply the source files via `BootstrapConfig.firebase.*`:
 The `firebase-phase` in the bootstrapper (`Interfold.Bootstrapper/Phases/FirebasePhase.cs`)
 ingests each configured file, reshapes the platform-specific inputs into the snake-case
 JSON the API deserialises, and threads the four resulting seed strings into
-`PostgresSeedOptions.FirebaseAndroidClientJson`/`FirebaseIosClientJson`/
-`FirebaseWebClientJson`/`FcmServiceAccountJson`. `PostgresSeeder.BootstrapAsync` then
-writes them as `internal.secrets` rows in the same idempotent pass as the OAuth secrets.
+`FirebaseSeedInputs` (`FirebaseAndroidClientJson`, `FirebaseIosClientJson`,
+`FirebaseWebClientJson`, `FcmServiceAccountJson`). `SqliteDatabaseInitPhase.MigrateAndSeedAsync`
+then writes them as `secrets` rows in the same idempotent pass as the OAuth secrets.
 
 Every path is optional — leaving one blank is the supported "skip this input" shape.
 A non-empty path that doesn't resolve to a file OR that fails to parse is a hard
@@ -1002,7 +971,7 @@ sequenceDiagram
     participant Operator
     participant Compose as Docker Compose
     participant API as API Program.cs
-    participant PG as Postgres (internal.secrets)
+    participant DB as SQLite (secrets)
     participant Host as ASP.NET Core host
     participant Kestrel
     participant SBS as SecretsBootstrapService<br/>(IHostedLifecycleService)
@@ -1011,35 +980,30 @@ sequenceDiagram
     Operator->>Compose: docker compose up -d
     Compose->>API: start container, exec dotnet Interfold.Api
     API->>API: build IConfiguration<br/>(env + appsettings)
-    API->>PG: SELECT value WHERE key='certs:leaf_pfx_password'
-    PG-->>API: leaf PFX password
+    API->>DB: SELECT value WHERE key='certs:leaf_pfx_password'<br/>(SecretsPreBuildLoader)
+    DB-->>API: leaf PFX password
     API->>API: inject into Kestrel:Certificates:Default:Password
     API->>Host: builder.Build()
     Host->>Kestrel: bind HTTPS endpoint (loads leaf.pfx with the password)
     Host->>SBS: StartingAsync
-    SBS->>PG: load auth:* + oauth:* + encryption:pepper rows
+    SBS->>DB: load auth:* + oauth:* + encryption:pepper rows
     SBS->>SBS: patch IOptionsMonitor<AuthenticationConfiguration>
-    Host->>Mig: StartingAsync (Postgres + Scylla migrations)
-    Mig->>PG: read admin credentials, run DDL
+    Host->>Mig: StartingAsync (SQLite migrations)
+    Mig->>DB: run SQLite migrations
     Host->>API: StartedAsync; serve traffic
 ```
-
-
 
 Two ordering invariants are critical:
 
 1. **Kestrel ↔ leaf PFX password.** Kestrel reads
   `Kestrel:Certificates:Default:Password` out of `IConfiguration` *during* `builder.Build()`
    (specifically, when it binds the HTTPS endpoint). `IHostedLifecycleService.StartingAsync`
-   runs *after* the host is built, which is too late. Hence the dedicated `NpgsqlConnection`
-   query in `Program.cs` *before* `builder.Build()`. The failure mode if Postgres is
+   runs *after* the host is built, which is too late. Hence the dedicated direct SQLite
+   lookup in `SecretsPreBuildLoader.Load` in `Program.cs` *before* `builder.Build()`. The failure mode if SQLite is
    unreachable here is "the API fails to start before binding" — louder than a missing
    cert at request time, and the deliberate trade-off documented in the source comment.
-2. `**SecretsBootstrapService` ↔ migration services.** Migration services need the admin
-  credentials from `internal.secrets` (`postgres:admin_password`, `scylla:admin_`*). They
-   read those directly via `ISecretsStore`, so they don't actually depend on
-   `SecretsBootstrapService`. But the auth options consumed by controllers (JWT private
-   keys, deep-link secret) *do* depend on `SecretsBootstrapService` having patched them
+2. **`SecretsBootstrapService` ↔ controllers.** Auth options consumed by controllers (JWT private
+   keys, deep-link secret) depend on `SecretsBootstrapService` having patched them
    first. .NET's `IHostedLifecycleService.StartingAsync` runs all registered services
    concurrently, but the API doesn't accept requests until `StartedAsync` returns, so any
    controller that reads `IOptionsMonitor<AuthenticationConfiguration>` already sees
@@ -1047,41 +1011,26 @@ Two ordering invariants are critical:
 
 ## Migration ledger
 
-Both database providers track which embedded migrations have already been applied so
+The SQLite provider tracks which embedded migrations have already been applied so
 subsequent startups skip already-applied files instead of relying purely on `IF NOT EXISTS`
-guards in the SQL/CQL. The ledger also detects post-deploy edits to applied files
+guards in the SQL. The ledger also detects post-deploy edits to applied files
 (SHA-256 checksum drift) and refuses to start the API until the drift is resolved.
 
 ### Where the ledger lives
 
 | Provider | Table                                                            | Scope key              | Created by                                            |
 | -------- | ---------------------------------------------------------------- | ---------------------- | ----------------------------------------------------- |
-| Postgres | `internal.schema_migrations` (`version` primary key)             | filename only          | `PostgresMigrationService.EnsureLedgerAsync`          |
-| Scylla   | `global.schema_migrations` (`PRIMARY KEY (scope, version)`)      | `(keyspace, filename)` | `ScyllaMigrationService.EnsureLedgerAsync`            |
+| SQLite   | `schema_migrations` (`version` primary key)                      | filename only          | `SqliteMigrationService.EnsureLedgerAsync`            |
 
 Each row records `checksum` (hex SHA-256 of the embedded resource bytes), `applied_at`,
 `duration_ms`, and `applied_by` (the assembly informational version of the runner that
-wrote the row). For Scylla the `scope` column is the regional keyspace name for the per-
-region templates (`001_create_interfold_keyspaces.cql`,
-`002_create_interfold_schema.templated.cql`) and `grants:<keyspace>` for the GRANT loop
-(version = `grants_v1`, bump that constant in
-`[ScyllaMigrationService.cs](../infrastructure/Interfold.Infrastructure.Scylla/ScyllaMigrationService.cs)`
-when the grant set changes).
+wrote the row).
 
 ### Bootstrap order
 
-- **Postgres:** the runner acquires the session-level
-  `pg_advisory_lock(MigrationAdvisoryLockId)` first, then `CREATE SCHEMA IF NOT EXISTS
-  internal` + `CREATE TABLE IF NOT EXISTS internal.schema_migrations` *before* querying
-  the ledger. Each not-yet-applied migration body and its ledger insert run inside the
-  same `NpgsqlTransaction` so a partial failure leaves no orphan row.
-- **Scylla:** the runner renders `000_create_singleton_keyspaces.cql` unconditionally to
-  create `global` / `nam_nt` / `dummy` (the only "always-run" bootstrap step, untracked
-  because `global` is the precondition for the ledger itself), then creates
-  `global.schema_migrations` and reads it. Per-keyspace files (`001_*`,
-  `002_*.templated.cql`) are then rendered and applied per regional keyspace, with each
-  ledger insert issued as `INSERT IF NOT EXISTS` so concurrent migrators converge on a
-  single row.
+`SqliteMigrationService` creates the `schema_migrations` table before querying the ledger.
+Each not-yet-applied migration body and its ledger insert run sequentially in a transaction
+so a partial failure leaves no orphan row.
 
 ### Drift behaviour
 
@@ -1094,30 +1043,22 @@ appropriate path:
 - **Force re-record (no DB change required):** update the ledger checksum to the new file
   hash before restart. The runner will see the row exists with the new checksum and skip
   the file body next start. Compute the new checksum locally with `sha256sum` and:
-  - Postgres:
-    `UPDATE internal.schema_migrations SET checksum = '<NEW_HEX>' WHERE version = '<file>';`
-  - Scylla:
-    `UPDATE global.schema_migrations SET checksum = '<NEW_HEX>' WHERE scope = '<keyspace>' AND version = '<file>';`
-- **Force re-run from scratch (rare):** delete the ledger row(s) for the file. The runner
+  - SQLite:
+    `UPDATE schema_migrations SET checksum = '<NEW_HEX>' WHERE version = '<file>';`
+- **Force re-run from scratch (rare):** delete the ledger row for the file. The runner
   will treat the file as new on the next start, run the body, and re-insert the row. Only
   do this if every statement in the file remains idempotent (`CREATE … IF NOT EXISTS`,
   etc.) — the runner does not roll back the schema before re-applying.
-
-Both rewrites require admin credentials (the app user has no access to `internal.secrets`-
-adjacent tables or `global.schema_migrations`); use the same `postgres:admin_*` /
-`scylla:admin_*` rows the runner consumes.
 
 ## Rotation story
 
 Three independent rotation surfaces, each with a single command:
 
-
 | Rotation          | Command                                             | What changes                                                                         | What stays                                                            |
 | ----------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
-| **Secrets**       | `interfold-bootstrap rotate-secrets`                | All DB passwords, encryption pepper, JWT RSA + ES256 keypairs, deep-link HMAC secret | Certs (root CA + leaf), leaf PFX password (preserved across rotation) |
+| **Secrets**       | `interfold-bootstrap rotate-secrets`                | Encryption pepper, JWT RSA + ES256 keypairs, deep-link HMAC secret                   | Certs (root CA + leaf), leaf PFX password (preserved across rotation) |
 | **Certs**         | `interfold-bootstrap rotate-certs`                  | Root CA + leaf cert/key, leaf PFX wrapper (re-encrypted with the existing password)  | All secrets                                                           |
 | **OAuth secrets** | edit `interfold.bootstrap.json` → rerun `bootstrap` | Only the OAuth secrets you changed                                                   | Everything else                                                       |
-
 
 Mechanics:
 
@@ -1126,42 +1067,33 @@ because the wrapped PFX bytes don't change — re-wrapping with a fresh password
 invalidate Kestrel's load with no security benefit.
 - Backfill on idempotent reruns: if a `secrets.json` file from before the JWT-keys-in-store
 migration is re-read without `--rotate-secrets`, `SecretsPhase` backfills any missing
-fields (`DeepLinkSecret`, `JwtRsa256PrivateKeyPem`, `JwtEs256PrivateKeyPem`,
-`PostgresAdminPassword`, `ScyllaAdminPassword`) so the next bootstrap pass writes them
-into `internal.secrets`.
+fields (`DeepLinkSecret`, `JwtRsa256PrivateKeyPem`, `JwtEs256PrivateKeyPem`) so the next bootstrap pass writes them
+into `secrets`.
 - OAuth client *secrets* can be rotated without touching the bootstrapper by issuing
-`UPDATE internal.secrets SET value = '...' WHERE key = 'oauth:<provider>:client_secret';`
+`UPDATE secrets SET value = '...' WHERE key = 'oauth:<provider>:client_secret';`
 followed by an API restart. The bootstrapper will catch up on the next run.
 
 ## Local dev vs self-host vs tests
 
-
 | Concern           | Local dev (`dotnet run --project hosts/Interfold.AppHost`)                                                                                                  | Self-host (`interfold-bootstrap`)                                             | Integration tests                                                                                                                         |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Encryption pepper | `Parameters:dev-encryption-pepper` (`GenerateParameterDefault`, persisted to AppHost user-secrets) → `internal.secrets:encryption:pepper` via dev-seed hook | `GeneratedSecrets.EncryptionPepper` → `internal.secrets:encryption:pepper`    | Postgres fixtures seed `"TEST"` into the row via `PostgresSeedOptions`; the in-memory store is pre-seeded with `"TEST"` for inmemory mode |
-| JWT keys          | Generated per-run in `DevSeedHostedService` (RSA-2048 + P-256), written into `internal.secrets` on the first seed — reruns hit the seeder's idempotency short-circuit and reuse the row | Generated lazily by `SecretsPhase` and round-tripped through Postgres         | Seeded into the real store for Scylla/Postgres fixtures; in-memory store pre-seeded with `TestDbCredentials` PEMs for inmemory mode       |
-| Deep-link secret  | `Parameters:dev-deep-link-secret` (`GenerateParameterDefault`, persisted to AppHost user-secrets) → `internal.secrets:auth:deep_link_secret` via dev-seed hook | `GeneratedSecrets.DeepLinkSecret` → `internal.secrets:auth:deep_link_secret`  | `TestDbCredentials.DeepLinkSecret` via `PostgresSeedOptions`                                                                              |
-| Admin passwords   | `Parameters:dev-postgres-admin-password` / `Parameters:dev-scylla-admin-password` (both `GenerateParameterDefault`, persisted to AppHost user-secrets)     | `GeneratedSecrets.PostgresAdminPassword` / `ScyllaAdminPassword`              | `TestDbCredentials.Postgres/Scylla AdminPassword`                                                                                         |
-| Leaf PFX password | *no leaf PFX in dev* (ASP.NET dev cert)                                                                                                                     | `internal.secrets:certs:leaf_pfx_password`, loaded by `SecretsPreBuildLoader` | not exercised                                                                                                                             |
-| OAuth secrets     | `Parameters:google/discord/apple-oauth-client-id` and `-client-secret` (AppHost user-secrets). IDs become `OCTOCON_*_OAUTH_CLIENT_ID`; secrets seed `internal.secrets:oauth:*:client_secret` and `OCTOCON_*_OAUTH_CLIENT_SECRET`. Empty skips the provider. | `internal.secrets:oauth:*:client_secret`                                      | empty / `"TEST"`                                                                                                                          |
+| Encryption pepper | `Parameters:dev-encryption-pepper` (`GenerateParameterDefault`, persisted to AppHost user-secrets) → `secrets:encryption:pepper` via dev-seed hook         | `GeneratedSecrets.EncryptionPepper` → `secrets:encryption:pepper`            | Fixtures seed `"TEST"` into the store via dev/test seeders; the in-memory store is pre-seeded with `"TEST"` for inmemory mode              |
+| JWT keys          | Generated per-run in `DevSeedHostedService` (RSA-2048 + P-256), written into `secrets` on the first seed — reruns hit the seeder's idempotency short-circuit and reuse the row | Generated lazily by `SecretsPhase` and stored in SQLite `secrets`             | Seeded into the real store for SQLite fixtures; in-memory store pre-seeded with `TestDbCredentials` PEMs for inmemory mode                |
+| Deep-link secret  | `Parameters:dev-deep-link-secret` (`GenerateParameterDefault`, persisted to AppHost user-secrets) → `secrets:auth:deep_link_secret` via dev-seed hook        | `GeneratedSecrets.DeepLinkSecret` → `secrets:auth:deep_link_secret`          | `TestDbCredentials.DeepLinkSecret` via test seeders                                                                                      |
+| Leaf PFX password | *no leaf PFX in dev* (ASP.NET dev cert)                                                                                                                     | `secrets:certs:leaf_pfx_password`, loaded by `SecretsPreBuildLoader`         | not exercised                                                                                                                             |
+| OAuth secrets     | `Parameters:google/discord/apple-oauth-client-id` and `-client-secret` (AppHost user-secrets). IDs become `OCTOCON_*_OAUTH_CLIENT_ID`; secrets seed `secrets:oauth:*:client_secret`. Empty skips the provider. | `secrets:oauth:*:client_secret`                                               | empty / `"TEST"`                                                                                                                          |
 
 The `Parameters:dev-*` names above are AppHost-private (declared in
 [`DevSeedParameterNames`](../hosts/Interfold.AppHost/DevSeed/DevSeedParameterNames.cs)) —
 they never round-trip through the bootstrapper's `PublishPhase.BuildEnvReplacements` so
-they can't leak into the emitted `.env`. Run-mode AppHost defaults to session-lifetime
-DB containers (`Parameters:persistent-containers`, off). Opt in when you want volumes to
-survive `aspire run` restarts; then rotating the `dev-*` secrets also means wiping those
-volumes (`dotnet user-secrets clear --project hosts/Interfold.AppHost` plus the
-Postgres/Scylla named volumes). Wiping user-secrets without wiping a persistent DB
-leaves stale-encrypted data behind — the same trade-off `rotate-secrets` documents for
-prod (see `docs/ROADMAP.md`).
-
+they can't leak into the emitted `.env`. Run-mode AppHost uses local SQLite database files
+stored in `hosts/Interfold.AppHost/.data/sqlite/interfold.db`.
 
 Tests centralise the test-only material in
 `[TestDbCredentials](../tests/integration/Interfold.IntegrationTests.Shared/TestServices/TestDbCredentials.cs)`
-— a single source of lazy-generated in-process keypairs and deterministic passwords. The
-real DB fixtures seed those values into `internal.secrets` via `PostgresSeedOptions`; the
-in-memory `WebApplicationFactory` instead drives the production env-var seed path by
+— a single source of lazy-generated in-process keypairs and deterministic credentials.
+`SqliteWebFactoryFixture` seeds those values into SQLite `secrets`; the
+in-memory `WebApplicationFactory` (`InMemoryWebFactoryFixture`) instead drives the production env-var seed path by
 pushing the same PEMs + pepper into the factory's configuration provider (see the
 constructor of
 `[InterfoldWebApplicationFactory](../tests/integration/Interfold.IntegrationTests.Shared/TestServices/InterfoldWebApplicationFactory.cs)`).
@@ -1182,24 +1114,15 @@ verification on the server side use the same PEMs.
 
 ## Common gotchas
 
-- `**OCTOCON_SCYLLA_KEYSPACE` is required for correct routing.** It used to fall back to
-`internal.secrets:scylla:keyspace`; that row no longer exists. The bootstrapper now
-manages this env var end-to-end (sourced from `BootstrapConfig.scyllaKeyspace`,
-defaulted to `nam`, validated against the seven regional values), so a bootstrap-emitted
-stack always ships with an explicit value. The gotcha survives for operators running the
-API container *outside* the bootstrapper-produced compose stack: if the env is missing in
-that path, the API defaults to `"nam"` in code — correct for a single-region deployment
-but the *wrong* answer for a `eur` or `gdpr` node. Failure mode is "wrong region", not
-"crash".
 - **Don't put `ASPNETCORE_Kestrel__Certificates__Default__Password` back in `.env`.** It
 is intentionally not generated. If you set it, `SecretsPreBuildLoader`
 honours it as an override (legacy escape hatch), but you've now bypassed
-`internal.secrets` and rotation via `rotate-secrets` will not propagate.
-- `**internal.secrets:encryption:pepper` must exist before the API starts.** It's the
+the `secrets` store and rotation via `rotate-secrets` will not propagate.
+- **`secrets:encryption:pepper` must exist before the API starts.** It's the
 one row `SecretsBootstrapService` enforces — if the value is missing or empty the API
 refuses to boot rather than failing on the first encryption request with an opaque
-`NullReferenceException`. `DatabaseInitPhase` seeds it from `GeneratedSecrets.EncryptionPepper`;
-tests pass `"TEST"` through `PostgresSeedOptions` or `InMemorySecretsStore.Seed`. The
+`NullReferenceException`. `SqliteDatabaseInitPhase` seeds it from `GeneratedSecrets.EncryptionPepper`;
+tests pass `"TEST"` through test seeders or `InMemorySecretsStore.Seed`. The
 pepper no longer has an env-var fallback — the previous `OCTOCON_ENCRYPTION_PEPPER` is dead.
 - **OAuth client IDs in env, secrets in store.** Client IDs in env are public and that's
 fine. Putting client *secrets* in env (other than the bootstrapper-written placeholders)
@@ -1207,6 +1130,5 @@ is a foot-gun: the env value is overwritten at startup, so an operator who manua
 edits `.env` will be confused when their change has no effect.
 - **The `/keys` bind mount is gone.** Earlier versions mounted `secrets/keys/*.pem` into
 `/keys` inside the container. Those PEMs are no longer written to disk; the API reads
-the same material from `internal.secrets`. Remove any old `/keys` mounts from custom
+the same material from `secrets`. Remove any old `/keys` mounts from custom
 compose overrides.
-

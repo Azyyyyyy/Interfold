@@ -12,21 +12,10 @@
         "ASPNETCORE_URLS": "http://api.octocon.app;https://api.octocon.app",
 
         // --- Persistence ---
-        // Mode: 'inmemory' for solo-API dev; 'scylla-postgres' against a real cluster
-        // (typically via `aspire run` instead of launching the API directly).
+        // Mode: 'inmemory' or 'sqlite' for local development.
         "OCTOCON_PERSISTENCE": "inmemory",
-        // Only read in scylla-postgres mode. Defaults to localhost if unset.
-        "OCTOCON_POSTGRES_CONNECTION": "<set-via-user-secrets>",
-        // Per-node region identity. Drives the Scylla session keyspace AND new-account routing.
-        // Values: nam | eur | ocn | eas | sam | sas | gdpr. No store fallback.
-        "OCTOCON_SCYLLA_KEYSPACE": "nam",
-        // Dev/test override for Scylla contact points + port. In production these are read
-        // from internal.secrets (scylla:contact_points / scylla:port).
-        "OCTOCON_SCYLLA_CONTACT_POINTS": "localhost",
-        "OCTOCON_SCYLLA_PORT": "9042",
-        // 'true' keeps ScyllaMigrationService creating only the keyspace named above —
-        // matches the dev/single-node profile.
-        "OCTOCON_SINGLE_SCYLLA_INSTANCE": "true",
+        // Only read in sqlite mode. Path or connection string to SQLite database file.
+        "OCTOCON_SQLITE_CONNECTION": "Data Source=interfold.db",
         // Transient-failure retry strategy for DB operations. Defaults shown.
         "OCTOCON_DB_RETRY_ATTEMPTS": "3",
         "OCTOCON_DB_RETRY_INITIAL_DELAY_MS": "100",

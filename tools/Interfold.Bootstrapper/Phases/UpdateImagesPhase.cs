@@ -69,24 +69,12 @@ internal static class UpdateImagesPhase
             backupArtifacts = ResolveLatestBackupArtifacts(backupOptions, config);
             if (backupArtifacts is { } bs)
             {
-                if (bs.Sqlite is not null)
-                    logger.Info($"    backup complete: sqlite={Path.GetFileName(bs.Sqlite)}");
-                else
-                    logger.Info($"    backup complete: postgres={Path.GetFileName(bs.Postgres)} scylla={Path.GetFileName(bs.Scylla)}");
+                logger.Info($"    backup complete: sqlite={Path.GetFileName(bs.Sqlite)}");
             }
         }
         else
         {
             logger.Warn("--skip-pre-update-backup set; NO pre-update backup will be taken");
-        }
-
-        // Rebuild interfold-cassandra:local pre-pull so Dockerfile edits land via update-images
-        // without a `bootstrap publish` re-run. Docker's layer cache makes this cheap on no-op.
-        // Pull side is handled by PublishPhase.StampCassandraPullPolicyNever.
-        if (ShouldRebuildCassandra(config, services))
-        {
-            logger.Info("    cassandra mode: rebuilding interfold-cassandra:local before pull");
-            await CassandraImagePhase.EnsureBuiltAsync(logger, ct).ConfigureAwait(false);
         }
 
         // Non-zero here means we never left the pre-pull state; safe to leave the stack alone.
@@ -99,7 +87,7 @@ internal static class UpdateImagesPhase
         }
         // Forward both streams — docker compose writes per-service progress ("Pulling",
         // "Skipped", "Pulled") to stderr; integration tests assert on "Skipped" to prove
-        // pull_policy: never fired for interfold-cassandra:local.
+        // pull_policy: never fired.
         if (!string.IsNullOrWhiteSpace(pull.StdOut)) logger.Info(pull.StdOut.Trim());
         if (!string.IsNullOrWhiteSpace(pull.StdErr)) logger.Info(pull.StdErr.Trim());
 
@@ -146,21 +134,9 @@ internal static class UpdateImagesPhase
         {
             var backupRoot = BackupPhase.ResolveBackupRoot(options, config);
             var retainCount = options.BackupRetainOverride ?? config.Deployment.Backup.RetainCount;
-            if (config.UsesSqlite)
-            {
-                BackupPhase.PruneComponent(
-                    Path.Combine(backupRoot, BackupStoragePaths.SqliteDir),
-                    BackupDatabaseComponent.Sqlite, retainCount, logger);
-            }
-            else
-            {
-                BackupPhase.PruneComponent(
-                    Path.Combine(backupRoot, BackupStoragePaths.PostgresDir),
-                    BackupDatabaseComponent.Postgres, retainCount, logger);
-                BackupPhase.PruneComponent(
-                    Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir),
-                    BackupDatabaseComponent.Scylla, retainCount, logger);
-            }
+            BackupPhase.PruneComponent(
+                Path.Combine(backupRoot, BackupStoragePaths.SqliteDir),
+                BackupDatabaseComponent.Sqlite, retainCount, logger);
         }
 
         logger.PhaseDone(Phase);
@@ -193,17 +169,6 @@ internal static class UpdateImagesPhase
         return config.Deployment.Update.Services
             .Select(ComposeServices.CanonicalizeUpdateService)
             .ToArray();
-    }
-
-    /// <summary>Only cassandra mode, and only when <c>cassandra</c> is in scope; otherwise
-    /// <c>--service msg-db</c> would trigger an unrelated rebuild. Sqlite persistence has no
-    /// CQL image. Pull side is handled by <see cref="PublishPhase.StampCassandraPullPolicyNever"/>.</summary>
-    internal static bool ShouldRebuildCassandra(BootstrapConfig config, IReadOnlyList<string> effectiveServices)
-    {
-        if (config.UsesSqlite) return false;
-        if (!CassandraImagePhase.IsCassandraDeployment(config)) return false;
-        if (effectiveServices.Count == 0) return true;
-        return effectiveServices.Contains(ComposeServices.Cassandra, StringComparer.Ordinal);
     }
 
     /// <summary>Argv for <c>docker compose ps -a --format json</c> (running-digest source).</summary>
@@ -417,101 +382,36 @@ internal static class UpdateImagesPhase
         return ParseContainerImageFields(run.StdOut);
     }
 
-    /// <summary>Tiers <c>update-images</c> probes after recreate. Sqlite has no Postgres or CQL container.</summary>
+    /// <summary>Tiers <c>update-images</c> probes after recreate.</summary>
     internal enum UpdateHealthProbe
     {
-        Postgres,
-        Cql,
         Api,
     }
 
-    /// <summary>Sqlite probes the API only. CQL modes also wait on Postgres and Scylla/Cassandra.</summary>
+    /// <summary>SQLite deployments probe the API only.</summary>
     internal static IReadOnlyList<UpdateHealthProbe> ResolveHealthProbes(BootstrapConfig config)
-        => config.UsesSqlite
-            ? [UpdateHealthProbe.Api]
-            : [UpdateHealthProbe.Postgres, UpdateHealthProbe.Cql, UpdateHealthProbe.Api];
+        => [UpdateHealthProbe.Api];
 
     /// <summary>Compose services whose logs are worth dumping when the health check fails.</summary>
     internal static IReadOnlyList<string> ResolveHealthFailureLogServices(BootstrapConfig config)
-        => config.UsesSqlite
-            ? [ComposeServices.InterfoldApi, ComposeServices.InterfoldWeb]
-            : [
-                ComposeServices.Postgres,
-                ComposeServices.ScyllaSingle,
-                ComposeServices.ScyllaNam,
-                ComposeServices.Cassandra,
-                ComposeServices.InterfoldApi,
-                ComposeServices.InterfoldWeb,
-            ];
+        => [ComposeServices.InterfoldApi, ComposeServices.InterfoldWeb];
 
     /// <summary>Bounded probe of <see cref="ResolveHealthProbes"/>. Returns null on success,
-    /// else an operator-facing message. Shared deadline so no single tier can starve the others.</summary>
+    /// else an operator-facing message.</summary>
     private static async Task<string?> CheckStackHealthAsync(
         string composeFile, BootstrapConfig config, string outputDir, TimeSpan totalTimeout,
         PhaseLogger logger, CancellationToken ct)
     {
-        var probes = ResolveHealthProbes(config);
+        _ = composeFile;
+        _ = ResolveHealthProbes(config);
         var deadline = DateTime.UtcNow + totalTimeout;
-        logger.Info($"    health-check: bounded to {totalTimeout.TotalSeconds:F0}s across {DescribeHealthProbes(probes)}");
-
-        if (probes.Contains(UpdateHealthProbe.Postgres))
-        {
-            // pg_isready TCP probe — succeeds only after the listener (not just the init Unix socket) is up.
-            var pgErr = await WaitForPostgresReadyAsync(composeFile, deadline, logger, ct).ConfigureAwait(false);
-            if (pgErr is not null) return pgErr;
-        }
-
-        if (probes.Contains(UpdateHealthProbe.Cql))
-        {
-            // nodetool status is the leanest probe that doesn't need the app password; passes
-            // once the node reports UN.
-            var (scyllaService, _) = BackupPhase.ResolveScyllaSeed(config);
-            var scErr = await WaitForScyllaReadyAsync(composeFile, scyllaService, deadline, logger, ct).ConfigureAwait(false);
-            if (scErr is not null) return scErr;
-        }
+        logger.Info($"    health-check: bounded to {totalTimeout.TotalSeconds:F0}s across api");
 
         var apiErr = await WaitForApiReadyAsync(config, outputDir, deadline, logger, ct).ConfigureAwait(false);
         if (apiErr is not null) return apiErr;
 
-        logger.Info(probes.Count == 1
-            ? "    health-check: api ready"
-            : "    health-check: all three tiers ready");
+        logger.Info("    health-check: api ready");
         return null;
-    }
-
-    private static string DescribeHealthProbes(IReadOnlyList<UpdateHealthProbe> probes)
-        => string.Join('+', probes.Select(static probe => probe switch
-        {
-            UpdateHealthProbe.Postgres => "postgres",
-            UpdateHealthProbe.Cql => "scylla",
-            _ => "api",
-        }));
-
-    private static Task<string?> WaitForPostgresReadyAsync(
-        string composeFile, DateTime deadline, PhaseLogger logger, CancellationToken ct)
-        => PostgresReadinessProbe.TryWaitUntilAsync(composeFile, ComposeServices.Postgres, deadline, logger, ct);
-
-    private static async Task<string?> WaitForScyllaReadyAsync(
-        string composeFile, string service, DateTime deadline, PhaseLogger logger, CancellationToken ct)
-    {
-        var attempt = 0;
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-            attempt++;
-            // nodetool exits 0 once gossip settles and the node is UN.
-            var probe = await ProcessRunner.RunAsync("docker",
-                ["compose", "-f", composeFile, "exec", "-T", service, "nodetool", "status"],
-                ct: ct).ConfigureAwait(false);
-            if (probe.ExitCode == 0 && probe.StdOut.Contains("UN", StringComparison.Ordinal))
-            {
-                logger.Info($"    scylla ({service}) ready after {attempt} probe(s)");
-                return null;
-            }
-            try { await Task.Delay(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false); }
-            catch (OperationCanceledException) { throw; }
-        }
-        return $"scylla ({service}) did not report UN within the health-check budget";
     }
 
     private static Task<string?> WaitForApiReadyAsync(
@@ -548,8 +448,6 @@ internal static class UpdateImagesPhase
             var restoreOptions = options with
             {
                 Command = BootstrapCommand.Restore,
-                RestorePostgresArchive = archives.Postgres,
-                RestoreScyllaArchive = archives.Scylla,
                 RestoreSqliteArchive = archives.Sqlite,
                 RestoreForce = true,
             };
@@ -566,9 +464,8 @@ internal static class UpdateImagesPhase
         {
             logger.Warn("update failed; the pre-update backup is on disk. To roll back manually:");
             var configPath = Path.GetFullPath(BootstrapArtifactPaths.ResolveConfigPath(options));
-            var cmd = bs.Sqlite is not null
-                ? $"interfold-bootstrap restore --config \"{configPath}\" --output-dir \"{options.OutputDir}\" --restore-sqlite \"{bs.Sqlite}\" --force"
-                : $"interfold-bootstrap restore --config \"{configPath}\" --output-dir \"{options.OutputDir}\" --restore-postgres \"{bs.Postgres}\" --restore-scylla \"{bs.Scylla}\" --force";
+            var cmd =
+                $"interfold-bootstrap restore --config \"{configPath}\" --output-dir \"{options.OutputDir}\" --restore-sqlite \"{bs.Sqlite}\" --force";
             Console.Error.WriteLine();
             Console.Error.WriteLine(cmd);
             Console.Error.WriteLine();
@@ -593,7 +490,7 @@ internal static class UpdateImagesPhase
         }
     }
 
-    internal sealed record PreUpdateBackupArtifacts(string? Postgres, string? Scylla, string? Sqlite);
+    internal sealed record PreUpdateBackupArtifacts(string Sqlite);
 
     /// <summary>Newest archives by mtime — called immediately after the pre-update backup.
     /// Null when required archives are missing (auto-restore downgrades to a warning).</summary>
@@ -601,20 +498,11 @@ internal static class UpdateImagesPhase
         BootstrapOptions options, BootstrapConfig config)
     {
         var backupRoot = BackupPhase.ResolveBackupRoot(options, config);
-        if (config.UsesSqlite)
-        {
-            var sqlite = BackupStoragePaths.LatestFile(
-                Path.Combine(backupRoot, BackupStoragePaths.SqliteDir),
-                BackupStoragePaths.SqliteArchivePattern);
-            return sqlite is null ? null : new PreUpdateBackupArtifacts(null, null, sqlite.FullName);
-        }
-
-        var pg = BackupStoragePaths.LatestFile(Path.Combine(backupRoot, BackupStoragePaths.PostgresDir), BackupStoragePaths.PostgresArchivePattern);
-        var sc = BackupStoragePaths.LatestFile(Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir), BackupStoragePaths.ScyllaArchivePattern);
-        if (pg is null || sc is null) return null;
-        return new PreUpdateBackupArtifacts(pg.FullName, sc.FullName, null);
+        var sqlite = BackupStoragePaths.LatestFile(
+            Path.Combine(backupRoot, BackupStoragePaths.SqliteDir),
+            BackupStoragePaths.SqliteArchivePattern);
+        return sqlite is null ? null : new PreUpdateBackupArtifacts(sqlite.FullName);
     }
-
-    }
+}
 
 

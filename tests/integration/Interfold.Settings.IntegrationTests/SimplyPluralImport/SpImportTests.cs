@@ -1156,10 +1156,7 @@ public sealed class SpImportTests : BaseEndpointTest
         services.AddLogging();
 
         InMemoryServiceCollectionExtensions.Register();
-        services.AddInterfoldPersistence(PersistenceMode.InMemory, cfg =>
-        {
-            cfg.ScyllaKeyspace = ScyllaKeyspace.Nam;
-        });
+        services.AddInterfoldPersistence(PersistenceMode.InMemory);
         services.AddInterfoldDomainHandlers();
 
         // InMemoryAlterRepository takes IAlterFieldDefinitions via ctor injection; the

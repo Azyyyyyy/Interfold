@@ -20,7 +20,7 @@ public static class ConfigurationServiceCollectionExtensions
             .ValidateOnStart();
 
         // Cross-field IValidatableObject fires at ValidateOnStart so malformed retry
-        // knobs / missing Postgres connection strings fail at boot, not first query.
+        // knobs / missing SQLite connection strings fail at boot, not first query.
         services.AddOptions<PersistenceConfiguration>()
             .Configure<IConfiguration>(ApplyPersistence)
             .ValidateDataAnnotations()
@@ -64,11 +64,6 @@ public static class ConfigurationServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
-        services.AddOptions<ScyllaOverrideOptions>()
-            .Configure<IConfiguration>(ApplyScyllaOverride)
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
         services.AddOptions<InMemorySecretsSeedOptions>()
             .Configure<IConfiguration>(ApplyInMemorySecretsSeed)
             .ValidateDataAnnotations()
@@ -102,14 +97,8 @@ public static class ConfigurationServiceCollectionExtensions
 
     internal static void ApplyPersistence(PersistenceConfiguration opts, IConfiguration config)
     {
-        var keyspace = EnumWireExtensions.ParseScyllaKeyspace(
-            config[OctoconEnvKeys.ScyllaKeyspace] ?? "nam");
         opts.Mode = EnumWireExtensions.ParsePersistenceMode(config[OctoconEnvKeys.Persistence]);
-        opts.ScyllaKeyspace = keyspace;
-        opts.PostgresConnectionString = config[OctoconEnvKeys.PostgresConnection]
-            ?? "Host=localhost;Port=5432;Database=interfold;Username=interfold;Password=interfold";
         opts.SqliteConnectionString = config[OctoconEnvKeys.SqliteConnection] ?? "";
-        opts.IsSingleScyllaInstance = bool.TryParse(config[OctoconEnvKeys.SingleScyllaInstance], out var singleKs) && singleKs;
         opts.DbRetryAttempts = TryParseInt(config[OctoconEnvKeys.DbRetryAttempts]) ?? 3;
         opts.DbRetryInitialDelay = TimeSpan.FromMilliseconds(
             TryParseInt(config[OctoconEnvKeys.DbRetryInitialDelayMs]) ?? 100);
@@ -162,17 +151,6 @@ public static class ConfigurationServiceCollectionExtensions
             .Where(static origin => !string.IsNullOrWhiteSpace(origin))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-    }
-
-    private static void ApplyScyllaOverride(ScyllaOverrideOptions opts, IConfiguration config)
-    {
-        var contactPointsRaw = NullIfEmpty(config[OctoconEnvKeys.ScyllaContactPoints]);
-        opts.ContactPoints = contactPointsRaw is null
-            ? null
-            : contactPointsRaw
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        opts.Port = TryParseInt(config[OctoconEnvKeys.ScyllaPort]);
     }
 
     private static void ApplyInMemorySecretsSeed(InMemorySecretsSeedOptions opts, IConfiguration config)

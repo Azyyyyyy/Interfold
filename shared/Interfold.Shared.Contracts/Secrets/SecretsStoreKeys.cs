@@ -34,17 +34,6 @@ static class SecretsStoreKeys
 
     public static readonly SecretsStoreKey EncryptionPepper = new("encryption:pepper");
 
-    public static readonly SecretsStoreKey PostgresAdminUsername = new("postgres:admin_username");
-    public static readonly SecretsStoreKey PostgresAdminPassword = new("postgres:admin_password");
-
-    public static readonly SecretsStoreKey ScyllaAdminUsername = new("scylla:admin_username");
-    public static readonly SecretsStoreKey ScyllaAdminPassword = new("scylla:admin_password");
-    public static readonly SecretsStoreKey ScyllaContactPoints = new("scylla:contact_points");
-    public static readonly SecretsStoreKey ScyllaLocalDatacenter = new("scylla:local_datacenter");
-    public static readonly SecretsStoreKey ScyllaUsername = new("scylla:username");
-    public static readonly SecretsStoreKey ScyllaPassword = new("scylla:password");
-    public static readonly SecretsStoreKey ScyllaPort = new("scylla:port");
-
     public static readonly SecretsStoreKey AuthJwtRsa256PrivatePem = new("auth:jwt_rsa256_private_pem");
     public static readonly SecretsStoreKey AuthJwtEs256PrivatePem = new("auth:jwt_es256_private_pem");
     public static readonly SecretsStoreKey AuthDeepLinkSecret = new("auth:deep_link_secret");

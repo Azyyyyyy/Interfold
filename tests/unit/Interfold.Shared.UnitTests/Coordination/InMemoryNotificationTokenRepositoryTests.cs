@@ -5,7 +5,7 @@ using Interfold.Shared.Contracts.Ids;
 namespace Interfold.Api.UnitTests.Coordination;
 
 // Contract for InMemoryNotificationTokenRepository.ListTokensForFriendsOfAsync — the
-// InMemory backend must match Scylla (grouped by friend, friends without tokens dropped)
+// InMemory backend must group by friend, with friends without tokens dropped
 // or integration tests diverge silently between backends.
 public sealed class InMemoryNotificationTokenRepositoryTests
 {

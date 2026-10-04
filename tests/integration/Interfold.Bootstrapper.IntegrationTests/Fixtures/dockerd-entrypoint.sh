@@ -4,7 +4,7 @@
 # outer Testcontainers fixture can probe `docker info` over the network.
 set -euo pipefail
 
-# Scylla refuses to start unless fs.aio-max-nr is at least 66563. The Docker Desktop /
+# Some database engines or async I/O workloads refuse to start unless fs.aio-max-nr is sufficiently high. The Docker Desktop /
 # WSL2 default (often 65536) is just below the floor and the DinD container - although
 # privileged - inherits the host kernel's sysctl tree. Bump it before any child
 # container can fail on the floor check. Best-effort: if the sysctl is not writable
@@ -19,9 +19,8 @@ fi
 
 mkdir -p /var/lib/docker /etc/docker
 
-# Bootstrapper stacks emit four compose networks each (postgres, scylla, edge-api,
-# edge-web). A full explicit-test session inside one session-shared DinD exhausts
-# Docker Desktop's default pool without extra /16 allocations.
+# Bootstrapper stacks emit compose networks per service. A full explicit-test session
+# inside one session-shared DinD exhausts Docker Desktop's default pool without extra /16 allocations.
 DEFAULT_ADDRESS_POOLS='[
   {"base":"172.17.0.0/16","size":24},
   {"base":"172.18.0.0/16","size":24},
@@ -36,7 +35,7 @@ DEFAULT_ADDRESS_POOLS='[
 # Default: vfs — portable across hosts whose overlay2 setup fights nested mounts.
 # Opt-in containerd image store (DIND_CONTAINERD_SNAPSHOTTER=1) reproduces the
 # "compose images → No such image after local tag rebuild" failure surface that
-# UpdateImagesPhase must tolerate (compose#14014). Cassandra-mode DinD enables this.
+# UpdateImagesPhase must tolerate (compose#14014). Dedicated test suites can enable this.
 if [ "${DIND_CONTAINERD_SNAPSHOTTER:-0}" = "1" ]; then
     printf '%s\n' "{\"features\":{\"containerd-snapshotter\":true},\"default-address-pools\":${DEFAULT_ADDRESS_POOLS}}" \
         > /etc/docker/daemon.json

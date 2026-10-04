@@ -217,7 +217,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         }
 
         // Sweep every entry's alter map so the detached alter is dropped from every attached
-        // global entry (mirrors ScyllaJournalRepository.global_journal_alters cleanup).
+        // global entry (global journal alters cleanup).
         var detached = new List<EntryId>();
         foreach (var (key, alters) in _entryAlters)
         {

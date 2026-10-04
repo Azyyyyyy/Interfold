@@ -3,7 +3,6 @@ using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
 using Interfold.Shared.Contracts.Configuration;
 using Microsoft.Data.Sqlite;
-using static Interfold.Bootstrapper.Phases.CassandraImagePhase;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -25,11 +24,6 @@ internal static class LaunchPhase
 
         var config = await PhaseArtifactLoader.TryLoadConfigAsync(options, logger, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException("Launch requires a loaded bootstrap config.");
-
-        if (IsCassandraDeployment(config))
-        {
-            await EnsureBuiltAsync(logger, ct).ConfigureAwait(false);
-        }
 
         // compose up leaves an existing tag in place. A cached ghcr image can predate
         // SQLite, so the first bootstrap refreshes registry images before starting it.

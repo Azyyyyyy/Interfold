@@ -45,7 +45,7 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
     }
 
     // Friends with zero registered tokens are omitted so callers can iterate without a
-    // Count > 0 guard. Mirrors the Scylla port so backends stay swappable via OCTOCON_PERSISTENCE.
+    // Count > 0 guard. Backends stay swappable via OCTOCON_PERSISTENCE.
     public async Task<IReadOnlyList<FriendNotificationTokens>> ListTokensForFriendsOfAsync(
         SystemId systemId,
         CancellationToken cancellationToken = default)

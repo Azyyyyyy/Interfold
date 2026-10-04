@@ -6,7 +6,7 @@ using Interfold.Shared.Domain.Abstractions;
 namespace Interfold.Infrastructure.InMemory;
 
 // Shared key/normalization helpers for the InMemory repositories. Normalisation strips
-// a legacy <c>"region:"</c> prefix (mirrors <c>ScyllaKeyspaceResolver.NormalizeSystemId</c>);
+// a legacy <c>"region:"</c> prefix (normalizes system id);
 // system partition keys are <c>"{region}:{systemId}"</c>.
 internal static class InMemoryStorageKeys
 {

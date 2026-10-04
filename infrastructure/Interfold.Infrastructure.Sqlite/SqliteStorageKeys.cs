@@ -4,7 +4,7 @@ using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Infrastructure.Sqlite;
 
-/// <summary>Persist prefix-stripped system ids. Read-model ids match Scylla
+/// <summary>Persist prefix-stripped system ids. Read-model ids match expected region-scoped format
 /// <c>NormalizeSystemId</c> (bare). Auth/identity returns use
 /// <see cref="ToScopedPrincipal"/> so JWT mint can <see cref="ScopedSystemId.ParseScoped"/>.</summary>
 internal static class SqliteStorageKeys

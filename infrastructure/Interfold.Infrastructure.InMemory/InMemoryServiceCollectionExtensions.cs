@@ -27,8 +27,7 @@ public static class InMemoryServiceCollectionExtensions
         PersistenceConfiguration options)
     {
         return services
-            .AddSingleton<IRegionContext>(_ => new InMemoryRegionContext(
-                options.ScyllaKeyspace))
+            .AddSingleton<IRegionContext>(_ => new InMemoryRegionContext())
             // Seeded from OCTOCON_INMEMORY_SECRETS_SEED__* so external runners can bootstrap
             // the published image without an in-process hook. Blanks are skipped silently —
             // SecretsBootstrapService is the single fail-fast for mandatory rows.

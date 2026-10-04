@@ -6,8 +6,6 @@ using Interfold.Friendships.Api.DependencyInjection;
 using Interfold.Fronting.Api.DependencyInjection;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory;
-using Interfold.Infrastructure.Postgres;
-using Interfold.Infrastructure.Scylla;
 using Interfold.Infrastructure.Sqlite;
 using Interfold.Journals.Api.DependencyInjection;
 using Interfold.Ops.Api.DependencyInjection;
@@ -48,9 +46,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // Fetches every internal.secrets row the API's PostConfigure patchers need before host build.
 var secretsSnapshot = SecretsPreBuildLoader.Load(builder.Configuration);
 
-ScyllaServiceCollectionExtensions.Register();
 InMemoryServiceCollectionExtensions.Register();
-PostgresServiceCollectionExtensions.Register();
 SqliteServiceCollectionExtensions.Register();
 
 // Register typed options BEFORE the startup snapshots below so tests can override them
@@ -169,13 +165,7 @@ builder.Services.AddInterfoldDomainHandlers();
 // lives in HealthCheckExtensions.AddReadyAndStartup.
 var healthChecks = builder.Services.AddHealthChecks();
 
-if (persistenceConfig.Mode == PersistenceMode.ScyllaPostgres)
-{
-    healthChecks
-        .AddReadyAndStartup<ScyllaHealthChecker>("scylla")
-        .AddReadyAndStartup<PostgresHealthChecker>("postgres");
-}
-else if (persistenceConfig.Mode == PersistenceMode.Sqlite)
+if (persistenceConfig.Mode == PersistenceMode.Sqlite)
 {
     healthChecks.AddReadyAndStartup<SqliteHealthChecker>("sqlite");
 }

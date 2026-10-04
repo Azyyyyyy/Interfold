@@ -5,8 +5,7 @@ using Interfold.Settings.Contracts.Models.ImportOperations;
 namespace Interfold.Api.UnitTests.ImportJobs;
 
 // Per-system mutex contract for the in-memory IImportOperationRepository. The InMemory
-// port must mirror the Scylla port so integration tests against InMemory are a
-// meaningful proxy for the production Cassandra LWT semantics: at most one
+// implementation guarantees at most one
 // queued-or-running operation per (system, kind) pair.
 public sealed class InMemoryImportOperationRepositoryTests
 {

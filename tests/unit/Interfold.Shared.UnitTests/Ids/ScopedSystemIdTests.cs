@@ -19,7 +19,7 @@ public sealed class ScopedSystemIdTests
             await Assert.That(scoped.Value).IsEqualTo("nam:abcdefg")
                 .Because("Compose from a bare id must emit the canonical scoped form so persistence adapters see a single wire shape.");
             await Assert.That(scoped.RawId).IsEqualTo("abcdefg")
-                .Because("RawId exposes the bare id for consumers (Scylla PKs) that need the region-stripped shape.");
+                .Because("RawId exposes the bare id for consumers that need the region-stripped shape.");
             await Assert.That(scoped.Region).IsEqualTo(ScyllaKeyspace.Nam)
                 .Because("Region reflects the composed-with argument, not a lazy parse of Value.");
         }
@@ -62,7 +62,7 @@ public sealed class ScopedSystemIdTests
             .Because("The SystemId overload is a strict alias for the string overload — same idempotency, same output.");
     }
 
-    // Non-region prefixes (username:, discord:) are opaque so ScyllaUserRegistryRegionContext's
+    // Non-region prefixes (username:, discord:) are opaque so the
     // discriminator-column routing keeps working.
     [Test]
     public async Task Compose_UnknownPrefixNotStripped()
@@ -113,7 +113,7 @@ public sealed class ScopedSystemIdTests
         {
             await Assert.That(parsed).IsTrue();
             await Assert.That(result.Value).IsEqualTo("eur:acct-42")
-                .Because("The wire form must be lowercase-canonical so downstream string comparisons in SystemTopic and ScyllaKeyspaceResolver don't spuriously miss.");
+                .Because("The wire form must be lowercase-canonical so downstream string comparisons in SystemTopic don't spuriously miss.");
         }
     }
 

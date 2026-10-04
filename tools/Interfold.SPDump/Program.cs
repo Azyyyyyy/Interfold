@@ -26,10 +26,7 @@ services.AddSingleton<IConfiguration>(new ConfigurationManager());
 services.AddSingleton(TimeProvider.System);
 
 InMemoryServiceCollectionExtensions.Register();
-services.AddInterfoldPersistence(PersistenceMode.InMemory, cfg =>
-{
-	cfg.ScyllaKeyspace = ScyllaKeyspace.Nam;
-});
+services.AddInterfoldPersistence(PersistenceMode.InMemory);
 
 services.AddInterfoldDomainHandlers();
 services.AddSingleton<IAvatarStorage, TempAvatarStorage>();

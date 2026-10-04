@@ -29,20 +29,15 @@ public static class AppHostParameterKeys
 
     // --- Toggles / topology ---
     public const string IncludeApi = "Parameters:include-api";
-    public const string IncludePostgres = "Parameters:include-postgres";
-    public const string IncludeScylla = "Parameters:include-scylla";
-    public const string IncludeCassandra = "Parameters:include-cassandra";
     public const string IncludeDashboard = "Parameters:include-dashboard";
     public const string IncludeWeb = "Parameters:include-web";
     /// <summary>Run-mode named DB volumes + Persistent lifetime. Off by default;
     /// publish and test-bench force this on.</summary>
     public const string PersistentContainers = "Parameters:persistent-containers";
-    /// <summary>Wire values: <c>scylla-postgres</c> | <c>sqlite</c>. Blank → scylla-postgres.</summary>
+    /// <summary>Wire values: <c>sqlite</c> | <c>inmemory</c>. Blank → sqlite.</summary>
     public const string Persistence = "Parameters:persistence";
     /// <summary>Absolute host directory bind-mounted at <see cref="ContainerMountPaths.InterfoldSqliteData"/> when set (bootstrapper publish).</summary>
     public const string SqliteDataHostPath = "Parameters:sqlite-data-host-path";
-    public const string ScyllaTopology = "Parameters:scylla-topology";
-    public const string ClusterName = "Parameters:cluster-name";
     public const string EdgeTlsMode = "Parameters:edge-tls-mode";
     public const string EdgeRouting = "Parameters:edge-routing";
     public const string EdgeApiHost = "Parameters:edge-api-host";
@@ -61,12 +56,6 @@ public static class AppHostParameterKeys
     public const string TestBenchMode = "Parameters:test-bench-mode";
 
     // --- Credentials / secrets ---
-    public const string PostgresUser = "Parameters:postgres-user";
-    public const string PostgresPassword = "Parameters:postgres-password";
-    public const string PostgresInitPassword = "Parameters:postgres-init-password";
-    public const string PostgresDb = "Parameters:postgres-db";
-    public const string ScyllaUser = "Parameters:scylla-user";
-    public const string ScyllaPassword = "Parameters:scylla-password";
     public const string EncryptionPrivateKey = "Parameters:encryption-private-key";
 
     // --- OAuth ---
@@ -82,7 +71,6 @@ public static class AppHostParameterKeys
     public const string AppleOAuthClientSecret = "Parameters:apple-oauth-client-secret";
 
     // --- API runtime ---
-    public const string ScyllaKeyspace = "Parameters:scylla-keyspace";
     public const string OAuthCallbackBaseUrl = "Parameters:oauth-callback-base-url";
     public const string JwtAuthority = "Parameters:jwt-authority";
     public const string JwtAudience = "Parameters:jwt-audience";
@@ -102,9 +90,6 @@ public static class AppHostParameterKeys
     public const string CfAccessDiscordIdpId = "Parameters:cf-access-discord-idp-id";
 
     // --- Host port mappings ---
-    public const string PortsPostgres = "Ports:postgres";
-    public const string PortsScylla = "Ports:scylla";
-    public const string PortsCassandra = "Ports:cassandra";
     public const string PortsEdgeHttp = "Ports:edge-http";
     public const string PortsEdgeHttps = "Ports:edge-https";
 

@@ -3,8 +3,6 @@ using System.Runtime.CompilerServices;
 using Interfold.Auth.Contracts.Configuration;
 using Interfold.Auth.Domain;
 using Interfold.Infrastructure.Coordination;
-using Interfold.Infrastructure.Postgres;
-using Interfold.Infrastructure.Scylla;
 using Interfold.Infrastructure.Sqlite;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
@@ -119,7 +117,7 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
         var expiresAt = now.AddDays(1);
 
         // Middleware requires scoped `{region}:{rawId}` sub; Compose is idempotent, and Nam
-        // is the ParseScyllaKeyspace default for null/empty input.
+        // is the default region for null/empty input.
         var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, systemId);
 
         return AuthHelper.CreateToken(authConfig, expiresAt, now, new(jti), scoped.AsSystemId());
@@ -158,8 +156,6 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
             // In-memory has no migrations to strip and seeds via IConfiguration directly.
             if (PersistenceMode != PersistenceMode.InMemory)
             {
-                RemoveHostedService<PostgresMigrationService>(x);
-                RemoveHostedService<ScyllaMigrationService>(x);
                 RemoveHostedService<SqliteMigrationService>(x);
             }
         });

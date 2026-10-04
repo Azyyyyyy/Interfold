@@ -31,8 +31,8 @@ public sealed class PersistenceModeSqliteTests
             () => EnumWireExtensions.ParsePersistenceMode("nope"));
 
         await Assert.That(ex!.Message).Contains("sqlite");
-        await Assert.That(ex.Message).Contains("scylla-postgres");
         await Assert.That(ex.Message).Contains("inmemory");
+        await Assert.That(ex.Message).DoesNotContain("scylla-postgres");
     }
 
     [Test]

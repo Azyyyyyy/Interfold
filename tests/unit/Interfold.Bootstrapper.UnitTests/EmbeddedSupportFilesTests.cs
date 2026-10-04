@@ -39,7 +39,7 @@ public sealed class EmbeddedSupportFilesTests
     public async Task OpensEveryEmbeddedSupportResource()
     {
         var resources = EnumerateSupportResources();
-        await Assert.That(resources.Count).IsGreaterThanOrEqualTo(9)
+        await Assert.That(resources.Count).IsGreaterThanOrEqualTo(5)
             .Because("at least the embedded support files should still ship");
 
         foreach (var name in resources)
@@ -51,38 +51,6 @@ public sealed class EmbeddedSupportFilesTests
         }
     }
 
-    [Test]
-    public async Task MaterializeWritesMissingFileWithOriginalContent()
-    {
-        using var scratch = TestSupport.NewScratchDir("interfold-embed");
-        const string relative = "db/scylla/cassandra-rackdc.nam.properties";
-        var target = Path.Combine(scratch.Path, "rackdc.properties");
-
-        var wrote = EmbeddedSupportFiles.Materialize(relative, target, new PhaseLogger(OptionsFor()));
-        await Assert.That(wrote).IsTrue();
-
-        var expected = ReadResourceBytes(ResourcePrefix + relative);
-        var actual = await File.ReadAllBytesAsync(target);
-        await Assert.That(actual.SequenceEqual(expected)).IsTrue();
-    }
-
-    [Test]
-    public async Task MaterializePreservesOperatorOverrideForExistingFiles()
-    {
-        using var scratch = TestSupport.NewScratchDir("interfold-embed");
-        const string relative = "db/scylla/cassandra-rackdc.nam.properties";
-        var target = Path.Combine(scratch.Path, "rackdc.properties");
-        Directory.CreateDirectory(scratch.Path);
-
-        var operatorContent = "# operator-customised content for unit test\n"u8.ToArray();
-        await File.WriteAllBytesAsync(target, operatorContent);
-
-        var wrote = EmbeddedSupportFiles.Materialize(relative, target, new PhaseLogger(OptionsFor()));
-        await Assert.That(wrote).IsFalse();
-
-        var afterRun = await File.ReadAllBytesAsync(target);
-        await Assert.That(afterRun.SequenceEqual(operatorContent)).IsTrue();
-    }
 
     [Test]
     public async Task MaterializeUnderSupportRootResolvesUnderOutputDir()
@@ -124,19 +92,4 @@ public sealed class EmbeddedSupportFilesTests
         await Assert.That(text).Contains("$interfold_forwarded_proto");
     }
 
-    [Test]
-    public async Task StagePublishSupportFilesMaterializesRackdcUnderOutputSupport()
-    {
-        using var scratch = TestSupport.NewScratchDir("interfold-publish-support");
-        var config = new BootstrapConfig();
-        config.Datastores.Persistence = PersistenceMode.ScyllaPostgres;
-        config.Datastores.Cql.Backend = CqlBackend.ScyllaSingle;
-        config.Edge.Hosts = ["api.example.com"];
-        ConfigPhase.ResolveDerivedDefaults(config);
-        PublishPhase.StagePublishSupportFiles(config, scratch.Path, new PhaseLogger(OptionsFor()));
-
-        var expected = EmbeddedSupportFiles.SupportFilePath(
-            scratch.Path, EmbeddedSupportFiles.RackDcRelative("nam"));
-        await Assert.That(File.Exists(expected)).IsTrue();
-    }
 }

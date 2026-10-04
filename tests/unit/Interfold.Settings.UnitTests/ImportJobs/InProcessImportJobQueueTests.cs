@@ -32,7 +32,7 @@ public sealed class InProcessImportJobQueueTests
         using (Assert.Multiple())
         {
             await Assert.That(observed).HasCount(3)
-                .Because("All three enqueued items must be observed by the reader; lost items would orphan an operation row in Cassandra.");
+                .Because("All three enqueued items must be observed by the reader; lost items would orphan an operation row in the database.");
             await Assert.That(observed[0]).IsEqualTo(first);
             await Assert.That(observed[1]).IsEqualTo(second);
             await Assert.That(observed[2]).IsEqualTo(third)

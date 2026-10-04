@@ -18,10 +18,9 @@ public sealed class InMemoryWebFactoryFixture : IWebFactoryFixture, IAsyncInitia
     }
 
     /// <inheritdoc />
-    // OCTOCON_SCYLLA_KEYSPACE defaults to "nam" via PersistenceConfiguration.ScyllaKeyspace,
-    // so an explicit override here is redundant. Leave the factory at production defaults —
-    // the private-factory shape must stay byte-identical to the session-shared one so tests
-    // that opt into isolation exercise the same host wiring as the rest of the suite.
+    // Region defaults to "nam", so an explicit override here is redundant. Leave the factory
+    // at production defaults — the private-factory shape must stay byte-identical to the session-shared
+    // one so tests that opt into isolation exercise the same host wiring as the rest of the suite.
     public InterfoldWebApplicationFactory CreatePrivateFactory()
         => new(PersistenceMode.InMemory);
 }

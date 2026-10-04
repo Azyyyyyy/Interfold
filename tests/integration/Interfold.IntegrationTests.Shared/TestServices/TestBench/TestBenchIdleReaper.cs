@@ -57,11 +57,7 @@ public static class TestBenchIdleReaper
     {
         foreach (var name in TestBenchContainerNames.All)
         {
-            // `-v` removes anonymous volumes attached to the container. The postgres,
-            // scylla, and cassandra images all declare a VOLUME for their data dir, so
-            // docker auto-creates an anonymous volume per container even though bench mode
-            // never explicitly mounts one. Without `-v` those anonymous volumes accumulate
-            // across every reap cycle and slowly fill /var/lib/docker.
+            // `-v` removes anonymous volumes attached to the container.
             await DockerAsync(["rm", "-f", "-v", name], ct).ConfigureAwait(false);
         }
     }
@@ -95,10 +91,6 @@ public static class TestBenchIdleReaper
 /// <c>Interfold.AppHost.TestBenchContainerNames</c> — keep in sync.</summary>
 public static class TestBenchContainerNames
 {
-    public const string Postgres = "interfold-test-bench-pg";
-    public const string Scylla = "interfold-test-bench-scylla";
-    public const string Cassandra = "interfold-test-bench-cassandra";
-
-    public static readonly IReadOnlyList<string> All = [Postgres, Scylla, Cassandra];
+    public static readonly IReadOnlyList<string> All = [];
 }
 

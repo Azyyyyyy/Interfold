@@ -8,18 +8,11 @@ public static class OctoconEnvKeys
     public const string NodeGroup = "OCTOCON_NODE_GROUP";
 
     public const string Persistence = "OCTOCON_PERSISTENCE";
-    public const string ScyllaKeyspace = "OCTOCON_SCYLLA_KEYSPACE";
-    public const string PostgresConnection = "OCTOCON_POSTGRES_CONNECTION";
     public const string SqliteConnection = "OCTOCON_SQLITE_CONNECTION";
-    public const string SingleScyllaInstance = "OCTOCON_SINGLE_SCYLLA_INSTANCE";
     public const string DbRetryAttempts = "OCTOCON_DB_RETRY_ATTEMPTS";
     public const string DbRetryInitialDelayMs = "OCTOCON_DB_RETRY_INITIAL_DELAY_MS";
     public const string DbRetryMaxDelayMs = "OCTOCON_DB_RETRY_MAX_DELAY_MS";
     public const string HydrationMaxConcurrency = "OCTOCON_HYDRATION_MAX_CONCURRENCY";
-
-    // Test/dev-only Scylla overrides — production values live in internal.secrets.
-    public const string ScyllaContactPoints = "OCTOCON_SCYLLA_CONTACT_POINTS";
-    public const string ScyllaPort = "OCTOCON_SCYLLA_PORT";
 
     // OCTOCON_INMEMORY_SECRETS_SEED__<SUFFIX> — `__` → `:` remap lands under
     // Octocon:InMemorySecretsSeed:* at read time.
@@ -64,10 +57,6 @@ public static class OctoconEnvKeys
     // Interfold.<Feature>.IntegrationTests / TestingConfiguration only.
     public const string RunApiIntegration = "OCTOCON_RUN_API_INTEGRATION";
     public const string RunLiveIntegration = "OCTOCON_RUN_LIVE_INTEGRATION";
-    public const string TestScyllaContactPoints = "OCTOCON_TEST_SCYLLA_CONTACT_POINTS";
-    public const string TestScyllaUsername = "OCTOCON_TEST_SCYLLA_USERNAME";
-    public const string TestScyllaPassword = "OCTOCON_TEST_SCYLLA_PASSWORD";
-    public const string TestRegion = "OCTOCON_TEST_REGION";
 
     // Fly.io process group — read as NodeGroup fallback.
     public const string FlyProcessGroup = "FLY_PROCESS_GROUP";

@@ -5,17 +5,14 @@ using Interfold.Bootstrapper.Cli;
 namespace Interfold.Bootstrapper.Util;
 
 /// <summary>
-/// Embedded <c>support/</c> resources (Scylla rackdc, edge nginx templates, Cassandra Dockerfile,
-/// ensure-host-aio.sh). Read via <see cref="Open"/>; materialize to disk only when Docker
-/// needs a host bind-mount path.
+/// Embedded <c>support/</c> resources (edge nginx templates, ensure-host-aio.sh).
+/// Read via <see cref="Open"/>; materialize to disk only when Docker needs a host bind-mount path.
 /// </summary>
 internal static class EmbeddedSupportFiles
 {
     internal const string ResourcePrefix = "support/";
 
     private static Assembly BootstrapperAssembly => typeof(EmbeddedSupportFiles).Assembly;
-
-    internal const string CassandraDockerfileRelative = "db/cassandra/Dockerfile";
 
     internal const string EdgePathTemplateRelative = "edge/nginx/path.conf.template";
     internal const string EdgePathHttpTemplateRelative = "edge/nginx/path-http.conf.template";
@@ -27,9 +24,6 @@ internal static class EmbeddedSupportFiles
         subdomain
             ? (plaintext ? EdgeSubdomainHttpTemplateRelative : EdgeSubdomainTemplateRelative)
             : (plaintext ? EdgePathHttpTemplateRelative : EdgePathTemplateRelative);
-
-    internal static string RackDcRelative(string regionWire) =>
-        $"db/scylla/cassandra-rackdc.{regionWire}.properties";
 
     internal static string SupportRoot(string outputDir) =>
         Path.GetFullPath(Path.Combine(outputDir, "support"));

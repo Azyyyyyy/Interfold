@@ -7,7 +7,7 @@ namespace Interfold.IntegrationTests.Shared.TestServices;
 /// Bounded Docker teardown for Aspire test containers. Resolves runtime container names via the
 /// <c>aspire-resource-name</c> label (same discovery contract as
 /// <c>Interfold.AppHost.DockerExecCqlProbe</c>) and issues <c>docker stop -t</c> before the
-/// Aspire host's implicit dispose so slow Scylla graceful shutdown cannot stall the test process.
+/// Aspire host's implicit dispose so slow graceful shutdown cannot stall the test process.
 /// </summary>
 public static class AspireContainerCleanup
 {
@@ -39,16 +39,9 @@ public static class AspireContainerCleanup
 
     public static string[] SharedDbResourceNames()
     {
-        var names = new List<string> { ComposeServices.Postgres };
-        if (RequiredFixtures.NeedScylla)
-            names.Add(ComposeServices.ScyllaSingle);
-        if (RequiredFixtures.NeedCassandra)
-            names.Add(ComposeServices.Cassandra);
-        return names.ToArray();
+        // SQLite-only: no legacy DB containers to stop
+        return [];
     }
-
-    public static string[] MultiNodeScyllaResourceNames()
-        => ComposeServices.ScyllaRegionalNodes;
 
     private static async Task StopResourceAsync(string resourceName, CancellationToken cancellationToken)
     {
