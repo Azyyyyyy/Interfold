@@ -49,18 +49,10 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
         // resolved-id check catches the routed-through-a-username / discord-id /
         // raw-bare-id shapes where the client couldn't (or didn't) know their own scoped
         // id. Both guards return the same rejection so callers see one uniform error.
-        if (targetSystemId == command.PrincipalId.AsSystemId())
+        if (targetSystemId == command.PrincipalId)
         {
             return RejectInvariant(command, EntityRefs.FriendRequestNoUser);
         }
-
-        // The resolver returns a scoped-shape id today (the account repos all compose one
-        // before returning). Route through Compose one more time so we still hand the
-        // event publisher a ScopedSystemId if a repo path ever emits a bare id — the
-        // principal's region is the safe fallback for the same-region friendship case.
-        var targetScopedId = FriendshipCommandNormalization.ComposePeerId(
-            command.PrincipalId,
-            targetSystemId);
 
         var outcome = await _repository.SendRequestAsync(
             command.PrincipalId,
@@ -89,11 +81,11 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
         {
             await _eventBus.PublishFriendshipAddedBothWaysAsync(
                 command.PrincipalId,
-                targetScopedId,
+                targetSystemId,
                 cancellationToken);
 
             await _eventBus.PublishAsync(new FriendRequestRemovedToEvent(
-                targetScopedId,
+                targetSystemId,
                 command.PrincipalId), cancellationToken);
         }
         else
@@ -103,7 +95,7 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
                 targetSystemId), cancellationToken);
 
             await _eventBus.PublishAsync(new FriendRequestReceivedEvent(
-                targetScopedId,
+                targetSystemId,
                 command.PrincipalId), cancellationToken);
         }
 

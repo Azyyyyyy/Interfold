@@ -12,7 +12,7 @@ namespace Interfold.Settings.Domain.Abstractions.ImportJobs;
 /// Null for PK / SP-without-recovery. Sensitive — never log.</param>
 public sealed record ImportJobItem(
     ImportOperationId OperationId,
-    ScopedSystemId SystemId,
+    SystemId SystemId,
     ImportOperationKind Kind,
     ImportToken Token,
     RecoveryCode? RecoveryCode);

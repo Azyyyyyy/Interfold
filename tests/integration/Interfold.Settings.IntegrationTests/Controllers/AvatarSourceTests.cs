@@ -122,14 +122,7 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
     // [AbsoluteHttpUri] rule. That poisoning cascade produced ~50 downstream 500s in
     // the full suite. Owning our own factory closes that vector — nothing this test
     // writes can ever be seen by a test that runs on fixture.Factory.
-    //
-    // NotInParallel is retained on the shared "avatar-storage-config" bucket so the
-    // two SettingsControllerTests siblings (which also build private factories) don't
-    // run three factory builds concurrently for the same backend — pending the
-    // Group-B Npgsql pool sizing fix, parallel builds can exhaust the default pool of
-    // 5 connections during SecretsPreBuildLoader's Postgres fetch. Once Group B lands
-    // this attribute can be removed.
-    [Test, NotInParallel("avatar-storage-config")]
+    [Test]
     public async Task Api_SettingsAvatarMultipart_ReportsLocalSource()
     {
         await IsolatedAvatarStorage.RunAsync(fixture, async (client, publicBasePath) =>

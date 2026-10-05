@@ -84,17 +84,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
                     errorMessage: "Operation was running when the previous host shut down.",
                     cancellationToken).ConfigureAwait(false);
 
-                // Skip the client event on a legacy unscoped row (the slot still frees).
-                if (ScopedSystemId.TryParseScoped(row.SystemId, out var scopedSweepId))
-                {
-                    await PublishFailureAsync(scopedSweepId, row.Kind, cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    _logger.LogWarning(
-                        "[import-worker] Skipping sweep failure event for operation {OperationId} — stored system id {SystemId} is not region-scoped.",
-                        row.OperationId, row.SystemId);
-                }
+                await PublishFailureAsync(row.SystemId, row.Kind, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -188,7 +178,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
         }
     }
 
-    private ValueTask PublishSuccessAsync(ScopedSystemId systemId, ImportOperationKind kind, int alterCount, CancellationToken cancellationToken)
+    private ValueTask PublishSuccessAsync(SystemId systemId, ImportOperationKind kind, int alterCount, CancellationToken cancellationToken)
     {
         return kind switch
         {
@@ -200,7 +190,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
         };
     }
 
-    private ValueTask PublishFailureAsync(ScopedSystemId systemId, ImportOperationKind kind, CancellationToken cancellationToken)
+    private ValueTask PublishFailureAsync(SystemId systemId, ImportOperationKind kind, CancellationToken cancellationToken)
     {
         return kind switch
         {

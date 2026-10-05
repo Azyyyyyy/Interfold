@@ -31,12 +31,8 @@ protected override async Task<CommandExecutionResult<FriendshipCommandResult>> E
         CancellationToken cancellationToken = default)
     {
 
-        var canonicalSourceSystemId = FriendshipCommandNormalization.ComposePeerId(
-            command.PrincipalId,
-            command.Payload.SourceSystemId);
-        var canonicalPrincipalId = FriendshipCommandNormalization.CanonicalPrincipalForPeer(
-            canonicalSourceSystemId,
-            command.PrincipalId);
+        var canonicalSourceSystemId = command.Payload.SourceSystemId;
+        var canonicalPrincipalId = command.PrincipalId;
 
         var outcome = await _repository.RejectRequestAsync(
             command.PrincipalId,

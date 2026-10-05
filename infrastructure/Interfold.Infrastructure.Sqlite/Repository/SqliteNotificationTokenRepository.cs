@@ -25,7 +25,6 @@ public sealed class SqliteNotificationTokenRepository : INotificationTokenReposi
     public async Task<bool> AddAsync(SystemId systemId, PushToken token, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalizedSystemId = SqliteStorageKeys.Persist(systemId);
         var normalizedToken = token.Value.Trim();
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
 
@@ -37,7 +36,7 @@ public sealed class SqliteNotificationTokenRepository : INotificationTokenReposi
             """,
             new
             {
-                system_id = normalizedSystemId,
+                system_id = systemId.Value,
                 push_token = normalizedToken,
                 inserted_at = nowMs,
                 updated_at = nowMs,
@@ -61,11 +60,10 @@ public sealed class SqliteNotificationTokenRepository : INotificationTokenReposi
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var normalizedSystemId = SqliteStorageKeys.Normalize(systemId);
-        if (string.IsNullOrWhiteSpace(normalizedSystemId.Value))
+        if (string.IsNullOrWhiteSpace(systemId.Value))
             return Array.Empty<FriendNotificationTokens>();
 
-        var friendships = await _friendshipRepository.ListFriendshipsAsync(normalizedSystemId, cancellationToken);
+        var friendships = await _friendshipRepository.ListFriendshipsAsync(systemId, cancellationToken);
         if (friendships.Count == 0)
             return Array.Empty<FriendNotificationTokens>();
 
@@ -78,8 +76,8 @@ public sealed class SqliteNotificationTokenRepository : INotificationTokenReposi
             if (friendship.Friend is null)
                 continue;
 
-            var friendId = SqliteStorageKeys.Persist(friendship.Friend.Id);
-            if (string.IsNullOrWhiteSpace(friendId) || !seenFriends.Add(friendId))
+            var friendId = friendship.Friend.Id;
+            if (string.IsNullOrWhiteSpace(friendId.Value) || !seenFriends.Add(friendId.Value))
                 continue;
 
             var tokens = (await connection.QueryAsync<string>(
@@ -88,7 +86,7 @@ public sealed class SqliteNotificationTokenRepository : INotificationTokenReposi
                     FROM notification_tokens
                     WHERE system_id = @system_id
                     """,
-                    new { system_id = friendId }))
+                    new { system_id = friendId.Value }))
                 .Where(raw => !string.IsNullOrWhiteSpace(raw))
                 .Select(raw => new PushToken(raw))
                 .Distinct()
@@ -97,7 +95,7 @@ public sealed class SqliteNotificationTokenRepository : INotificationTokenReposi
             if (tokens.Length == 0)
                 continue;
 
-            groups.Add(new FriendNotificationTokens(SqliteStorageKeys.ToWire(friendId), tokens));
+            groups.Add(new FriendNotificationTokens(friendId, tokens));
         }
 
         return groups;

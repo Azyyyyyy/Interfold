@@ -1,7 +1,6 @@
 using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain;
 using Interfold.Alters.Domain.Abstractions.Repository;
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
@@ -17,8 +16,7 @@ namespace Interfold.Api.UnitTests.Domain;
 // while HTTP-level tests still see the correct alter:not_found conflict.
 public sealed class AlterCommandFlowExecutionTests
 {
-    private static readonly ScopedSystemId Principal =
-        ScopedSystemId.Compose(ScyllaKeyspace.Nam, "altrflw");
+    private static readonly SystemId Principal = new SystemId("altrflw");
 
     private static readonly AlterId AnyAlterId = new(5);
 

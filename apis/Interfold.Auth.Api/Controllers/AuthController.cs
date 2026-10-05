@@ -274,7 +274,7 @@ public sealed class AuthController : OAuthControllerBase
         var envelope = new CommandEnvelope<RecordAuthTokenCommand>(
             OperationIds.AuthOAuthCallback,
             Guid.NewGuid(),
-            ScopedSystemId.ParseScoped(systemId.Value),
+            systemId,
             GetIdempotencyKey(),
             TimeProvider.GetUtcNow(),
             new RecordAuthTokenCommand(jti, systemId, expiresAt)

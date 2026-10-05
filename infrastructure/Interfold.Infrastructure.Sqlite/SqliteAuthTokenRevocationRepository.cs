@@ -37,7 +37,7 @@ public sealed class SqliteAuthTokenRevocationRepository : IAuthTokenRevocationRe
             new
             {
                 jti = jti.Value,
-                system_id = SqliteStorageKeys.Persist(systemId),
+                system_id = systemId.Value,
                 issued_at = nowMs,
                 expires_at = expiresAt.ToUnixTimeMilliseconds(),
             });

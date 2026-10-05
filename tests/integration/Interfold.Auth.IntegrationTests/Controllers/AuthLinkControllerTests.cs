@@ -84,7 +84,7 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         var accountRepo = factory.Services.GetRequiredService<IAccountRepository>();
         var linkedSystemId = await accountRepo.TryFindSystemIdByDiscordIdAsync(new DiscordId(discordIdStr));
         await Assert.That(linkedSystemId).IsNotNull();
-        await Assert.That(ScopedSystemId.StripRegionPrefix(linkedSystemId!.Value)).IsEqualTo(user);
+        await Assert.That(linkedSystemId!.Value).IsEqualTo(user);
     }
 
     [Test]
@@ -108,7 +108,7 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         var accountRepo = factory.Services.GetRequiredService<IAccountRepository>();
         var discordIdStr = $"discord-err-{Guid.NewGuid():N}";
         var linkResult = await accountRepo.LinkIdentityToUserAsync(
-            ScopedSystemId.Compose(ScyllaKeyspace.Nam, userA).AsSystemId(),
+            new SystemId(userA),
             ProviderIdentity.FromDiscord(new DiscordId(discordIdStr)));
         await Assert.That(linkResult).IsEqualTo(AccountLinkResult.Success);
 

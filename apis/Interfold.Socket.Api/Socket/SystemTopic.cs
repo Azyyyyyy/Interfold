@@ -27,14 +27,7 @@ internal readonly record struct SystemTopic(SystemId Id)
         result = default;
         return false;
     }
-
-    /// <summary>
-    /// Strips a legacy <c>"region:"</c> prefix (e.g. <c>nam:abcdefg</c> → <c>abcdefg</c>)
-    /// so ids can be compared across prefixed and unprefixed spellings.
-    /// </summary>
-    public static string ComparableId(string systemId)
-        => ScopedSystemId.StripRegionPrefix(systemId);
-
+    
     /// <summary>Region-prefix-tolerant equality between two raw system-id spellings.</summary>
     public static bool IdMatches(string? left, string? right)
     {
@@ -48,6 +41,6 @@ internal readonly record struct SystemTopic(SystemId Id)
             return false;
         }
 
-        return string.Equals(ComparableId(left), ComparableId(right), StringComparison.Ordinal);
+        return string.Equals(left, right, StringComparison.Ordinal);
     }
 }

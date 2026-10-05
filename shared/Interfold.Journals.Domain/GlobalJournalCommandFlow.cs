@@ -12,7 +12,7 @@ namespace Interfold.Journals.Domain;
 internal static class GlobalJournalCommandFlow
 {
     public static CommandExecutionResult<GlobalJournalCommandResult> Success(
-        ScopedSystemId systemId,
+        SystemId systemId,
         EntryId entryId)
         => CommandExecutionResult<GlobalJournalCommandResult>.Success(new GlobalJournalCommandResult(systemId, entryId, Replay: false));
 

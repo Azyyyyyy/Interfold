@@ -23,12 +23,10 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     internal static string UniqueId(string prefix) => TestIds.NewSystemId(prefix, maxLen: int.MaxValue);
 
-    // Events carry ScopedSystemId, so tests that publish directly onto the bus compose
-    // one from the raw test id. NAM is the only region the test bootstrapper seeds;
-    // compose is idempotent, so callers that already pass "nam:..." (or another valid
-    // region prefix) keep the same wire bytes.
-    internal static ScopedSystemId AsScopedSystemId(string rawSystemId)
-        => ScopedSystemId.Compose(ScyllaKeyspace.Nam, rawSystemId);
+    // Events carry SystemId, so tests that publish directly onto the bus compose
+    // one from the raw test id; compose is idempotent for already-scoped inputs.
+    internal static SystemId AsSystemId(string rawSystemId)
+        => new SystemId(rawSystemId);
 
     [Test]
     public async Task Api_UserSocketEndpoint_AllowsWebSocketUpgrade(CancellationToken token)
@@ -554,14 +552,14 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var (rawWs, socketToken) = await WebSocketHarness.ConnectAndJoinAsync(fixture, systemId, token);
         using var ws = rawWs;
 
-        await fixture.Factory.EventBus.PublishAsync(new SimplyPluralImportCompletedEvent(AsScopedSystemId(systemId), 7), token);
+        await fixture.Factory.EventBus.PublishAsync(new SimplyPluralImportCompletedEvent(AsSystemId(systemId), 7), token);
 
         var completeFrame = await ws.ReceiveEventFrameAsync( token, SocketEventNames.Imports.SpComplete, maxFrames: 4);
         await Assert.That(completeFrame).IsNotNull().Because("Expected sp_import_complete push after bus publish.");
         await Assert.That(completeFrame!.RawPayload?.GetProperty("alter_count").GetInt32() ?? -1)
             .IsEqualTo(7).Because("Expected alter_count=7 in sp_import_complete payload (legacy contract is snake_case).");
 
-        await fixture.Factory.EventBus.PublishAsync(new SimplyPluralImportFailedEvent(AsScopedSystemId(systemId)), token);
+        await fixture.Factory.EventBus.PublishAsync(new SimplyPluralImportFailedEvent(AsSystemId(systemId)), token);
 
         var failedFrame = await ws.ReceiveEventFrameAsync( token, SocketEventNames.Imports.SpFailed, maxFrames: 4);
         await Assert.That(failedFrame).IsNotNull().Because("Expected sp_import_failed push after bus publish.");
@@ -580,14 +578,14 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         var (rawWs, socketToken) = await WebSocketHarness.ConnectAndJoinAsync(fixture, systemId, token);
         using var ws = rawWs;
 
-        await fixture.Factory.EventBus.PublishAsync(new PluralKitImportCompletedEvent(AsScopedSystemId(systemId), 3), token);
+        await fixture.Factory.EventBus.PublishAsync(new PluralKitImportCompletedEvent(AsSystemId(systemId), 3), token);
 
         var completeFrame = await ws.ReceiveEventFrameAsync( token, SocketEventNames.Imports.PkComplete, maxFrames: 4);
         await Assert.That(completeFrame).IsNotNull().Because("Expected pk_import_complete push after bus publish.");
         await Assert.That(completeFrame!.RawPayload?.GetProperty("alter_count").GetInt32() ?? -1)
             .IsEqualTo(3).Because("Expected alter_count=3 in pk_import_complete payload (legacy contract is snake_case).");
 
-        await fixture.Factory.EventBus.PublishAsync(new PluralKitImportFailedEvent(AsScopedSystemId(systemId)), token);
+        await fixture.Factory.EventBus.PublishAsync(new PluralKitImportFailedEvent(AsSystemId(systemId)), token);
 
         var failedFrame = await ws.ReceiveEventFrameAsync( token, SocketEventNames.Imports.PkFailed, maxFrames: 4);
         await Assert.That(failedFrame).IsNotNull().Because("Expected pk_import_failed push after bus publish.");
@@ -768,3 +766,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         return WebSocketExtensions.WebSocketBasePath(server);
     }
 }
+
+
+
+

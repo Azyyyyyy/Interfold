@@ -20,6 +20,19 @@ public readonly record struct SystemId : IParsable<SystemId>
     // Hazard: default(SystemId).Value is null; do not widen a default slot.
     public static implicit operator string(SystemId value) => value.Value;
 
+    /// <summary>Semantic "same user" test — correct primitive for controller self-request /
+    /// self-friendship guards. Canonicalises candidate so raw and same-region-scoped both
+    /// self-reject; cross-region candidates compare scoped-to-scoped byte-identical.</summary>
+    public bool RepresentsSameUserAs(SystemId candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate.Value))
+        {
+            return false;
+        }
+        
+        return string.Equals(Value, candidate.Value, StringComparison.Ordinal);
+    }
+    
     public override string ToString() => Value;
 
     public static SystemId Parse(string s, IFormatProvider? provider) => new(s);

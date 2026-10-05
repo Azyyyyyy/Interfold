@@ -17,8 +17,8 @@ public sealed class CancelFriendRequestCommandHandler : IdempotentCommandHandler
     public CancelFriendRequestCommandHandler(
         IFriendshipRepository repository,
         IIdempotencyStore idempotencyStore,
-        IClusterEventBus eventBus)
-:base(idempotencyStore)    {
+        IClusterEventBus eventBus) :base(idempotencyStore)
+    {
         _repository = repository;
         _eventBus = eventBus;
     }
@@ -28,16 +28,10 @@ public sealed class CancelFriendRequestCommandHandler : IdempotentCommandHandler
 
 protected override async Task<CommandExecutionResult<FriendshipCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<CancelFriendRequestCommand> command,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
-        
-        var canonicalTargetSystemId = FriendshipCommandNormalization.ComposePeerId(
-            command.PrincipalId,
-            command.Payload.TargetSystemId);
-
-        var canonicalPrincipalId = FriendshipCommandNormalization.CanonicalPrincipalForPeer(
-            command.Payload.TargetSystemId,
-            command.PrincipalId);
+        var canonicalTargetSystemId = command.Payload.TargetSystemId;
+        var canonicalPrincipalId = command.PrincipalId;
 
         var outcome = await _repository.CancelRequestAsync(
             command.PrincipalId,

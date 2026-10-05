@@ -26,14 +26,14 @@ public abstract class InterfoldControllerBase : ControllerBase
     [FromServices]
     public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 
-    /// <summary>Authenticated <see cref="ScopedSystemId"/> for the current request;
+    /// <summary>Authenticated <see cref="SystemId"/> for the current request;
     /// middleware guarantees presence.</summary>
-    protected ScopedSystemId PrincipalId
+    protected SystemId PrincipalId
     {
         get
         {
             if (HttpContext.Items.TryGetValue(InterfoldPrincipalMiddleware.PrincipalIdItemKey, out var value)
-                && value is ScopedSystemId principal)
+                && value is SystemId principal)
             {
                 return principal;
             }
@@ -53,7 +53,7 @@ public abstract class InterfoldControllerBase : ControllerBase
     }
 
     /// <summary>400 <see cref="ErrorResponse"/> when <paramref name="target"/> is the
-    /// current principal, else null. Uses <see cref="ScopedSystemId.RepresentsSameUserAs(SystemId)"/>
+    /// current principal, else null. Uses <see cref="SystemId.RepresentsSameUserAs(SystemId)"/>
     /// so raw and same-region-scoped shapes both self-reject with the per-op
     /// <c>Cannot*Self</c> code rather than a downstream generic error.</summary>
     protected ErrorResponse? RejectIfSelf(SystemId target, string message, ErrorCode code)
@@ -138,7 +138,7 @@ public abstract class InterfoldControllerBase : ControllerBase
 
     protected async Task<Response> HandleAvatarUploadAsync(
         Func<CancellationToken, Task<IAvatarBearing>> getExistingAvatarAsync,
-        Func<ScopedSystemId, Stream, CancellationToken, Task<AvatarUrl>> saveToStorageAsync,
+        Func<SystemId, Stream, CancellationToken, Task<AvatarUrl>> saveToStorageAsync,
         Func<AvatarUrl, CancellationToken, Task<Response>> updateMetadataAsync,
         IAvatarStorage avatarStorage,
         CancellationToken ct)
@@ -399,12 +399,12 @@ public abstract class InterfoldControllerBase : ControllerBase
 
     // Synthetic stamp for envelopes built from [AllowAnonymous] endpoints (OAuth callbacks);
     // the handler resolves the real system id off the payload and must never trust this.
-    private static readonly ScopedSystemId AnonymousPrincipalId = ScopedSystemId.ParseScoped("nam:auth");
+    private static readonly SystemId AnonymousPrincipalId = SystemId.Parse("auth", null);
 
     /// <summary>Non-throwing <see cref="PrincipalId"/>; null on [AllowAnonymous] routes.</summary>
-    private ScopedSystemId? TryGetPrincipalId()
+    private SystemId? TryGetPrincipalId()
         => HttpContext.Items.TryGetValue(InterfoldPrincipalMiddleware.PrincipalIdItemKey, out var value)
-            && value is ScopedSystemId principal
+            && value is SystemId principal
             ? principal
             : null;
 

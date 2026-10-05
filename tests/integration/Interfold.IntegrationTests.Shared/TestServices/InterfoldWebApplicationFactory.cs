@@ -116,11 +116,11 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
         var now = DateTimeOffset.UtcNow;
         var expiresAt = now.AddDays(1);
 
-        // Middleware requires scoped `{region}:{rawId}` sub; Compose is idempotent, and Nam
-        // is the default region for null/empty input.
-        var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, systemId);
+        // Middleware requires scoped `{prefix}:{rawId}` sub; Compose is idempotent, and "nam"
+        // is the default prefix for null/empty/unscoped input.
+        var scoped = new SystemId(systemId);
 
-        return AuthHelper.CreateToken(authConfig, expiresAt, now, new(jti), scoped.AsSystemId());
+        return AuthHelper.CreateToken(authConfig, expiresAt, now, new(jti), scoped);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

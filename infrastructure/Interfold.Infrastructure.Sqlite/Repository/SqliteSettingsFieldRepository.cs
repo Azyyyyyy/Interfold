@@ -26,9 +26,8 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         SystemId systemId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await LoadFieldsAsync(connection, systemKey);
+        var rows = await LoadFieldsAsync(connection, systemId);
         return rows
             .OrderBy(r => r.Idx)
             .Select(Map)
@@ -44,7 +43,6 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         DateTime insertedAtUtc,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var fieldId = Guid.NewGuid();
         var fieldHex = fieldId.ToString("N");
         var insertedAtMs = new DateTimeOffset(DateTime.SpecifyKind(insertedAtUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
@@ -55,7 +53,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
 
         var nextIndex = await connection.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM settings_fields WHERE system_id = @system_id",
-            new { system_id = systemKey },
+            new { system_id = systemId.Value },
             tx);
 
         await connection.ExecuteAsync(
@@ -67,7 +65,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             """,
             new
             {
-                system_id = systemKey,
+                system_id = systemId.Value,
                 id = fieldHex,
                 name,
                 type = (short)type,
@@ -91,12 +89,11 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         bool? locked,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var fieldHex = fieldId.Value.ToString("N");
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        if (!await FieldExistsAsync(connection, tx: null, systemKey, fieldHex))
+        if (!await FieldExistsAsync(connection, tx: null, systemId, fieldHex))
         {
             return false;
         }
@@ -104,7 +101,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         var sets = new List<string> { "updated_at = @updated_at" };
         var parameters = new DynamicParameters();
         parameters.Add("updated_at", nowMs);
-        parameters.Add("system_id", systemKey);
+        parameters.Add("system_id", systemId.Value);
         parameters.Add("id", fieldHex);
 
         if (name is not null)
@@ -140,12 +137,11 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         FieldId fieldId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var fieldHex = fieldId.Value.ToString("N");
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
 
-        if (!await FieldExistsAsync(work.Connection, work.Transaction, systemKey, fieldHex))
+        if (!await FieldExistsAsync(work.Connection, work.Transaction, systemId, fieldHex))
             return false;
 
         var removed = await work.Connection.ExecuteAsync(
@@ -153,10 +149,10 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             DELETE FROM settings_fields
             WHERE system_id = @system_id AND id = @id
             """,
-            new { system_id = systemKey, id = fieldHex },
+            new { system_id = systemId.Value, id = fieldHex },
             work.Transaction);
 
-        await ReindexAsync(work.Connection, work.Transaction, systemKey);
+        await ReindexAsync(work.Connection, work.Transaction, systemId);
         await work.CommitAsync(cancellationToken);
         return removed > 0;
     }
@@ -167,14 +163,13 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         int index,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var fieldHex = fieldId.Value.ToString("N");
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
 
-        var rows = await LoadFieldsAsync(connection, systemKey, tx);
+        var rows = await LoadFieldsAsync(connection, systemId, tx);
         var currentIndex = rows.FindIndex(r => r.IdHex == fieldHex);
         if (currentIndex < 0)
         {
@@ -198,7 +193,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
                 {
                     idx = i,
                     updated_at = rows[i].UpdatedAtMs,
-                    system_id = systemKey,
+                    system_id = systemId.Value,
                     id = rows[i].IdHex,
                 },
                 tx);
@@ -211,9 +206,9 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
     private static async Task ReindexAsync(
         SqliteConnection connection,
         IDbTransaction tx,
-        string systemKey)
+        SystemId systemId)
     {
-        var rows = await LoadFieldsAsync(connection, systemKey, tx);
+        var rows = await LoadFieldsAsync(connection, systemId, tx);
         for (var i = 0; i < rows.Count; i++)
         {
             await connection.ExecuteAsync(
@@ -222,7 +217,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
                 SET idx = @idx
                 WHERE system_id = @system_id AND id = @id
                 """,
-                new { idx = i, system_id = systemKey, id = rows[i].IdHex },
+                new { idx = i, system_id = systemId.Value, id = rows[i].IdHex },
                 tx);
         }
     }
@@ -230,7 +225,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
     private static async Task<bool> FieldExistsAsync(
         SqliteConnection connection,
         IDbTransaction? tx,
-        string systemKey,
+        SystemId systemId,
         string fieldHex)
     {
         var found = await connection.ExecuteScalarAsync<long?>(
@@ -239,14 +234,14 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             WHERE system_id = @system_id AND id = @id
             LIMIT 1
             """,
-            new { system_id = systemKey, id = fieldHex },
+            new { system_id = systemId.Value, id = fieldHex },
             tx);
         return found is not null;
     }
 
     private static async Task<List<FieldRow>> LoadFieldsAsync(
         SqliteConnection connection,
-        string systemKey,
+        SystemId systemId,
         IDbTransaction? tx = null)
     {
         var rows = await connection.QueryAsync<FieldRow>(
@@ -257,7 +252,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             WHERE system_id = @system_id
             ORDER BY idx
             """,
-            new { system_id = systemKey },
+            new { system_id = systemId.Value },
             tx);
 
         return rows.ToList();
