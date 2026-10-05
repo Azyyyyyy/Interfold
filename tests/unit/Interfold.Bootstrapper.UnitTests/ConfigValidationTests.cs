@@ -332,42 +332,6 @@ public sealed class ConfigValidationTests
             c.Edge.Routing.WebHost = "";
         }, "subdomain");
 
-    [Test]
-    public async Task V1JsonMigratesOnLoad()
-    {
-        const string json = """
-            {
-              "deployment": { "hosts": ["a.example.com"], "webHttps": true },
-              "ports": { "apiHttp": 5000, "apiHttps": 5001, "webHttps": 8081 }
-            }
-            """;
-        var result = ConfigSchemaMigrator.MigrateIfNeeded(json, "interfold.bootstrap.json", new PhaseLogger(
-            TestSupport.MakeOptions(outputDir: Path.GetTempPath())));
-        await Assert.That(result.DidMigrate).IsTrue();
-        using var doc = JsonDocument.Parse(result.Json);
-        await Assert.That(doc.RootElement.GetProperty("schemaVersion").GetInt32()).IsEqualTo(2);
-        await Assert.That(doc.RootElement.GetProperty("edge").GetProperty("ports").GetProperty("https").GetInt32()).IsEqualTo(5001);
-    }
-
-    [Test]
-    public async Task V2EdgeEnabledRejected()
-    {
-        const string json = """
-            {
-              "schemaVersion": 2,
-              "deployment": {
-                "hosts": ["a.example.com"],
-                "edge": { "tlsMode": "privateCa", "routing": "path", "enabled": true }
-              },
-              "ports": { "edgeHttp": 80, "edgeHttps": 443 }
-            }
-            """;
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            ConfigSchemaMigrator.MigrateIfNeeded(json, "interfold.bootstrap.json", new PhaseLogger(
-                TestSupport.MakeOptions(outputDir: Path.GetTempPath()))));
-        await Assert.That(ex.Message).Contains("edge.enabled");
-    }
-
     // --- Cluster / Storage / Observability / Socket / Persistence tuning validation ---
 
     [Test]

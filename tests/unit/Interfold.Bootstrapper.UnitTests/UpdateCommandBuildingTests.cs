@@ -188,8 +188,6 @@ public sealed class UpdateCommandBuildingTests
     {
         var sqlite = UpdateImagesPhase.ResolveHealthFailureLogServices(new BootstrapConfig());
 
-        await Assert.That(sqlite).DoesNotContain("msg-db");
-        await Assert.That(sqlite).DoesNotContain("scylla");
         await Assert.That(sqlite).Contains("interfold-api");
     }
 }

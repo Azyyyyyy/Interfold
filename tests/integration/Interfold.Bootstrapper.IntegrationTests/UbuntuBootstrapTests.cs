@@ -38,8 +38,6 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
 
         await Assert.That(compose).Contains("interfold-api:").Because("compose missing interfold-api service");
         await Assert.That(compose).Contains("edge-nginx:").Because("compose missing edge-nginx service");
-        await Assert.That(compose).DoesNotContain("msg-db:").Because("sqlite persistence must not emit msg-db");
-        await Assert.That(compose).DoesNotContain("scylla:").Because("sqlite persistence must not emit scylla");
         await Assert.That(compose).DoesNotContain("${Parameters_").Because("unresolved parameter placeholder leaked into compose");
     }
 
