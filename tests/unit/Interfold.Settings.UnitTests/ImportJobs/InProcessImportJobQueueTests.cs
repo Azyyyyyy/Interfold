@@ -125,7 +125,7 @@ public sealed class InProcessImportJobQueueTests
 
     private static ImportJobItem NewItem(string systemId) => new(
         new ImportOperationId(Guid.NewGuid()),
-        ScopedSystemId.ParseScoped(systemId),
+        new SystemId(systemId),
         ImportOperationKind.SimplyPlural,
         Token: new ImportToken("synthetic-token"),
         RecoveryCode: null);

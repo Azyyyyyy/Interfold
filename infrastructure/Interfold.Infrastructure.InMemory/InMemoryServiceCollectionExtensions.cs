@@ -1,24 +1,24 @@
-using Interfold.Alters.Domain.Abstractions.Repository;
-using Interfold.Friendships.Domain.Abstractions.Repository;
-using Interfold.Fronting.Domain.Abstractions.Repository;
+using System.Collections.Concurrent;
+using Interfold.Infrastructure.DependencyInjection;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Secrets;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Infrastructure.DependencyInjection;
-using Interfold.Infrastructure.InMemory.Repository;
-using Interfold.Journals.Domain.Abstractions.Repository;
-using Interfold.Polls.Domain.Abstractions.Repository;
-using Interfold.Settings.Domain.Abstractions.Repository;
-using Interfold.Tags.Domain.Abstractions.Repository;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.InMemory;
 
 public static class InMemoryServiceCollectionExtensions
 {
+    public const string DefaultConnectionString = "Data Source=interfold_inmemory;Mode=Memory;Cache=Shared";
+
+    private static readonly ConcurrentDictionary<string, SqliteConnection> PersistentConnections = new(StringComparer.Ordinal);
+    private static readonly Lock InitLock = new();
+
     private static readonly Action Registration = PersistenceRegistration.Create(PersistenceMode.InMemory, AddInMemoryPersistence);
     public static void Register() => Registration();
 
@@ -26,40 +26,93 @@ public static class InMemoryServiceCollectionExtensions
         IServiceCollection services,
         PersistenceConfiguration options)
     {
-        return services
-            .AddSingleton<IRegionContext>(_ => new InMemoryRegionContext())
-            // Seeded from OCTOCON_INMEMORY_SECRETS_SEED__* so external runners can bootstrap
-            // the published image without an in-process hook. Blanks are skipped silently —
-            // SecretsBootstrapService is the single fail-fast for mandatory rows.
-            .AddSingleton<ISecretsStore>(sp =>
+        services.AddSqlitePersistence(options);
+
+        var builder = new SqliteConnectionStringBuilder
+        {
+            DataSource = "interfold_inmemory",
+            Mode = SqliteOpenMode.Memory,
+            Cache = SqliteCacheMode.Shared
+        };
+
+        var connectionString = builder.ToString();
+        options.SqliteConnectionString = connectionString;
+        services.Configure<PersistenceConfiguration>(cfg => cfg.SqliteConnectionString = connectionString);
+        services.PostConfigure<PersistenceConfiguration>(cfg => cfg.SqliteConnectionString = connectionString);
+        
+        services.RemoveAll<ISqliteConnectionFactory>();
+        services.AddSingleton<ISqliteConnectionFactory>(sp =>
+        {
+            var persistentConn = EnsurePersistentConnection(connectionString);
+            var seed = sp.GetService<IOptions<InMemorySecretsSeedOptions>>()?.Value;
+            if (seed is not null)
             {
-                var seed = sp.GetRequiredService<IOptions<InMemorySecretsSeedOptions>>().Value;
-                var store = new InMemorySecretsStore();
-                Seed(store, SecretsStoreKeys.EncryptionPepper,        seed.EncryptionPepper);
-                Seed(store, SecretsStoreKeys.AuthJwtEs256PrivatePem,  seed.AuthJwtEs256PrivatePem);
-                Seed(store, SecretsStoreKeys.AuthDeepLinkSecret,      seed.AuthDeepLinkSecret);
-                Seed(store, SecretsStoreKeys.AuthJwtRsa256PrivatePem, seed.AuthJwtRsa256PrivatePem);
-                return store;
-            })
-            .AddSingleton<INotificationTokenRepository, InMemoryNotificationTokenRepository>()
-            .AddSingleton<IEncryptionStateRepository, InMemoryEncryptionStateRepository>()
-            .AddSingleton<IAccountRepository, InMemoryAccountRepository>()
-            .AddSingleton<ISettingsFieldRepository, InMemorySettingsFieldRepository>()
-            .AddSingleton<IPollRepository, InMemoryPollRepository>()
-            .AddSingleton<IStorageTransactionFactory, ImmediateStorageTransactionFactory>()
-            .AddSingleton<IAlterRepository, InMemoryAlterRepository>()
-            .AddSingleton<IFrontingRepository, InMemoryFrontingRepository>()
-            .AddSingleton<IFriendshipRepository, InMemoryFriendshipRepository>()
-            .AddSingleton<ITagRepository, InMemoryTagRepository>()
-            .AddSingleton<IJournalRepository, InMemoryJournalRepository>()
-            .AddSingleton<IIdempotencyStore, InMemoryIdempotencyStore>()
-            .AddSingleton<IImportOperationRepository, InMemoryImportOperationRepository>()
-            .AddSingleton<IAuthTokenRevocationRepository, InMemoryAuthTokenRevocationRepository>();
+                SeedSecrets(persistentConn, seed);
+            }
+
+            return new SqliteConnectionFactory(connectionString);
+        });
+
+        return services;
     }
 
-    private static void Seed(InMemorySecretsStore store, SecretsStoreKey secretKey, string? value)
+    public static SqliteConnection EnsurePersistentConnection(string connectionString = DefaultConnectionString)
     {
-        if (!string.IsNullOrWhiteSpace(value))
-            store.Seed(secretKey, value);
+        lock (InitLock)
+        {
+            if (PersistentConnections.TryGetValue(connectionString, out var existing))
+            {
+                return existing;
+            }
+
+            var conn = new SqliteConnection(connectionString);
+            conn.Open();
+
+            SqliteMigrationService.MigrateAsync(connectionString, NullLogger.Instance, CancellationToken.None)
+                .GetAwaiter().GetResult();
+
+            PersistentConnections[connectionString] = conn;
+            return conn;
+        }
+    }
+
+    public static ISqliteConnectionFactory CreateConnectionFactory(string connectionString = DefaultConnectionString)
+    {
+        EnsurePersistentConnection(connectionString);
+        return new SqliteConnectionFactory(connectionString);
+    }
+
+    public static ISqliteConnectionFactory CreateIsolatedConnectionFactory()
+    {
+        var cs = $"Data Source={Guid.NewGuid():N};Mode=Memory;Cache=Shared";
+        EnsurePersistentConnection(cs);
+        return new SqliteConnectionFactory(cs);
+    }
+
+    private static void SeedSecrets(SqliteConnection connection, InMemorySecretsSeedOptions seed)
+    {
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        Seed(SecretsStoreKeys.EncryptionPepper, seed.EncryptionPepper);
+        Seed(SecretsStoreKeys.AuthJwtEs256PrivatePem, seed.AuthJwtEs256PrivatePem);
+        Seed(SecretsStoreKeys.AuthDeepLinkSecret, seed.AuthDeepLinkSecret);
+        Seed(SecretsStoreKeys.AuthJwtRsa256PrivatePem, seed.AuthJwtRsa256PrivatePem);
+        return;
+
+        void Seed(SecretsStoreKey key, string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO secrets (key, value, created_by, created_at, updated_at, expires_at, rotated_from)
+                VALUES ($key, $value, 'inmemory-seed', $now, $now, NULL, NULL)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at;
+                """;
+            cmd.Parameters.AddWithValue("$key", key.Value);
+            cmd.Parameters.AddWithValue("$value", value);
+            cmd.Parameters.AddWithValue("$now", nowMs);
+            cmd.ExecuteNonQuery();
+        }
     }
 }

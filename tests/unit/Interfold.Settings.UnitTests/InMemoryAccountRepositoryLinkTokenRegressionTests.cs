@@ -1,9 +1,9 @@
+using Interfold.Infrastructure.InMemory;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Settings.Contracts.Ids;
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Infrastructure.Sqlite.Repository;
 using Microsoft.Extensions.Time.Testing;
-using Interfold.Api.UnitTests.Support;
 
 namespace Interfold.Api.UnitTests;
 
@@ -13,17 +13,19 @@ namespace Interfold.Api.UnitTests;
 public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
 {
     private static readonly SystemId RawSystemId = new("nam:abcdefg");
-    private static readonly SystemId AlreadyScopedSystemId = new("nam:abcdefg");
-
-
+    private static readonly SystemId AlreadySystemId = new("nam:abcdefg");
 
     [Test]
     public async Task ResolveSystemIdByLinkTokenAsync_TokenPastTtl_ReturnsNull()
     {
         var start = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
         var clock = new FakeTimeProvider(start);
-        var repo = new InMemoryAccountRepository(new FixedRegionContext(ScyllaKeyspace.Nam), timeProvider: clock);
 
+        var factory = InMemoryServiceCollectionExtensions.CreateIsolatedConnectionFactory();
+        var encryption = new SqliteEncryptionStateRepository(factory, clock);
+        var repo = new SqliteAccountRepository(factory, encryption, clock);
+
+        await repo.EnsureExistsAsync(RawSystemId);
         var token = await repo.GetOrCreateLinkTokenAsync(RawSystemId);
 
         clock.Advance(LinkToken.Ttl + TimeSpan.FromSeconds(1));
@@ -38,8 +40,12 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
     {
         var start = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
         var clock = new FakeTimeProvider(start);
-        var repo = new InMemoryAccountRepository(new FixedRegionContext(ScyllaKeyspace.Nam), timeProvider: clock);
 
+        var factory = InMemoryServiceCollectionExtensions.CreateIsolatedConnectionFactory();
+        var encryption = new SqliteEncryptionStateRepository(factory, clock);
+        var repo = new SqliteAccountRepository(factory, encryption, clock);
+
+        await repo.EnsureExistsAsync(RawSystemId);
         await repo.GetOrCreateLinkTokenAsync(RawSystemId);
         clock.Advance(LinkToken.Ttl + TimeSpan.FromSeconds(1));
 
@@ -56,8 +62,12 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
     {
         var start = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
         var clock = new FakeTimeProvider(start);
-        var repo = new InMemoryAccountRepository(new FixedRegionContext(ScyllaKeyspace.Nam), timeProvider: clock);
 
+        var factory = InMemoryServiceCollectionExtensions.CreateIsolatedConnectionFactory();
+        var encryption = new SqliteEncryptionStateRepository(factory, clock);
+        var repo = new SqliteAccountRepository(factory, encryption, clock);
+
+        await repo.EnsureExistsAsync(RawSystemId);
         var originalToken = await repo.GetOrCreateLinkTokenAsync(RawSystemId);
         clock.Advance(LinkToken.Ttl + TimeSpan.FromSeconds(1));
 
@@ -70,14 +80,17 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
             .Because("Bug B regression: a resolve-side miss must scrub the forward pointer so GetLinkTokenAsync doesn't hand out a token whose reverse-map entry was just refused.");
     }
 
-    // Reverse-map key must go through ScopedSystemId.Compose, not hand-concat — otherwise
+    // Reverse-map key must go through new SystemId, not hand-concat — otherwise
     // an already-scoped input becomes "nam:nam:abcdefg" and ClearLinkTokenAsync misses.
     [Test]
     public async Task GetOrCreateLinkTokenAsync_AlreadyScopedInput_NoDoublePrefix_AndClearRoundTrips()
     {
-        var repo = new InMemoryAccountRepository(new FixedRegionContext(ScyllaKeyspace.Nam));
+        var factory = InMemoryServiceCollectionExtensions.CreateIsolatedConnectionFactory();
+        var encryption = new SqliteEncryptionStateRepository(factory, TimeProvider.System);
+        var repo = new SqliteAccountRepository(factory, encryption, TimeProvider.System);
 
-        var issuedToken = await repo.GetOrCreateLinkTokenAsync(AlreadyScopedSystemId);
+        await repo.EnsureExistsAsync(AlreadySystemId);
+        var issuedToken = await repo.GetOrCreateLinkTokenAsync(AlreadySystemId);
         var resolved = await repo.ResolveSystemIdByLinkTokenAsync(issuedToken);
 
         await Assert.That(resolved).IsNotNull()
@@ -85,7 +98,7 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
         await Assert.That(resolved!.Value.Value).IsEqualTo("nam:abcdefg")
             .Because("The resolved id must be single-prefixed. Any double-prefix (e.g. \"nam:nam:abcdefg\") indicates the hand-concat pattern crept back in.");
 
-        var cleared = await repo.ClearLinkTokenAsync(AlreadyScopedSystemId);
+        var cleared = await repo.ClearLinkTokenAsync(AlreadySystemId);
         await Assert.That(cleared).IsTrue()
             .Because("ClearLinkTokenAsync must succeed for the same scoped input that GetOrCreate accepted.");
 

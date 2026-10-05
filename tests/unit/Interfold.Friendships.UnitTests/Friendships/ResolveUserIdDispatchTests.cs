@@ -1,6 +1,8 @@
 using Interfold.Friendships.Contracts.Ids;
+using Interfold.Infrastructure.InMemory;
+using Interfold.Infrastructure.Sqlite;
+using Interfold.Infrastructure.Sqlite.Repository;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Infrastructure.InMemory.Repository;
 
 namespace Interfold.Api.UnitTests.Friendships;
 
@@ -12,7 +14,10 @@ public sealed class ResolveUserIdDispatchTests
     [Test]
     public async Task FriendLookup_UsernamePrefix_ReturnsNull_NoRegistryHop()
     {
-        var repo = new InMemoryFriendshipRepository();
+        var factory = InMemoryServiceCollectionExtensions.CreateConnectionFactory();
+        var encryption = new SqliteEncryptionStateRepository(factory, TimeProvider.System);
+        var accounts = new SqliteAccountRepository(factory, encryption, TimeProvider.System);
+        var repo = new SqliteFriendshipRepository(factory, TimeProvider.System, accounts);
 
         var resolved = await repo.ResolveUserIdAsync(FriendLookup.Parse("username:alice", provider: null));
 
@@ -25,7 +30,10 @@ public sealed class ResolveUserIdDispatchTests
     [Arguments("abcdefg",    "abcdefg")]
     public async Task FriendLookup_IdShapes_NormalizeToValue(string input, string expected)
     {
-        var repo = new InMemoryFriendshipRepository();
+        var factory = InMemoryServiceCollectionExtensions.CreateConnectionFactory();
+        var encryption = new SqliteEncryptionStateRepository(factory, TimeProvider.System);
+        var accounts = new SqliteAccountRepository(factory, encryption, TimeProvider.System);
+        var repo = new SqliteFriendshipRepository(factory, TimeProvider.System, accounts);
 
         var resolved = await repo.ResolveUserIdAsync(FriendLookup.Parse(input, provider: null));
 

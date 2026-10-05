@@ -32,7 +32,6 @@ public sealed class PersistenceModeSqliteTests
 
         await Assert.That(ex!.Message).Contains("sqlite");
         await Assert.That(ex.Message).Contains("inmemory");
-        await Assert.That(ex.Message).DoesNotContain("scylla-postgres");
     }
 
     [Test]

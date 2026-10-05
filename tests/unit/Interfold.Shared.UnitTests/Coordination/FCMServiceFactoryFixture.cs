@@ -1,17 +1,14 @@
 using Interfold.Alters.Contracts.Abstractions;
 using Interfold.Alters.Domain.Abstractions.Repository;
-using Interfold.Friendships.Domain.Abstractions.Repository;
-using Interfold.Settings.Domain;
-using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory;
-using Interfold.Infrastructure.InMemory.Repository;
-using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Settings.Contracts.Configuration;
-using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Settings.Domain;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Core.Interfaces;
@@ -34,14 +31,13 @@ public sealed class FCMServiceFactoryFixture : IAsyncInitializer
         // FirebaseFCMService's concrete type is DI-resolvable even in "not selected"
         // scenarios; wire its transitive InMemory-repo chain so construction never
         // throws unexpectedly.
-        services.AddSingleton<IRegionContext>(_ => new InMemoryRegionContext());
-        services.AddSingleton<IFriendshipRepository, InMemoryFriendshipRepository>();
-        services.AddSingleton<INotificationTokenRepository, InMemoryNotificationTokenRepository>();
-        services.AddSingleton<IPollRepository, InMemoryPollRepository>();
-        services.AddSingleton<ISettingsFieldRepository, InMemorySettingsFieldRepository>();
-        services.AddSingleton<IAccountRepository, InMemoryAccountRepository>();
+        services.AddSqlitePersistence(new PersistenceConfiguration
+        {
+            SqliteConnectionString = InMemoryServiceCollectionExtensions.DefaultConnectionString
+        });
+        services.RemoveAll<ISqliteConnectionFactory>();
+        services.AddSingleton<ISqliteConnectionFactory>(_ => InMemoryServiceCollectionExtensions.CreateConnectionFactory());
         services.AddSingleton<IAlterFieldDefinitions, AlterFieldDefinitionsAdapter>();
-        services.AddSingleton<IAlterRepository, InMemoryAlterRepository>();
 
         services.Configure<FcmConfiguration>(o =>
             o.ServiceAccountJson = seedServiceAccount 

@@ -1,5 +1,7 @@
 using Interfold.Infrastructure.Coordination;
-using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Infrastructure.InMemory;
+using Interfold.Infrastructure.Sqlite;
+using Interfold.Infrastructure.Sqlite.Repository;
 using Interfold.Settings.Contracts.Models.ImportOperations;
 using Interfold.Settings.Domain.Settings;
 
@@ -52,7 +54,8 @@ public sealed class ImportPkCommandHandlerDispatchTests
     [Test]
     public async Task HandleAsync_SpAndPk_SameSystem_BothClaimDistinctSlots()
     {
-        var repo = new InMemoryImportOperationRepository();
+        var factory = InMemoryServiceCollectionExtensions.CreateIsolatedConnectionFactory();
+        var repo = new SqliteImportOperationRepository(factory, TimeProvider.System);
         var queue = new InProcessImportJobQueue();
         var capture = new CapturingQueue(queue);
         var sp = new ImportSpCommandHandler(repo, capture);

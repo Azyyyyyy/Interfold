@@ -1,4 +1,6 @@
-using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Infrastructure.InMemory;
+using Interfold.Infrastructure.Sqlite;
+using Interfold.Infrastructure.Sqlite.Repository;
 using Interfold.Settings.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
 
@@ -9,11 +11,20 @@ namespace Interfold.Api.UnitTests.Coordination;
 // or integration tests diverge silently between backends.
 public sealed class InMemoryNotificationTokenRepositoryTests
 {
+    private static (SqliteFriendshipRepository friendships, SqliteNotificationTokenRepository tokens) CreateRepos()
+    {
+        var factory = InMemoryServiceCollectionExtensions.CreateIsolatedConnectionFactory();
+        var encryption = new SqliteEncryptionStateRepository(factory, TimeProvider.System);
+        var accounts = new SqliteAccountRepository(factory, encryption, TimeProvider.System);
+        var friendships = new SqliteFriendshipRepository(factory, TimeProvider.System, accounts);
+        var tokens = new SqliteNotificationTokenRepository(factory, friendships, TimeProvider.System);
+        return (friendships, tokens);
+    }
+
     [Test]
     public async Task ListTokensForFriendsOf_GroupsByFriend_ExcludingCallerOwn()
     {
-        var friendships = new InMemoryFriendshipRepository();
-        var tokens = new InMemoryNotificationTokenRepository(friendships);
+        var (friendships, tokens) = CreateRepos();
 
         await tokens.AddAsync(new("alice"), new("alice-token"), CancellationToken.None);
         await tokens.AddAsync(new("bob"), new("bob-token"), CancellationToken.None);
@@ -36,8 +47,7 @@ public sealed class InMemoryNotificationTokenRepositoryTests
     [Test]
     public async Task ListTokensForFriendsOf_ReturnsEmptyForSystemWithNoFriends()
     {
-        var friendships = new InMemoryFriendshipRepository();
-        var tokens = new InMemoryNotificationTokenRepository(friendships);
+        var (_, tokens) = CreateRepos();
         await tokens.AddAsync(new("lonely"), new("lonely-token"), CancellationToken.None);
 
         var result = await tokens.ListTokensForFriendsOfAsync(new("lonely"), CancellationToken.None);
@@ -49,8 +59,7 @@ public sealed class InMemoryNotificationTokenRepositoryTests
     [Test]
     public async Task ListTokensForFriendsOf_OmitsFriendsWithoutTokens()
     {
-        var friendships = new InMemoryFriendshipRepository();
-        var tokens = new InMemoryNotificationTokenRepository(friendships);
+        var (friendships, tokens) = CreateRepos();
 
         await friendships.SendRequestAsync(new("alice"), new("bob"));
         await friendships.AcceptRequestAsync(new("bob"), new("alice"));
@@ -62,8 +71,7 @@ public sealed class InMemoryNotificationTokenRepositoryTests
     [Test]
     public async Task ListTokensForFriendsOf_MergesMultipleTokensPerFriend()
     {
-        var friendships = new InMemoryFriendshipRepository();
-        var tokens = new InMemoryNotificationTokenRepository(friendships);
+        var (friendships, tokens) = CreateRepos();
         await tokens.AddAsync(new("bob"), new("bob-phone"), CancellationToken.None);
         await tokens.AddAsync(new("bob"), new("bob-tablet"), CancellationToken.None);
 
@@ -83,8 +91,7 @@ public sealed class InMemoryNotificationTokenRepositoryTests
     [Test]
     public async Task ListTokensForFriendsOf_HandlesBlankSystemIdGracefully()
     {
-        var friendships = new InMemoryFriendshipRepository();
-        var tokens = new InMemoryNotificationTokenRepository(friendships);
+        var (_, tokens) = CreateRepos();
 
         var result = await tokens.ListTokensForFriendsOfAsync(new(""), CancellationToken.None);
         await Assert.That(result.Count).IsEqualTo(0);

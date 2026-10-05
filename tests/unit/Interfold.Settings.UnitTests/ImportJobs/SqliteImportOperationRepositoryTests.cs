@@ -1,4 +1,6 @@
-using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Infrastructure.InMemory;
+using Interfold.Infrastructure.Sqlite;
+using Interfold.Infrastructure.Sqlite.Repository;
 using Interfold.Settings.Contracts.Ids;
 using Interfold.Settings.Contracts.Models.ImportOperations;
 
@@ -7,12 +9,18 @@ namespace Interfold.Api.UnitTests.ImportJobs;
 // Per-system mutex contract for the in-memory IImportOperationRepository. The InMemory
 // implementation guarantees at most one
 // queued-or-running operation per (system, kind) pair.
-public sealed class InMemoryImportOperationRepositoryTests
+public sealed class SqliteImportOperationRepositoryTests
 {
+    private static SqliteImportOperationRepository CreateRepo()
+    {
+        var factory = InMemoryServiceCollectionExtensions.CreateIsolatedConnectionFactory();
+        return new SqliteImportOperationRepository(factory, TimeProvider.System);
+    }
+
     [Test]
     public async Task TryClaim_NoActiveOperation_ReturnsIsNewTrue()
     {
-        var repo = new InMemoryImportOperationRepository();
+        var repo = CreateRepo();
 
         var claim = await repo.TryClaimAsync(new("nam:sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
 
@@ -29,7 +37,7 @@ public sealed class InMemoryImportOperationRepositoryTests
     [Test]
     public async Task TryClaim_WhileActive_CollapsesOntoExistingOperation()
     {
-        var repo = new InMemoryImportOperationRepository();
+        var repo = CreateRepo();
         var first = await repo.TryClaimAsync(new("nam:sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
 
         var second = await repo.TryClaimAsync(new("nam:sys-a"), ImportOperationKind.SimplyPlural, new("idem-2"));
@@ -46,7 +54,7 @@ public sealed class InMemoryImportOperationRepositoryTests
     [Test]
     public async Task TryClaim_DifferentSystems_BothSucceed()
     {
-        var repo = new InMemoryImportOperationRepository();
+        var repo = CreateRepo();
         var claimA = await repo.TryClaimAsync(new("nam:sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
 
         var claimB = await repo.TryClaimAsync(new("nam:sys-b"), ImportOperationKind.SimplyPlural, new("idem-2"));
@@ -64,7 +72,7 @@ public sealed class InMemoryImportOperationRepositoryTests
     [Test]
     public async Task TryClaim_SameSystemDifferentKinds_BothSucceed()
     {
-        var repo = new InMemoryImportOperationRepository();
+        var repo = CreateRepo();
         var spClaim = await repo.TryClaimAsync(new("nam:sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
 
         var pkClaim = await repo.TryClaimAsync(new("nam:sys-a"), ImportOperationKind.PluralKit, new("idem-2"));
@@ -80,7 +88,7 @@ public sealed class InMemoryImportOperationRepositoryTests
     [Test]
     public async Task TryClaim_AfterSucceeded_ReleasesSlotAndAllowsReclaim()
     {
-        var repo = new InMemoryImportOperationRepository();
+        var repo = CreateRepo();
         var first = await repo.TryClaimAsync(new("nam:sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
         await repo.MarkSucceededAsync(new("nam:sys-a"), first.OperationId, ImportOperationKind.SimplyPlural, alterCount: 5);
 
@@ -98,7 +106,7 @@ public sealed class InMemoryImportOperationRepositoryTests
     [Test]
     public async Task TryClaim_AfterFailed_ReleasesSlotAndAllowsReclaim()
     {
-        var repo = new InMemoryImportOperationRepository();
+        var repo = CreateRepo();
         var first = await repo.TryClaimAsync(new("nam:sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
         await repo.MarkFailedAsync(new("nam:sys-a"), first.OperationId, ImportOperationKind.SimplyPlural, ImportErrorCode.ImportFailed, "synthetic");
 
@@ -112,7 +120,7 @@ public sealed class InMemoryImportOperationRepositoryTests
     [Test]
     public async Task TryClaim_ParallelDispatchers_ExactlyOneClaimsTheSlot()
     {
-        var repo = new InMemoryImportOperationRepository();
+        var repo = CreateRepo();
         const int parallelism = 16;
         var barrier = new TaskCompletionSource();
 
@@ -141,7 +149,7 @@ public sealed class InMemoryImportOperationRepositoryTests
     [Test]
     public async Task MarkRunning_OnAlreadyTerminal_IsNoOp()
     {
-        var repo = new InMemoryImportOperationRepository();
+        var repo = CreateRepo();
         var claim = await repo.TryClaimAsync(new("nam:sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
         await repo.MarkSucceededAsync(new("nam:sys-a"), claim.OperationId, ImportOperationKind.SimplyPlural, alterCount: 3);
 
@@ -156,7 +164,7 @@ public sealed class InMemoryImportOperationRepositoryTests
     [Test]
     public async Task GetStaleRunning_OnlyReturnsRowsOlderThanThreshold()
     {
-        var repo = new InMemoryImportOperationRepository();
+        var repo = CreateRepo();
         var claim = await repo.TryClaimAsync(new("nam:sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
         await repo.MarkRunningAsync(new("nam:sys-a"), claim.OperationId);
 

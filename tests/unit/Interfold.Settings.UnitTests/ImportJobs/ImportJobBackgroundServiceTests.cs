@@ -1,6 +1,8 @@
 using Interfold.Shared.Domain.Abstractions;
 using Interfold.Infrastructure.Coordination;
-using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Infrastructure.InMemory;
+using Interfold.Infrastructure.Sqlite;
+using Interfold.Infrastructure.Sqlite.Repository;
 using Interfold.Settings.Api.Services.ImportJobs;
 using Interfold.Settings.Contracts.Events;
 using Interfold.Settings.Contracts.Ids;
@@ -17,7 +19,7 @@ namespace Interfold.Api.UnitTests.ImportJobs;
 // frames is separately pinned by WebSocketTests.
 public sealed class ImportJobBackgroundServiceTests
 {
-    private static readonly ScopedSystemId TestSystemId = ScopedSystemId.ParseScoped("nam:sys-worker-test");
+    private static readonly SystemId TestSystemId = new SystemId("nam:sys-worker-test");
 
     [Test]
     public async Task RunAsync_RunnerSucceeds_MarksSucceededAndPublishesCompleteEvent()
@@ -58,19 +60,20 @@ public sealed class ImportJobBackgroundServiceTests
     // Thrown exceptions MUST be swallowed so the loop survives; treated identically to
     // a graceful failure with error_code = exception.
     [Test]
-    public async Task RunAsync_RunnerThrows_MarksFailedWithExceptionCodeAndPublishesFailedEvent()
+    public async Task RunAsync_RunnerThrows_SwallowsException_MarksFailedAndPublishesFailedEvent()
     {
-        await using var harness = await Harness.RunAsync(new StubRunner(throws: new InvalidOperationException("boom")));
+        var boom = new InvalidOperationException("simulated runner crash");
+        await using var harness = await Harness.RunAsync(new StubRunner(throws: boom));
 
         var snapshot = await harness.GetOperationAsync();
         using (Assert.Multiple())
         {
             await Assert.That(snapshot!.Status).IsEqualTo(ImportOperationStatus.Failed)
-                .Because("A thrown exception must NOT leave the row pinned at Running — that would deadlock the per-system slot until the next host restart sweep.");
+                .Because("A runner exception must terminate the row in Failed so the per-system slot isn't held forever.");
             await Assert.That(snapshot.ErrorCode).IsEqualTo(ImportErrorCode.Exception)
-                .Because("Thrown exceptions are categorised as 'exception' so the audit trail distinguishes them from runner-reported graceful failures.");
+                .Because("Crash path records the generic Exception code in the terminal row.");
             await Assert.That(harness.EventBus.Published).Contains(e => e is SimplyPluralImportFailedEvent)
-                .Because("Even on a thrown exception, the client must receive a failure frame — otherwise the dialog stays on Importing forever.");
+                .Because("A runner crash must publish SimplyPluralImportFailedEvent so the client flips out of Importing.");
         }
     }
 
@@ -114,7 +117,8 @@ public sealed class ImportJobBackgroundServiceTests
         public static async Task<Harness> RunAsync(StubRunner runner, ImportOperationKind? jobKindOverride = null)
         {
             var queue = new InProcessImportJobQueue();
-            var operations = new InMemoryImportOperationRepository();
+            var factory = InMemoryServiceCollectionExtensions.CreateIsolatedConnectionFactory();
+            var operations = new SqliteImportOperationRepository(factory, TimeProvider.System);
             var bus = new CapturingEventBus();
             var jobKind = jobKindOverride ?? ImportOperationKind.SimplyPlural;
 
@@ -227,7 +231,7 @@ public sealed class ImportJobBackgroundServiceTests
             return ValueTask.CompletedTask;
         }
 
-        public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(ScopedSystemId? targetSystemId, CancellationToken ct = default)
+        public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(SystemId? targetSystemId, CancellationToken ct = default)
             where TEvent : class => EmptyAsync<TEvent>();
 
         private static async IAsyncEnumerable<T> EmptyAsync<T>()

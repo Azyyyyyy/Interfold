@@ -3,7 +3,9 @@ using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
 using Interfold.Infrastructure.Coordination;
-using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Infrastructure.InMemory;
+using Interfold.Infrastructure.Sqlite;
+using Interfold.Infrastructure.Sqlite.Repository;
 using Interfold.Settings.Contracts;
 using Interfold.Settings.Contracts.Models.Commands;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
@@ -24,7 +26,8 @@ internal sealed class ImportDispatchScenario<TCommand> : IAsyncDisposable
         Func<IImportOperationRepository, IImportJobQueue, ICommandHandler<TCommand, ImportDispatchCommandResult>> handlerFactory,
         Func<string, string, CommandEnvelope<TCommand>> envelopeFactory)
     {
-        var repo = new InMemoryImportOperationRepository();
+        var factory = InMemoryServiceCollectionExtensions.CreateIsolatedConnectionFactory();
+        var repo = new SqliteImportOperationRepository(factory, TimeProvider.System);
         Queue = new InProcessImportJobQueue();
         Capture = new CapturingQueue(Queue);
         Handler = handlerFactory(repo, Capture);
@@ -45,11 +48,8 @@ internal sealed class ImportDispatchScenario<TCommand> : IAsyncDisposable
 
 internal static class ImportDispatchScenario
 {
-    public static readonly ScopedSystemId SpSystemId
-        = ScopedSystemId.ParseScoped("nam:sys-sp-dispatch-test");
-
-    public static readonly ScopedSystemId PkSystemId
-        = ScopedSystemId.ParseScoped("nam:sys-pk-dispatch-test");
+    public static readonly SystemId SpSystemId = new SystemId("nam:sys-sp-dispatch-test");
+    public static readonly SystemId PkSystemId = new SystemId("nam:sys-pk-dispatch-test");
 
     public static ImportDispatchScenario<ImportSpCommand> ForSp()
         => new(
@@ -61,7 +61,7 @@ internal static class ImportDispatchScenario
             (repo, queue) => new ImportPkCommandHandler(repo, queue),
             (key, token) => NewPkEnvelope(PkSystemId, key, token));
 
-    public static CommandEnvelope<ImportSpCommand> NewSpEnvelope(ScopedSystemId systemId, string idempotencyKey, string token) => new(
+    public static CommandEnvelope<ImportSpCommand> NewSpEnvelope(SystemId systemId, string idempotencyKey, string token) => new(
         OperationId: new("settings:import_sp"),
         CommandId: Guid.NewGuid(),
         PrincipalId: systemId,
@@ -69,7 +69,7 @@ internal static class ImportDispatchScenario
         OccurredAt: DateTimeOffset.UtcNow,
         Payload: new ImportSpCommand(new(token), RecoveryCode: null));
 
-    public static CommandEnvelope<ImportPkCommand> NewPkEnvelope(ScopedSystemId systemId, string idempotencyKey, string token) => new(
+    public static CommandEnvelope<ImportPkCommand> NewPkEnvelope(SystemId systemId, string idempotencyKey, string token) => new(
         OperationId: new("settings:import_pk"),
         CommandId: Guid.NewGuid(),
         PrincipalId: systemId,
