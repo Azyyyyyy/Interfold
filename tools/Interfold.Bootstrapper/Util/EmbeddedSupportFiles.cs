@@ -5,7 +5,7 @@ using Interfold.Bootstrapper.Cli;
 namespace Interfold.Bootstrapper.Util;
 
 /// <summary>
-/// Embedded <c>support/</c> resources (edge nginx templates, ensure-host-aio.sh).
+/// Embedded <c>support/</c> resources (edge nginx templates).
 /// Read via <see cref="Open"/>; materialize to disk only when Docker needs a host bind-mount path.
 /// </summary>
 internal static class EmbeddedSupportFiles

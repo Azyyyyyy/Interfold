@@ -6,6 +6,7 @@ using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Systems.Contracts.Models.Read;
 using Interfold.Tags.Contracts.Ids;
 using Interfold.Tags.Contracts.Models.Read;
 
@@ -15,6 +16,51 @@ namespace Interfold.Systems.IntegrationTests.Controllers;
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
+    [Test]
+    public async Task PublicSystem_ShowMe_ReturnsCurrentPrincipalSystem()
+    {
+        using var client = TestClient.NoRedirect(fixture);
+
+        var principal = "parity-public-show-me";
+        await EnsureUserExistsAsync(client, principal, "show-me-user");
+
+        using var res = await client.SendAuthedGetAsync("/api/systems/me", principal);
+        var envelope = await res.ReadEnvelopeAsync<PublicSystemReadModel>(HttpStatusCode.OK);
+
+        await Assert.That(envelope.Data.Id.Value).IsEqualTo(principal);
+        await Assert.That(envelope.Data.Username?.Value).IsEqualTo("show-me-user");
+    }
+
+    [Test]
+    public async Task PublicBatch_MeRoute_Returns403InvalidEndpoint()
+    {
+        using var client = TestClient.NoRedirect(fixture);
+
+        var principal = "parity-public-batch-me";
+        _ = await CreateAlterAsync(client, principal, "BatchMeSeed");
+        await EnsureUserExistsAsync(client, principal, "batch-me");
+
+        using var res = await client.SendAuthedGetAsync("/api/systems/me/batch", principal);
+        var error = await res.ReadErrorAsync(HttpStatusCode.Forbidden);
+        await Assert.That(error.Code).IsEqualTo(ErrorCodes.InvalidEndpoint);
+    }
+
+    [Test]
+    public async Task PublicTags_MeRoute_ReturnsCurrentPrincipalPublicTags()
+    {
+        using var client = TestClient.NoRedirect(fixture);
+
+        var principal = "parity-public-tags-me";
+        var tagId = await CreateTagAsync(client, principal, "TagMe");
+        await SetTagSecurityLevelAsync(client, principal, tagId, VisibilityLevel.Public);
+        await EnsureUserExistsAsync(client, principal, "tags-me-user");
+
+        using var res = await client.SendAuthedGetAsync("/api/systems/me/tags", principal);
+        var envelope = await res.ReadEnvelopeAsync<IReadOnlyList<TagPublicReadModel>>(HttpStatusCode.OK);
+
+        await Assert.That(envelope.Data.Select(t => t.Id)).Contains(tagId);
+    }
+
     [Test]
     public async Task PublicBatch_SelfLookup_Returns403InvalidEndpoint()
     {
@@ -306,4 +352,3 @@ public class PublicSystemsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     }
 
 }
-

@@ -73,9 +73,8 @@ public sealed class EmbeddedSupportFilesTests
         }
 
         using var scratch = TestSupport.NewScratchDir("interfold-embed");
-        const string relative = "scripts/docker/ensure-host-aio.sh";
-        var target = Path.Combine(scratch.Path, "ensure-host-aio.sh");
-        EmbeddedSupportFiles.Materialize(relative, target, new PhaseLogger(OptionsFor()));
+        var target = Path.Combine(scratch.Path, "test-script.sh");
+        EmbeddedSupportFiles.Materialize(EmbeddedSupportFiles.EdgeProxyParamsRelative, target, new PhaseLogger(OptionsFor()));
 
         var mode = File.GetUnixFileMode(target);
         await Assert.That(mode.HasFlag(UnixFileMode.UserExecute)).IsTrue();
