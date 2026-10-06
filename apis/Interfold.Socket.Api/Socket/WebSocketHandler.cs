@@ -617,21 +617,10 @@ internal static bool IsTokenSubjectAuthorizedForTopic(
         return false;
     }
 
-    ReadOnlySpan<char> tokenSpan = tokenSubject.Value.Value.AsSpan();
-    var tokenColon = tokenSpan.IndexOf(':');
-    if (tokenColon >= 0)
-    {
-        tokenSpan = tokenSpan[(tokenColon + 1)..];
-    }
+    var tokenRaw = SystemId.StripRegionPrefix(tokenSubject.Value.Value);
+    var reqRaw = SystemId.StripRegionPrefix(requestedSystemId.Value.Value);
 
-    ReadOnlySpan<char> reqSpan = requestedSystemId.Value.Value.AsSpan();
-    var reqColon = reqSpan.IndexOf(':');
-    if (reqColon >= 0)
-    {
-        reqSpan = reqSpan[(reqColon + 1)..];
-    }
-
-    return tokenSpan.Equals(reqSpan, StringComparison.Ordinal);
+    return string.Equals(tokenRaw, reqRaw, StringComparison.Ordinal);
 }
 
 // Returns the parsed SystemId so HandleAsync can populate SocketPushContext without
@@ -688,8 +677,10 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, SystemId? TokenS
     {
         logger.LogInformation("Starting token validation");
         var principal = handler.ValidateToken(token.Value, parameters, out _);
-        var tokenSub = new SystemId(principal.FindFirstValue(JwtClaimNames.Sub));
-        //TODO: We might have to strip the region prefix as we don't use that anymore
+        var rawSub = principal.FindFirstValue(JwtClaimNames.Sub);
+        var tokenSub = string.IsNullOrWhiteSpace(rawSub)
+            ? default
+            : new SystemId(SystemId.StripRegionPrefix(rawSub));
 
         logger.LogInformation("Token validated. TokenSystemId: {TokenSub}, RequestedSystemId: {RequestedSub}",
             tokenSub, requestedSystemId);

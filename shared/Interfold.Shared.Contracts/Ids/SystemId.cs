@@ -20,6 +20,26 @@ public readonly record struct SystemId : IParsable<SystemId>
     // Hazard: default(SystemId).Value is null; do not widen a default slot.
     public static implicit operator string(SystemId value) => value.Value;
 
+    /// <summary>
+    /// Strips any legacy region prefix (e.g. "nam:abcdefg" -> "abcdefg") from a system ID string.
+    /// If no colon is present or the string is empty/whitespace, returns the input as-is.
+    /// </summary>
+    public static string StripRegionPrefix(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        var separator = value.IndexOf(':');
+        if (separator >= 0 && separator < value.Length - 1)
+        {
+            return value[(separator + 1)..];
+        }
+
+        return value;
+    }
+
     /// <summary>Semantic "same user" test — correct primitive for controller self-request /
     /// self-friendship guards. Canonicalises candidate so raw and same-region-scoped both
     /// self-reject; cross-region candidates compare scoped-to-scoped byte-identical.</summary>
@@ -30,12 +50,12 @@ public readonly record struct SystemId : IParsable<SystemId>
             return false;
         }
         
-        return string.Equals(Value, candidate.Value, StringComparison.Ordinal);
+        return string.Equals(StripRegionPrefix(Value), StripRegionPrefix(candidate.Value), StringComparison.Ordinal);
     }
     
     public override string ToString() => Value;
 
-    public static SystemId Parse(string s, IFormatProvider? provider) => new(s);
+    public static SystemId Parse(string s, IFormatProvider? provider) => new(StripRegionPrefix(s));
 
     public static bool TryParse(
         [NotNullWhen(true)] string? s,
@@ -48,13 +68,13 @@ public readonly record struct SystemId : IParsable<SystemId>
             return false;
         }
 
-        result = new SystemId(s);
+        result = new SystemId(StripRegionPrefix(s));
         return true;
     }
 }
 
 internal sealed class SystemIdJsonConverter : StringBackedJsonConverter<SystemId>
 {
-    protected override SystemId Create(string value) => new(value);
+    protected override SystemId Create(string value) => new(SystemId.StripRegionPrefix(value));
     protected override string GetValue(SystemId value) => value.Value;
 }

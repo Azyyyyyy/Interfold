@@ -20,7 +20,8 @@ internal readonly record struct SystemTopic(SystemId Id)
             && topic.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)
             && topic.Length > Prefix.Length)
         {
-            result = new(new(topic[Prefix.Length..]));
+            var rawId = SystemId.StripRegionPrefix(topic[Prefix.Length..]);
+            result = new(new(rawId));
             return true;
         }
 
@@ -41,6 +42,6 @@ internal readonly record struct SystemTopic(SystemId Id)
             return false;
         }
 
-        return string.Equals(left, right, StringComparison.Ordinal);
+        return string.Equals(SystemId.StripRegionPrefix(left), SystemId.StripRegionPrefix(right), StringComparison.Ordinal);
     }
 }

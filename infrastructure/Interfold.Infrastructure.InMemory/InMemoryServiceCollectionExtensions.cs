@@ -91,28 +91,31 @@ public static class InMemoryServiceCollectionExtensions
 
     private static void SeedSecrets(SqliteConnection connection, InMemorySecretsSeedOptions seed)
     {
-        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        Seed(SecretsStoreKeys.EncryptionPepper, seed.EncryptionPepper);
-        Seed(SecretsStoreKeys.AuthJwtEs256PrivatePem, seed.AuthJwtEs256PrivatePem);
-        Seed(SecretsStoreKeys.AuthDeepLinkSecret, seed.AuthDeepLinkSecret);
-        Seed(SecretsStoreKeys.AuthJwtRsa256PrivatePem, seed.AuthJwtRsa256PrivatePem);
-        return;
-
-        void Seed(SecretsStoreKey key, string? value)
+        lock (connection)
         {
-            if (string.IsNullOrWhiteSpace(value)) return;
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = """
-                INSERT INTO secrets (key, value, created_by, created_at, updated_at, expires_at, rotated_from)
-                VALUES ($key, $value, 'inmemory-seed', $now, $now, NULL, NULL)
-                ON CONFLICT(key) DO UPDATE SET
-                    value = excluded.value,
-                    updated_at = excluded.updated_at;
-                """;
-            cmd.Parameters.AddWithValue("$key", key.Value);
-            cmd.Parameters.AddWithValue("$value", value);
-            cmd.Parameters.AddWithValue("$now", nowMs);
-            cmd.ExecuteNonQuery();
+            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            Seed(SecretsStoreKeys.EncryptionPepper, seed.EncryptionPepper);
+            Seed(SecretsStoreKeys.AuthJwtEs256PrivatePem, seed.AuthJwtEs256PrivatePem);
+            Seed(SecretsStoreKeys.AuthDeepLinkSecret, seed.AuthDeepLinkSecret);
+            Seed(SecretsStoreKeys.AuthJwtRsa256PrivatePem, seed.AuthJwtRsa256PrivatePem);
+            return;
+
+            void Seed(SecretsStoreKey key, string? value)
+            {
+                if (string.IsNullOrWhiteSpace(value)) return;
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = """
+                    INSERT INTO secrets (key, value, created_by, created_at, updated_at, expires_at, rotated_from)
+                    VALUES ($key, $value, 'inmemory-seed', $now, $now, NULL, NULL)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = excluded.updated_at;
+                    """;
+                cmd.Parameters.AddWithValue("$key", key.Value);
+                cmd.Parameters.AddWithValue("$value", value);
+                cmd.Parameters.AddWithValue("$now", nowMs);
+                cmd.ExecuteNonQuery();
+            }
         }
     }
 }
