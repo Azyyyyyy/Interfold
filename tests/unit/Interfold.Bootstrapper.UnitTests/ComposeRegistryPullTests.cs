@@ -15,8 +15,8 @@ public sealed class ComposeRegistryPullTests
                 image: "ghcr.io/azyyyyyy/interfold-wasm:latest"
               edge-nginx:
                 image: "nginx:1.27-alpine"
-              cassandra:
-                image: "ghcr.io/example/cassandra:local"
+              local-service:
+                image: "ghcr.io/example/local-service:local"
                 pull_policy: never
             volumes:
               data:

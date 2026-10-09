@@ -309,7 +309,7 @@ public sealed class SettingsController : InterfoldControllerBase
     /// successful runs — is pushed over the WebSocket as <c>sp_import_complete</c> or
     /// <c>sp_import_failed</c> and the frontend already listens for those frames.
     /// Concurrent dispatches for the same system collapse onto the existing in-flight
-    /// operation via the Cassandra LWT mutex on <c>active_import_by_system</c>, so a
+    /// operation via the claim on <c>active_import_by_system</c>, so a
     /// browser retry, Polly retry, or double-clicked button can no longer trigger a
     /// duplicate import run.
     /// </summary>

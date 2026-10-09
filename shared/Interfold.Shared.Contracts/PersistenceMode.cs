@@ -17,9 +17,6 @@ public enum PersistenceMode
     [JsonStringEnumMemberName("inmemory")]
     InMemory,
 
-    [JsonStringEnumMemberName("scylla-postgres")]
-    ScyllaPostgres,
-
     [JsonStringEnumMemberName("sqlite")]
     Sqlite,
 }

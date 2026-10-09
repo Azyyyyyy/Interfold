@@ -3,16 +3,13 @@ using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Secrets;
 using Interfold.Infrastructure.Sqlite;
-using Npgsql;
 
 namespace Interfold.Api.Host.Services.Secrets;
 
 /// <summary>Populates the API's <see cref="SecretsSnapshot"/> before
-/// <c>WebApplicationBuilder.Build()</c>. Postgres / Sqlite branches: batched read on a bare
+/// <c>WebApplicationBuilder.Build()</c>. Sqlite branch: batched read on a bare
 /// connection (ISecretsStore isn't built yet). InMemory branch: reads
-/// <c>OCTOCON_INMEMORY_SECRETS_SEED:*</c> env vars. Rewrites the pg connection string
-/// via <see cref="WithDedicatedPoolIdentity"/> so parallel factory builds reuse a
-/// dedicated pool instead of the fixture's pinned 5-slot app pool.</summary>
+/// <c>OCTOCON_INMEMORY_SECRETS_SEED:*</c> env vars.</summary>
 internal static class SecretsPreBuildLoader
 {
     private static readonly SecretsStoreKey[] SnapshotKeys =
@@ -38,20 +35,7 @@ internal static class SecretsPreBuildLoader
         var snapshot = new SecretsSnapshot();
         var mode = EnumWireExtensions.ParsePersistenceMode(config[OctoconEnvKeys.Persistence]);
 
-        if (mode == PersistenceMode.ScyllaPostgres)
-        {
-            var pgConn = config[OctoconEnvKeys.PostgresConnection];
-            if (string.IsNullOrWhiteSpace(pgConn))
-            {
-                throw new InvalidOperationException("Postgres connection string is not configured.");
-            }
-
-            var rows = FetchFromPostgres(pgConn);
-            snapshot.Populate(BuildSnapshotBuffer(rows));
-            var leafPfxPassword = rows.GetValueOrDefault(SecretsStoreKeys.CertsLeafPfxPassword.Value);
-            ApplyLeafPfxPasswordIfNeeded(cfg, config, secretsBackendPresent: true, leafPfxPassword);
-        }
-        else if (mode == PersistenceMode.Sqlite)
+        if (mode == PersistenceMode.Sqlite)
         {
             var sqliteConn = config[OctoconEnvKeys.SqliteConnection];
             if (string.IsNullOrWhiteSpace(sqliteConn))
@@ -98,76 +82,6 @@ internal static class SecretsPreBuildLoader
         [SecretsStoreKeys.AuthJwtRsa256PrivatePem] = config[OctoconEnvKeys.InMemorySecretsSeedAuthJwtRsa256PrivatePem],
     };
 
-    private static Dictionary<string, string?> FetchFromPostgres(string pgConn)
-    {
-        var rows = new Dictionary<string, string?>(StringComparer.Ordinal);
-        var loaderConn = WithDedicatedPoolIdentity(pgConn);
-        LoaderGate.Wait();
-        try
-        {
-            using var conn = new NpgsqlConnection(loaderConn);
-            conn.Open();
-            using var cmd = new NpgsqlCommand(
-                "SELECT key, value FROM internal.secrets WHERE key = ANY(@keys)", conn);
-
-            var keys = new string[SnapshotKeys.Length + 1];
-            for (var i = 0; i < SnapshotKeys.Length; i++)
-            {
-                keys[i] = SnapshotKeys[i].Value;
-            }
-            keys[^1] = SecretsStoreKeys.CertsLeafPfxPassword.Value;
-            cmd.Parameters.AddWithValue("keys", keys);
-
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                rows[reader.GetString(0)] = reader.IsDBNull(1) ? null : reader.GetString(1);
-            }
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                "Failed to fetch startup secrets from internal.secrets. Ensure Postgres is " +
-                "reachable at startup and that DatabaseInitPhase has seeded the required rows.", ex);
-        }
-        finally
-        {
-            // Release only after Dispose has returned the physical connection to the pool,
-            // otherwise the next waiter can Open() while this checkout is still live and
-            // trip MaxPoolSize.
-            LoaderGate.Release();
-        }
-
-        return rows;
-    }
-
-    internal const string LoaderApplicationName = "octocon-secrets-preload";
-
-    // Caps in-flight loader checkouts. Matched by LoaderGate so TUnit parallel factory
-    // builds queue instead of exhausting the pool (Npgsql's default 15s wait then throws).
-    internal const int LoaderMaxPoolSize = 10;
-
-    // Open/checkout wait under a contended shared Postgres (solution-wide `dotnet test`).
-    internal const int LoaderTimeoutSeconds = 60;
-
-    private static readonly SemaphoreSlim LoaderGate = new(LoaderMaxPoolSize, LoaderMaxPoolSize);
-
-    /// <summary>Rewrites <paramref name="pgConn"/> onto a dedicated pooled identity
-    /// (distinct <c>Application Name</c>, bounded <c>Maximum Pool Size</c>). Overwrite is
-    /// intentional — a fixture <c>Maximum Pool Size=5</c> would otherwise be inherited
-    /// and the loader would contend with the app pool.</summary>
-    internal static string WithDedicatedPoolIdentity(string pgConn)
-    {
-        var builder = new NpgsqlConnectionStringBuilder(pgConn)
-        {
-            ApplicationName = LoaderApplicationName,
-            MaxPoolSize = LoaderMaxPoolSize,
-            Timeout = LoaderTimeoutSeconds,
-            Pooling = true,
-        };
-        return builder.ConnectionString;
-    }
-
     private static void ApplyLeafPfxPasswordIfNeeded(
         IConfigurationBuilder cfg,
         IConfigurationRoot config,
@@ -185,7 +99,7 @@ internal static class SecretsPreBuildLoader
         {
             throw new InvalidOperationException(
                 "Kestrel default-cert path is set but no durable secrets backend is configured " +
-                "(OCTOCON_POSTGRES_CONNECTION / OCTOCON_SQLITE_CONNECTION); " +
+                "(OCTOCON_SQLITE_CONNECTION); " +
                 "cannot fetch certs:leaf_pfx_password.");
         }
 

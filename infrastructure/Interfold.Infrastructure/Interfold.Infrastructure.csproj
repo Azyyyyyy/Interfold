@@ -7,9 +7,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Interfold.IntegrationTests.Shared" />
     <InternalsVisibleTo Include="Interfold.Infrastructure.IntegrationTests" />
-    <InternalsVisibleTo Include="Interfold.Infrastructure.Scylla" />
     <InternalsVisibleTo Include="Interfold.Infrastructure.InMemory" />
-    <InternalsVisibleTo Include="Interfold.Infrastructure.Postgres" />
     <InternalsVisibleTo Include="Interfold.Infrastructure.Sqlite" />
     <ProjectReference Include="..\..\shared\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
     <!-- Interfold.Infrastructure -> Interfold.Auth.Domain back-ref:
@@ -38,7 +36,6 @@
     <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="CassandraCSharpDriver" />
     <PackageReference Include="FirebaseAdmin" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" />
@@ -46,7 +43,6 @@
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
     <PackageReference Include="Newtonsoft.Json" />
-    <PackageReference Include="Npgsql" />
     <PackageReference Include="Polly.Core" />
   </ItemGroup>
 </Project>

@@ -61,9 +61,8 @@ internal static class Orchestrator
         //   rotate-secrets  config  -> secrets (force) -> publish -> db-init -> launch
         //   rotate-certs    config  -> certs   (force) -> publish -> db-init -> launch
         // `publish` is artifact-only so tests can run it as a smoke check and operators can
-        // inspect the compose/.env before committing. db-init is idempotent (short-circuits via
-        // PostgresAlreadyInitializedAsync / ScyllaAlreadyInitializedAsync) and runs on
-        // rotate-certs too — clean-rebuild edge case where the DB volume is empty.
+        // inspect the compose/.env before committing. db-init is idempotent and runs on
+        // rotate-certs too — clean-rebuild edge case where the SQLite file is empty.
 
         if (options.Command == BootstrapCommand.Bootstrap && !options.SkipPrereqs)
         {
@@ -104,7 +103,7 @@ internal static class Orchestrator
         }
 
         // Firebase runs on db-init-bound commands so its parsed inputs land alongside the
-        // OAuth/JWT rows PostgresSeeder inserts. Empty paths produce Empty inputs (no push).
+        // OAuth/JWT rows SqliteDatabaseInitPhase inserts. Empty paths produce Empty inputs (no push).
         FirebaseSeedInputs firebase = FirebaseSeedInputs.Empty;
         if (options.Command is BootstrapCommand.Bootstrap
             or BootstrapCommand.RotateSecrets
@@ -118,14 +117,7 @@ internal static class Orchestrator
             or BootstrapCommand.RotateSecrets
             or BootstrapCommand.RotateCerts)
         {
-            if (config!.UsesSqlite)
-            {
-                await SqliteDatabaseInitPhase.RunAsync(options, config, secrets!, firebase, logger, ct).ConfigureAwait(false);
-            }
-            else
-            {
-                await DatabaseInitPhase.RunAsync(options, config, secrets!, firebase, logger, ct).ConfigureAwait(false);
-            }
+            await SqliteDatabaseInitPhase.RunAsync(options, config!, secrets!, firebase, logger, ct).ConfigureAwait(false);
             if (HaltAfter(options, BootstrapPhase.DbInit, logger)) return 0;
         }
 

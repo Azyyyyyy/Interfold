@@ -84,7 +84,7 @@ public static class TestBenchCoordinator
         // which would silently override every leaf's opt-out. The July 2026 concurrent run
         // showed exactly that failure mode: Infrastructure ran against the shared bench,
         // peer projects' migrations wrote extra ledger rows, and
-        // Scylla_RerunningMigrations_IsANoOp saw 14 → 16 between snapshots.
+        // Migration test saw 14 → 16 between snapshots.
         return FindMetadataValue(System.Reflection.Assembly.GetEntryAssembly());
     }
 
@@ -132,8 +132,7 @@ public static class TestBenchCoordinator
             if (DateTime.UtcNow >= deadline)
             {
                 throw new TimeoutException(
-                    $"Timed out after {LauncherTimeout.TotalMinutes:0} minutes waiting for the test-bench " +
-                    $"(pg={ports.Postgres}, scylla={ports.Scylla}, cassandra={ports.Cassandra}).");
+                    $"Timed out after {LauncherTimeout.TotalMinutes:0} minutes waiting for the test-bench.");
             }
 
             bool shouldLaunch;
@@ -178,7 +177,6 @@ public static class TestBenchCoordinator
                 try
                 {
                     await DockerMemoryPreflight.EnsureAdequateAsync(ct).ConfigureAwait(false);
-                    ScyllaRackDcMountPaths.VerifyAllPresent(ResolveRepoRoot());
                     await LaunchAppHostAsync(ports, ct).ConfigureAwait(false);
                 }
                 catch
@@ -218,8 +216,7 @@ public static class TestBenchCoordinator
             state.Launching = null;
             TestBenchLease.WriteState(state);
             throw new TimeoutException(
-                $"Test-bench ports (pg={ports.Postgres}, scylla={ports.Scylla}, cassandra={ports.Cassandra}) " +
-                "were not accepting connections after AppHost launch / peer wait.");
+                "Test-bench was not accepting connections after AppHost launch / peer wait.");
         }
 
         // Fresh containers → recorded migration markers are stale.
@@ -263,8 +260,7 @@ public static class TestBenchCoordinator
         }
 
         throw new TimeoutException(
-            $"Timed out waiting {timeout.TotalMinutes:0.##} minutes for test-bench ports " +
-            $"(pg={ports.Postgres}, scylla={ports.Scylla}, cassandra={ports.Cassandra}) " +
+            $"Timed out waiting {timeout.TotalMinutes:0.##} minutes for test-bench " +
             "after a peer claimed the AppHost launcher role.");
     }
 
@@ -288,7 +284,7 @@ public static class TestBenchCoordinator
     /// concurrent callers elect a single worker, then poll the completed marker.</summary>
     /// <remarks>
     /// The file lock is held only for claim / complete mutations — never across
-    /// <paramref name="work"/>. Scylla/Cassandra seed+migrate can run for minutes; holding
+    /// <paramref name="work"/>. Seed+migrate can run for minutes; holding
     /// <c>bench.lock</c> that long caused peer assemblies to hit
     /// <see cref="ApplyOnceLockTimeout"/> while waiting to attach. Exclusion for
     /// non-concurrency-safe seeds (e.g. <c>CREATE DATABASE</c>) comes from
@@ -416,50 +412,15 @@ public static class TestBenchCoordinator
         }
     }
 
-    /// <summary>Convenience: returns the postgres init connection string with app credentials
-    /// swapped in for a caller that already knows the bench is up.</summary>
     public static BenchConnectionInfo BuildConnectionInfo(BenchPorts ports)
     {
-        var initCs =
-            $"Host=127.0.0.1;Port={ports.Postgres};" +
-            $"Username={DbInitHelper.PostgresInitUser};Password={TestDbCredentials.PostgresInitPassword};" +
-            "Database=postgres;SSL Mode=Disable";
-        var appCs =
-            $"Host=127.0.0.1;Port={ports.Postgres};" +
-            $"Username={TestDbCredentials.PostgresAppUser};Password={TestDbCredentials.PostgresAppPassword};" +
-            $"Database={DbInitHelper.DefaultPostgresDb};SSL Mode=Disable;Maximum Pool Size=5";
         return new BenchConnectionInfo(
-            PostgresConnectionStringForInit: initCs,
-            PostgresConnectionStringForApp: appCs,
-            ScyllaPort: ports.Scylla,
-            CassandraPort: ports.Cassandra,
             LeaseFilePath: TestBenchLease.GetStateFilePath());
     }
 
-    /// <summary>Probes all three fixed ports with a bounded timeout. All three must respond
-    /// or we take the cold path — a half-up bench needs the launcher to bring the missing
-    /// engine back up.</summary>
-    private static async Task<bool> ArePortsHotAsync(BenchPorts ports, CancellationToken ct)
+    private static Task<bool> ArePortsHotAsync(BenchPorts ports, CancellationToken ct)
     {
-        return await ProbeAsync(ports.Postgres, ct).ConfigureAwait(false)
-            && await ProbeAsync(ports.Scylla, ct).ConfigureAwait(false)
-            && await ProbeAsync(ports.Cassandra, ct).ConfigureAwait(false);
-    }
-
-    private static async Task<bool> ProbeAsync(int port, CancellationToken ct)
-    {
-        try
-        {
-            using var tcp = new TcpClient();
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(PortProbeTimeout);
-            await tcp.ConnectAsync("127.0.0.1", port, cts.Token).ConfigureAwait(false);
-            return tcp.Connected;
-        }
-        catch
-        {
-            return false;
-        }
+        return Task.FromResult(true);
     }
 
     private static async Task LaunchAppHostAsync(BenchPorts ports, CancellationToken ct)
@@ -562,21 +523,9 @@ public static class TestBenchCoordinator
         }
     }
 
-    private static async Task<string> EnrichLaunchFailureAsync(string stderr, CancellationToken ct)
+    private static Task<string> EnrichLaunchFailureAsync(string stderr, CancellationToken ct)
     {
-        if (stderr.Contains("ready-emitter failed", StringComparison.OrdinalIgnoreCase)
-            && stderr.Contains("scylla", StringComparison.OrdinalIgnoreCase))
-        {
-            var repoRoot = ResolveRepoRoot();
-            var diagnosis = await AspireResourceFailureDiagnostics
-                .DescribeAsync("scylla", repoRoot, ct)
-                .ConfigureAwait(false);
-            return string.IsNullOrWhiteSpace(stderr)
-                ? diagnosis
-                : stderr.TrimEnd() + Environment.NewLine + diagnosis;
-        }
-
-        return stderr;
+        return Task.FromResult(stderr);
     }
 
     private static IEnumerable<string> BuildAppHostConfigArgs(BenchPorts ports)
@@ -586,24 +535,11 @@ public static class TestBenchCoordinator
         // the default config providers so these overrides land on the same keys the
         // InterfoldAppHost reads.
         yield return $"--{AppHostParameterKeys.TestBenchMode}=true";
-        // see InterfoldAppHost: sqlite forces include-postgres/scylla off
-        yield return $"--{AppHostParameterKeys.Persistence}=scylla-postgres";
+        yield return $"--{AppHostParameterKeys.Persistence}=sqlite";
         yield return $"--{AppHostParameterKeys.IncludeApi}=false";
         yield return $"--{AppHostParameterKeys.IncludeWeb}=false";
         yield return $"--{AppHostParameterKeys.IncludeDashboard}=false";
         yield return $"--{AppHostParameterKeys.PersistentContainers}=true";
-        yield return $"--{AppHostParameterKeys.IncludePostgres}=true";
-        yield return $"--{AppHostParameterKeys.IncludeScylla}=true";
-        yield return $"--{AppHostParameterKeys.IncludeCassandra}=true";
-        yield return $"--{AppHostParameterKeys.PortsPostgres}={ports.Postgres.ToString(CultureInfo.InvariantCulture)}";
-        yield return $"--{AppHostParameterKeys.PortsScylla}={ports.Scylla.ToString(CultureInfo.InvariantCulture)}";
-        yield return $"--{AppHostParameterKeys.PortsCassandra}={ports.Cassandra.ToString(CultureInfo.InvariantCulture)}";
-        yield return $"--{AppHostParameterKeys.PostgresUser}={TestDbCredentials.PostgresAppUser}";
-        yield return $"--{AppHostParameterKeys.PostgresPassword}={TestDbCredentials.PostgresAppPassword}";
-        yield return $"--{AppHostParameterKeys.PostgresInitPassword}={TestDbCredentials.PostgresInitPassword}";
-        yield return $"--{AppHostParameterKeys.PostgresDb}={DbInitHelper.DefaultPostgresDb}";
-        yield return $"--{AppHostParameterKeys.ScyllaUser}={TestDbCredentials.ScyllaAppUser}";
-        yield return $"--{AppHostParameterKeys.ScyllaPassword}={TestDbCredentials.ScyllaAppPassword}";
         yield return $"--{AppHostParameterKeys.EncryptionPrivateKey}=TEST";
     }
 

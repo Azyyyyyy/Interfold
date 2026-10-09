@@ -41,7 +41,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
         "WebSocket request received. Method: {Method}, Path: {Path}, IsWebSocketRequest: {IsWSRequest}",
         context.Request.Method,
         context.Request.Path,
-        context.WebSockets.IsWebSocketRequest);
+        context.WebSockets.IsWebSocketRequest); 
 
     if (!context.WebSockets.IsWebSocketRequest)
     {
@@ -176,8 +176,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             // SystemId? mirrors the joinedSystemId idiom above — null means "no system
             // topic on this join" and gates the downstream sub-vs-topic comparison.
             SystemId? requestedSystemId = isSystemTopic ? requestedTopic.Id : null;
-            // scopedSub is the ScopedSystemId? parsed from the JWT sub inside the helper.
-            // Feeding it into SocketPushContext.JoinedScopedSystemId lets the event-pump
+            // scopedSub is the SystemId? parsed from the JWT sub inside the helper.
+            // Feeding it into SocketPushContext.JoinedSystemId lets the event-pump
             // subscribe with the scoped composite (matching every
             // ITargetedClusterEvent.TargetSystemId), so the bus PublishAsync filter can
             // compare scoped-to-scoped directly.
@@ -226,7 +226,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
 
                 // Start the per-socket event pump now that we know which system this socket is bound to.
                 // The bus filter only delivers events whose TargetSystemId matches
-                // JoinedScopedSystemId (scoped-to-scoped record-struct equality), so the
+                // JoinedSystemId (scoped-to-scoped record-struct equality), so the
                 // pump's ~38 subscriptions only see traffic for this user.
                 //
                 // Interlocked.CompareExchange flips pumpStarted from 0 to 1 atomically and returns the
@@ -282,18 +282,9 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 // `object` triggers runtime-type serialization — which is what puts the
                 // payload's real properties on the wire.
                 object joinResponse;
-                if (isReconnect)
+                if (isReconnect || useBatchedInit)
                 {
-                    joinResponse = new SocketJoinReconnectPayload(initPayload.System);
-                }
-                else if (useBatchedInit)
-                {
-                    joinResponse = new SocketJoinBatchedPayload(
-                        Batched: true,
-                        System: initPayload.System,
-                        Alters: null,
-                        Fronts: null,
-                        Tags: null);
+                    joinResponse = new SocketJoinBatchedPayload(initPayload.System);
                 }
                 else
                 {
@@ -602,7 +593,7 @@ internal static string ResolveLoopbackBaseUri(ICollection<string>? addresses)
 /// that must agree on "same principal"; scoped-sub type argument forces callers through the
 /// same TryParseScoped gate the middleware uses.</summary>
 internal static bool IsTokenSubjectAuthorizedForTopic(
-    ScopedSystemId? tokenSubject,
+    SystemId? tokenSubject,
     SystemId? requestedSystemId)
 {
     if (tokenSubject is null
@@ -612,15 +603,12 @@ internal static bool IsTokenSubjectAuthorizedForTopic(
         return false;
     }
 
-    return string.Equals(
-        tokenSubject.Value.RawId,
-        ScopedSystemId.StripRegionPrefix(requestedSystemId.Value.Value),
-        StringComparison.Ordinal);
+    return tokenSubject.Value.RepresentsSameUserAs(requestedSystemId.Value);
 }
 
-// Returns the parsed ScopedSystemId so HandleAsync can populate SocketPushContext without
+// Returns the parsed SystemId so HandleAsync can populate SocketPushContext without
 // re-parsing the JWT.
-static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? TokenSubject)> IsSocketJoinTokenAuthorizedAsync(
+static async Task<(bool IsAuthorized, ErrorCode? FailureReason, SystemId? TokenSubject)> IsSocketJoinTokenAuthorizedAsync(
     HttpContext context,
     SocketToken token,
     SystemId? requestedSystemId,
@@ -672,20 +660,15 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? 
     {
         logger.LogInformation("Starting token validation");
         var principal = handler.ValidateToken(token.Value, parameters, out _);
-        var tokenSub = principal.FindFirstValue(JwtClaimNames.Sub);
+        var rawSub = principal.FindFirstValue(JwtClaimNames.Sub);
+        var tokenSub = string.IsNullOrWhiteSpace(rawSub)
+            ? default
+            : new SystemId(rawSub);
 
         logger.LogInformation("Token validated. TokenSystemId: {TokenSub}, RequestedSystemId: {RequestedSub}",
             tokenSub, requestedSystemId);
-
-        // Same parse rejection matrix as InterfoldPrincipalMiddleware.ResolvePrincipalId
-        // so an unscoped-sub token can't authorise a socket join it would fail on HTTP.
-        if (!ScopedSystemId.TryParseScoped(tokenSub, out var scopedSub))
-        {
-            logger.LogWarning("Token subject (sub) claim is missing, unscoped, or has an unknown region prefix");
-            return (false, ErrorCodes.SocketReasons.InvalidSocketTokenSubject, null);
-        }
-
-        if (!IsTokenSubjectAuthorizedForTopic(scopedSub, requestedSystemId))
+        
+        if (!IsTokenSubjectAuthorizedForTopic(tokenSub, requestedSystemId))
         {
             logger.LogWarning("Token subject does not match requested system ID");
             return (false, ErrorCodes.SocketReasons.UnauthorizedTopic, null);
@@ -706,7 +689,7 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? 
             }
 
             logger.LogInformation("Token authorization successful");
-            return (true, null, scopedSub);
+            return (true, null, tokenSub);
     }
     catch (Exception ex)
     {

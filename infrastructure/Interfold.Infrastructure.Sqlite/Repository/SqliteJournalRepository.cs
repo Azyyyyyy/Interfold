@@ -27,7 +27,6 @@ public sealed class SqliteJournalRepository : IJournalRepository
         CreateGlobalJournalEntryCommand command,
         CancellationToken cancellationToken = default)
     {
-        var userKey = SqliteStorageKeys.Persist(systemId);
         var entryId = Guid.NewGuid();
         var nowMs = _clock.GetUtcNow().ToUnixTimeMilliseconds();
 
@@ -41,7 +40,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = userKey,
+                user_id = systemId,
                 id = FormatEntryId(entryId),
                 title = command.Title,
                 inserted_at = nowMs,
@@ -91,7 +90,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
                 content = command.Content,
                 color = command.Color?.Value,
                 updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 id = FormatEntryId(command.EntryId.Value),
             });
         return updated > 0;
@@ -102,7 +101,6 @@ public sealed class SqliteJournalRepository : IJournalRepository
         EntryId entryId,
         CancellationToken cancellationToken = default)
     {
-        var userKey = SqliteStorageKeys.Persist(systemId);
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
         if (!await ExistsGlobalCoreAsync(work.Connection, systemId, entryId, cancellationToken, work.Transaction))
             return false;
@@ -112,7 +110,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             DELETE FROM global_journal_alters
             WHERE user_id = @user_id AND global_journal_id = @id
             """,
-            new { user_id = userKey, id = FormatEntryId(entryId.Value) },
+            new { user_id = systemId, id = FormatEntryId(entryId.Value) },
             work.Transaction);
 
         var removed = await work.Connection.ExecuteAsync(
@@ -120,7 +118,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             DELETE FROM global_journals
             WHERE user_id = @user_id AND id = @id
             """,
-            new { user_id = userKey, id = FormatEntryId(entryId.Value) },
+            new { user_id = systemId, id = FormatEntryId(entryId.Value) },
             work.Transaction);
 
         await work.CommitAsync(cancellationToken);
@@ -164,7 +162,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
                 alter_id = alterId.Value,
                 inserted_at = nowMs,
@@ -189,7 +187,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
                 alter_id = alterId.Value,
             });
@@ -214,7 +212,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 id = FormatEntryId(entryId),
                 alter_id = command.AlterId.Value,
                 title = command.Title,
@@ -240,7 +238,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
             });
         if (row is null)
@@ -262,7 +260,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
 
         if (command.Title is null && command.Content is null && command.Color is null)
         {
-            return await ExistsAlterAsync(connection, SqliteStorageKeys.Persist(systemId), command.EntryId, cancellationToken);
+            return await ExistsAlterAsync(connection, systemId, command.EntryId, cancellationToken);
         }
 
         var updated = await connection.ExecuteAsync(
@@ -280,7 +278,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
                 content = command.Content,
                 color = command.Color?.Value,
                 updated_at = command.UpdatedAt.ToUnixTimeMilliseconds(),
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 id = FormatEntryId(command.EntryId.Value),
             });
         return updated > 0;
@@ -299,7 +297,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
             });
         return removed > 0;
@@ -310,14 +308,13 @@ public sealed class SqliteJournalRepository : IJournalRepository
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        var userKey = SqliteStorageKeys.Persist(systemId);
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
         var entryIds = (await work.Connection.QueryAsync<string>(
             """
             SELECT id FROM alter_journals
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = userKey, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction)).ToArray();
 
         var globalIds = (await work.Connection.QueryAsync<string>(
@@ -325,7 +322,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             SELECT global_journal_id FROM global_journal_alters
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = userKey, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction)).ToArray();
 
         await work.Connection.ExecuteAsync(
@@ -333,7 +330,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             DELETE FROM alter_journals
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = userKey, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction);
 
         await work.Connection.ExecuteAsync(
@@ -341,7 +338,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             DELETE FROM global_journal_alters
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = userKey, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction);
 
         await work.CommitAsync(cancellationToken);
@@ -378,7 +375,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             WHERE user_id = @user_id AND alter_id = @alter_id
             ORDER BY inserted_at DESC
             """,
-            new { user_id = SqliteStorageKeys.Persist(systemId), alter_id = alterId.Value });
+            new { user_id = systemId, alter_id = alterId.Value });
         return rows.Select(MapAlterJournal).ToArray();
     }
 
@@ -398,7 +395,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
             });
         return row is null ? null : MapAlterJournal(row);
@@ -408,7 +405,6 @@ public sealed class SqliteJournalRepository : IJournalRepository
         SystemId systemId,
         CancellationToken cancellationToken = default)
     {
-        var userKey = SqliteStorageKeys.Persist(systemId);
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var drafts = (await connection.QueryAsync<GlobalJournalRow>(
             """
@@ -417,12 +413,12 @@ public sealed class SqliteJournalRepository : IJournalRepository
             FROM global_journals
             WHERE user_id = @user_id
             """,
-            new { user_id = userKey })).ToArray();
+            new { user_id = systemId })).ToArray();
 
         var result = new List<JournalReadModel>(drafts.Length);
         foreach (var draft in drafts)
         {
-            var alterIds = await LoadAlterIdsAsync(connection, userKey, draft.Id, cancellationToken);
+            var alterIds = await LoadAlterIdsAsync(connection, systemId, draft.Id, cancellationToken);
             result.Add(MapGlobalJournal(draft) with { Alters = alterIds });
         }
 
@@ -436,7 +432,6 @@ public sealed class SqliteJournalRepository : IJournalRepository
         EntryId entryId,
         CancellationToken cancellationToken = default)
     {
-        var userKey = SqliteStorageKeys.Persist(systemId);
         var idHex = FormatEntryId(entryId.Value);
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<GlobalJournalRow>(
@@ -447,13 +442,13 @@ public sealed class SqliteJournalRepository : IJournalRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = userKey, id = idHex });
+            new { user_id = systemId, id = idHex });
         if (row is null)
         {
             return null;
         }
 
-        var alterIds = await LoadAlterIdsAsync(connection, userKey, idHex, cancellationToken);
+        var alterIds = await LoadAlterIdsAsync(connection, systemId, idHex, cancellationToken);
         return MapGlobalJournal(row) with { Alters = alterIds };
     }
 
@@ -487,7 +482,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             {
                 flag = value ? 1 : 0,
                 updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
             });
         return rows > 0;
@@ -518,7 +513,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             {
                 flag = value ? 1 : 0,
                 updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
             });
         return updated > 0;
@@ -539,7 +534,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
             },
             transaction);
@@ -548,7 +543,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
 
     private static async Task<bool> ExistsAlterAsync(
         SqliteConnection connection,
-        string userKey,
+        SystemId systemId,
         EntryId entryId,
         CancellationToken cancellationToken)
     {
@@ -558,13 +553,13 @@ public sealed class SqliteJournalRepository : IJournalRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = userKey, id = FormatEntryId(entryId.Value) });
+            new { user_id = systemId, id = FormatEntryId(entryId.Value) });
         return hit is not null and not DBNull;
     }
 
     private static async Task<IReadOnlyList<AlterId>> LoadAlterIdsAsync(
         SqliteConnection connection,
-        string userKey,
+        SystemId systemId,
         string entryIdHex,
         CancellationToken cancellationToken)
     {
@@ -574,14 +569,14 @@ public sealed class SqliteJournalRepository : IJournalRepository
             FROM global_journal_alters
             WHERE user_id = @user_id AND global_journal_id = @id
             """,
-            new { user_id = userKey, id = entryIdHex });
+            new { user_id = systemId, id = entryIdHex });
         return alterIds.Select(id => new AlterId((short)id)).ToArray();
     }
 
     private static JournalReadModel MapGlobalJournal(GlobalJournalRow row)
         => new(
             new EntryId(ParseEntryId(row.Id)),
-            SqliteStorageKeys.ToWire(row.UserId),
+            row.UserId,
             row.Title,
             row.Content,
             HexColor.FromNullable(row.Color),
@@ -594,7 +589,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
     private static AlterJournalReadModel MapAlterJournal(AlterJournalRow row)
         => new(
             new EntryId(ParseEntryId(row.Id)),
-            SqliteStorageKeys.ToWire(row.UserId),
+            row.UserId,
             new AlterId((short)row.AlterId),
             row.Title,
             row.Content,
@@ -615,7 +610,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
 
     private sealed record GlobalJournalRow(
         string Id,
-        string UserId,
+        SystemId UserId,
         string Title,
         string? Content,
         string? Color,
@@ -626,7 +621,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
 
     private sealed record AlterJournalRow(
         string Id,
-        string UserId,
+        SystemId UserId,
         long AlterId,
         string Title,
         string? Content,

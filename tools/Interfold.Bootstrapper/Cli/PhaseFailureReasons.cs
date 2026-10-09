@@ -35,18 +35,10 @@ internal static class PhaseFailureReasons
     public const string UnknownComponent = "unknown-component";
     public const string MissingSecrets = "missing-secrets";
     public const string InvalidRetain = "invalid-retain";
-    public const string MissingAdminPassword = "missing-admin-password";
-    public const string EmptyPostgresDump = "empty-postgres-dump";
-    public const string NodetoolSnapshot = "nodetool-snapshot";
-    public const string ResolveScyllaContainer = "resolve-scylla-container";
-    public const string EmptyScyllaArchive = "empty-scylla-archive";
     public const string MissingSqliteDatabase = "missing-sqlite-database";
     public const string EmptySqliteArchive = "empty-sqlite-archive";
     public const string NoArchives = "no-archives";
     public const string ConfirmationRequired = "confirmation-required";
-    public const string StopScylla = "stop-scylla";
-    public const string CreateScyllaContainer = "create-scylla-container";
-    public const string StartScylla = "start-scylla";
 
     // Update-images
     public const string PreUpdateBackupFailed = "pre-update-backup-failed";

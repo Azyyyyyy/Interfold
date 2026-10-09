@@ -19,10 +19,11 @@ public static class SharedApiServiceCollectionExtensions
     /// <c>AddControllers()</c> — the composition host owns that.</summary>
     public static IServiceCollection AddSharedApi(this IServiceCollection services)
     {
-        // UnixSecondsModelBinderProvider at position 0 takes precedence over MVC's SimpleType /
-        // ComplexObject providers for UnixSeconds parameters.
+        // Custom ModelBinderProviders take precedence over MVC's SimpleType /
+        // ComplexObject / TryParse fallbacks.
         services.Configure<MvcOptions>(mvcOptions =>
         {
+            mvcOptions.ModelBinderProviders.Insert(0, new SystemIdModelBinderProvider());
             mvcOptions.ModelBinderProviders.Insert(0, new UnixSecondsModelBinderProvider());
         });
 

@@ -22,7 +22,7 @@ public static partial class ServiceCollectionExtensions
     /// <summary>Registers persistence adapters for <paramref name="mode"/> and layers the
     /// caller's overrides onto the <see cref="Microsoft.Extensions.Options.IOptions{TOptions}"/>
     /// pipeline. Mode-registration lambdas still take a synchronous snapshot because a few
-    /// (e.g. InMemoryRegionContext) capture <c>ScyllaKeyspace</c> at registration time.</summary>
+    /// some adapters capture configuration at registration time.</summary>
     public static IServiceCollection AddInterfoldPersistence(
         this IServiceCollection services,
         PersistenceMode mode,
@@ -30,10 +30,7 @@ public static partial class ServiceCollectionExtensions
     ) => AddInterfoldPersistence(services, mode, cfg =>
     {
         cfg.Mode                     = configuration.Mode;
-        cfg.ScyllaKeyspace           = configuration.ScyllaKeyspace;
-        cfg.PostgresConnectionString = configuration.PostgresConnectionString;
         cfg.SqliteConnectionString   = configuration.SqliteConnectionString;
-        cfg.IsSingleScyllaInstance   = configuration.IsSingleScyllaInstance;
         cfg.DbRetryAttempts          = configuration.DbRetryAttempts;
         cfg.DbRetryInitialDelay      = configuration.DbRetryInitialDelay;
         cfg.DbRetryMaxDelay          = configuration.DbRetryMaxDelay;

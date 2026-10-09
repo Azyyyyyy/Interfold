@@ -124,21 +124,13 @@ internal static class TestSupport
 
     /// <summary>
     /// Builds a fresh <see cref="BootstrapConfig"/> at its property-initialiser defaults with
-    /// an optional <see cref="CqlBackend"/> override and an optional post-construction
-    /// tweak for the handful of fields a specific test cares about.
+    /// an optional post-construction tweak for the handful of fields a specific test cares about.
     /// </summary>
-    /// <remarks>
-    /// Default <see cref="DatastoresSection.Persistence"/> on a raw
-    /// <see cref="BootstrapConfig"/> is sqlite. This helper is the CQL-path factory, so it
-    /// sets <see cref="Interfold.Shared.Contracts.PersistenceMode.ScyllaPostgres"/>.
-    /// </remarks>
     public static BootstrapConfig MakeConfig(
-        CqlBackend backend = CqlBackend.ScyllaSingle,
         Action<BootstrapConfig>? tweak = null)
     {
         var config = new BootstrapConfig();
-        config.Datastores.Persistence = PersistenceMode.ScyllaPostgres;
-        config.Datastores.Cql.Backend = backend;
+        config.Datastores.Persistence = PersistenceMode.Sqlite;
         tweak?.Invoke(config);
         return config;
     }

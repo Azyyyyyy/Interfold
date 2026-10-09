@@ -43,13 +43,11 @@ jobs:
   #   - bootstrapper: AppHost / ServiceDefaults / Bootstrapper tool + packaging/tests
   #     (API-only diffs stay off — AppHost references Api.Host but the bootstrapper
   #     never runs that host)
-  #   - multinode_scylla: Scylla project / db+scripts / Explicit suite fixture
   prepare:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       bootstrapper: ${{ steps.bootstrapper.outputs.changed }}
-      multinode_scylla: ${{ steps.multinode_scylla.outputs.changed }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -109,31 +107,6 @@ jobs:
             echo "Bootstrapper gate: OFF (no AppHost / ServiceDefaults / Bootstrapper changes)"
           fi
 
-      - name: Detect MultiNode Scylla-relevant changes
-        id: multinode_scylla
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${{ steps.range.outputs.force }}" = "true" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "MultiNode Scylla gate: forced on (${{ github.event_name }} / ${{ github.ref_type }})"
-            exit 0
-          fi
-          # Scylla project + 7-DC rack props/scripts + the Explicit suite/fixture.
-          pattern='^infrastructure/Interfold\.Infrastructure\.Scylla/|^db/scylla/|^scripts/scylla/|^tests/integration/Interfold\.Infrastructure\.IntegrationTests/Topology/MultiNodeScyllaTests\.cs$|^tests/integration/Interfold\.Infrastructure\.IntegrationTests/TestServices/MultiNodeScyllaFixture\.cs$'
-          changed="$(bash .github/scripts/detect-path-changes.sh \
-            '${{ steps.range.outputs.base }}' \
-            '${{ steps.range.outputs.head }}' \
-            "$pattern")"
-          echo "changed=${changed}" >> "$GITHUB_OUTPUT"
-          if [ "$changed" = "true" ]; then
-            echo "MultiNode Scylla gate: ON"
-            git diff --name-only '${{ steps.range.outputs.base }}' '${{ steps.range.outputs.head }}' \
-              | grep -E "$pattern" || true
-          else
-            echo "MultiNode Scylla gate: OFF"
-          fi
-
       - name: Enumerate integration test projects
         id: set-matrix
         env:
@@ -149,7 +122,6 @@ jobs:
           echo "matrix=$projects" >> "$GITHUB_OUTPUT"
           echo "Discovered integration test projects: $projects"
           echo "bootstrapper=$BOOTSTRAPPER"
-          echo "multinode_scylla=${{ steps.multinode_scylla.outputs.changed }}"
 
   # build: whole-solution compile + bootstrapper buildx (matrix size gated by
   # `FULL_BOOTSTRAPPER_BUILD` below). Uploads per-RID `interfold-bootstrap-<rid>`
@@ -334,24 +306,15 @@ jobs:
       # on them, splicing one native TUnit summary into that job's summary tab
       # instead of one block per matrix leg. See TUnit PR #6415.
       #
-      # Two legs carry [Explicit] tests and need bespoke invocations:
+      # One leg carries [Explicit] tests and needs a bespoke invocation:
       #   - Bootstrapper.IntegrationTests: every test class is [Explicit] (see the
       #     assembly's AssemblyInfo.cs); a `/*/*/*/*` treenode filter matches all
       #     tests, all explicit, so TUnit runs the full suite. Default (unfiltered)
       #     invocation would skip everything. Native Windows tests ([RequiresWindows])
       #     skip here; `test-int-bootstrapper-windows` runs them.
-      #   - Infrastructure.IntegrationTests: MultiNodeScyllaTests alone is [Explicit]
-      #     (7-DC ring, GB-scale RAM). Runs in two passes because TUnit's rule is
-      #     "explicit only runs when every filtered test is explicit" — a single
-      #     mixed filter would exclude MultiNode. The first pass produces the
-      #     canonical sidecar; the second is renamed on-the-fly so both survive
-      #     upload. `test-int-summary` merges them like any other leg's sidecars.
-      #     The MultiNode pass is gated by prepare.outputs.multinode_scylla
-      #     (Scylla project / db/scylla / fixture / this test file).
       - name: Test (integration - ${{ matrix.project }})
         env:
           TUNIT_AGGREGATE_REPORTS: defer
-          MULTINODE_SCYLLA: ${{ needs.prepare.outputs.multinode_scylla }}
         run: |
           set -euo pipefail
           dll="tests/integration/${{ matrix.project }}/bin/Release/net10.0/${{ matrix.project }}.dll"
@@ -359,25 +322,6 @@ jobs:
             Interfold.Bootstrapper.IntegrationTests)
               dotnet "$dll" \
                 --treenode-filter '/*/*/*/*' \
-                --coverage --coverage-output-format cobertura
-              ;;
-            Interfold.Infrastructure.IntegrationTests)
-              dotnet "$dll" \
-                --coverage --coverage-output-format cobertura
-              if [ "${MULTINODE_SCYLLA:-false}" != "true" ]; then
-                echo "Skipping MultiNodeScyllaTests (no Scylla-project path changes)"
-                exit 0
-              fi
-              # Preserve the non-explicit sidecar before the second invocation
-              # overwrites it. Both files are picked up by the `**/*.tunit-report.json`
-              # upload glob below.
-              results="tests/integration/${{ matrix.project }}/bin/Release/net10.0/TestResults"
-              for sidecar in "$results"/*.tunit-report.json; do
-                [ -e "$sidecar" ] || continue
-                mv "$sidecar" "${sidecar%.tunit-report.json}-nonexplicit.tunit-report.json"
-              done
-              dotnet "$dll" \
-                --treenode-filter '/*/*/*MultiNodeScyllaTests/*' \
                 --coverage --coverage-output-format cobertura
               ;;
             *)

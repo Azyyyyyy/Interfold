@@ -10,28 +10,9 @@ public static class RequiredFixtures
     private static readonly object DiscoveryLock = new();
     private static bool _populated;
 
-    public static bool NeedScylla => Has<ScyllaWebFactoryFixture>();
+    public static bool NeedSqlite => Has<SqliteWebFactoryFixture>();
 
-    public static bool NeedCassandra => Has<CassandraWebFactoryFixture>();
-
-    // MultiNodeScyllaFixture lives in a sibling test assembly, so a typeof() reference from
-    // Shared would form a project cycle. HostAioPrerequisite still needs to know when the
-    // multi-node cluster is scheduled (so it can bump fs.aio-max-nr), so probe by unqualified
-    // type name against the same discovered set — there is exactly one in the tree.
-    public static bool NeedMultiNodeScylla => HasByName("MultiNodeScyllaFixture");
-
-    private static bool HasByName(string simpleName)
-    {
-        EnsureDiscovered();
-        foreach (var t in Discovered)
-        {
-            if (string.Equals(t.Name, simpleName, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
+    public static bool NeedInMemory => Has<InMemoryWebFactoryFixture>();
 
     /// <summary>Driven by <c>[After(TestDiscovery)]</c> on <c>BaseEndpointTest</c>;
     /// idempotent.</summary>
@@ -40,7 +21,7 @@ public static class RequiredFixtures
         EnsureDiscovered();
     }
 
-    private static bool Has<TFixture>()
+    public static bool Has<TFixture>()
     {
         EnsureDiscovered();
         return Discovered.Contains(typeof(TFixture));
@@ -131,7 +112,7 @@ public static class RequiredFixtures
 
     /// <summary>Yields the generic args of every <c>ClassDataSourceAttribute&lt;...&gt;</c>
     /// on <paramref name="testClassType"/> (or a base). Transitive walk covers indirect
-    /// fixtures (e.g. ScyllaWebFactoryFixture → SharedDbFixture) so filter-only runs still
+    /// fixtures (e.g. SqliteWebFactoryFixture → SharedDbFixture) so filter-only runs still
     /// discover them.</summary>
     private static IEnumerable<Type> ExtractClassDataSourceTypes(Type testClassType, bool transitive)
     {

@@ -12,10 +12,6 @@
     <PackageReference Include="TUnit.Aspire" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
-    <!-- Direct refs (not just transitive via Interfold.Infrastructure): DbInitHelper drives
-         Postgres + Scylla straight from the test project and needs the drivers at test scope. -->
-    <PackageReference Include="Npgsql" />
-    <PackageReference Include="CassandraCSharpDriver" />
   </ItemGroup>
 
   <ItemGroup>

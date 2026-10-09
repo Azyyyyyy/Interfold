@@ -12,8 +12,6 @@ namespace Interfold.Settings.IntegrationTests.Controllers;
 
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     [Test]
@@ -98,15 +96,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     // producing ~50 downstream 500s in the full suite. Private factories close that
     // vector at the design level — nothing these tests write can ever be seen by a
     // test that runs on fixture.Factory.
-    //
-    // NotInParallel is retained on the shared "avatar-storage-config" bucket so the
-    // three avatar-multipart tests (this one, the alter sibling below, and
-    // AvatarSourceTests.Api_SettingsAvatarMultipart_ReportsLocalSource) don't run
-    // three factory builds concurrently for the same backend — pending the Group-B
-    // Npgsql pool sizing fix, parallel builds can exhaust the default pool of 5
-    // connections during SecretsPreBuildLoader's Postgres fetch. Once Group B lands
-    // this attribute can be removed.
-    [Test, NotInParallel("avatar-storage-config")]
+    [Test]
     public async Task Api_SettingsAvatarMultipart_PersistsAndServesAvatar()
     {
         await IsolatedAvatarStorage.RunAsync(fixture, async (client, publicBasePath) =>

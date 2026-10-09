@@ -1,32 +1,10 @@
-using System.Net.Sockets;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Docker.Resources.ServiceNodes;
 using Interfold.Shared.Contracts.Configuration;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace Interfold.AppHost;
 
-/// <summary>Raw TCP-connect <see cref="IHealthCheck"/> factory for the AppHost dashboard
-/// readiness gates on non-HTTP containers (Postgres, Cassandra-only CQL). Scylla uses
-/// <see cref="DockerExecCqlProbe"/> instead.</summary>
-internal static class HostPortTcpProbe
-{
-    public static Func<HealthCheckResult> CreateCheck(int port, string host = "localhost")
-        => () =>
-        {
-            try
-            {
-                using var tcp = new TcpClient();
-                tcp.Connect(host, port);
-                return HealthCheckResult.Healthy();
-            }
-            catch { return HealthCheckResult.Unhealthy(); }
-        };
-}
-
-/// <summary>Factory helpers for compose <see cref="Healthcheck"/> objects. Passes the
-/// command string through untouched so callers can rely on the <c>$$VAR</c> escape trick
-/// (see the CQL probes in <see cref="InterfoldAppHost"/>).</summary>
+/// <summary>Factory helpers for compose <see cref="Healthcheck"/> objects.</summary>
 internal static class ComposeHealthcheck
 {
     public static Healthcheck CmdShell(

@@ -10,7 +10,7 @@ namespace Interfold.Alters.Domain;
 internal static class AlterCommandFlow
 {
     public static CommandExecutionResult<AlterCommandResult> Success(
-        ScopedSystemId systemId,
+        SystemId systemId,
         AlterId alterId)
         => CommandExecutionResult<AlterCommandResult>.Success(new AlterCommandResult(systemId, alterId, Replay: false));
 

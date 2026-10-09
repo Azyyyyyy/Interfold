@@ -17,7 +17,7 @@ public sealed record FriendProfileReadModel(
 
 // Fields carries the same per-alter custom-field entries as AlterReadModel.Fields; the Kotlin
 // client reads it as List<ExternalAlterCustomField> (id/name/type/value). Today's only producer
-// (ScyllaFriendshipRepository.GetFrontingAsync) sends an empty list.
+// (SqliteFriendshipRepository.GetFrontingAsync) sends an empty list.
 public sealed record FriendFrontingAlterReadModel(
     AlterId Id,
     string? Name,

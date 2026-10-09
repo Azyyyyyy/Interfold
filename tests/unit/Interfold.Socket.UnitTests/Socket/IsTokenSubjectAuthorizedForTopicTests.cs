@@ -7,7 +7,7 @@ namespace Interfold.Api.UnitTests.Socket;
 // gating a phx_join against the token's sub claim. JWTs carry scoped {region}:{rawId}
 // subs but socket topics stay raw system:{rawId}; without tolerance the gate would
 // 401 valid joins the middleware / SystemTopic.IdMatches accept. Sub-side rejection
-// matrix lives in ScopedSystemIdTests; this file pins the comparison contract itself.
+// matrix lives in SystemIdTests; this file pins the comparison contract itself.
 public sealed class IsTokenSubjectAuthorizedForTopicTests
 {
     private const string RawId = "sys-abcdef0123456789";
@@ -15,7 +15,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     [Test]
     public async Task ScopedSub_RawTopic_SameRawId_IsAuthorized()
     {
-        var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
+        var scopedSub = new SystemId($"nam:{RawId}");
         SystemId topic = new(RawId);
 
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
@@ -27,7 +27,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     [Test]
     public async Task ScopedSub_ScopedTopic_SameRawId_IsAuthorized()
     {
-        var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
+        var scopedSub = new SystemId($"nam:{RawId}");
         SystemId topic = new($"nam:{RawId}");
 
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
@@ -39,7 +39,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     [Test]
     public async Task ScopedSub_DifferentRegionOnTopic_SameRawId_IsAuthorized()
     {
-        var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
+        var scopedSub = new SystemId($"nam:{RawId}");
         SystemId topic = new($"eur:{RawId}");
 
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
@@ -51,7 +51,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     [Test]
     public async Task ScopedSub_RawTopic_DifferentRawIds_IsRejected()
     {
-        var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
+        var scopedSub = new SystemId($"nam:{RawId}");
         SystemId topic = new("sys-someone-else");
 
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
@@ -63,7 +63,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     [Test]
     public async Task ScopedSub_ScopedTopic_DifferentRawIds_IsRejected()
     {
-        var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
+        var scopedSub = new SystemId($"nam:{RawId}");
         SystemId topic = new("nam:sys-someone-else");
 
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(scopedSub, topic);
@@ -89,7 +89,7 @@ public sealed class IsTokenSubjectAuthorizedForTopicTests
     [Test]
     public async Task NullRequestedSystemId_IsRejected()
     {
-        var scopedSub = ScopedSystemId.ParseScoped($"nam:{RawId}");
+        var scopedSub = new SystemId($"nam:{RawId}");
 
         var authorized = WebSocketHandler.IsTokenSubjectAuthorizedForTopic(tokenSubject: scopedSub, requestedSystemId: null);
 

@@ -8,9 +8,8 @@ namespace Interfold.Api.UnitTests.Models;
 
 // PluralKit round-trip prerequisite: `discord_proxies` is the ONLY source for the
 // PK v2 importer's `proxy_tags`, and `inserted_at` / `updated_at` are surfaced by
-// the full-export path. All three live on the Scylla `alters` row (see
-// infrastructure/Interfold.Infrastructure.Scylla/Migrations/002_create_interfold_schema.templated.cql:118-129)
-// but are dropped by the current AlterReadModel — this test locks in the widening.
+// the full-export path. All three live on the `alters` row
+// but were dropped by an earlier AlterReadModel — this test locks in the widening.
 public sealed class AlterReadModelSerializationTests
 {
     [Test]

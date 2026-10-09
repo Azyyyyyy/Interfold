@@ -1,5 +1,6 @@
 using System.Net;
 using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Api.Middleware;
 using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
@@ -55,6 +56,13 @@ public sealed class SystemMustExistAttribute : Attribute, IAsyncActionFilter
             && raw is string s
             && !string.IsNullOrWhiteSpace(s))
         {
+            if (string.Equals(s, "me", StringComparison.OrdinalIgnoreCase)
+                && context.HttpContext.Items.TryGetValue(InterfoldPrincipalMiddleware.PrincipalIdItemKey, out var principal)
+                && principal is SystemId principalId)
+            {
+                return principalId;
+            }
+
             return new SystemId(s);
         }
 

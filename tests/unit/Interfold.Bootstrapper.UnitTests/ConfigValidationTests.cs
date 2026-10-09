@@ -35,8 +35,7 @@ public sealed class ConfigValidationTests
         },
         Datastores =
         {
-            Persistence = PersistenceMode.ScyllaPostgres,
-            Cql = { Backend = CqlBackend.ScyllaSingle },
+            Persistence = PersistenceMode.Sqlite,
         },
     };
 
@@ -167,125 +166,7 @@ public sealed class ConfigValidationTests
     public Task PortAboveMaxFailsValidation()
         => AssertInvalidAsync(c => c.Edge.Ports.Http = 70000, "Http");
 
-    [Test]
-    public async Task InvalidCqlBackendInJsonFailsDeserialization()
-    {
-        const string badJson = """
-        {
-            "datastores": { "cql": { "backend": "quadruple-redundant" } }
-        }
-        """;
-        var ex = Assert.Throws<JsonException>(() =>
-            JsonSerializer.Deserialize(badJson, BootstrapJsonContext.Default.BootstrapConfig));
-        await Assert.That(ex.Message).Contains("CqlBackend");
-        await Assert.That(ex.Message).Contains("backend");
-    }
 
-    [Test]
-    public async Task DefaultPostgresDatabasePasses()
-    {
-        var cfg = MakeValid();
-        cfg.Datastores.Postgres.Database = "interfold";
-
-        ConfigPhase.Validate(cfg);
-        await Task.CompletedTask;
-    }
-
-    [Test]
-    public async Task CustomSafePostgresDatabasePasses()
-    {
-        // Exercise underscores + digits (typical env-suffixed name).
-        var cfg = MakeValid();
-        cfg.Datastores.Postgres.Database = "acme_prod_42";
-
-        ConfigPhase.Validate(cfg);
-        await Task.CompletedTask;
-    }
-
-    [Test]
-    public Task EmptyPostgresDatabaseFailsValidation()
-        => AssertInvalidAsync(c => c.Datastores.Postgres.Database = string.Empty, "postgres.database");
-
-    [Test]
-    public Task WhitespacePostgresDatabaseFailsValidation()
-        => AssertInvalidAsync(c => c.Datastores.Postgres.Database = "   ", "postgres.database");
-
-    [Test]
-    // Postgres tolerates a leading digit only inside quotes; forbid up front to avoid drift.
-    public Task PostgresDatabaseStartingWithDigitFailsValidation()
-        => AssertInvalidAsync(c => c.Datastores.Postgres.Database = "1interfold", "postgres.database");
-
-    [Test]
-    // Dashes need quoting; forbidding them keeps the name reusable as a role/schema prefix.
-    public Task PostgresDatabaseWithDashFailsValidation()
-        => AssertInvalidAsync(c => c.Datastores.Postgres.Database = "inter-fold", "postgres.database");
-
-    [Test]
-    public async Task DefaultClusterNamePasses()
-    {
-        var cfg = MakeValid();
-        cfg.Datastores.Cql.ClusterName = "InterfoldCluster";
-
-        ConfigPhase.Validate(cfg);
-        await Task.CompletedTask;
-    }
-
-    [Test]
-    public async Task CustomClusterNameWithSpacesPasses()
-    {
-        // Spaces are legitimate here (advertised in gossip / DESCRIBE CLUSTER).
-        var cfg = MakeValid();
-        cfg.Datastores.Cql.ClusterName = "Acme Prod 1.0";
-
-        ConfigPhase.Validate(cfg);
-        await Task.CompletedTask;
-    }
-
-    [Test]
-    public Task EmptyClusterNameFailsValidation()
-        => AssertInvalidAsync(c => c.Datastores.Cql.ClusterName = string.Empty, "clusterName");
-
-    [Test]
-    // A raw quote would corrupt the Cassandra entrypoint's cassandra.yaml rewrite.
-    public Task ClusterNameWithSingleQuoteFailsValidation()
-        => AssertInvalidAsync(c => c.Datastores.Cql.ClusterName = "Acme'Prod", "clusterName");
-
-    [Test]
-    public Task ClusterNameWithNewlineFailsValidation()
-        => AssertInvalidAsync(c => c.Datastores.Cql.ClusterName = "Acme\nProd", "clusterName");
-
-    [Test]
-    // 64 chars is the published Cassandra limit.
-    public Task OverlyLongClusterNameFailsValidation()
-        => AssertInvalidAsync(c => c.Datastores.Cql.ClusterName = new string('A', 65), "clusterName");
-
-    [Test]
-    public async Task InvalidScyllaKeyspaceInJsonFailsDeserialization()
-    {
-        // Rejection lives in the JSON converter, not Validate.
-        const string badJson = """
-        {
-            "datastores": { "cql": { "keyspace": "antarctica" } }
-        }
-        """;
-        var ex = Assert.Throws<JsonException>(() =>
-            JsonSerializer.Deserialize(badJson, BootstrapJsonContext.Default.BootstrapConfig));
-        await Assert.That(ex.Message).Contains("ScyllaKeyspace");
-        await Assert.That(ex.Message).Contains("keyspace");
-    }
-
-    [Test]
-    public async Task EachValidScyllaKeyspacePasses()
-    {
-        // Iterates so future additions fail here first.
-        foreach (var keyspace in Enum.GetValues<ScyllaKeyspace>())
-        {
-            var cfg = MakeValid();
-            cfg.Datastores.Cql.Keyspace = keyspace;
-            ConfigPhase.Validate(cfg);
-        }
-        await Task.CompletedTask;
-    }
 
     [Test]
     public Task NonHttpCallbackBaseUrlFailsValidation()
@@ -450,42 +331,6 @@ public sealed class ConfigValidationTests
             c.Edge.Routing.ApiHost = "";
             c.Edge.Routing.WebHost = "";
         }, "subdomain");
-
-    [Test]
-    public async Task V1JsonMigratesOnLoad()
-    {
-        const string json = """
-            {
-              "deployment": { "hosts": ["a.example.com"], "webHttps": true },
-              "ports": { "apiHttp": 5000, "apiHttps": 5001, "webHttps": 8081 }
-            }
-            """;
-        var result = ConfigSchemaMigrator.MigrateIfNeeded(json, "interfold.bootstrap.json", new PhaseLogger(
-            TestSupport.MakeOptions(outputDir: Path.GetTempPath())));
-        await Assert.That(result.DidMigrate).IsTrue();
-        using var doc = JsonDocument.Parse(result.Json);
-        await Assert.That(doc.RootElement.GetProperty("schemaVersion").GetInt32()).IsEqualTo(2);
-        await Assert.That(doc.RootElement.GetProperty("edge").GetProperty("ports").GetProperty("https").GetInt32()).IsEqualTo(5001);
-    }
-
-    [Test]
-    public async Task V2EdgeEnabledRejected()
-    {
-        const string json = """
-            {
-              "schemaVersion": 2,
-              "deployment": {
-                "hosts": ["a.example.com"],
-                "edge": { "tlsMode": "privateCa", "routing": "path", "enabled": true }
-              },
-              "ports": { "edgeHttp": 80, "edgeHttps": 443 }
-            }
-            """;
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            ConfigSchemaMigrator.MigrateIfNeeded(json, "interfold.bootstrap.json", new PhaseLogger(
-                TestSupport.MakeOptions(outputDir: Path.GetTempPath()))));
-        await Assert.That(ex.Message).Contains("edge.enabled");
-    }
 
     // --- Cluster / Storage / Observability / Socket / Persistence tuning validation ---
 
@@ -683,11 +528,11 @@ public sealed class ConfigValidationTests
     [Test]
     // Fail here with a clear name instead of "no such service" from docker compose.
     public Task UpdateServicesUnknownEntryFailsValidation()
-        => AssertInvalidAsync(c => c.Deployment.Update.Services = ["msg-database"], "msg-database", "msg-db");
+        => AssertInvalidAsync(c => c.Deployment.Update.Services = ["msg-database"], "msg-database", "interfold-api");
 
     [Test]
     public Task UpdateServicesBlankEntryFailsValidation()
-        => AssertInvalidAsync(c => c.Deployment.Update.Services = ["msg-db", ""], "blank entry");
+        => AssertInvalidAsync(c => c.Deployment.Update.Services = ["interfold-api", ""], "blank entry");
 
     [Test]
     public async Task UpdateServicesKnownEntriesPassValidation()

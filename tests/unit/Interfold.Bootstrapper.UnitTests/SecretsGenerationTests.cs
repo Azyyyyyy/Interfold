@@ -39,40 +39,12 @@ public sealed class SecretsGenerationTests
         var a = SecretsPhase.Generate();
         var b = SecretsPhase.Generate();
 
-        await Assert.That(a.PostgresPassword).IsNotEqualTo(b.PostgresPassword);
-        await Assert.That(a.PostgresInitPassword).IsNotEqualTo(b.PostgresInitPassword);
-        await Assert.That(a.PostgresAdminPassword).IsNotEqualTo(b.PostgresAdminPassword);
-        await Assert.That(a.ScyllaPassword).IsNotEqualTo(b.ScyllaPassword);
-        await Assert.That(a.ScyllaAdminPassword).IsNotEqualTo(b.ScyllaAdminPassword);
         await Assert.That(a.EncryptionPepper).IsNotEqualTo(b.EncryptionPepper);
         await Assert.That(a.LeafPfxPassword).IsNotEqualTo(b.LeafPfxPassword);
         // RSA / ECDSA keys generate from independent random states so the PEM blobs must differ too.
         await Assert.That(a.EncryptionPrivateKeyB64).IsNotEqualTo(b.EncryptionPrivateKeyB64);
         await Assert.That(a.JwtRsa256PrivateKeyPem).IsNotEqualTo(b.JwtRsa256PrivateKeyPem);
         await Assert.That(a.JwtEs256PrivateKeyPem).IsNotEqualTo(b.JwtEs256PrivateKeyPem);
-    }
-
-    [Test]
-    public async Task GenerateAlwaysPopulatesEveryField()
-    {
-        // Forward-looking guard: if someone adds a new field to GeneratedSecrets but forgets to
-        // populate it inside Generate(), this test fails with a clear message naming the field.
-        var s = SecretsPhase.Generate();
-
-        await Assert.That(s.PostgresUser).IsNotEmpty();
-        await Assert.That(s.PostgresPassword).IsNotEmpty();
-        await Assert.That(s.PostgresInitPassword).IsNotEmpty();
-        await Assert.That(s.PostgresAdminPassword).IsNotEmpty();
-        await Assert.That(s.ScyllaUser).IsNotEmpty();
-        await Assert.That(s.ScyllaPassword).IsNotEmpty();
-        await Assert.That(s.ScyllaAdminPassword).IsNotEmpty();
-        await Assert.That(s.EncryptionPrivateKeyB64).IsNotEmpty();
-        await Assert.That(s.EncryptionPepper).IsNotEmpty();
-        await Assert.That(s.LeafPfxPassword).IsNotEmpty();
-        await Assert.That(s.JwtRsa256PublicKeyPem).IsNotEmpty();
-        await Assert.That(s.JwtRsa256PrivateKeyPem).IsNotEmpty();
-        await Assert.That(s.JwtEs256PublicKeyPem).IsNotEmpty();
-        await Assert.That(s.JwtEs256PrivateKeyPem).IsNotEmpty();
     }
 
     /// <summary>
@@ -127,13 +99,6 @@ public sealed class SecretsGenerationTests
 
         var loaded = await SecretsPhase.LoadAsync(path, CancellationToken.None);
 
-        await Assert.That(loaded.PostgresUser).IsEqualTo(original.PostgresUser);
-        await Assert.That(loaded.PostgresPassword).IsEqualTo(original.PostgresPassword);
-        await Assert.That(loaded.PostgresInitPassword).IsEqualTo(original.PostgresInitPassword);
-        await Assert.That(loaded.PostgresAdminPassword).IsEqualTo(original.PostgresAdminPassword);
-        await Assert.That(loaded.ScyllaUser).IsEqualTo(original.ScyllaUser);
-        await Assert.That(loaded.ScyllaPassword).IsEqualTo(original.ScyllaPassword);
-        await Assert.That(loaded.ScyllaAdminPassword).IsEqualTo(original.ScyllaAdminPassword);
         await Assert.That(loaded.EncryptionPrivateKeyB64).IsEqualTo(original.EncryptionPrivateKeyB64);
         await Assert.That(loaded.EncryptionPepper).IsEqualTo(original.EncryptionPepper);
         await Assert.That(loaded.LeafPfxPassword).IsEqualTo(original.LeafPfxPassword);

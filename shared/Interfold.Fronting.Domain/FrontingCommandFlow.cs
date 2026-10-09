@@ -49,7 +49,7 @@ internal static class FrontingCommandFlow
             : null;
 
     public static CommandExecutionResult<FrontCommandResult> Success(
-        ScopedSystemId systemId,
+        SystemId systemId,
         AlterId? alterId,
         FrontId? frontId)
         => CommandExecutionResult<FrontCommandResult>.Success(new FrontCommandResult(systemId, alterId, frontId, Replay: false));
@@ -175,7 +175,7 @@ internal static class FrontingCommandFlow
 
     public static async Task EndAltersBestEffortAsync(
         IFrontingRepository frontingRepository,
-        ScopedSystemId systemId,
+        SystemId systemId,
         IEnumerable<AlterId> alterIds,
         DateTimeOffset endedAt,
         CancellationToken cancellationToken = default)
@@ -189,7 +189,7 @@ internal static class FrontingCommandFlow
 
     public static async Task StartAltersIfNotFrontingAsync(
         IFrontingRepository frontingRepository,
-        ScopedSystemId systemId,
+        SystemId systemId,
         IEnumerable<FrontStartItem> startItems,
         DateTimeOffset startedAt,
         CancellationToken cancellationToken = default)

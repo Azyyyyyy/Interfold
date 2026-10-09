@@ -32,7 +32,6 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
     public async Task EnsureExistsAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         int inserted;
         await using (var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken))
@@ -42,13 +41,12 @@ public sealed class SqliteAccountRepository : IAccountRepository
                 INSERT OR IGNORE INTO accounts (system_id, created_at, updated_at)
                 VALUES (@system_id, @now, @now)
                 """,
-                new { system_id = systemKey, now = nowMs });
+                new { system_id = systemId, now = nowMs });
         }
 
         if (inserted > 0)
         {
-            await _encryptionStates.UpsertAsync(
-                SqliteStorageKeys.ToScopedPrincipal(systemKey), false, null, EncryptionSalt.NewRandom(), cancellationToken);
+            await _encryptionStates.UpsertAsync(systemId, false, null, EncryptionSalt.NewRandom(), cancellationToken);
         }
     }
 
@@ -62,7 +60,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             SET username = @value, updated_at = @now
             WHERE system_id = @system_id
             """,
-            new { system_id = SqliteStorageKeys.Persist(systemId), value = username.Value, now = nowMs });
+            new { system_id = systemId, value = username.Value, now = nowMs });
         return rows > 0;
     }
 
@@ -77,7 +75,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             SET description = @value, updated_at = @now
             WHERE system_id = @system_id
             """,
-            new { system_id = SqliteStorageKeys.Persist(systemId), value = description, now = nowMs });
+            new { system_id = systemId, value = description, now = nowMs });
         return rows > 0;
     }
 
@@ -98,7 +96,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             """,
             new
             {
-                system_id = SqliteStorageKeys.Persist(systemId),
+                system_id = systemId,
                 avatar_url = avatarUrl.Value,
                 avatar_source = (short)source,
                 now = nowMs,
@@ -117,17 +115,16 @@ public sealed class SqliteAccountRepository : IAccountRepository
             SET avatar_url = NULL, avatar_source = NULL, updated_at = @now
             WHERE system_id = @system_id
             """,
-            new { system_id = SqliteStorageKeys.Persist(systemId), now = nowMs });
+            new { system_id = systemId, now = nowMs });
         return rows > 0;
     }
 
     public async Task<LinkToken> GetOrCreateLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var now = _timeProvider.GetUtcNow();
         var expiresAt = now.Add(LinkToken.Ttl).ToUnixTimeMilliseconds();
         var nowMs = now.ToUnixTimeMilliseconds();
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(systemKey));
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(systemId));
         var tokenValue = Convert.ToHexString(hash)[..32].ToLowerInvariant();
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
@@ -137,7 +134,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             SET link_token = @link_token, link_token_expires_at = @expires_at, updated_at = @now
             WHERE system_id = @system_id
             """,
-            new { system_id = systemKey, link_token = tokenValue, expires_at = expiresAt, now = nowMs });
+            new { system_id = systemId, link_token = tokenValue, expires_at = expiresAt, now = nowMs });
         if (rows == 0)
         {
             throw new InvalidOperationException("Account does not exist.");
@@ -148,7 +145,6 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
     public async Task<LinkToken?> GetLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<LinkTokenRow>(
@@ -158,7 +154,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             WHERE system_id = @system_id
             LIMIT 1
             """,
-            new { system_id = systemKey });
+            new { system_id = systemId });
         if (row is null || string.IsNullOrWhiteSpace(row.LinkToken))
         {
             return null;
@@ -169,7 +165,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             return new LinkToken(row.LinkToken);
         }
 
-        await ScrubLinkTokenAsync(connection, systemKey: systemKey, cancellationToken: cancellationToken);
+        await ScrubLinkTokenAsync(connection, systemKey: systemId, cancellationToken: cancellationToken);
         return null;
     }
 
@@ -197,7 +193,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
         if (row.ExpiresAt > nowMs)
         {
-            return SqliteStorageKeys.ToScopedPrincipal(row.SystemId);
+            return row.SystemId;
         }
 
         await ScrubLinkTokenAsync(connection, linkTokenValue: linkToken.Value, cancellationToken: cancellationToken);
@@ -209,7 +205,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await ScrubLinkTokenAsync(
             connection,
-            systemKey: SqliteStorageKeys.Persist(systemId),
+            systemKey: systemId,
             cancellationToken: cancellationToken);
         return rows > 0;
     }
@@ -306,7 +302,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
         var rows = await work.Connection.ExecuteAsync(
             "DELETE FROM accounts WHERE system_id = @system_id",
-            new { system_id = SqliteStorageKeys.Persist(systemId) },
+            new { system_id = systemId },
             work.Transaction);
         await work.CommitAsync(cancellationToken);
         return rows > 0;
@@ -325,7 +321,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             LIMIT 1
             """,
             new { username = username.Value });
-        return persisted is null ? null : SqliteStorageKeys.ToWire(persisted);
+        return persisted is null ? null : new SystemId(persisted);
     }
 
     public async Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(
@@ -422,7 +418,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var persisted = await connection.QueryFirstOrDefaultAsync<string>(sql, new { value });
-        return persisted is null ? null : SqliteStorageKeys.ToScopedPrincipal(persisted);
+        return persisted is null ? null : new SystemId(persisted);
     }
 
     private async Task<SystemId?> FindOrCreateByProviderAsync(
@@ -454,7 +450,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             return await tryFind(value, cancellationToken);
         }
 
-        var wired = SqliteStorageKeys.ToScopedPrincipal(rawId);
+        var wired = new SystemId(rawId);
         await _encryptionStates.UpsertAsync(wired, false, null, EncryptionSalt.NewRandom(), cancellationToken);
         return wired;
     }
@@ -472,7 +468,6 @@ public sealed class SqliteAccountRepository : IAccountRepository
             return AccountLinkResult.UserNotFound;
         }
 
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var row = await LoadAccountRowAsync(systemId, cancellationToken);
         if (row is null)
         {
@@ -487,14 +482,14 @@ public sealed class SqliteAccountRepository : IAccountRepository
         var owner = await tryFind(value, cancellationToken);
         if (owner is { } typedOwner
             && !string.IsNullOrWhiteSpace(typedOwner.Value)
-            && !string.Equals(SqliteStorageKeys.Persist(typedOwner), systemKey, StringComparison.Ordinal))
+            && !string.Equals(typedOwner, systemId, StringComparison.Ordinal))
         {
             return AccountLinkResult.UserExists;
         }
 
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await connection.ExecuteAsync(updateSql, new { value, now = nowMs, system_id = systemKey });
+        await connection.ExecuteAsync(updateSql, new { value, now = nowMs, system_id = systemId });
         return AccountLinkResult.Success;
     }
 
@@ -502,7 +497,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
     {
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await connection.ExecuteAsync(sql, new { now = nowMs, system_id = SqliteStorageKeys.Persist(systemId) });
+        var rows = await connection.ExecuteAsync(sql, new { now = nowMs, system_id = systemId });
         return rows > 0;
     }
 
@@ -550,7 +545,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             WHERE system_id = @system_id
             LIMIT 1
             """,
-            new { system_id = SqliteStorageKeys.Persist(systemId) });
+            new { system_id = systemId });
     }
 
     private sealed record AccountRow(
@@ -564,5 +559,5 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
     private sealed record LinkTokenRow(string? LinkToken, long ExpiresAt);
 
-    private sealed record LinkTokenOwnerRow(string SystemId, long ExpiresAt);
+    private sealed record LinkTokenOwnerRow(SystemId SystemId, long ExpiresAt);
 }

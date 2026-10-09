@@ -16,8 +16,6 @@ namespace Interfold.IntegrationTests.Shared;
 /// </summary>
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     public static IEnumerable<string> GetReplayFiles()
@@ -58,15 +56,10 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
         using var client = TestClient.NoRedirect(factory);
 
         // Build a per-invocation identity namespace so the same trace fixture can run
-        // independently across the InMemory / Scylla / Cassandra factory variants AND
-        // across concurrent leaf integration projects. PostgresIdempotencyStore is
-        // registered for every db-backed run via PostgresServiceCollectionExtensions,
-        // and under the centralised test-bench (see TestBenchCoordinator) that store's
-        // Postgres instance is shared across every project. Without a per-invocation
+        // independently across the InMemory / Sqlite factory variants AND
+        // across concurrent leaf integration projects. Without a per-invocation
         // discriminator, the second consumer of any given trace — variant or project —
-        // would replay the first's outcome and receive an AlterId/EntryId that its own
-        // CQL backend never wrote, making the controller's read-back-after-create
-        // return null and surface as `unknown_error` 500. The 8-hex nonce is bounded
+        // could collide on generated IDs. The 8-hex nonce is bounded
         // so the composed principal stays inside SettingsUsernameRequest's validator.
         var principalSuffix = $"{SanitizeIdentitySuffix(factory.DisplayName)}-{Guid.NewGuid().ToString("N")[..8]}";
         var principalMap = trace.Steps
@@ -75,8 +68,7 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToDictionary(p => p, p => $"{p}-{principalSuffix}", StringComparer.OrdinalIgnoreCase);
 
-        // Seed all principals referenced in the trace so Scylla/Cassandra
-        // backends have the user rows before operations execute.
+        // Seed all principals referenced in the trace so backends have the user rows before operations execute.
         foreach (var principal in principalMap.Values)
         {
             await EnsureUserExistsAsync(client, principal);
@@ -123,7 +115,7 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
         if (!string.IsNullOrWhiteSpace(step.IdempotencyKey))
         {
             // Suffix idempotency keys with the same fixture-namespace tag the principal IDs
-            // get. The Postgres idempotency store keys on (PrincipalId, OperationId,
+            // get. The idempotency store keys on (PrincipalId, OperationId,
             // IdempotencyKey); the principal already carries the suffix here, but keying the
             // idempotency value too keeps logs/diagnostics aligned and protects against any
             // future store implementation that ignores PrincipalId in its uniqueness key.

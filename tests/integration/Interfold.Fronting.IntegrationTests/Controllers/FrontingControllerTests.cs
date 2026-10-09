@@ -9,8 +9,6 @@ namespace Interfold.Fronting.IntegrationTests.Controllers;
 
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     [Test]
@@ -45,12 +43,12 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         var now = fixture.Factory.TimeProvider.GetUtcNow();
         var startAnchor = now.AddMinutes(-1).ToUnixTimeSeconds();
 
-        // Per-invocation nonce so the shared PostgresIdempotencyStore under the bench
+        // Per-invocation nonce so the shared idempotency store under the bench
         // can't hand a peer variant's cached FrontId back (see docs/test-bench-audit.md
         // and the identical pattern in ReplayParityTests / SeedVisibilityQuartetAsync).
-        // Without it the InMemory / Scylla / Cassandra factory variants race on
+        // Without it the InMemory / Sqlite factory variants race on
         // "phase3-fronting-history" and later reads see a FrontId from another
-        // variant's backend that the current variant's CQL never wrote.
+        // variant's backend that the current variant never wrote.
         var principal = $"phase3-fronting-history-{Guid.NewGuid().ToString("N")[..8]}";
         var alter = await CreateAlterAsync(client, principal, "test alter");
 
@@ -206,11 +204,10 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
 
         var envelope = await res.ReadEnvelopeAsync<IReadOnlyList<FrontActiveReadModel>>(HttpStatusCode.OK);
 
-        // Active fronts come back shaped { alter: { id, ... }, front: { id, alter_id, ... }, primary }.
+        // Active fronts come back shaped { alter: { id, ... }, front: { id, alter_id, ... }, primary } sailing.
         // We pull alter_id from `front` rather than `alter.Id` because the latter is the
         // hydrated alter read model and this stays deliberately explicit about which id
         // the fronting row records.
         return envelope.Data.ToDictionary(e => e.Front.AlterId, e => e.Front.Id);
     }
 }
-

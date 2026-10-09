@@ -12,13 +12,13 @@ internal static class FrontingEventBusExtensions
 {
     public static ValueTask PublishStateChangedAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId systemId,
+        SystemId systemId,
         CancellationToken cancellationToken = default)
         => eventBus.PublishAsync(new FrontingStateChangedEvent(systemId), cancellationToken);
 
     public static async ValueTask PublishStateChangedAndStartedAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId systemId,
+        SystemId systemId,
         FrontId frontId,
         CancellationToken cancellationToken = default)
     {
@@ -28,7 +28,7 @@ internal static class FrontingEventBusExtensions
 
     public static async ValueTask PublishStateChangedAndEndedAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId systemId,
+        SystemId systemId,
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
@@ -38,7 +38,7 @@ internal static class FrontingEventBusExtensions
 
     public static async ValueTask PublishStateChangedAndSetAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId systemId,
+        SystemId systemId,
         FrontId frontId,
         CancellationToken cancellationToken = default)
     {
@@ -48,7 +48,7 @@ internal static class FrontingEventBusExtensions
 
     public static async ValueTask PublishStateChangedAndBulkUpdatedAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId systemId,
+        SystemId systemId,
         CancellationToken cancellationToken = default)
     {
         await eventBus.PublishStateChangedAsync(systemId, cancellationToken);
@@ -57,7 +57,7 @@ internal static class FrontingEventBusExtensions
 
     public static async ValueTask PublishStateChangedAndCommentUpdatedAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId systemId,
+        SystemId systemId,
         FrontId frontId,
         CancellationToken cancellationToken = default)
     {
@@ -67,7 +67,7 @@ internal static class FrontingEventBusExtensions
 
     public static async ValueTask PublishStateChangedAndPrimaryChangedAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId systemId,
+        SystemId systemId,
         AlterId? alterId,
         CancellationToken cancellationToken = default)
     {
@@ -79,7 +79,7 @@ internal static class FrontingEventBusExtensions
     /// when the deleted row was the active one.</summary>
     public static async ValueTask PublishDeletedAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId systemId,
+        SystemId systemId,
         FrontId frontId,
         bool wasActive,
         CancellationToken cancellationToken = default)
@@ -94,7 +94,7 @@ internal static class FrontingEventBusExtensions
     /// assume in-order delivery per publisher).</summary>
     public static async ValueTask PublishEndedForAltersAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId systemId,
+        SystemId systemId,
         IEnumerable<AlterId> alterIds,
         CancellationToken cancellationToken = default)
     {
@@ -108,7 +108,7 @@ internal static class FrontingEventBusExtensions
     /// so callers can invoke unconditionally.</summary>
     public static ValueTask PublishPrimaryClearedIfNeededAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId systemId,
+        SystemId systemId,
         bool wasPrimaryPresent,
         CancellationToken cancellationToken = default)
         => wasPrimaryPresent

@@ -2,22 +2,11 @@ using System.Text.Json.Serialization;
 
 namespace Interfold.Shared.Contracts.Enums;
 
-/// <summary>Database stack the bootstrapper deploys. Wire values: single (one Scylla node),
-/// multi (7-region Scylla cluster), cassandra (single Cassandra 5 node), sqlite (API-only,
-/// no Postgres/CQL). Translated to AppHost <c>include-scylla</c>/<c>include-cassandra</c>/
-/// <c>scylla-topology</c>/<c>persistence</c> params.</summary>
+/// <summary>Database stack the bootstrapper deploys. Wire value: sqlite (API-only,
+/// no Postgres/CQL).</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<DatabaseMode>))]
 public enum DatabaseMode
 {
-    [JsonStringEnumMemberName("single")]
-    Single,
-
-    [JsonStringEnumMemberName("multi")]
-    Multi,
-
-    [JsonStringEnumMemberName("cassandra")]
-    Cassandra,
-
     [JsonStringEnumMemberName("sqlite")]
     Sqlite,
 }

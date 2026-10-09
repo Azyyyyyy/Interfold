@@ -33,7 +33,7 @@ public class LaunchPhaseTests(UbuntuDinDFixture dinD)
         var (scratch, _) = await dinD.PublishAsync(nameof(UpCommandLaunchesPrePublishedStack), TestConfigPaths.DefaultConfig);
 
         // `up` doesn't run db-init by default (the Orchestrator routes only Bootstrap/Rotate to it),
-        // so the API would fail health checks because the postgres admin user wouldn't exist yet.
+        // so the API would fail health checks because the DB schema user wouldn't exist yet.
         // We pre-run db-init via a real bootstrap pass first, then teardown only the API services,
         // then `up` brings them back. To keep this test simple and still exercise the `up` code
         // path, we drive a full bootstrap once and then a follow-up `up` against the same scratch

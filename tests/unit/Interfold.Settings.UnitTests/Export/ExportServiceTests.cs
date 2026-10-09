@@ -224,7 +224,7 @@ public sealed class ExportServiceTests
 
     // Reference's `format_full_export` drops fronts where alter_id or time_start are missing
     // (accounts.ex:1215). Our contract encodes both as non-nullable on FrontHistoryReadModel,
-    // but ListAllAsync's *impl* must drop rows with a null time_start (Scylla can hand back a
+    // but ListAllAsync's *impl* must drop rows with a null time_start (storage can hand back a
     // corrupt row), so ExportService only sees populated ones. Documenting the shape here
     // via a two-element fixture — the "drop" branch is exercised by the fronting repo tests.
     [Test]

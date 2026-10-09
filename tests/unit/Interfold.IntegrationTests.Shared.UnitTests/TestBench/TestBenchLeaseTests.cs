@@ -82,8 +82,8 @@ public sealed class TestBenchLeaseTests
         {
             LastAttachUtc = new DateTime(2026, 07, 27, 14, 15, 16, DateTimeKind.Utc),
             Users = { user },
-            MigrationsApplied = { ["postgres"] = true },
-            MigrationsInProgress = { ["cql-seed-and-migrate:scylla"] = user },
+            MigrationsApplied = { ["sqlite"] = true },
+            MigrationsInProgress = { ["sqlite-seed-and-migrate"] = user },
             Launching = launcher,
         };
         TestBenchLease.WriteState(written);
@@ -95,8 +95,8 @@ public sealed class TestBenchLeaseTests
             await Assert.That(read.Users.Count).IsEqualTo(1);
             await Assert.That(read.Users[0].Pid).IsEqualTo(user.Pid);
             await Assert.That(read.Users[0].TestHost).IsEqualTo("unit-test");
-            await Assert.That(read.MigrationsApplied["postgres"]).IsTrue();
-            await Assert.That(read.MigrationsInProgress["cql-seed-and-migrate:scylla"].Pid).IsEqualTo(user.Pid);
+            await Assert.That(read.MigrationsApplied["sqlite"]).IsTrue();
+            await Assert.That(read.MigrationsInProgress["sqlite-seed-and-migrate"].Pid).IsEqualTo(user.Pid);
             await Assert.That(read.Launching).IsNotNull();
             await Assert.That(read.Launching!.Pid).IsEqualTo(launcher.Pid);
             await Assert.That(read.Launching.TestHost).IsEqualTo("test-bench-launcher");

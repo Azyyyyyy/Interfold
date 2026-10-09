@@ -13,7 +13,7 @@ namespace Interfold.Settings.Domain.Settings;
 internal static class SettingsIdempotentCommandFlow
 {
     public static CommandExecutionResult<SettingsCommandResult> Success(
-        ScopedSystemId systemId,
+        SystemId systemId,
         SettingsAction action)
         => CommandExecutionResult<SettingsCommandResult>.Success(new SettingsCommandResult(systemId, action, Replay: false));
 

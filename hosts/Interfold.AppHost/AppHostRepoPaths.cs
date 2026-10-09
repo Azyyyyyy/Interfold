@@ -1,13 +1,8 @@
 namespace Interfold.AppHost;
 
-/// <summary>Repo-root-relative paths the AppHost graph bind-mounts. Absolute paths are
-/// required — relative <c>../../db/...</c> breaks when the AppHost cwd is the repo root
-/// or a test bin directory.</summary>
+/// <summary>Repo-root-relative paths the AppHost graph bind-mounts.</summary>
 public static class AppHostRepoPaths
 {
-    public static string ScyllaRackDcProperties(string repoRoot, string regionWire) =>
-        Path.GetFullPath(Path.Combine(repoRoot, "db", "scylla", $"cassandra-rackdc.{regionWire}.properties"));
-
     /// <summary>Walks up from <see cref="AppContext.BaseDirectory"/> until it finds
     /// <c>Interfold.slnx</c>.</summary>
     public static string ResolveRepoRoot()
@@ -21,7 +16,6 @@ public static class AppHostRepoPaths
         }
 
         throw new InvalidOperationException(
-            $"Could not locate 'Interfold.slnx' walking up from '{AppContext.BaseDirectory}'. " +
-            "The AppHost needs the repo root for Scylla rackdc bind mounts.");
+            $"Could not locate 'Interfold.slnx' walking up from '{AppContext.BaseDirectory}'.");
     }
 }

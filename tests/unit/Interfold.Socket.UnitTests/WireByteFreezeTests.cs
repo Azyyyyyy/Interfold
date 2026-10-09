@@ -4,7 +4,6 @@ using System.Text.Json;
 using Interfold.Alters.Contracts.Events;
 using Interfold.Auth.Contracts.Configuration;
 using Interfold.Auth.Domain;
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Settings.Contracts.Ids;
@@ -14,7 +13,7 @@ using Interfold.Socket.Api.Socket;
 namespace Interfold.Api.UnitTests;
 
 // Golden-byte guardrail on the scoped-id wire boundaries. Each fact below pins one
-// wire boundary a stray ScopedSystemId.RawId swap would silently corrupt. If any
+// wire boundary a stray SystemId.RawId swap would silently corrupt. If any
 // fail, treat as a real wire-format break, do not "adjust the expected value".
 public sealed class WireByteFreezeTests
 {
@@ -43,7 +42,7 @@ public sealed class WireByteFreezeTests
     }
 
     [Test]
-    public async Task CreateToken_EmitsScopedSubClaim()
+    public async Task CreateToken_EmitsSubClaim()
     {
         var (privatePem, _) = GenerateEs256Pem();
         var authConfig = new AuthenticationConfiguration
@@ -54,32 +53,32 @@ public sealed class WireByteFreezeTests
         var now = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
         var expiresAt = now.AddDays(1);
         Jti jti = new("golden-jti");
-        var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, CanonicalRaw);
+        var scoped = new SystemId(CanonicalRaw);
 
-        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, jti, scoped.AsSystemId());
+        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, jti, scoped);
 
         var payload = DecodeJwtPayload(token);
-        await Assert.That(payload.GetProperty("sub").GetString()).IsEqualTo(CanonicalScoped)
+        await Assert.That(payload.GetProperty("sub").GetString()).IsEqualTo(CanonicalRaw)
             .Because("The JWT sub claim is a wire boundary; the middleware ParseScoped requires the region prefix and would 401 an unscoped emission.");
     }
 
     [Test]
-    public async Task SystemTopic_ToWireString_EmitsScopedComposite()
+    public async Task SystemTopic_ToWireString_EmitsSystemComposite()
     {
-        var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, CanonicalRaw);
-        var topic = new SystemTopic(scoped.AsSystemId());
+        var scoped = new SystemId(CanonicalRaw);
+        var topic = new SystemTopic(scoped);
 
-        await Assert.That(topic.ToWireString()).IsEqualTo($"system:{CanonicalScoped}")
+        await Assert.That(topic.ToWireString()).IsEqualTo($"system:{CanonicalRaw}")
             .Because("SystemTopic emits the scoped composite verbatim; any change to that prefix breaks Phoenix topic matching for existing sockets.");
     }
 
     [Test]
-    public async Task InProcessEventBus_ScopedToScopedMatchDelivers()
+    public async Task InProcessEventBus_MatchDelivers()
     {
         using var bus = new InProcessEventBus();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
-        var scopedTarget = ScopedSystemId.Compose(ScyllaKeyspace.Nam, CanonicalRaw);
+        var scopedTarget = new SystemId(CanonicalRaw);
         var subscriber = bus.SubscribeAsync<AlterCreatedEvent>(
             targetSystemId: scopedTarget,
             ct: cts.Token);
@@ -91,47 +90,23 @@ public sealed class WireByteFreezeTests
         var moved = await enumerator.MoveNextAsync();
         await Assert.That(moved).IsTrue()
             .Because("A scoped-to-scoped compare must deliver — this is the single-region happy path every socket push takes, so a false-negative here would silently break every WebSocket push in the codebase.");
-        await Assert.That(enumerator.Current.TargetSystemId.Value).IsEqualTo(CanonicalScoped)
+        await Assert.That(enumerator.Current.TargetSystemId.Value).IsEqualTo(CanonicalRaw)
             .Because("The delivered event must carry the scoped composite verbatim — the filter is match-only, not lossy on payload.");
 
         await enumerator.DisposeAsync();
     }
 
     [Test]
-    public async Task InProcessEventBus_CrossRegionScopedTargetsDoNotBleedAcross()
+    public async Task SystemId_JsonRoundTrip_IsByteExact()
     {
-        using var bus = new InProcessEventBus();
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-
-        var namScoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, CanonicalRaw);
-        var eurScoped = ScopedSystemId.Compose(ScyllaKeyspace.Eur, CanonicalRaw);
-
-        var subscriber = bus.SubscribeAsync<AlterCreatedEvent>(
-            targetSystemId: namScoped,
-            ct: cts.Token);
-
-        var enumerator = subscriber.GetAsyncEnumerator(cts.Token);
-
-        await bus.PublishAsync(new AlterCreatedEvent(eurScoped, new(42)), cts.Token);
-
-        var moved = await enumerator.MoveNextAsync();
-        await Assert.That(moved).IsFalse()
-            .Because("A NAM-scoped subscriber must not receive an EUR-scoped publish even when the raw ids match — a strip-then-compare shape would deliver this cross-region false positive.");
-
-        await enumerator.DisposeAsync();
-    }
-
-    [Test]
-    public async Task ScopedSystemId_JsonRoundTrip_IsByteExact()
-    {
-        var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, CanonicalRaw);
+        var scoped = new SystemId(CanonicalRaw);
 
         var json = JsonSerializer.Serialize(scoped);
-        var roundTripped = JsonSerializer.Deserialize<ScopedSystemId>(json);
+        var roundTripped = JsonSerializer.Deserialize<SystemId>(json);
 
-        await Assert.That(json).IsEqualTo($"\"{CanonicalScoped}\"")
+        await Assert.That(json).IsEqualTo($"\"{CanonicalRaw}\"")
             .Because("The converter must emit Value verbatim so the wire bytes match the plain SystemId serialisation.");
-        await Assert.That(roundTripped.Value).IsEqualTo(CanonicalScoped)
+        await Assert.That(roundTripped.Value).IsEqualTo(CanonicalRaw)
             .Because("A round-trip must preserve Value exactly; a divergence here means the converter reserialised through RawId or an object shape.");
     }
 

@@ -4,10 +4,8 @@ using System.Text.RegularExpressions;
 
 namespace Interfold.IntegrationTests.Shared.TestServices;
 
-/// <summary>Preflight for Docker Desktop / daemon memory before spinning Scylla + Cassandra.
-/// Parallel integration runs (shared test-bench + Infrastructure's opted-out Aspire host)
-/// need roughly 8 GiB; below that Scylla typically enters FailedToStart and the suite hangs
-/// or cascades.</summary>
+/// <summary>Preflight for Docker Desktop / daemon memory before integration tests.
+/// Parallel integration runs need adequate RAM.</summary>
 public static class DockerMemoryPreflight
 {
     /// <summary>Soft floor for a full parallel integration matrix (GiB).</summary>
@@ -72,15 +70,13 @@ public static class DockerMemoryPreflight
             throw new InvalidOperationException(
                 $"Docker reports only {gib.Value:0.##} GiB total memory; parallel Interfold " +
                 $"integration tests need at least {MinimumGiB:0.#} GiB (recommend {RecommendedGiB:0.#}+ GiB). " +
-                "Raise Docker Desktop → Settings → Resources → Memory, then re-run. " +
-                "With too little RAM Scylla enters FailedToStart while Postgres/Cassandra come up.");
+                "Raise Docker Desktop → Settings → Resources → Memory, then re-run.");
         }
 
         if (gib.Value + 0.01 < RecommendedGiB)
         {
             Console.WriteLine(
-                $"[docker-memory] warning: Docker has {gib.Value:0.##} GiB; recommend {RecommendedGiB:0.#}+ GiB " +
-                "when the shared test-bench and Infrastructure's Aspire host both start Scylla.");
+                $"[docker-memory] warning: Docker has {gib.Value:0.##} GiB; recommend {RecommendedGiB:0.#}+ GiB.");
         }
     }
 }

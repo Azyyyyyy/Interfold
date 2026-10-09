@@ -8,7 +8,7 @@ public sealed class SocketPushContext
 {
     public SocketPushContext(
         WebSocket socket,
-        ScopedSystemId? joinedScopedSystemId,
+        SystemId? joinedSystemId,
         ConcurrentDictionary<string, byte> joinedTopics,
         ConcurrentDictionary<string, string?> topicJoinReference,
         ConcurrentDictionary<string, bool> topicReplyAsArrayFrame,
@@ -19,7 +19,7 @@ public sealed class SocketPushContext
         TimeProvider? timeProvider = null)
     {
         Socket = socket;
-        JoinedScopedSystemId = joinedScopedSystemId;
+        JoinedSystemId = joinedSystemId;
         JoinedTopics = joinedTopics;
         TopicJoinReference = topicJoinReference;
         TopicReplyAsArrayFrame = topicReplyAsArrayFrame;
@@ -36,7 +36,7 @@ public sealed class SocketPushContext
     /// <see cref="Interfold.Shared.Domain.Abstractions.IClusterEventBus.SubscribeAsync{TEvent}"/>
     /// so pump subscriptions filter on it. Null for anonymous / unjoined sockets (bus
     /// treats null as "no filter").</summary>
-    public ScopedSystemId? JoinedScopedSystemId { get; }
+    public SystemId? JoinedSystemId { get; }
     public ConcurrentDictionary<string, byte> JoinedTopics { get; }
     public ConcurrentDictionary<string, string?> TopicJoinReference { get; }
     public ConcurrentDictionary<string, bool> TopicReplyAsArrayFrame { get; }

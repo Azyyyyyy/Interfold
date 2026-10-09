@@ -17,11 +17,8 @@ namespace Interfold.Settings.IntegrationTests.Controllers;
 /// status mapping, body serialisation of <c>ImportDispatchResponse</c>).
 ///
 /// <para>
-/// We run against the in-memory fixture only. Cassandra and Scylla variants would
-/// re-test the same controller code path with no additional coverage and would slow the
-/// CI suite measurably. The repository-port equivalence is pinned separately by
-/// <c>InMemoryImportOperationRepositoryTests</c> and a future
-/// <c>ScyllaImportOperationRepositoryTests</c> integration.
+/// We run against the in-memory fixture only. The controller code path needs no
+/// persistent backend to exercise HTTP envelope and bus publication mechanics.
 /// </para>
 ///
 /// <para>
@@ -132,7 +129,7 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
         // routes publish SimplyPluralImportFailedEvent, which is the load-bearing
         // invariant: the client never gets stuck on Importing after a worker pickup.
         //
-        // SimplyPluralImportFailedEvent.TargetSystemId is a ScopedSystemId whose .Value
+        // SimplyPluralImportFailedEvent.TargetSystemId is a SystemId whose .Value
         // is the scoped form ("nam:<raw>") produced by the JWT-derived principal path,
         // while `principal` above is the bare 24-char raw id this test minted. Comparing
         // .Value would ordinal-mismatch on the region prefix and drop every event on the
@@ -141,7 +138,7 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
         SimplyPluralImportFailedEvent? observed = null;
         while (await enumerator.MoveNextAsync())
         {
-            if (string.Equals(enumerator.Current.TargetSystemId.RawId, principal, StringComparison.Ordinal))
+            if (string.Equals(enumerator.Current.TargetSystemId.Value, principal, StringComparison.Ordinal))
             {
                 observed = enumerator.Current;
                 break;

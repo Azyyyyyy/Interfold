@@ -10,8 +10,6 @@ namespace Interfold.Alters.IntegrationTests.Controllers;
 
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     [Test]
@@ -113,7 +111,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
         // populated field values at every VisibilityLevel — Public through Private. Before the fix,
         // InMemoryAlterRepository fed FriendshipLevel.TrustedFriend through the guarded projection,
         // which stripped Private-tier field definitions and dropped unpopulated ones, so the client
-        // never saw updates to Private fields. Scylla + Cassandra already did the right thing.
+        // never saw updates to Private fields. The database store already did the right thing.
         using var client = TestClient.NoRedirect(fixture);
 
         var owner = TestIds.NewSystemId("owner-view-fields");
@@ -160,7 +158,7 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
     public async Task AlterDelete_CascadesAlterJournalsAndDetachesFromGlobalJournals()
     {
         // Regression: deleting an alter must wipe its alter_journals entries (both view tables
-        // in the Scylla repo) and detach it from any global_journal_alters rows, while leaving
+        // in the repository) and detach it from any global_journal_alters rows, while leaving
         // the global journal itself intact (multiple alters can share a group journal).
         // Before the fix, DeleteAlterCommandHandler called only IAlterRepository.DeleteAsync and
         // left every alter-journal entry orphaned in the database.

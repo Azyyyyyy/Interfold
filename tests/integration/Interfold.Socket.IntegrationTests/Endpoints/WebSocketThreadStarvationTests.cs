@@ -58,8 +58,6 @@ namespace Interfold.Socket.IntegrationTests.Endpoints;
 [Retry(2)]
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class WebSocketThreadStarvationTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     // Match the CI runner's pre-warmed worker/IO counts. SetMaxThreads cannot go below

@@ -25,7 +25,7 @@ public interface IClusterEventBus
     /// null delivers everything. Non-targeted event types bypass the filter and are delivered
     /// to every subscriber.</summary>
     IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(
-        ScopedSystemId? targetSystemId,
+        SystemId? targetSystemId,
         CancellationToken ct = default)
         where TEvent : class;
 }

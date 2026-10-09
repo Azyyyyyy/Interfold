@@ -116,7 +116,7 @@ public class BaseEndpointTest
     /// relationship gate. Returns <c>(Owner, NonFriend, Friend, Trusted)</c>.
     /// <para>
     /// The composed IDs carry an 8-hex per-invocation nonce so bench-shared idempotency
-    /// state (<c>PostgresIdempotencyStore</c>, single Postgres across every leaf project
+    /// state (<c>SqliteIdempotencyStore</c>, SQLite across leaf projects
     /// under the centralised test-bench) can't replay a previous run's response and hand
     /// back an <c>AlterId</c> the current backend never wrote — same failure mode as
     /// <see cref="ReplayParityTests"/>. Callers must therefore not assume the returned
@@ -152,8 +152,8 @@ public class BaseEndpointTest
         }
 
         var accounts = factory.Services.GetRequiredService<IAccountRepository>();
-        var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, principal);
-        await accounts.EnsureExistsAsync(scoped.AsSystemId());
+        var scoped = new SystemId(principal);
+        await accounts.EnsureExistsAsync(scoped);
 
         var body = new SettingsUsernameRequest(new Username(username ?? principal));
         using var res = await client.SendAsJsonAsync(HttpMethod.Post, "/api/settings/username", body, principal);
@@ -386,14 +386,14 @@ public class BaseEndpointTest
         var now = DateTimeOffset.UtcNow;
         var expiresAt = now.AddDays(1);
 
-        // Middleware requires a scoped `{region}:{rawId}` sub; raw-sub 401s and the WS
-        // pump never sees the event. Nam matches the InMemory bootstrapper default.
-        var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, systemId);
-        var scopedSystemId = scoped.AsSystemId();
+        // Middleware requires a scoped `{prefix}:{rawId}` sub; raw-sub 401s and the WS
+        // pump never sees the event.
+        var scoped = new SystemId(systemId);
+        var SystemId = scoped;
 
-        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, new Jti(jti), scopedSystemId);
+        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, new Jti(jti), SystemId);
         // Record the scoped id so audit columns match the JWT sub byte-for-byte.
-        await rev.RecordTokenAsync(new Jti(jti), scopedSystemId, expiresAt, CancellationToken.None);
+        await rev.RecordTokenAsync(new Jti(jti), SystemId, expiresAt, CancellationToken.None);
 
         // Raw systemId is fine here: EnsureUserExistsAsync → AttachPrincipalAuth →
         // factory.CreateToken scopes internally.

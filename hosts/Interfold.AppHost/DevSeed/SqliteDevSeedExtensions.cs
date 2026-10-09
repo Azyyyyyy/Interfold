@@ -10,20 +10,20 @@ internal static class SqliteDevSeedExtensions
     /// Registers migrate + secrets seed for SQLite RunMode. The marker resource is what the
     /// API <c>WaitFor</c>s so secrets exist before <c>SecretsPreBuildLoader</c> runs.
     /// </summary>
-    public static IResourceBuilder<DevSeedResource> AddSqliteDevSeedPipeline(
+    public static IResourceBuilder<SqliteDevSeedResource> AddSqliteDevSeedPipeline(
         this IDistributedApplicationBuilder builder,
         string hostDbPath)
     {
         var encryptionPepper = builder.AddParameter(
-            DevSeedParameterNames.EncryptionPepper,
+            "encryption-pepper",
             new GenerateParameterDefault { MinLength = 32 },
             secret: true, persist: true);
         var deepLinkSecret = builder.AddParameter(
-            DevSeedParameterNames.DeepLinkSecret,
+            "deep-link-secret",
             new GenerateParameterDefault { MinLength = 32 },
             secret: true, persist: true);
 
-        var seedResourceBuilder = builder.AddResource(new DevSeedResource("db-seed"));
+        var seedResourceBuilder = builder.AddResource(new SqliteDevSeedResource("db-seed"));
 
         var context = new SqliteDevSeedContext(
             seedResource: seedResourceBuilder.Resource,
@@ -31,11 +31,8 @@ internal static class SqliteDevSeedExtensions
             encryptionPepper: encryptionPepper.Resource,
             deepLinkSecret: deepLinkSecret.Resource);
 
-
         builder.Services.AddSingleton(context);
         builder.Services.AddHostedService<SqliteDevSeedHostedService>();
-        // Same concurrent-startup requirement as the Postgres DevSeed path — WaitFor(db-seed)
-        // deadlocks if the hosted service cannot start in parallel with the orchestrator.
         builder.Services.Configure<HostOptions>(o => o.ServicesStartConcurrently = true);
 
         return seedResourceBuilder;

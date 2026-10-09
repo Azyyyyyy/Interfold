@@ -8,8 +8,8 @@ namespace Interfold.Tags.Contracts.Events;
 // migration. Other feature-scoped events (Alter*, Poll*, Journal*, Friendship*, Settings*)
 // migrate with their respective features.
 
-public sealed record TagCreatedEvent(ScopedSystemId TargetSystemId, TagId TagId) : ITargetedClusterEvent;
+public sealed record TagCreatedEvent(SystemId TargetSystemId, TagId TagId) : ITargetedClusterEvent;
 
-public sealed record TagUpdatedEvent(ScopedSystemId TargetSystemId, TagId TagId) : ITargetedClusterEvent;
+public sealed record TagUpdatedEvent(SystemId TargetSystemId, TagId TagId) : ITargetedClusterEvent;
 
-public sealed record TagDeletedEvent(ScopedSystemId TargetSystemId, TagId TagId) : ITargetedClusterEvent;
+public sealed record TagDeletedEvent(SystemId TargetSystemId, TagId TagId) : ITargetedClusterEvent;

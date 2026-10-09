@@ -139,7 +139,7 @@ public sealed class GuidedConfigPromptTests
         existing.Deployment.Update.Bootstrapper.Channel = BootstrapperReleaseChannel.BleedingEdge;
         existing.Api.Firebase.AndroidConfigPath = "/tmp/google-services.json";
         existing.Observability.OtlpEndpoint = "https://otel.example.com/v1/traces";
-        existing.Datastores.Persistence = PersistenceMode.ScyllaPostgres;
+        existing.Datastores.Persistence = PersistenceMode.Sqlite;
 
         var console = NewConsole();
         for (var i = 0; i < 25; i++)
@@ -190,7 +190,6 @@ public sealed class GuidedConfigPromptTests
         var config = Run(console);
 
         await Assert.That(config.Edge.TlsMode).IsEqualTo(EdgeTlsMode.PrivateCa);
-        await Assert.That(console.Output).DoesNotContain("Scylla and Postgres");
         await Assert.That(config.Datastores.Persistence).IsEqualTo(PersistenceMode.Sqlite);
         await Assert.That(config.Edge.Routing.Mode).IsEqualTo(EdgeRoutingMode.Path);
         await Assert.That(config.Edge.Hosts).IsEquivalentTo(["192.168.1.42"]);

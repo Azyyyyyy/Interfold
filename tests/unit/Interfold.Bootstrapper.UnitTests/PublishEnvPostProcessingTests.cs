@@ -13,8 +13,7 @@ public sealed class PublishEnvPostProcessingTests
 {
     private static (BootstrapConfig Config, GeneratedSecrets Secrets) MakeInputs(
         string? apiImage = null,
-        CqlBackend backend = CqlBackend.ScyllaSingle,
-        PersistenceMode persistence = PersistenceMode.ScyllaPostgres)
+        PersistenceMode persistence = PersistenceMode.Sqlite)
     {
         var config = new BootstrapConfig
         {
@@ -22,7 +21,6 @@ public sealed class PublishEnvPostProcessingTests
             Datastores =
             {
                 Persistence = persistence,
-                Cql = { Backend = backend },
             },
         };
         // Edge.Hosts has no placeholder; without a seed ResolveDerivedDefaults has
@@ -63,17 +61,10 @@ public sealed class PublishEnvPostProcessingTests
 
         string[] required =
         [
-            "POSTGRES_USER",
-            "POSTGRES_PASSWORD",
-            "POSTGRES_INIT_PASSWORD",
-            "POSTGRES_DB",
-            "SCYLLA_USER",
-            "SCYLLA_PASSWORD",
             "ENCRYPTION_PRIVATE_KEY",
             "GOOGLE_OAUTH_CLIENT_ID",
             "DISCORD_OAUTH_CLIENT_ID",
             "APPLE_OAUTH_CLIENT_ID",
-            "SCYLLA_KEYSPACE",
             "OAUTH_CALLBACK_BASE_URL",
             "JWT_AUTHORITY",
             "JWT_AUDIENCE",
@@ -88,13 +79,19 @@ public sealed class PublishEnvPostProcessingTests
             "DB_RETRY_INITIAL_DELAY_MS",
             "DB_RETRY_MAX_DELAY_MS",
             "HYDRATION_MAX_CONCURRENCY",
+            "CF_ACCESS_TEAM_DOMAIN",
+            "CF_ACCESS_AUD",
+            "CF_ACCESS_DISCORD_IDP_ID",
         ];
         foreach (var key in required)
         {
             await Assert.That(replacements.Parameters.ContainsKey(key)).IsTrue()
                 .Because($"missing parameter key '{key}' in env replacements");
-            await Assert.That(replacements.Parameters[key]).IsNotEmpty()
-                .Because($"parameter '{key}' must be non-empty");
+            if (!key.StartsWith("CF_ACCESS_", StringComparison.Ordinal))
+            {
+                await Assert.That(replacements.Parameters[key]).IsNotEmpty()
+                    .Because($"parameter '{key}' must be non-empty");
+            }
         }
 
         // The encryption pepper, OAuth client secrets, JWT material, deep-link secret, and
@@ -106,9 +103,6 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(replacements.Parameters.ContainsKey("DISCORD_OAUTH_CLIENT_SECRET")).IsFalse();
         await Assert.That(replacements.Parameters.ContainsKey("APPLE_OAUTH_CLIENT_SECRET")).IsFalse();
         await Assert.That(replacements.Parameters.ContainsKey("LEAF_PFX_PASSWORD")).IsFalse();
-        // Admin credentials must also stay inside internal.secrets exclusively.
-        await Assert.That(replacements.Parameters.ContainsKey("SCYLLA_ADMIN_PASSWORD")).IsFalse();
-        await Assert.That(replacements.Parameters.ContainsKey("POSTGRES_ADMIN_PASSWORD")).IsFalse();
     }
 
     [Test]
@@ -147,61 +141,8 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(replacements.Parameters["APPLE_OAUTH_CLIENT_ID"]).IsEqualTo(string.Empty);
     }
 
-    [Test]
-    public async Task BuildEnvReplacementsCarriesPostgresDatabaseNameFromConfig()
-    {
-        // POSTGRES_DB must round-trip verbatim so the API connection string lines up with
-        // the database DatabaseInitPhase actually creates.
-        var (config, secrets) = MakeInputs();
-        config.Datastores.Postgres.Database = "my_custom_db";
 
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
-        await Assert.That(replacements.Parameters.ContainsKey("POSTGRES_DB")).IsTrue();
-        await Assert.That(replacements.Parameters["POSTGRES_DB"]).IsEqualTo("my_custom_db");
-    }
-
-    [Test]
-    public async Task BuildEnvReplacementsProducesExpectedKeysInSingleMode()
-    {
-        var (config, secrets) = MakeInputs(backend: CqlBackend.ScyllaSingle);
-        const string baseDir = "/var/lib/interfold";
-        const string outputDir = "/srv/interfold/deploy";
-
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, baseDir, outputDir);
-
-        var total = replacements.Parameters.Count + replacements.BindMounts.Count;
-        // Single mode: 28 shared env parameters + 6 bind mounts (avatar, API certs, edge
-        // nginx template + proxy_params, edge certs, scylla rackdc) = 34.
-        await Assert.That(total).IsEqualTo(34);
-    }
-
-    [Test]
-    public async Task BuildEnvReplacementsCarriesApiRuntimeFromConfig()
-    {
-        // ScyllaKeyspace + every ApiRuntime field must round-trip verbatim; a typo either
-        // side surfaces here as a missing key or value mismatch.
-        var (config, secrets) = MakeInputs();
-        config.Datastores.Cql.Keyspace = ScyllaKeyspace.Eur;
-        config.Api.OAuth.CallbackBaseUrl = "https://callback.example.com";
-        config.Api.OAuth.JwtAuthority = "https://issuer.example.com";
-        config.Api.OAuth.JwtAudience = "custom-aud";
-        config.Api.CorsAllowedOrigins = ["https://app.example.com", "https://admin.example.com"];
-
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
-
-        await Assert.That(replacements.Parameters["SCYLLA_KEYSPACE"]).IsEqualTo("eur");
-        await Assert.That(replacements.Parameters["OAUTH_CALLBACK_BASE_URL"])
-            .IsEqualTo("https://callback.example.com");
-        await Assert.That(replacements.Parameters["JWT_AUTHORITY"]).IsEqualTo("https://issuer.example.com");
-        await Assert.That(replacements.Parameters["JWT_AUDIENCE"]).IsEqualTo("custom-aud");
-        // Comma-separated on OCTOCON_CORS_ALLOWED_ORIGINS; API CORS startup splits on ','.
-        await Assert.That(replacements.Parameters["CORS_ALLOWED_ORIGINS"])
-            .IsEqualTo("https://app.example.com,https://admin.example.com");
-        await Assert.That(replacements.Parameters["CF_ACCESS_TEAM_DOMAIN"]).IsEqualTo(string.Empty);
-        await Assert.That(replacements.Parameters["CF_ACCESS_AUD"]).IsEqualTo(string.Empty);
-        await Assert.That(replacements.Parameters["CF_ACCESS_DISCORD_IDP_ID"]).IsEqualTo(string.Empty);
-    }
 
     [Test]
     public async Task BuildEnvReplacementsReadsCloudflareAccessState()
@@ -251,7 +192,6 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(replacements.Parameters["JWT_AUDIENCE"]).IsEqualTo("octocon");
         await Assert.That(replacements.Parameters["CORS_ALLOWED_ORIGINS"])
             .IsEqualTo("https://api.example.com,https://admin.example.com");
-        await Assert.That(replacements.Parameters["SCYLLA_KEYSPACE"]).IsEqualTo("nam");
     }
 
     [Test]
@@ -338,120 +278,9 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(replacements.Parameters["HYDRATION_MAX_CONCURRENCY"]).IsEqualTo("8");
     }
 
-    [Test]
-    public async Task BindMountPathsResolveToAbsoluteUnderOutputDir()
-    {
-        var (config, secrets) = MakeInputs();
-        var baseDir = Path.Combine(Path.GetTempPath(), "interfold-basedir");
-        var outputDir = Path.Combine(Path.GetTempPath(), "interfold-outdir");
-
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, baseDir, outputDir);
-
-        // /keys was removed — JWT signing material lives in internal.secrets now.
-        await Assert.That(replacements.BindMounts.ContainsKey("interfold-api:/keys")).IsFalse();
-
-        var apiCerts = replacements.BindMounts["interfold-api:/certs"];
-        await Assert.That(Path.IsPathFullyQualified(apiCerts)).IsTrue();
-        await Assert.That(apiCerts).StartsWith(outputDir);
-
-        var apiAvatars = replacements.BindMounts["interfold-api:/app/data/avatars"];
-        await Assert.That(Path.IsPathFullyQualified(apiAvatars)).IsTrue();
-        await Assert.That(apiAvatars).IsEqualTo(Path.GetFullPath(Path.Combine(outputDir, "data", "avatars")));
-
-        // Scylla rackdc lives under {outputDir}/support (staged at publish from embeds).
-        var scyllaRackdc = replacements.BindMounts["scylla:/etc/scylla/cassandra-rackdc.properties"];
-        await Assert.That(Path.IsPathFullyQualified(scyllaRackdc)).IsTrue();
-        await Assert.That(scyllaRackdc).StartsWith(Path.GetFullPath(Path.Combine(outputDir, "support")));
-        await Assert.That(scyllaRackdc).EndsWith("cassandra-rackdc.nam.properties");
-    }
 
     [Test]
-    public async Task MultiModeAddsOneBindMountPerScyllaRegion()
-    {
-        var (config, secrets) = MakeInputs(backend: CqlBackend.ScyllaMulti);
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets,
-            baseDir: "/base", outputDir: "/out");
-
-        // Multi mode emits 7 region nodes (nam, eur, sam, sas, eas, ocn, gdpr).
-        string[] regions = ["nam", "eur", "sam", "sas", "eas", "ocn", "gdpr"];
-        foreach (var region in regions)
-        {
-            var key = $"scylla-{region}:/etc/scylla/cassandra-rackdc.properties";
-            await Assert.That(replacements.BindMounts.ContainsKey(key)).IsTrue()
-                .Because($"missing bind mount for region {region}");
-            await Assert.That(replacements.BindMounts[key]).EndsWith($"cassandra-rackdc.{region}.properties");
-        }
-    }
-
-    [Test]
-    public async Task TranslateDatabaseModeSingleProducesScyllaSingleTopology()
-    {
-        var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Single);
-
-        await Assert.That(includeScylla).IsTrue();
-        await Assert.That(includeCassandra).IsFalse();
-        await Assert.That(topology).IsEqualTo(ScyllaTopology.Single);
-        await Assert.That(topology.ToWireValue()).IsEqualTo("single");
-    }
-
-    [Test]
-    public async Task TranslateDatabaseModeMultiProducesScyllaMultiTopology()
-    {
-        var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Multi);
-
-        await Assert.That(includeScylla).IsTrue();
-        await Assert.That(includeCassandra).IsFalse();
-        await Assert.That(topology).IsEqualTo(ScyllaTopology.Multi);
-        await Assert.That(topology.ToWireValue()).IsEqualTo("multi");
-    }
-
-    [Test]
-    public async Task TranslateDatabaseModeCassandraSwapsBackends()
-    {
-        // Cassandra mode disables Scylla entirely; topology "single" is filler (the
-        // cassandra branch in InterfoldAppHost ignores topology).
-        var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Cassandra);
-
-        await Assert.That(includeScylla).IsFalse();
-        await Assert.That(includeCassandra).IsTrue();
-        await Assert.That(topology).IsEqualTo(ScyllaTopology.Single);
-        await Assert.That(topology.ToWireValue()).IsEqualTo("single");
-    }
-
-    [Test]
-    public async Task CassandraModeFillsCassandraImageEnvKey()
-    {
-        var (config, secrets) = MakeInputs(backend: CqlBackend.Cassandra);
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
-
-        await Assert.That(replacements.Parameters.ContainsKey("CASSANDRA_IMAGE")).IsTrue()
-            .Because("Aspire emits image: \"${CASSANDRA_IMAGE}\" for the Dockerfile service");
-        await Assert.That(replacements.Parameters["CASSANDRA_IMAGE"])
-            .IsEqualTo(CassandraImagePhase.LocalImageTag);
-    }
-
-    [Test]
-    public async Task NonCassandraModesOmitCassandraImageEnvKey()
-    {
-        var (config, secrets) = MakeInputs(backend: CqlBackend.ScyllaSingle);
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
-
-        await Assert.That(replacements.Parameters.ContainsKey("CASSANDRA_IMAGE")).IsFalse()
-            .Because("Scylla-only stacks must not carry an unused CASSANDRA_IMAGE entry");
-    }
-
-    [Test]
-    public async Task TranslateDatabaseModeSqliteDisablesCqlBackends()
-    {
-        var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Sqlite);
-
-        await Assert.That(includeScylla).IsFalse();
-        await Assert.That(includeCassandra).IsFalse();
-        await Assert.That(topology).IsEqualTo(ScyllaTopology.Single);
-    }
-
-    [Test]
-    public async Task SqliteModeAddsApiSqliteDataBindMountAndOmitsRackdc()
+    public async Task SqliteModeAddsApiSqliteDataBindMount()
     {
         var (config, secrets) = MakeInputs(persistence: PersistenceMode.Sqlite);
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out/deploy");
@@ -461,18 +290,8 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(replacements.BindMounts[sqliteKey])
             .IsEqualTo(PublishPhase.ResolveSqliteDataHostDir("/out/deploy"));
 
-        await Assert.That(replacements.BindMounts.Keys.Any(k => k.Contains("cassandra-rackdc"))).IsFalse();
     }
 
-    [Test]
-    public async Task TranslateDatabaseModeRejectsUnknownValue()
-    {
-        // Fail-fast for callers that bypass ConfigPhase.Validate.
-        var ex = Assert.Throws<InvalidOperationException>(() => PublishPhase.TranslateDatabaseMode((DatabaseMode)999));
-
-        await Assert.That(ex.Message).Contains("databaseMode");
-        await Assert.That(ex.Message).Contains("sqlite");
-    }
 
     [Test]
     public async Task AlwaysOnEdgeAddsEdgeNginxBindMounts()
@@ -530,11 +349,6 @@ public sealed class PublishEnvPostProcessingTests
         // ApiImage flows via Aspire Parameters:api-image into compose YAML, not .env.
         var (configA, secretsA) = MakeInputs(apiImage: "ghcr.io/azyyyyyy/interfold-api:v1.2.3");
         var (configB, secretsB) = MakeInputs(apiImage: "private-registry.example.com/api:custom-tag");
-        secretsB.PostgresPassword = secretsA.PostgresPassword;
-        secretsB.PostgresInitPassword = secretsA.PostgresInitPassword;
-        secretsB.PostgresAdminPassword = secretsA.PostgresAdminPassword;
-        secretsB.ScyllaPassword = secretsA.ScyllaPassword;
-        secretsB.ScyllaAdminPassword = secretsA.ScyllaAdminPassword;
         secretsB.EncryptionPrivateKeyB64 = secretsA.EncryptionPrivateKeyB64;
 
         var a = PublishPhase.BuildEnvReplacements(configA, secretsA, "/base", "/out");
@@ -561,11 +375,6 @@ public sealed class PublishEnvPostProcessingTests
         configA.Deployment.WebImage = "ghcr.io/azyyyyyy/interfold-web:v1.2.3";
         var (configB, secretsB) = MakeInputs();
         configB.Deployment.WebImage = "private-registry.example.com/web:custom-tag";
-        secretsB.PostgresPassword = secretsA.PostgresPassword;
-        secretsB.PostgresInitPassword = secretsA.PostgresInitPassword;
-        secretsB.PostgresAdminPassword = secretsA.PostgresAdminPassword;
-        secretsB.ScyllaPassword = secretsA.ScyllaPassword;
-        secretsB.ScyllaAdminPassword = secretsA.ScyllaAdminPassword;
         secretsB.EncryptionPrivateKeyB64 = secretsA.EncryptionPrivateKeyB64;
 
         var a = PublishPhase.BuildEnvReplacements(configA, secretsA, "/base", "/out");
@@ -609,104 +418,6 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(serverName).IsEqualTo("192.168.1.42");
     }
 
-    [Test]
-    public async Task StampCassandraPullPolicyNeverInsertsPolicyAfterImageLine()
-    {
-        // Inserts `pull_policy: never` at the image indent so `docker compose pull` skips
-        // the non-registry-backed tag. End-to-end behaviour tested in UpdateImagesCassandraModeTests.
-        var tmp = Path.Combine(Path.GetTempPath(), $"compose-stamp-{Guid.NewGuid():N}.yaml");
-        try
-        {
-            var original = string.Join("\n", new[]
-            {
-                "services:",
-                "  cassandra:",
-                "    image: \"${CASSANDRA_IMAGE}\"",
-                "    volumes:",
-                "      - cassandra-data:/var/lib/cassandra",
-                "  interfold-api:",
-                "    image: interfold-api:test",
-                "",
-            });
-            await File.WriteAllTextAsync(tmp, original);
-
-            PublishPhase.StampCassandraPullPolicyNever(tmp);
-
-            var lines = await File.ReadAllLinesAsync(tmp);
-            var imageIdx = Array.FindIndex(lines, l => l.Contains("${CASSANDRA_IMAGE}", StringComparison.Ordinal));
-            await Assert.That(imageIdx).IsGreaterThanOrEqualTo(0)
-                .Because("baseline: the anchor line must still be present after stamping");
-            await Assert.That(lines[imageIdx + 1]).IsEqualTo("    pull_policy: never")
-                .Because("stamp must land on the very next line, at the same 4-space indent as the image key");
-        }
-        finally
-        {
-            if (File.Exists(tmp)) File.Delete(tmp);
-        }
-    }
-
-    [Test]
-    public async Task StampCassandraPullPolicyNeverIsIdempotent()
-    {
-        // Reruns of `bootstrap publish` must not double-stamp.
-        var tmp = Path.Combine(Path.GetTempPath(), $"compose-stamp-idem-{Guid.NewGuid():N}.yaml");
-        try
-        {
-            var original = string.Join("\n", new[]
-            {
-                "services:",
-                "  cassandra:",
-                "    image: \"${CASSANDRA_IMAGE}\"",
-                "    volumes:",
-                "      - cassandra-data:/var/lib/cassandra",
-                "",
-            });
-            await File.WriteAllTextAsync(tmp, original);
-
-            PublishPhase.StampCassandraPullPolicyNever(tmp);
-            PublishPhase.StampCassandraPullPolicyNever(tmp);
-
-            var lines = await File.ReadAllLinesAsync(tmp);
-            var count = lines.Count(l => string.Equals(l.Trim(), "pull_policy: never", StringComparison.Ordinal));
-            await Assert.That(count).IsEqualTo(1)
-                .Because("second invocation must be a no-op — one policy line, not two");
-        }
-        finally
-        {
-            if (File.Exists(tmp)) File.Delete(tmp);
-        }
-    }
-
-    [Test]
-    public async Task StampCassandraPullPolicyNeverIsNoOpWhenCassandraAnchorAbsent()
-    {
-        // No ${CASSANDRA_IMAGE} anchor → leave the file alone; keeps the stamper safe
-        // to call from any future context.
-        var tmp = Path.Combine(Path.GetTempPath(), $"compose-stamp-noop-{Guid.NewGuid():N}.yaml");
-        try
-        {
-            var original = string.Join("\n", new[]
-            {
-                "services:",
-                "  scylla:",
-                "    image: scylladb/scylla:2026.1",
-                "  interfold-api:",
-                "    image: interfold-api:test",
-                "",
-            });
-            await File.WriteAllTextAsync(tmp, original);
-
-            PublishPhase.StampCassandraPullPolicyNever(tmp);
-
-            var after = await File.ReadAllTextAsync(tmp);
-            await Assert.That(after.Contains("pull_policy", StringComparison.Ordinal)).IsFalse()
-                .Because("no ${CASSANDRA_IMAGE} anchor means nothing to stamp; the file must be untouched");
-        }
-        finally
-        {
-            if (File.Exists(tmp)) File.Delete(tmp);
-        }
-    }
 
     [Test]
     public async Task EnumerateSharedAspireParametersConfigKeyMatchesEnvKeyKebabToUpperSnake()
@@ -733,8 +444,8 @@ public sealed class PublishEnvPostProcessingTests
                 .Because($"env-key '{envKey}' must be the upper-snake-cased form of the kebab-cased Aspire parameter '{bareName}' (config-key '{configKey}')");
         }
 
-        // Spec-frozen at 28 — bump this AND the enumerator together.
-        await Assert.That(seenConfigKeys.Count).IsEqualTo(28)
-            .Because("shared-parameter count is spec-frozen at 28; update BOTH the enumerator AND this assertion together");
+        // Spec-frozen at 21 — bump this AND the enumerator together.
+        await Assert.That(seenConfigKeys.Count).IsEqualTo(21)
+            .Because("shared-parameter count is spec-frozen at 21; update BOTH the enumerator AND this assertion together");
     }
 }

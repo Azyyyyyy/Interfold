@@ -10,7 +10,7 @@ namespace Interfold.Bootstrapper.IntegrationTests.Fixtures;
 /// <remarks>
 /// <para>
 /// Each active test does several <c>docker exec</c> calls into a per-fixture DinD container's
-/// inner daemon, publishes an Aspire-managed compose stack (Scylla + Postgres + API), and
+/// inner daemon, publishes a compose stack (API + edge services), and
 /// pins a per-fixture image layer plus inner named volumes to disk. Running too many in
 /// parallel produces <c>BadGateway</c> exec responses, <c>docker probe timed out</c> health
 /// check failures, and — historically — <c>No space left on device</c> runner crashes.
@@ -36,8 +36,7 @@ namespace Interfold.Bootstrapper.IntegrationTests.Fixtures;
 ///   <item>
 ///     Feed the snapshot into <see cref="DinDParallelLimitCalculator.Compute"/>, which
 ///     leaves the operator-requested headroom on each axis: <b>10% RAM free</b> after peak
-///     load, <b>15% disk free</b> after peak load, and <b>~1.5 CPU per slot</b> (Scylla is
-///     shard-per-core, dockerd + API round up).
+///     load, <b>15% disk free</b> after peak load, and <b>~1.5 CPU per slot</b> (dockerd + API round up).
 ///   </item>
 ///   <item>
 ///     Clamp to <c>[1, <see cref="DinDParallelLimitCalculator.HardCeiling"/>]</c>.

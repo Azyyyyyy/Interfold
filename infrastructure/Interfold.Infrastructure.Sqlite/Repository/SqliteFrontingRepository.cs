@@ -49,7 +49,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             WHERE user_id = @user_id AND alter_id = @alter_id
             LIMIT 1
             """,
-            new { user_id = SqliteStorageKeys.Persist(systemId), alter_id = alterId.Value });
+            new { user_id = systemId, alter_id = alterId.Value });
         return hit is not null and not DBNull;
     }
 
@@ -61,7 +61,6 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userKey = SqliteStorageKeys.Persist(systemId);
         var frontId = Guid.NewGuid();
         var frontIdText = frontId.ToString("N");
         var startedMs = startedAt.ToUnixTimeMilliseconds();
@@ -76,7 +75,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
                 WHERE user_id = @user_id AND alter_id = @alter_id
                 LIMIT 1
                 """,
-                new { user_id = userKey, alter_id = alterId.Value },
+                new { user_id = systemId, alter_id = alterId.Value },
                 tx);
             if (already is not null and not DBNull)
             {
@@ -91,7 +90,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
                 """,
                 new
                 {
-                    user_id = userKey,
+                    user_id = systemId,
                     alter_id = alterId.Value,
                     id = frontIdText,
                     comment,
@@ -106,7 +105,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
                 """,
                 new
                 {
-                    user_id = userKey,
+                    user_id = systemId,
                     id = frontIdText,
                     alter_id = alterId.Value,
                     comment,
@@ -131,7 +130,6 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userKey = SqliteStorageKeys.Persist(systemId);
         var endedMs = endedAt.ToUnixTimeMilliseconds();
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
@@ -141,7 +139,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             WHERE user_id = @user_id AND alter_id = @alter_id
             LIMIT 1
             """,
-            new { user_id = userKey, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction);
 
         if (frontIdText is null)
@@ -152,7 +150,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             DELETE FROM current_fronts
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = userKey, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction);
 
         await work.Connection.ExecuteAsync(
@@ -161,7 +159,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             SET alter_id = NULL
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = userKey, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction);
 
         await work.Connection.ExecuteAsync(
@@ -170,7 +168,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             SET time_end = @time_end
             WHERE user_id = @user_id AND id = @id AND time_end IS NULL
             """,
-            new { time_end = endedMs, user_id = userKey, id = frontIdText },
+            new { time_end = endedMs, user_id = systemId, id = frontIdText },
             work.Transaction);
 
         await work.CommitAsync(cancellationToken);
@@ -183,7 +181,6 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userKey = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
 
@@ -195,7 +192,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
                 WHERE user_id = @user_id AND alter_id = @alter_id
                 LIMIT 1
                 """,
-                new { user_id = userKey, alter_id = value.Value });
+                new { user_id = systemId, alter_id = value.Value });
             if (hit is null or DBNull)
             {
                 return false;
@@ -208,7 +205,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             VALUES (@user_id, @alter_id)
             ON CONFLICT(user_id) DO UPDATE SET alter_id = excluded.alter_id
             """,
-            new { user_id = userKey, alter_id = alterId?.Value });
+            new { user_id = systemId, alter_id = alterId?.Value });
         return rows > 0;
     }
 
@@ -217,7 +214,6 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userKey = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
 
@@ -228,7 +224,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             WHERE user_id = @user_id
             LIMIT 1
             """,
-            new { user_id = userKey });
+            new { user_id = systemId });
         if (primaryRaw is not null)
         {
             primaryId = new AlterId((short)primaryRaw.Value);
@@ -241,7 +237,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             WHERE user_id = @user_id
             ORDER BY time_start DESC
             """,
-            new { user_id = userKey })).ToArray();
+            new { user_id = systemId })).ToArray();
 
         var results = new List<FrontActiveReadModel>(rows.Length);
         foreach (var row in rows)
@@ -278,13 +274,12 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
-        var ownerId = SqliteStorageKeys.Normalize(systemId).Value;
 
         var all = await ListActiveAsync(systemId, cancellationToken);
         if (all.Count == 0)
         {
             GuardedInstrumentation.RecordList(
-                _logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, ownerId,
+                _logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, systemId,
                 totalCount: 0, visibleCount: 0, sw.Elapsed.TotalMilliseconds);
             return all;
         }
@@ -293,7 +288,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         var visibleIds = guardedAlters.Select(a => a.Id).ToHashSet();
         var visible = all.Where(front => visibleIds.Contains(front.Alter.Id)).ToArray();
         GuardedInstrumentation.RecordList(
-            _logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, ownerId,
+            _logger, "fronting", nameof(ListActiveGuardedAsync), viewerSystemId, systemId,
             all.Count, visible.Length, sw.Elapsed.TotalMilliseconds);
         return visible;
     }
@@ -318,7 +313,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             """,
             new
             {
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 start = startInclusive.ToUnixTimeMilliseconds(),
                 end = endInclusive.ToUnixTimeMilliseconds(),
             });
@@ -338,7 +333,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             WHERE user_id = @user_id
             ORDER BY time_start DESC
             """,
-            new { user_id = SqliteStorageKeys.Persist(systemId) });
+            new { user_id = systemId });
         return rows.Select(r => MapHistoryRow(r, systemId)).ToArray();
     }
 
@@ -348,7 +343,6 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userKey = SqliteStorageKeys.Persist(systemId);
         var frontIdText = frontId.Value.ToString("N");
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
@@ -360,7 +354,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             WHERE user_id = @user_id
             LIMIT 1
             """,
-            new { user_id = userKey });
+            new { user_id = systemId });
         if (primaryRaw is not null)
         {
             primaryId = new AlterId((short)primaryRaw.Value);
@@ -373,7 +367,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = userKey, id = frontIdText });
+            new { user_id = systemId, id = frontIdText });
         if (row is null)
         {
             return null;
@@ -416,7 +410,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             """,
             new
             {
-                user_id = SqliteStorageKeys.Persist(systemId),
+                user_id = systemId,
                 id = frontId.Value.ToString("N"),
             });
         return row is null ? null : MapHistoryRow(row, systemId);
@@ -441,7 +435,6 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        var userId = SqliteStorageKeys.Persist(systemId);
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
 
         var frontIds = (await work.Connection.QueryAsync<string>(
@@ -449,7 +442,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             SELECT id FROM fronts
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = userId, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction)).Select(id => FrontId.Parse(id, null)).ToArray();
 
         var hadActiveFront = await work.Connection.ExecuteScalarAsync<long?>(
@@ -458,7 +451,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             WHERE user_id = @user_id AND alter_id = @alter_id
             LIMIT 1
             """,
-            new { user_id = userId, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction) is not null;
 
         var primaryCleared = await work.Connection.ExecuteScalarAsync<long?>(
@@ -467,7 +460,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             WHERE user_id = @user_id AND alter_id = @alter_id
             LIMIT 1
             """,
-            new { user_id = userId, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction) is not null;
 
         // ListActiveAsync refuses an active front whose alter is gone, which fails socket join.
@@ -476,7 +469,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             DELETE FROM current_fronts
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = userId, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction);
 
         await work.Connection.ExecuteAsync(
@@ -484,7 +477,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             DELETE FROM fronts
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = userId, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction);
 
         await work.Connection.ExecuteAsync(
@@ -493,7 +486,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             SET alter_id = NULL
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = userId, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction);
 
         await work.CommitAsync(cancellationToken);
@@ -506,7 +499,6 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userKey = SqliteStorageKeys.Persist(systemId);
         var frontIdText = frontId.Value.ToString("N");
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
@@ -516,14 +508,14 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = userKey, id = frontIdText },
+            new { user_id = systemId, id = frontIdText },
             work.Transaction);
         if (alterRaw is null)
             return false;
 
         await work.Connection.ExecuteAsync(
             "DELETE FROM fronts WHERE user_id = @user_id AND id = @id",
-            new { user_id = userKey, id = frontIdText },
+            new { user_id = systemId, id = frontIdText },
             work.Transaction);
 
         await work.Connection.ExecuteAsync(
@@ -531,7 +523,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             DELETE FROM current_fronts
             WHERE user_id = @user_id AND id = @id
             """,
-            new { user_id = userKey, id = frontIdText },
+            new { user_id = systemId, id = frontIdText },
             work.Transaction);
 
         await work.Connection.ExecuteAsync(
@@ -540,7 +532,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             SET alter_id = NULL
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = userKey, alter_id = (short)alterRaw.Value },
+            new { user_id = systemId, alter_id = (short)alterRaw.Value },
             work.Transaction);
 
         await work.CommitAsync(cancellationToken);
@@ -554,7 +546,6 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userKey = SqliteStorageKeys.Persist(systemId);
         var frontIdText = frontId.Value.ToString("N");
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
@@ -567,7 +558,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
                 SET comment = @comment
                 WHERE user_id = @user_id AND id = @id
                 """,
-                new { comment, user_id = userKey, id = frontIdText },
+                new { comment, user_id = systemId, id = frontIdText },
                 tx);
 
             if (activeUpdated == 0)
@@ -582,7 +573,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
                 SET comment = @comment
                 WHERE user_id = @user_id AND id = @id AND time_end IS NULL
                 """,
-                new { comment, user_id = userKey, id = frontIdText },
+                new { comment, user_id = systemId, id = frontIdText },
                 tx);
 
             await tx.CommitAsync(cancellationToken);

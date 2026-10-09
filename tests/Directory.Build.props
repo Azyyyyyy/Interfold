@@ -14,10 +14,9 @@
     block. That block is silently ignored by Microsoft.Testing.Platform + TUnit —
     MTP's `dotnet test` integration doesn't include the VSTestBridge that would honour
     it. Every leaf integration project therefore fell through to the legacy AspireFixture
-    path and spun up its own Postgres+Scylla+Cassandra, exhausting /tmp and OOM-killing
-    Scylla during the July 2026 solution-wide `dotnet test` run. AssemblyMetadata reaches
-    the test host regardless of runner (dotnet test, direct-DLL launch, IDE), so the
-    channel is now robust.
+    path and spun up its own database containers, exhausting resources and causing test failures
+    during uncoordinated test runs. AssemblyMetadata reaches the test host regardless of runner
+    (dotnet test, direct-DLL launch, IDE), so the channel is now robust.
   -->
   <PropertyGroup>
     <IsInterfoldIntegrationTest>false</IsInterfoldIntegrationTest>

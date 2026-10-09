@@ -2,7 +2,6 @@ using Interfold.Polls.Contracts.Ids;
 using Interfold.Polls.Contracts.Models.Commands;
 using Interfold.Polls.Domain;
 using Interfold.Polls.Domain.Abstractions.Repository;
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
@@ -19,8 +18,8 @@ namespace Interfold.Api.UnitTests.Domain;
 // Func<CT, ...>; these tests count calls to catch a re-regression at the seam.
 public sealed class PollCommandFlowExecutionTests
 {
-    private static readonly ScopedSystemId Principal =
-        ScopedSystemId.Compose(ScyllaKeyspace.Nam, "poll-flow-tests");
+    private static readonly SystemId Principal =
+        new SystemId("poll-flow-tests");
 
     private static readonly PollId AnyPollId = new(Guid.Parse("11111111-2222-3333-4444-555555555555"));
 
@@ -147,3 +146,4 @@ public sealed class PollCommandFlowExecutionTests
     private static int Calls<T>(Mock<T> mock, string member) where T : class =>
         Mock.Invocations(mock).Count(call => call.MemberName == member);
 }
+

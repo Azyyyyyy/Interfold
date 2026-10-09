@@ -8,8 +8,6 @@ namespace Interfold.Shared.Contracts.Configuration;
 /// </summary>
 public static class ComposeNetworks
 {
-    public const string Scylla = "scylla";
-    public const string Postgres = "postgres";
     public const string EdgeApi = "edge-api";
     public const string EdgeWeb = "edge-web";
 }
@@ -20,11 +18,5 @@ public static class ComposeNetworks
 /// </summary>
 public static class ComposeVolumes
 {
-    public const string PostgresData = "msg_pgdata";
-    public const string ScyllaData = "scylla_data";
-    public const string CassandraData = "cassandra_data";
     public const string InterfoldSqliteData = "interfold_sqlite_data";
-
-    /// <summary>Per-region Scylla volume for multi-node topologies (<c>scylla_{region}_data</c>).</summary>
-    public static string ScyllaRegionData(string regionWireValue) => $"scylla_{regionWireValue}_data";
 }
