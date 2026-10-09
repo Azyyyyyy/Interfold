@@ -766,7 +766,3 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         return WebSocketExtensions.WebSocketBasePath(server);
     }
 }
-
-
-
-

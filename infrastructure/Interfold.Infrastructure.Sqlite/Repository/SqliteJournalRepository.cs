@@ -40,7 +40,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = FormatEntryId(entryId),
                 title = command.Title,
                 inserted_at = nowMs,
@@ -90,7 +90,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
                 content = command.Content,
                 color = command.Color?.Value,
                 updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = FormatEntryId(command.EntryId.Value),
             });
         return updated > 0;
@@ -110,7 +110,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             DELETE FROM global_journal_alters
             WHERE user_id = @user_id AND global_journal_id = @id
             """,
-            new { user_id = systemId.Value, id = FormatEntryId(entryId.Value) },
+            new { user_id = systemId, id = FormatEntryId(entryId.Value) },
             work.Transaction);
 
         var removed = await work.Connection.ExecuteAsync(
@@ -118,7 +118,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             DELETE FROM global_journals
             WHERE user_id = @user_id AND id = @id
             """,
-            new { user_id = systemId.Value, id = FormatEntryId(entryId.Value) },
+            new { user_id = systemId, id = FormatEntryId(entryId.Value) },
             work.Transaction);
 
         await work.CommitAsync(cancellationToken);
@@ -162,7 +162,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
                 alter_id = alterId.Value,
                 inserted_at = nowMs,
@@ -187,7 +187,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
                 alter_id = alterId.Value,
             });
@@ -212,7 +212,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = FormatEntryId(entryId),
                 alter_id = command.AlterId.Value,
                 title = command.Title,
@@ -238,7 +238,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
             });
         if (row is null)
@@ -278,7 +278,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
                 content = command.Content,
                 color = command.Color?.Value,
                 updated_at = command.UpdatedAt.ToUnixTimeMilliseconds(),
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = FormatEntryId(command.EntryId.Value),
             });
         return updated > 0;
@@ -297,7 +297,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
             });
         return removed > 0;
@@ -314,7 +314,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             SELECT id FROM alter_journals
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = systemId.Value, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction)).ToArray();
 
         var globalIds = (await work.Connection.QueryAsync<string>(
@@ -322,7 +322,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             SELECT global_journal_id FROM global_journal_alters
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = systemId.Value, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction)).ToArray();
 
         await work.Connection.ExecuteAsync(
@@ -330,7 +330,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             DELETE FROM alter_journals
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = systemId.Value, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction);
 
         await work.Connection.ExecuteAsync(
@@ -338,7 +338,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             DELETE FROM global_journal_alters
             WHERE user_id = @user_id AND alter_id = @alter_id
             """,
-            new { user_id = systemId.Value, alter_id = alterId.Value },
+            new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction);
 
         await work.CommitAsync(cancellationToken);
@@ -375,7 +375,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             WHERE user_id = @user_id AND alter_id = @alter_id
             ORDER BY inserted_at DESC
             """,
-            new { user_id = systemId.Value, alter_id = alterId.Value });
+            new { user_id = systemId, alter_id = alterId.Value });
         return rows.Select(MapAlterJournal).ToArray();
     }
 
@@ -395,7 +395,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
             });
         return row is null ? null : MapAlterJournal(row);
@@ -413,7 +413,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             FROM global_journals
             WHERE user_id = @user_id
             """,
-            new { user_id = systemId.Value })).ToArray();
+            new { user_id = systemId })).ToArray();
 
         var result = new List<JournalReadModel>(drafts.Length);
         foreach (var draft in drafts)
@@ -442,7 +442,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = systemId.Value, id = idHex });
+            new { user_id = systemId, id = idHex });
         if (row is null)
         {
             return null;
@@ -482,7 +482,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             {
                 flag = value ? 1 : 0,
                 updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
             });
         return rows > 0;
@@ -513,7 +513,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             {
                 flag = value ? 1 : 0,
                 updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
             });
         return updated > 0;
@@ -534,7 +534,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             """,
             new
             {
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = FormatEntryId(entryId.Value),
             },
             transaction);
@@ -553,7 +553,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = systemId.Value, id = FormatEntryId(entryId.Value) });
+            new { user_id = systemId, id = FormatEntryId(entryId.Value) });
         return hit is not null and not DBNull;
     }
 
@@ -569,14 +569,14 @@ public sealed class SqliteJournalRepository : IJournalRepository
             FROM global_journal_alters
             WHERE user_id = @user_id AND global_journal_id = @id
             """,
-            new { user_id = systemId.Value, id = entryIdHex });
+            new { user_id = systemId, id = entryIdHex });
         return alterIds.Select(id => new AlterId((short)id)).ToArray();
     }
 
     private static JournalReadModel MapGlobalJournal(GlobalJournalRow row)
         => new(
             new EntryId(ParseEntryId(row.Id)),
-            new SystemId(row.UserId),
+            row.UserId,
             row.Title,
             row.Content,
             HexColor.FromNullable(row.Color),
@@ -589,7 +589,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
     private static AlterJournalReadModel MapAlterJournal(AlterJournalRow row)
         => new(
             new EntryId(ParseEntryId(row.Id)),
-            new SystemId(row.UserId),
+            row.UserId,
             new AlterId((short)row.AlterId),
             row.Title,
             row.Content,
@@ -610,7 +610,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
 
     private sealed record GlobalJournalRow(
         string Id,
-        string UserId,
+        SystemId UserId,
         string Title,
         string? Content,
         string? Color,
@@ -621,7 +621,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
 
     private sealed record AlterJournalRow(
         string Id,
-        string UserId,
+        SystemId UserId,
         long AlterId,
         string Title,
         string? Content,

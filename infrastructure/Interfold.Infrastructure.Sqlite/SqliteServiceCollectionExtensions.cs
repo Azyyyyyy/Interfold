@@ -1,3 +1,4 @@
+using Dapper;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Fronting.Domain.Abstractions.Repository;
@@ -7,13 +8,17 @@ using Interfold.Shared.Contracts.Secrets;
 using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
+using Interfold.Infrastructure.Sqlite;
 using Interfold.Infrastructure.Sqlite.Repository;
 using Interfold.Journals.Domain.Abstractions.Repository;
 using Interfold.Polls.Domain.Abstractions.Repository;
 using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Tags.Domain.Abstractions.Repository;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+
+[module: TypeHandler(typeof(SystemId), typeof(SystemIdTypeHandler))]
 
 namespace Interfold.Infrastructure.Sqlite;
 

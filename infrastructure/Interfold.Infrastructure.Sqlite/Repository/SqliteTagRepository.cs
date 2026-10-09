@@ -75,7 +75,7 @@ public sealed class SqliteTagRepository : ITagRepository
             """,
             new
             {
-                system_id = systemId.Value,
+                system_id = systemId,
                 id = tagIdHex,
                 parent_tag_id = parentId,
                 name = command.Name,
@@ -113,7 +113,7 @@ public sealed class SqliteTagRepository : ITagRepository
         var sets = new List<string> { "updated_at = @updated_at" };
         var parameters = new DynamicParameters();
         parameters.Add("updated_at", nowMs);
-        parameters.Add("system_id", systemId.Value);
+        parameters.Add("system_id", systemId);
         parameters.Add("id", tagHex);
 
         if (command.Name is not null)
@@ -172,7 +172,7 @@ public sealed class SqliteTagRepository : ITagRepository
             DELETE FROM alter_tags
             WHERE system_id = @system_id AND tag_id = @tag_id
             """,
-            new { system_id = systemId.Value, tag_id = tagHex },
+            new { system_id = systemId, tag_id = tagHex },
             work.Transaction);
 
         var removed = await work.Connection.ExecuteAsync(
@@ -180,7 +180,7 @@ public sealed class SqliteTagRepository : ITagRepository
             DELETE FROM tags
             WHERE system_id = @system_id AND id = @id
             """,
-            new { system_id = systemId.Value, id = tagHex },
+            new { system_id = systemId, id = tagHex },
             work.Transaction);
 
         await work.CommitAsync(cancellationToken);
@@ -210,7 +210,7 @@ public sealed class SqliteTagRepository : ITagRepository
             """,
             new
             {
-                system_id = systemId.Value,
+                system_id = systemId,
                 tag_id = tagHex,
                 alter_id = alterId.Value,
                 inserted_at = nowMs,
@@ -235,7 +235,7 @@ public sealed class SqliteTagRepository : ITagRepository
             """,
             new
             {
-                system_id = systemId.Value,
+                system_id = systemId,
                 tag_id = tagHex,
                 alter_id = alterId.Value,
             });
@@ -253,7 +253,7 @@ public sealed class SqliteTagRepository : ITagRepository
             SELECT tag_id FROM alter_tags
             WHERE system_id = @system_id AND alter_id = @alter_id
             """,
-            new { system_id = systemId.Value, alter_id = alterId.Value },
+            new { system_id = systemId, alter_id = alterId.Value },
             work.Transaction)).Select(id => TagId.Parse(id, null)).ToArray();
 
         if (ids.Length > 0)
@@ -263,7 +263,7 @@ public sealed class SqliteTagRepository : ITagRepository
                 DELETE FROM alter_tags
                 WHERE system_id = @system_id AND alter_id = @alter_id
                 """,
-                new { system_id = systemId.Value, alter_id = alterId.Value },
+                new { system_id = systemId, alter_id = alterId.Value },
                 work.Transaction);
         }
 
@@ -283,7 +283,7 @@ public sealed class SqliteTagRepository : ITagRepository
             WHERE system_id = @system_id AND id = @id
             LIMIT 1
             """,
-            new { system_id = systemId.Value, id = tagId.Value.ToString("N") });
+            new { system_id = systemId, id = tagId.Value.ToString("N") });
 
         return parentHex is null ? null : new TagId(Guid.Parse(parentHex));
     }
@@ -315,7 +315,7 @@ public sealed class SqliteTagRepository : ITagRepository
             {
                 parent_tag_id = parentHex,
                 updated_at = nowMs,
-                system_id = systemId.Value,
+                system_id = systemId,
                 id = tagHex,
             });
         return updated > 0;
@@ -341,7 +341,7 @@ public sealed class SqliteTagRepository : ITagRepository
             SET parent_tag_id = NULL, updated_at = @updated_at
             WHERE system_id = @system_id AND id = @id
             """,
-            new { updated_at = nowMs, system_id = systemId.Value, id = tagHex });
+            new { updated_at = nowMs, system_id = systemId, id = tagHex });
         return updated > 0;
     }
 
@@ -365,7 +365,6 @@ public sealed class SqliteTagRepository : ITagRepository
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
-        var ownerId = systemId.Value;
         var friendshipLevel = await _friendships.GetFriendshipLevelAsync(
             systemId, viewerSystemId, cancellationToken);
 
@@ -392,7 +391,7 @@ public sealed class SqliteTagRepository : ITagRepository
         }
 
         GuardedInstrumentation.RecordList(
-            _logger, "tag", nameof(ListGuardedAsync), viewerSystemId, ownerId,
+            _logger, "tag", nameof(ListGuardedAsync), viewerSystemId, systemId,
             totalCount: rows.Count, visibleCount: visible.Count, sw.Elapsed.TotalMilliseconds);
         return visible;
     }
@@ -431,7 +430,7 @@ public sealed class SqliteTagRepository : ITagRepository
         if (rows.Count == 0)
         {
             GuardedInstrumentation.RecordGet(
-                _logger, "tag", nameof(GetGuardedAsync), viewerSystemId, systemId.Value,
+                _logger, "tag", nameof(GetGuardedAsync), viewerSystemId, systemId,
                 tagHex, found: false, filtered: false, sw.Elapsed.TotalMilliseconds);
             return null;
         }
@@ -440,7 +439,7 @@ public sealed class SqliteTagRepository : ITagRepository
         if (!row.SecurityLevel.CanBeViewedBy(friendshipLevel))
         {
             GuardedInstrumentation.RecordGet(
-                _logger, "tag", nameof(GetGuardedAsync), viewerSystemId, systemId.Value,
+                _logger, "tag", nameof(GetGuardedAsync), viewerSystemId, systemId,
                 tagHex, found: false, filtered: true, sw.Elapsed.TotalMilliseconds);
             return null;
         }
@@ -458,7 +457,7 @@ public sealed class SqliteTagRepository : ITagRepository
 
         var result = MapTagPublicReadModel(row, alters, systemId);
         GuardedInstrumentation.RecordGet(
-            _logger, "tag", nameof(GetGuardedAsync), viewerSystemId, systemId.Value,
+            _logger, "tag", nameof(GetGuardedAsync), viewerSystemId, systemId,
             tagHex, found: true, filtered: false, sw.Elapsed.TotalMilliseconds);
         return result;
     }
@@ -481,7 +480,7 @@ public sealed class SqliteTagRepository : ITagRepository
             WHERE system_id = @system_id AND id = @id
             LIMIT 1
             """,
-            new { system_id = systemId.Value, id = tagHex },
+            new { system_id = systemId, id = tagHex },
             tx);
         return found is not null;
     }
@@ -510,8 +509,8 @@ public sealed class SqliteTagRepository : ITagRepository
         var dtos = await connection.QueryAsync<TagRowDto>(
             sql,
             tagIdHex is null
-                ? new { system_id = systemId.Value }
-                : new { system_id = systemId.Value, id = tagIdHex });
+                ? new { system_id = systemId }
+                : new { system_id = systemId, id = tagIdHex });
 
         return dtos.Select(MapTagRow).ToList();
     }
@@ -537,7 +536,7 @@ public sealed class SqliteTagRepository : ITagRepository
             FROM alter_tags
             WHERE system_id = @system_id
             """,
-            new { system_id = systemId.Value });
+            new { system_id = systemId });
 
         var result = new Dictionary<string, List<AlterId>>(StringComparer.Ordinal);
         foreach (var row in rows)
@@ -566,7 +565,7 @@ public sealed class SqliteTagRepository : ITagRepository
             WHERE system_id = @system_id AND tag_id = @tag_id
             ORDER BY alter_id
             """,
-            new { system_id = systemId.Value, tag_id = tagHex });
+            new { system_id = systemId, tag_id = tagHex });
 
         return alterIds.Select(id => new AlterId((short)id)).ToArray();
     }

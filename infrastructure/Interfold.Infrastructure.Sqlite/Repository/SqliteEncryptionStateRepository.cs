@@ -27,7 +27,7 @@ public sealed class SqliteEncryptionStateRepository : IEncryptionStateRepository
             WHERE system_id = @system_id
             LIMIT 1
             """,
-            new { system_id = systemId.Value });
+            new { system_id = systemId });
         if (row is null)
         {
             return null;
@@ -63,7 +63,7 @@ public sealed class SqliteEncryptionStateRepository : IEncryptionStateRepository
             """,
             new
             {
-                system_id = systemId.Value,
+                system_id = systemId,
                 initialized = initialized ? 1 : 0,
                 checksum = keyChecksum?.Value,
                 salt = salt?.Value,

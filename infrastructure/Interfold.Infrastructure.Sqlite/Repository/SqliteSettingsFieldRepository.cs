@@ -53,7 +53,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
 
         var nextIndex = await connection.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM settings_fields WHERE system_id = @system_id",
-            new { system_id = systemId.Value },
+            new { system_id = systemId },
             tx);
 
         await connection.ExecuteAsync(
@@ -65,7 +65,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             """,
             new
             {
-                system_id = systemId.Value,
+                system_id = systemId,
                 id = fieldHex,
                 name,
                 type = (short)type,
@@ -101,7 +101,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         var sets = new List<string> { "updated_at = @updated_at" };
         var parameters = new DynamicParameters();
         parameters.Add("updated_at", nowMs);
-        parameters.Add("system_id", systemId.Value);
+        parameters.Add("system_id", systemId);
         parameters.Add("id", fieldHex);
 
         if (name is not null)
@@ -120,6 +120,11 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         {
             sets.Add("locked = @locked");
             parameters.Add("locked", locked.Value ? 1 : 0);
+        }
+
+        if (sets.Count == 1)
+        {
+            return true;
         }
 
         var updated = await connection.ExecuteAsync(
@@ -149,7 +154,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             DELETE FROM settings_fields
             WHERE system_id = @system_id AND id = @id
             """,
-            new { system_id = systemId.Value, id = fieldHex },
+            new { system_id = systemId, id = fieldHex },
             work.Transaction);
 
         await ReindexAsync(work.Connection, work.Transaction, systemId);
@@ -193,7 +198,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
                 {
                     idx = i,
                     updated_at = rows[i].UpdatedAtMs,
-                    system_id = systemId.Value,
+                    system_id = systemId,
                     id = rows[i].IdHex,
                 },
                 tx);
@@ -217,7 +222,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
                 SET idx = @idx
                 WHERE system_id = @system_id AND id = @id
                 """,
-                new { idx = i, system_id = systemId.Value, id = rows[i].IdHex },
+                new { idx = i, system_id = systemId, id = rows[i].IdHex },
                 tx);
         }
     }
@@ -234,7 +239,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             WHERE system_id = @system_id AND id = @id
             LIMIT 1
             """,
-            new { system_id = systemId.Value, id = fieldHex },
+            new { system_id = systemId, id = fieldHex },
             tx);
         return found is not null;
     }
@@ -252,7 +257,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             WHERE system_id = @system_id
             ORDER BY idx
             """,
-            new { system_id = systemId.Value },
+            new { system_id = systemId },
             tx);
 
         return rows.ToList();

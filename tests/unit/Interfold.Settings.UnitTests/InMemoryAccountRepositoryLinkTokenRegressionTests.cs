@@ -12,7 +12,7 @@ namespace Interfold.Api.UnitTests;
 // and Compose-vs-hand-concat double-prefix on the reverse-map key.
 public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
 {
-    private static readonly SystemId RawSystemId = new("nam:abcdefg");
+    private static readonly SystemId RawSystemId = new("abcdefg");
     private static readonly SystemId AlreadySystemId = new("nam:abcdefg");
 
     [Test]

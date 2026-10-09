@@ -41,7 +41,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
         "WebSocket request received. Method: {Method}, Path: {Path}, IsWebSocketRequest: {IsWSRequest}",
         context.Request.Method,
         context.Request.Path,
-        context.WebSockets.IsWebSocketRequest);
+        context.WebSockets.IsWebSocketRequest); 
 
     if (!context.WebSockets.IsWebSocketRequest)
     {
@@ -282,23 +282,9 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 // `object` triggers runtime-type serialization — which is what puts the
                 // payload's real properties on the wire.
                 object joinResponse;
-                if (isReconnect)
+                if (isReconnect || useBatchedInit)
                 {
-                    joinResponse = new SocketJoinBatchedPayload(
-                        Batched: true,
-                        System: initPayload.System,
-                        Alters: null,
-                        Fronts: null,
-                        Tags: null);
-                }
-                else if (useBatchedInit)
-                {
-                    joinResponse = new SocketJoinBatchedPayload(
-                        Batched: true,
-                        System: initPayload.System,
-                        Alters: null,
-                        Fronts: null,
-                        Tags: null);
+                    joinResponse = new SocketJoinBatchedPayload(initPayload.System);
                 }
                 else
                 {
@@ -617,10 +603,7 @@ internal static bool IsTokenSubjectAuthorizedForTopic(
         return false;
     }
 
-    var tokenRaw = SystemId.StripRegionPrefix(tokenSubject.Value.Value);
-    var reqRaw = SystemId.StripRegionPrefix(requestedSystemId.Value.Value);
-
-    return string.Equals(tokenRaw, reqRaw, StringComparison.Ordinal);
+    return tokenSubject.Value.RepresentsSameUserAs(requestedSystemId.Value);
 }
 
 // Returns the parsed SystemId so HandleAsync can populate SocketPushContext without
@@ -680,7 +663,7 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, SystemId? TokenS
         var rawSub = principal.FindFirstValue(JwtClaimNames.Sub);
         var tokenSub = string.IsNullOrWhiteSpace(rawSub)
             ? default
-            : new SystemId(SystemId.StripRegionPrefix(rawSub));
+            : new SystemId(rawSub);
 
         logger.LogInformation("Token validated. TokenSystemId: {TokenSub}, RequestedSystemId: {RequestedSub}",
             tokenSub, requestedSystemId);

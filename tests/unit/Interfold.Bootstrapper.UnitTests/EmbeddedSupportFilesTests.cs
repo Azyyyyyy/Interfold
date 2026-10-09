@@ -1,10 +1,7 @@
 using System.Runtime.InteropServices;
 using Interfold.Bootstrapper.Cli;
-using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
 using Interfold.Bootstrapper.Util;
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Enums;
 using TUnit.Core.Exceptions;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -26,15 +23,6 @@ public sealed class EmbeddedSupportFilesTests
     private static IReadOnlyList<string> EnumerateSupportResources() =>
         EmbeddedSupportFiles.EnumerateSupportResourceNames();
 
-    private static byte[] ReadResourceBytes(string resourceName)
-    {
-        using var stream = typeof(EmbeddedSupportFiles).Assembly.GetManifestResourceStream(resourceName)
-            ?? throw new InvalidOperationException($"Manifest resource '{resourceName}' not found.");
-        using var ms = new MemoryStream();
-        stream.CopyTo(ms);
-        return ms.ToArray();
-    }
-
     [Test]
     public async Task OpensEveryEmbeddedSupportResource()
     {
@@ -50,7 +38,6 @@ public sealed class EmbeddedSupportFilesTests
                 .Because($"resource '{name}' should open for read");
         }
     }
-
 
     [Test]
     public async Task MaterializeUnderSupportRootResolvesUnderOutputDir()
@@ -90,5 +77,4 @@ public sealed class EmbeddedSupportFilesTests
         await Assert.That(text).Contains("Cf-Access-Authenticated-User-Email");
         await Assert.That(text).Contains("$interfold_forwarded_proto");
     }
-
 }

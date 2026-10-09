@@ -36,7 +36,7 @@ public sealed class SqliteNotificationTokenRepository : INotificationTokenReposi
             """,
             new
             {
-                system_id = systemId.Value,
+                system_id = systemId,
                 push_token = normalizedToken,
                 inserted_at = nowMs,
                 updated_at = nowMs,
@@ -69,7 +69,7 @@ public sealed class SqliteNotificationTokenRepository : INotificationTokenReposi
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var groups = new List<FriendNotificationTokens>(friendships.Count);
-        var seenFriends = new HashSet<string>(StringComparer.Ordinal);
+        var seenFriends = new HashSet<SystemId>();
 
         foreach (var friendship in friendships)
         {
@@ -77,7 +77,7 @@ public sealed class SqliteNotificationTokenRepository : INotificationTokenReposi
                 continue;
 
             var friendId = friendship.Friend.Id;
-            if (string.IsNullOrWhiteSpace(friendId.Value) || !seenFriends.Add(friendId.Value))
+            if (string.IsNullOrWhiteSpace(friendId.Value) || !seenFriends.Add(friendId))
                 continue;
 
             var tokens = (await connection.QueryAsync<string>(
@@ -86,7 +86,7 @@ public sealed class SqliteNotificationTokenRepository : INotificationTokenReposi
                     FROM notification_tokens
                     WHERE system_id = @system_id
                     """,
-                    new { system_id = friendId.Value }))
+                    new { system_id = friendId }))
                 .Where(raw => !string.IsNullOrWhiteSpace(raw))
                 .Select(raw => new PushToken(raw))
                 .Distinct()

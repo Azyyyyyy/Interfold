@@ -156,7 +156,9 @@ public sealed class SqliteAccountRepositoryIdentityRegressionTests
         var (repo, path) = await NewRepoAsync();
         try
         {
-            var result = await repo.UnlinkDiscordAsync(new("nam:never-linked"));
+            var systemId = new SystemId("never-linked");
+            await repo.EnsureExistsAsync(systemId);
+            var result = await repo.UnlinkDiscordAsync(systemId);
 
             await Assert.That(result).IsTrue()
                 .Because("Unlink on a user with no linked Discord id must return true — parity with the database adapter, which returns true for the same shape and drives the settings-command flow's Accepted/Replay envelope.");

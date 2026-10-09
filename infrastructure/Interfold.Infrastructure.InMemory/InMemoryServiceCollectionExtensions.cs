@@ -14,7 +14,12 @@ namespace Interfold.Infrastructure.InMemory;
 
 public static class InMemoryServiceCollectionExtensions
 {
-    public const string DefaultConnectionString = "Data Source=interfold_inmemory;Mode=Memory;Cache=Shared";
+    public static readonly SqliteConnectionStringBuilder DefaultConnectionStringBuilder = new()
+    {
+        DataSource = "interfold_inmemory",
+        Mode = SqliteOpenMode.Memory,
+        Cache = SqliteCacheMode.Shared
+    };
 
     private static readonly ConcurrentDictionary<string, SqliteConnection> PersistentConnections = new(StringComparer.Ordinal);
     private static readonly Lock InitLock = new();
@@ -28,14 +33,7 @@ public static class InMemoryServiceCollectionExtensions
     {
         services.AddSqlitePersistence(options);
 
-        var builder = new SqliteConnectionStringBuilder
-        {
-            DataSource = "interfold_inmemory",
-            Mode = SqliteOpenMode.Memory,
-            Cache = SqliteCacheMode.Shared
-        };
-
-        var connectionString = builder.ToString();
+        var connectionString = DefaultConnectionStringBuilder.ConnectionString;
         options.SqliteConnectionString = connectionString;
         services.Configure<PersistenceConfiguration>(cfg => cfg.SqliteConnectionString = connectionString);
         services.PostConfigure<PersistenceConfiguration>(cfg => cfg.SqliteConnectionString = connectionString);
@@ -56,8 +54,9 @@ public static class InMemoryServiceCollectionExtensions
         return services;
     }
 
-    public static SqliteConnection EnsurePersistentConnection(string connectionString = DefaultConnectionString)
+    public static SqliteConnection EnsurePersistentConnection(string? connectionString = null)
     {
+        connectionString ??= DefaultConnectionStringBuilder.ConnectionString;
         lock (InitLock)
         {
             if (PersistentConnections.TryGetValue(connectionString, out var existing))
@@ -76,8 +75,9 @@ public static class InMemoryServiceCollectionExtensions
         }
     }
 
-    public static ISqliteConnectionFactory CreateConnectionFactory(string connectionString = DefaultConnectionString)
+    public static ISqliteConnectionFactory CreateConnectionFactory(string? connectionString = null)
     {
+        connectionString ??= DefaultConnectionStringBuilder.ConnectionString;
         EnsurePersistentConnection(connectionString);
         return new SqliteConnectionFactory(connectionString);
     }

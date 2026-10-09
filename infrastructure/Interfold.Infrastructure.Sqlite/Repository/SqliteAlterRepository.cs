@@ -53,7 +53,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
 
         var max = await connection.ExecuteScalarAsync<long>(
             "SELECT COALESCE(MAX(id), 0) FROM alters WHERE system_id = @system_id",
-            new { system_id = systemId.Value },
+            new { system_id = systemId },
             tx);
         var nextId = checked((short)(max + 1));
 
@@ -68,7 +68,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
             """,
             new
             {
-                system_id = systemId.Value,
+                system_id = systemId,
                 id = nextId,
                 name = command.Name,
                 security_level = (short)VisibilityLevel.Private,
@@ -108,7 +108,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
         var sets = new List<string> { "updated_at = @updated_at" };
         var parameters = new DynamicParameters();
         parameters.Add("updated_at", updatedAtMs);
-        parameters.Add("system_id", systemId.Value);
+        parameters.Add("system_id", systemId);
         parameters.Add("id", command.AlterId.Value);
 
         void Set(string column, string param, object? value)
@@ -172,7 +172,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
                     """,
                     new
                     {
-                        system_id = systemId.Value,
+                        system_id = systemId,
                         alter_id = command.AlterId.Value,
                         field_id = field.Id.Value.ToString("N"),
                         value = field.Value,
@@ -199,7 +199,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
             DELETE FROM alter_fields
             WHERE system_id = @system_id AND alter_id = @alter_id
             """,
-            new { system_id = systemId.Value, alter_id = alterId.Value },
+            new { system_id = systemId, alter_id = alterId.Value },
             work.Transaction);
 
         var removed = await work.Connection.ExecuteAsync(
@@ -207,7 +207,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
             DELETE FROM alters
             WHERE system_id = @system_id AND id = @id
             """,
-            new { system_id = systemId.Value, id = alterId.Value },
+            new { system_id = systemId, id = alterId.Value },
             work.Transaction);
         if (removed == 0)
             return false;
@@ -241,7 +241,6 @@ public sealed class SqliteAlterRepository : IAlterRepository
         var friendshipLevel = await _friendships.GetFriendshipLevelAsync(
             systemId, viewerSystemId, cancellationToken);
         var definitions = await _alterFieldDefinitions.ListVisibleAsync(systemId, friendshipLevel, cancellationToken);
-        var ownerId = systemId.Value;
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await LoadAlterRowsAsync(connection, systemId, alterId: null);
@@ -254,7 +253,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
             .ToArray();
 
         GuardedInstrumentation.RecordList(
-            _logger, "alter", nameof(ListGuardedAsync), viewerSystemId, ownerId,
+            _logger, "alter", nameof(ListGuardedAsync), viewerSystemId, systemId,
             totalCount: rows.Count, visibleCount: visible.Length, sw.Elapsed.TotalMilliseconds);
         return visible;
     }
@@ -284,7 +283,6 @@ public sealed class SqliteAlterRepository : IAlterRepository
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
-        var ownerId = systemId.Value;
         var friendshipLevel = await _friendships.GetFriendshipLevelAsync(
             systemId, viewerSystemId, cancellationToken);
         var definitions = await _alterFieldDefinitions.ListVisibleAsync(systemId, friendshipLevel, cancellationToken);
@@ -294,7 +292,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
         if (rows.Count == 0)
         {
             GuardedInstrumentation.RecordGet(
-                _logger, "alter", nameof(GetGuardedAsync), viewerSystemId, ownerId,
+                _logger, "alter", nameof(GetGuardedAsync), viewerSystemId, systemId,
                 alterId.Value.ToString(), found: false, filtered: false, sw.Elapsed.TotalMilliseconds);
             return null;
         }
@@ -303,7 +301,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
         if (!row.SecurityLevel.CanBeViewedBy(friendshipLevel))
         {
             GuardedInstrumentation.RecordGet(
-                _logger, "alter", nameof(GetGuardedAsync), viewerSystemId, ownerId,
+                _logger, "alter", nameof(GetGuardedAsync), viewerSystemId, systemId,
                 alterId.Value.ToString(), found: false, filtered: true, sw.Elapsed.TotalMilliseconds);
             return null;
         }
@@ -311,7 +309,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
         var fields = await LoadFieldsForAlterAsync(connection, systemId, alterId.Value);
         var result = MapBareAlter(row, fields, definitions);
         GuardedInstrumentation.RecordGet(
-            _logger, "alter", nameof(GetGuardedAsync), viewerSystemId, ownerId,
+            _logger, "alter", nameof(GetGuardedAsync), viewerSystemId, systemId,
             alterId.Value.ToString(), found: true, filtered: false, sw.Elapsed.TotalMilliseconds);
         return result;
     }
@@ -332,7 +330,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
               AND alias = @alias COLLATE NOCASE
             LIMIT 1
             """,
-            new { system_id = systemId.Value, id = alterId.Value, alias });
+            new { system_id = systemId, id = alterId.Value, alias });
         return found is not null;
     }
 
@@ -347,7 +345,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
             DELETE FROM alter_fields
             WHERE system_id = @system_id AND field_id = @field_id
             """,
-            new { system_id = systemId.Value, field_id = fieldId.Value.ToString("N") },
+            new { system_id = systemId, field_id = fieldId.Value.ToString("N") },
             work.Transaction);
         await work.CommitAsync(cancellationToken);
     }
@@ -364,7 +362,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
             WHERE system_id = @system_id AND id = @id
             LIMIT 1
             """,
-            new { system_id = systemId.Value, id = alterId },
+            new { system_id = systemId, id = alterId },
             tx);
         return found is not null;
     }
@@ -396,8 +394,8 @@ public sealed class SqliteAlterRepository : IAlterRepository
         var dtos = await connection.QueryAsync<AlterRowDto>(
             sql,
             alterId is null
-                ? new { system_id = systemId.Value }
-                : new { system_id = systemId.Value, id = alterId.Value });
+                ? new { system_id = systemId }
+                : new { system_id = systemId, id = alterId.Value });
 
         return dtos.Select(MapAlterRow).ToList();
     }
@@ -430,7 +428,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
             FROM alter_fields
             WHERE system_id = @system_id
             """,
-            new { system_id = systemId.Value });
+            new { system_id = systemId });
 
         var result = new Dictionary<short, Dictionary<FieldId, string?>>();
         foreach (var row in rows)
@@ -459,7 +457,7 @@ public sealed class SqliteAlterRepository : IAlterRepository
             FROM alter_fields
             WHERE system_id = @system_id AND alter_id = @alter_id
             """,
-            new { system_id = systemId.Value, alter_id = alterId });
+            new { system_id = systemId, alter_id = alterId });
 
         var map = new Dictionary<FieldId, string?>();
         foreach (var row in rows)

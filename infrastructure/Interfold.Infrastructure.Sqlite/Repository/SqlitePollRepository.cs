@@ -37,7 +37,7 @@ public sealed class SqlitePollRepository : IPollRepository
             FROM polls
             WHERE user_id = @user_id
             """,
-            new { user_id = systemId.Value });
+            new { user_id = systemId });
 
         return rows
             .Select(r => MapPoll(r, systemId))
@@ -61,7 +61,7 @@ public sealed class SqlitePollRepository : IPollRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = systemId.Value, id = pollId.Value.ToString("N") });
+            new { user_id = systemId, id = pollId.Value.ToString("N") });
 
         return row is null ? null : MapPoll(row, systemId);
     }
@@ -86,7 +86,7 @@ public sealed class SqlitePollRepository : IPollRepository
             """,
             new
             {
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = pollGuid.ToString("N"),
                 title = command.Title,
                 description = command.Description,
@@ -113,7 +113,7 @@ public sealed class SqlitePollRepository : IPollRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = systemId.Value, id = pollId.Value.ToString("N") });
+            new { user_id = systemId, id = pollId.Value.ToString("N") });
         return found is not null;
     }
 
@@ -160,7 +160,7 @@ public sealed class SqlitePollRepository : IPollRepository
                     : null,
                 data = command.Data?.GetRawText(),
                 updated_at = nowMs,
-                user_id = systemId.Value,
+                user_id = systemId,
                 id = pollIdText,
             },
             work.Transaction);
@@ -178,7 +178,7 @@ public sealed class SqlitePollRepository : IPollRepository
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
         var affected = await work.Connection.ExecuteAsync(
             "DELETE FROM polls WHERE user_id = @user_id AND id = @id",
-            new { user_id = systemId.Value, id = pollId.Value.ToString("N") },
+            new { user_id = systemId, id = pollId.Value.ToString("N") },
             work.Transaction);
         await work.CommitAsync(cancellationToken);
         return affected > 0;
@@ -220,7 +220,7 @@ public sealed class SqlitePollRepository : IPollRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = systemId.Value, id = pollId },
+            new { user_id = systemId, id = pollId },
             transaction);
         return found is not null;
     }

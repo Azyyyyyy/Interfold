@@ -46,13 +46,12 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (viewerSystemId is null || string.IsNullOrWhiteSpace(viewerSystemId.Value.Value))
+        if (viewerSystemId is null || string.IsNullOrWhiteSpace(viewerSystemId.Value))
         {
             return null;
         }
 
-        var viewerKey = viewerSystemId.Value;
-        if (systemId == viewerKey)
+        if (systemId == viewerSystemId)
         {
             return FriendshipLevel.TrustedFriend;
         }
@@ -65,7 +64,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             WHERE user_id = @user_id AND friend_id = @friend_id
             LIMIT 1
             """,
-            new { user_id = systemId.Value, friend_id = viewerKey.Value });
+            new { user_id = systemId, friend_id = viewerSystemId });
         if (raw is null or DBNull)
         {
             return null;
@@ -88,7 +87,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             WHERE user_id = @user_id
             ORDER BY since DESC
             """,
-            new { user_id = systemId.Value });
+            new { user_id = systemId });
 
         return rows.Select(MapFriendship).ToArray();
     }
@@ -109,8 +108,8 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             """,
             new
             {
-                user_id = systemId.Value,
-                friend_id = friendSystemId.Value,
+                user_id = systemId,
+                friend_id = friendSystemId,
             });
         return row is null ? null : MapFriendship(row);
     }
@@ -121,20 +120,19 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var right = friendSystemId;
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            var removed = await DeleteFriendshipEdgeAsync(connection, tx, systemId, right, cancellationToken);
+            var removed = await DeleteFriendshipEdgeAsync(connection, tx, systemId, friendSystemId, cancellationToken);
             if (!removed)
             {
                 await tx.RollbackAsync(cancellationToken);
                 return false;
             }
 
-            await DeleteFriendshipEdgeAsync(connection, tx, right, systemId, cancellationToken);
+            await DeleteFriendshipEdgeAsync(connection, tx, friendSystemId, systemId, cancellationToken);
             await tx.CommitAsync(cancellationToken);
             return true;
         }
@@ -164,8 +162,8 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             new
             {
                 level,
-                user_id = systemId.Value,
-                friend_id = friendSystemId.Value,
+                user_id = systemId,
+                friend_id = friendSystemId,
             });
         return affected > 0;
     }
@@ -185,7 +183,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             WHERE from_user_id = @user_id
             ORDER BY date_sent DESC
             """,
-            new { user_id = systemId.Value });
+            new { user_id = systemId });
 
         var incomingRows = await connection.QueryAsync<FriendRequestRow>(
             """
@@ -194,7 +192,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             WHERE to_user_id = @user_id
             ORDER BY date_sent DESC
             """,
-            new { user_id = systemId.Value });
+            new { user_id = systemId });
 
         return new FriendRequestIndexReadModel(
             incomingRows.Select(MapRequest).ToArray(),
@@ -207,30 +205,28 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var from = systemId;
-        var to = targetSystemId;
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            if (await FriendshipExistsAsync(connection, tx, from, to, cancellationToken))
+            if (await FriendshipExistsAsync(connection, tx, systemId, targetSystemId, cancellationToken))
             {
                 await tx.RollbackAsync(cancellationToken);
                 return SendFriendRequestOutcome.AlreadyFriends;
             }
 
-            if (await RequestExistsAsync(connection, tx, from, to, cancellationToken))
+            if (await RequestExistsAsync(connection, tx, systemId, targetSystemId, cancellationToken))
             {
                 await tx.RollbackAsync(cancellationToken);
                 return SendFriendRequestOutcome.AlreadySent;
             }
 
-            if (await RequestExistsAsync(connection, tx, to, from, cancellationToken))
+            if (await RequestExistsAsync(connection, tx, targetSystemId, systemId, cancellationToken))
             {
-                await LinkFriendsAsync(connection, tx, from, to, cancellationToken);
-                await DeleteRequestAsync(connection, tx, to, from, cancellationToken);
-                await DeleteRequestAsync(connection, tx, from, to, cancellationToken);
+                await LinkFriendsAsync(connection, tx, systemId, targetSystemId, cancellationToken);
+                await DeleteRequestAsync(connection, tx, targetSystemId, systemId, cancellationToken);
+                await DeleteRequestAsync(connection, tx, systemId, targetSystemId, cancellationToken);
                 await tx.CommitAsync(cancellationToken);
                 return SendFriendRequestOutcome.Accepted;
             }
@@ -241,7 +237,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
                 INSERT INTO friend_requests (from_user_id, to_user_id, date_sent)
                 VALUES (@from, @to, @date_sent)
                 """,
-                new { from = from.Value, to = to.Value, date_sent = nowMs },
+                new { from = systemId, to = targetSystemId, date_sent = nowMs },
                 tx);
 
             await tx.CommitAsync(cancellationToken);
@@ -260,27 +256,26 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var source = sourceSystemId;
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            if (await FriendshipExistsAsync(connection, tx, systemId, source, cancellationToken))
+            if (await FriendshipExistsAsync(connection, tx, systemId, sourceSystemId, cancellationToken))
             {
                 await tx.RollbackAsync(cancellationToken);
                 return FriendRequestMutationOutcome.AlreadyFriends;
             }
 
-            if (!await RequestExistsAsync(connection, tx, source, systemId, cancellationToken))
+            if (!await RequestExistsAsync(connection, tx, sourceSystemId, systemId, cancellationToken))
             {
                 await tx.RollbackAsync(cancellationToken);
                 return FriendRequestMutationOutcome.NotRequested;
             }
 
-            await LinkFriendsAsync(connection, tx, systemId, source, cancellationToken);
-            await DeleteRequestAsync(connection, tx, source, systemId, cancellationToken);
-            await DeleteRequestAsync(connection, tx, systemId, source, cancellationToken);
+            await LinkFriendsAsync(connection, tx, systemId, sourceSystemId, cancellationToken);
+            await DeleteRequestAsync(connection, tx, sourceSystemId, systemId, cancellationToken);
+            await DeleteRequestAsync(connection, tx, systemId, sourceSystemId, cancellationToken);
             await tx.CommitAsync(cancellationToken);
             return FriendRequestMutationOutcome.Ok;
         }
@@ -297,25 +292,24 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var source = sourceSystemId;
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            if (await FriendshipExistsAsync(connection, tx, systemId, source, cancellationToken))
+            if (await FriendshipExistsAsync(connection, tx, systemId, sourceSystemId, cancellationToken))
             {
                 await tx.RollbackAsync(cancellationToken);
                 return FriendRequestMutationOutcome.AlreadyFriends;
             }
 
-            if (!await RequestExistsAsync(connection, tx, source, systemId, cancellationToken))
+            if (!await RequestExistsAsync(connection, tx, sourceSystemId, systemId, cancellationToken))
             {
                 await tx.RollbackAsync(cancellationToken);
                 return FriendRequestMutationOutcome.NotRequested;
             }
 
-            await DeleteRequestAsync(connection, tx, source, systemId, cancellationToken);
+            await DeleteRequestAsync(connection, tx, sourceSystemId, systemId, cancellationToken);
             await tx.CommitAsync(cancellationToken);
             return FriendRequestMutationOutcome.Ok;
         }
@@ -332,25 +326,24 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var target = targetSystemId;
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            if (await FriendshipExistsAsync(connection, tx, systemId, target, cancellationToken))
+            if (await FriendshipExistsAsync(connection, tx, systemId, targetSystemId, cancellationToken))
             {
                 await tx.RollbackAsync(cancellationToken);
                 return FriendRequestMutationOutcome.AlreadyFriends;
             }
 
-            if (!await RequestExistsAsync(connection, tx, systemId, target, cancellationToken))
+            if (!await RequestExistsAsync(connection, tx, systemId, targetSystemId, cancellationToken))
             {
                 await tx.RollbackAsync(cancellationToken);
                 return FriendRequestMutationOutcome.NotRequested;
             }
 
-            await DeleteRequestAsync(connection, tx, systemId, target, cancellationToken);
+            await DeleteRequestAsync(connection, tx, systemId, targetSystemId, cancellationToken);
             await tx.CommitAsync(cancellationToken);
             return FriendRequestMutationOutcome.Ok;
         }
@@ -368,9 +361,9 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         cancellationToken.ThrowIfCancellationRequested();
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
-        var friendKeys = (await work.Connection.QueryAsync<string>(
+        var friendKeys = (await work.Connection.QueryAsync<SystemId>(
             "SELECT friend_id FROM friendships WHERE user_id = @user_id",
-            new { user_id = systemId.Value },
+            new { user_id = systemId },
             work.Transaction)).ToArray();
 
         await work.Connection.ExecuteAsync(
@@ -378,7 +371,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             DELETE FROM friendships
             WHERE user_id = @user_id OR friend_id = @user_id
             """,
-            new { user_id = systemId.Value },
+            new { user_id = systemId },
             work.Transaction);
 
         await work.Connection.ExecuteAsync(
@@ -386,30 +379,28 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             DELETE FROM friend_requests
             WHERE from_user_id = @user_id OR to_user_id = @user_id
             """,
-            new { user_id = systemId.Value },
+            new { user_id = systemId },
             work.Transaction);
 
         await work.CommitAsync(cancellationToken);
-        return [.. friendKeys.Select(x => new SystemId(x))];
+        return friendKeys;
     }
 
     private static FriendshipReadModel MapFriendship(FriendshipRow row)
     {
-        var friendId = new SystemId(row.FriendId);
         var level = ((short)row.Level).FromCode<FriendshipLevel>();
         var since = DateTimeOffset.FromUnixTimeMilliseconds(row.Since);
         return new FriendshipReadModel(
-            new FriendProfileReadModel(friendId, null, null, null, null, null),
+            new FriendProfileReadModel(row.FriendId, null, null, null, null, null),
             new FriendshipModel(level, since),
             Array.Empty<FriendFrontingReadModel>());
     }
 
     private static FriendRequestReadModel MapRequest(FriendRequestRow row)
     {
-        var otherId = new SystemId(row.OtherUserId);
         var dateSent = DateTimeOffset.FromUnixTimeMilliseconds(row.DateSent);
         return new FriendRequestReadModel(
-            new FriendProfileReadModel(otherId, null, null, null, null, null),
+            new FriendProfileReadModel(row.OtherUserId, null, null, null, null, null),
             new FriendshipRequestModel(dateSent));
     }
 
@@ -426,7 +417,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             WHERE user_id = @user_id AND friend_id = @friend_id
             LIMIT 1
             """,
-            new { user_id = userId.Value, friend_id = friendId.Value },
+            new { user_id = userId, friend_id = friendId },
             tx);
         return hit is not null and not DBNull;
     }
@@ -444,7 +435,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             WHERE from_user_id = @from AND to_user_id = @to
             LIMIT 1
             """,
-            new { from = fromUserId.Value, to = toUserId.Value },
+            new { from = fromUserId, to = toUserId },
             tx);
         return hit is not null and not DBNull;
     }
@@ -478,7 +469,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
                 level = excluded.level,
                 since = excluded.since
             """,
-            new { user_id = userId.Value, friend_id = friendId.Value, level, since = sinceMs },
+            new { user_id = userId, friend_id = friendId, level, since = sinceMs },
             tx);
 
     private static async Task<bool> DeleteFriendshipEdgeAsync(
@@ -493,7 +484,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             DELETE FROM friendships
             WHERE user_id = @user_id AND friend_id = @friend_id
             """,
-            new { user_id = userId.Value, friend_id = friendId.Value },
+            new { user_id = userId, friend_id = friendId },
             tx);
         return removed > 0;
     }
@@ -509,10 +500,10 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             DELETE FROM friend_requests
             WHERE from_user_id = @from AND to_user_id = @to
             """,
-            new { from = fromUserId.Value, to = toUserId.Value },
+            new { from = fromUserId, to = toUserId },
             tx);
 
-    private sealed record FriendshipRow(string FriendId, long Level, long Since);
+    private sealed record FriendshipRow(SystemId FriendId, long Level, long Since);
 
-    private sealed record FriendRequestRow(string OtherUserId, long DateSent);
+    private sealed record FriendRequestRow(SystemId OtherUserId, long DateSent);
 }

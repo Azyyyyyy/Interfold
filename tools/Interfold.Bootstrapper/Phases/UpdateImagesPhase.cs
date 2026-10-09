@@ -23,7 +23,7 @@ internal static class UpdateImagesPhase
         var config = await PhaseArtifactLoader
             .LoadRequiredConfigAsync(options, logger, Phase, "update-images", ct)
             .ConfigureAwait(false);
-
+    
         var composeFile = PhaseArtifactLoader.RequireComposeFileOrFail(options, logger, Phase);
 
         // CLI --service > config.update.services > every service. Empty array → pass no names
@@ -119,7 +119,7 @@ internal static class UpdateImagesPhase
 
         // Failure never leaves the stack half-updated without operator-facing recovery.
         var healthErr = await CheckStackHealthAsync(
-            composeFile, config, options.OutputDir, healthTimeout, logger, ct).ConfigureAwait(false);
+            config, options.OutputDir, healthTimeout, logger, ct).ConfigureAwait(false);
         if (healthErr is not null)
         {
             logger.PhaseFail(Phase, PhaseFailureReasons.HealthCheckFailed);
@@ -399,11 +399,9 @@ internal static class UpdateImagesPhase
     /// <summary>Bounded probe of <see cref="ResolveHealthProbes"/>. Returns null on success,
     /// else an operator-facing message.</summary>
     private static async Task<string?> CheckStackHealthAsync(
-        string composeFile, BootstrapConfig config, string outputDir, TimeSpan totalTimeout,
+        BootstrapConfig config, string outputDir, TimeSpan totalTimeout,
         PhaseLogger logger, CancellationToken ct)
     {
-        _ = composeFile;
-        _ = ResolveHealthProbes(config);
         var deadline = DateTime.UtcNow + totalTimeout;
         logger.Info($"    health-check: bounded to {totalTimeout.TotalSeconds:F0}s across api");
 

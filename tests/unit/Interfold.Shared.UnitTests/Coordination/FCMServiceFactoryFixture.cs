@@ -33,7 +33,7 @@ public sealed class FCMServiceFactoryFixture : IAsyncInitializer
         // throws unexpectedly.
         services.AddSqlitePersistence(new PersistenceConfiguration
         {
-            SqliteConnectionString = InMemoryServiceCollectionExtensions.DefaultConnectionString
+            SqliteConnectionString = InMemoryServiceCollectionExtensions.DefaultConnectionStringBuilder.ConnectionString
         });
         services.RemoveAll<ISqliteConnectionFactory>();
         services.AddSingleton<ISqliteConnectionFactory>(_ => InMemoryServiceCollectionExtensions.CreateConnectionFactory());

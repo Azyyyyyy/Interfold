@@ -14,9 +14,9 @@ public sealed class InProcessImportJobQueueTests
     public async Task ReadAll_DeliversItemsInFifoOrder()
     {
         await using var queue = new InProcessImportJobQueue();
-        var first = NewItem("nam:sys-a");
-        var second = NewItem("nam:sys-b");
-        var third = NewItem("nam:sys-c");
+        var first = NewItem("sys-a");
+        var second = NewItem("sys-b");
+        var third = NewItem("sys-c");
 
         await queue.EnqueueAsync(first);
         await queue.EnqueueAsync(second);
@@ -61,8 +61,8 @@ public sealed class InProcessImportJobQueueTests
             catch (OperationCanceledException) { }
         });
 
-        var first = NewItem("nam:sys-a");
-        var second = NewItem("nam:sys-b");
+        var first = NewItem("sys-a");
+        var second = NewItem("sys-b");
         await queue.EnqueueAsync(first);
         await queue.EnqueueAsync(second);
 
@@ -109,7 +109,7 @@ public sealed class InProcessImportJobQueueTests
     public async Task Dispose_CompletesReaderSequence()
     {
         var queue = new InProcessImportJobQueue();
-        await queue.EnqueueAsync(NewItem("nam:sys-a"));
+        await queue.EnqueueAsync(NewItem("sys-a"));
 
         await queue.DisposeAsync();
 
