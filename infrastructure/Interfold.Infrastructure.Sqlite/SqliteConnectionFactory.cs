@@ -15,11 +15,6 @@ public interface ISqliteConnectionFactory
 /// </summary>
 public sealed class SqliteConnectionFactory : ISqliteConnectionFactory
 {
-    static SqliteConnectionFactory()
-    {
-        Dapper.SqlMapper.AddTypeHandler(new SystemIdTypeHandler());
-    }
-
     private readonly string _connectionString;
 
     public SqliteConnectionFactory(IOptions<PersistenceConfiguration> options)

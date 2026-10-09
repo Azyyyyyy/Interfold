@@ -34,6 +34,7 @@ public static class SqliteServiceCollectionExtensions
     {
         _ = options;
 
+        SqlMapper.AddTypeHandler(new SystemIdTypeHandler());
         services.TryAddSingleton(TimeProvider.System);
 
         return services
