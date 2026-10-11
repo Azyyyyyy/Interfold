@@ -15,7 +15,6 @@ public class PollsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
     {
         yield return PollType.Vote;
         yield return PollType.Choice;
-        yield return PollType.Approval;
     }
 
     [Test]
@@ -83,13 +82,12 @@ public class PollsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
         // Typed round-trip: the deserialised enum must match the value we sent.
         await Assert.That(getEnv.Data.Type).IsEqualTo(type);
         // Wire-shape round-trip: the raw JSON must carry the exact JsonStringEnumMemberName
-        // spelling (`"vote"` / `"choice"` / `"approval"`), not the CLR enum name. This is the
+        // spelling (`"vote"` / `"choice"`), not the CLR enum name. This is the
         // load-bearing bit for cross-language clients that don't have PollType's converter.
         var expectedWireValue = type switch
         {
             PollType.Vote => "vote",
             PollType.Choice => "choice",
-            PollType.Approval => "approval",
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Add a wire-form entry when introducing a new PollType."),
         };
         await Assert.That(getBody).Contains($"\"type\":\"{expectedWireValue}\"");

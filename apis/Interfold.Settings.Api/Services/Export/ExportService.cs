@@ -87,7 +87,7 @@ public sealed class ExportService : IExportService
             Description: profile?.Description,
             Id: systemId.Value,
             AvatarUrl: profile?.AvatarUrl?.Value,
-            Fields: fields.Select(f => new FullExportUserField(f.Id.Value, f.Name, f.Type, f.Locked, f.SecurityLevel)).ToArray());
+            Fields: fields.Select(f => new FullExportUserField(f.Id.Value, f.Name, ExportHelpers.MapExportFieldType(f.Type), f.Locked, f.SecurityLevel)).ToArray());
 
         var alterEntries = alters.Select(BuildFullAlter).ToArray();
         var frontEntries = fronts.Select(BuildFullFront).ToArray();
@@ -134,14 +134,14 @@ public sealed class ExportService : IExportService
         AvatarUrl: alter.AvatarUrl?.Value,
         ProxyName: alter.ProxyName,
         DiscordProxies: alter.DiscordProxies,
-        Fields: alter.Fields.Select(f => new FullExportAlterField(f.Id.Value, f.Value)).ToArray());
+        Fields: alter.Fields.Select(f => new FullExportAlterField(f.Id.Value, f.Value ?? string.Empty)).ToArray());
 
     private static FullExportFront BuildFullFront(FrontHistoryReadModel front) => new(
         Id: front.Id.Value,
         AlterId: front.AlterId.Value,
         Comment: front.Comment,
-        TimeStart: front.TimeStart,
-        TimeEnd: front.TimeEnd);
+        TimeStart: ExportHelpers.FormatExportTimestamp(front.TimeStart),
+        TimeEnd: front.TimeEnd is { } end ? ExportHelpers.FormatExportTimestamp(end) : null);
 
     private static FullExportTag BuildFullTag(TagReadModel tag) => new(
         Id: tag.Id.Value,
@@ -150,17 +150,17 @@ public sealed class ExportService : IExportService
         Color: tag.Color?.Value,
         SecurityLevel: tag.SecurityLevel,
         ParentTagId: tag.ParentTagId?.Value,
-        InsertedAt: tag.InsertedAt,
-        UpdatedAt: tag.UpdatedAt,
+        InsertedAt: ExportHelpers.FormatExportTimestamp(tag.InsertedAt),
+        UpdatedAt: ExportHelpers.FormatExportTimestamp(tag.UpdatedAt),
         Alters: tag.Alters.Select(a => a.Value).ToArray());
 
     private static FullExportPoll BuildFullPoll(PollReadModel poll) => new(
         Id: poll.Id.Value,
         Title: poll.Title,
-        Description: poll.Description,
+        Description: poll.Description ?? string.Empty,
         Type: poll.Type,
-        Data: poll.Data,
-        TimeEnd: poll.TimeEnd,
-        InsertedAt: poll.InsertedAt,
-        UpdatedAt: poll.UpdatedAt);
+        Data: ExportHelpers.FormatPollDataForExport(poll.Data),
+        TimeEnd: poll.TimeEnd is { } end ? ExportHelpers.FormatExportTimestamp(end) : null,
+        InsertedAt: ExportHelpers.FormatExportTimestamp(poll.InsertedAt),
+        UpdatedAt: ExportHelpers.FormatExportTimestamp(poll.UpdatedAt));
 }

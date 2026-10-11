@@ -56,13 +56,13 @@ public sealed record FullExportUser(
 public sealed record FullExportUserField(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("type")] FieldType Type,
+    [property: JsonPropertyName("type")] string Type,
     [property: JsonPropertyName("locked")] bool Locked,
     [property: JsonPropertyName("security_level")] VisibilityLevel SecurityLevel);
 
 public sealed record FullExportAlter(
     [property: JsonPropertyName("id")] short Id,
-    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("name")] string? Name,
     [property: JsonPropertyName("pronouns")] string? Pronouns,
     [property: JsonPropertyName("description")] string? Description,
     [property: JsonPropertyName("color")] string? Color,
@@ -73,14 +73,14 @@ public sealed record FullExportAlter(
 
 public sealed record FullExportAlterField(
     [property: JsonPropertyName("id")] Guid Id,
-    [property: JsonPropertyName("value")] string? Value);
+    [property: JsonPropertyName("value")] string Value);
 
 public sealed record FullExportFront(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("alter_id")] short AlterId,
     [property: JsonPropertyName("comment")] string? Comment,
-    [property: JsonPropertyName("time_start")] DateTimeOffset TimeStart,
-    [property: JsonPropertyName("time_end")] DateTimeOffset? TimeEnd);
+    [property: JsonPropertyName("time_start")] string TimeStart,
+    [property: JsonPropertyName("time_end")] string? TimeEnd);
 
 public sealed record FullExportTag(
     [property: JsonPropertyName("id")] Guid Id,
@@ -89,16 +89,16 @@ public sealed record FullExportTag(
     [property: JsonPropertyName("color")] string? Color,
     [property: JsonPropertyName("security_level")] VisibilityLevel SecurityLevel,
     [property: JsonPropertyName("parent_tag_id")] Guid? ParentTagId,
-    [property: JsonPropertyName("inserted_at")] DateTime InsertedAt,
-    [property: JsonPropertyName("updated_at")] DateTime UpdatedAt,
+    [property: JsonPropertyName("inserted_at")] string InsertedAt,
+    [property: JsonPropertyName("updated_at")] string UpdatedAt,
     [property: JsonPropertyName("alters")] IReadOnlyList<short> Alters);
 
 public sealed record FullExportPoll(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("title")] string Title,
-    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("description")] string Description,
     [property: JsonPropertyName("type")] PollType Type,
     [property: JsonPropertyName("data")] JsonElement Data,
-    [property: JsonPropertyName("time_end")] DateTime? TimeEnd,
-    [property: JsonPropertyName("inserted_at")] DateTime InsertedAt,
-    [property: JsonPropertyName("updated_at")] DateTime UpdatedAt);
+    [property: JsonPropertyName("time_end")] string? TimeEnd,
+    [property: JsonPropertyName("inserted_at")] string InsertedAt,
+    [property: JsonPropertyName("updated_at")] string UpdatedAt);
