@@ -65,7 +65,7 @@ public sealed class ExportService : IExportService
             Groups: groups);
     }
 
-    public async Task<FullExportPayload> BuildFullAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    public async Task<OctoconExportPayload> BuildOctoconAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var profileTask = _accounts.GetPublicProfileAsync(systemId, cancellationToken);
         var altersTask = _alters.ListAsync(systemId, cancellationToken);
@@ -82,19 +82,19 @@ public sealed class ExportService : IExportService
         var fronts = await frontsTask;
         var fields = await fieldsTask;
 
-        var user = new FullExportUser(
+        var user = new OctoconExportUser(
             Username: profile?.Username?.Value,
             Description: profile?.Description,
             Id: systemId.Value,
             AvatarUrl: profile?.AvatarUrl?.Value,
-            Fields: fields.Select(f => new FullExportUserField(f.Id.Value, f.Name, ExportHelpers.MapExportFieldType(f.Type), f.Locked, f.SecurityLevel)).ToArray());
+            Fields: fields.Select(f => new OctoconExportUserField(f.Id.Value, f.Name, ExportHelpers.MapExportFieldType(f.Type), f.Locked, f.SecurityLevel)).ToArray());
 
-        var alterEntries = alters.Select(BuildFullAlter).ToArray();
-        var frontEntries = fronts.Select(BuildFullFront).ToArray();
-        var tagEntries = tags.Select(BuildFullTag).ToArray();
-        var pollEntries = polls.Select(BuildFullPoll).ToArray();
+        var alterEntries = alters.Select(BuildOctoconAlter).ToArray();
+        var frontEntries = fronts.Select(BuildOctoconFront).ToArray();
+        var tagEntries = tags.Select(BuildOctoconTag).ToArray();
+        var pollEntries = polls.Select(BuildOctoconPoll).ToArray();
 
-        return new FullExportPayload(user, alterEntries, frontEntries, tagEntries, pollEntries);
+        return new OctoconExportPayload(user, alterEntries, frontEntries, tagEntries, pollEntries);
     }
 
     private static PkMember BuildPkMember(AlterReadModel alter)
@@ -125,7 +125,7 @@ public sealed class ExportService : IExportService
             .Select(a => a.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))
             .ToArray());
 
-    private static FullExportAlter BuildFullAlter(AlterReadModel alter) => new(
+    private static OctoconExportAlter BuildOctoconAlter(AlterReadModel alter) => new(
         Id: alter.Id.Value,
         Name: alter.Name,
         Pronouns: alter.Pronouns,
@@ -134,16 +134,16 @@ public sealed class ExportService : IExportService
         AvatarUrl: alter.AvatarUrl?.Value,
         ProxyName: alter.ProxyName,
         DiscordProxies: alter.DiscordProxies,
-        Fields: alter.Fields.Select(f => new FullExportAlterField(f.Id.Value, f.Value ?? string.Empty)).ToArray());
+        Fields: alter.Fields.Select(f => new OctoconExportAlterField(f.Id.Value, f.Value ?? string.Empty)).ToArray());
 
-    private static FullExportFront BuildFullFront(FrontHistoryReadModel front) => new(
+    private static OctoconExportFront BuildOctoconFront(FrontHistoryReadModel front) => new(
         Id: front.Id.Value,
         AlterId: front.AlterId.Value,
         Comment: front.Comment,
         TimeStart: ExportHelpers.FormatExportTimestamp(front.TimeStart),
         TimeEnd: front.TimeEnd is { } end ? ExportHelpers.FormatExportTimestamp(end) : null);
 
-    private static FullExportTag BuildFullTag(TagReadModel tag) => new(
+    private static OctoconExportTag BuildOctoconTag(TagReadModel tag) => new(
         Id: tag.Id.Value,
         Name: tag.Name,
         Description: tag.Description,
@@ -154,7 +154,7 @@ public sealed class ExportService : IExportService
         UpdatedAt: ExportHelpers.FormatExportTimestamp(tag.UpdatedAt),
         Alters: tag.Alters.Select(a => a.Value).ToArray());
 
-    private static FullExportPoll BuildFullPoll(PollReadModel poll) => new(
+    private static OctoconExportPoll BuildOctoconPoll(PollReadModel poll) => new(
         Id: poll.Id.Value,
         Title: poll.Title,
         Description: poll.Description ?? string.Empty,

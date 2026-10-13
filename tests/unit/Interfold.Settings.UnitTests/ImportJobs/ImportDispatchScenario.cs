@@ -14,7 +14,7 @@ using Interfold.Settings.Domain.Settings;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
-// Shared harness for the SP / PK ICommandHandler dispatch tests. Owns the wiring
+// Shared harness for the SP / PK / Octocon ICommandHandler dispatch tests. Owns the wiring
 // (in-memory repo + in-process queue + CapturingQueue) so per-kind test bodies only
 // call DispatchAsync and assert.
 internal sealed class ImportDispatchScenario<TCommand> : IAsyncDisposable
@@ -48,8 +48,9 @@ internal sealed class ImportDispatchScenario<TCommand> : IAsyncDisposable
 
 internal static class ImportDispatchScenario
 {
-    public static readonly SystemId SpSystemId = new SystemId("nam:sys-sp-dispatch-test");
-    public static readonly SystemId PkSystemId = new SystemId("nam:sys-pk-dispatch-test");
+    public static readonly SystemId SpSystemId = new SystemId("sys-sp-dispatch-test");
+    public static readonly SystemId PkSystemId = new SystemId("sys-pk-dispatch-test");
+    public static readonly SystemId OctoconSystemId = new SystemId("sys-octocon-dispatch-test");
 
     public static ImportDispatchScenario<ImportSpCommand> ForSp()
         => new(
@@ -60,6 +61,11 @@ internal static class ImportDispatchScenario
         => new(
             (repo, queue) => new ImportPkCommandHandler(repo, queue),
             (key, token) => NewPkEnvelope(PkSystemId, key, token));
+
+    public static ImportDispatchScenario<ImportOctoconCommand> ForOctocon()
+        => new(
+            (repo, queue) => new ImportOctoconCommandHandler(repo, queue),
+            (key, payload) => NewOctoconEnvelope(OctoconSystemId, key, payload));
 
     public static CommandEnvelope<ImportSpCommand> NewSpEnvelope(SystemId systemId, string idempotencyKey, string token) => new(
         OperationId: new("settings:import_sp"),
@@ -76,4 +82,12 @@ internal static class ImportDispatchScenario
         IdempotencyKey: new(idempotencyKey),
         OccurredAt: DateTimeOffset.UtcNow,
         Payload: new ImportPkCommand(new(token)));
+
+    public static CommandEnvelope<ImportOctoconCommand> NewOctoconEnvelope(SystemId systemId, string idempotencyKey, string rawPayload) => new(
+        OperationId: OperationIds.SettingsImportOctocon,
+        CommandId: Guid.NewGuid(),
+        PrincipalId: systemId,
+        IdempotencyKey: new(idempotencyKey),
+        OccurredAt: DateTimeOffset.UtcNow,
+        Payload: new ImportOctoconCommand(rawPayload));
 }

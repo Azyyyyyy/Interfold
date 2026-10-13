@@ -1,12 +1,13 @@
 using Interfold.Settings.Contracts.Ids;
 using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Settings.Domain.Abstractions.Repository;
 
 /// <summary>Async-import job persistence. Backed by <c>import_operations</c> (append-only
 /// history) + <c>active_import_by_system</c> (per-system LWT mutex). Invariant: at most
-/// one operation per (system, kind) may be Queued or Running at a time — prevents the
+/// one operation per (system, format) may be Queued or Running at a time — prevents the
 /// duplicate-SP-import bug regardless of how a duplicate dispatch arrived.</summary>
 public interface IImportOperationRepository
 {
@@ -17,8 +18,9 @@ public interface IImportOperationRepository
     /// worker run.</summary>
     Task<ImportOperationClaim> TryClaimAsync(
         SystemId systemId,
-        ImportOperationKind kind,
+        ImportFormat format,
         IdempotencyKey idempotencyKey,
+        string? rawPayload = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Queued → Running. No-op when the row isn't Queued (guards against
@@ -33,7 +35,7 @@ public interface IImportOperationRepository
     Task MarkSucceededAsync(
         SystemId systemId,
         ImportOperationId operationId,
-        ImportOperationKind kind,
+        ImportFormat format,
         int alterCount,
         CancellationToken cancellationToken = default);
 
@@ -42,7 +44,7 @@ public interface IImportOperationRepository
     Task MarkFailedAsync(
         SystemId systemId,
         ImportOperationId operationId,
-        ImportOperationKind kind,
+        ImportFormat format,
         ImportErrorCode errorCode,
         string? errorMessage,
         CancellationToken cancellationToken = default);
@@ -56,12 +58,11 @@ public interface IImportOperationRepository
     /// waiting on Paxos. TryClaimAsync stays the source of truth.</summary>
     Task<ImportOperationId?> GetActiveOperationIdAsync(
         SystemId systemId,
-        ImportOperationKind kind,
+        ImportFormat format,
         CancellationToken cancellationToken = default);
 
     /// <summary>Startup-sweep query: every Running row older than <paramref name="olderThan"/>
-    /// so crash-orphaned rows can be marked failed instead of pinning the per-system slot.
-    /// Unbounded partition scan — acceptable at human-driven import volume.</summary>
+    /// so crash-orphaned rows can be marked failed instead of pinning the per-system slot.</summary>
     Task<IReadOnlyList<ImportOperationSnapshot>> GetStaleRunningAsync(
         TimeSpan olderThan,
         CancellationToken cancellationToken = default);

@@ -39,28 +39,28 @@ public sealed record PkGroup(
     [property: JsonPropertyName("color")] string? Color,
     [property: JsonPropertyName("members")] IReadOnlyList<string> Members);
 
-public sealed record FullExportPayload(
-    [property: JsonPropertyName("user")] FullExportUser User,
-    [property: JsonPropertyName("alters")] IReadOnlyList<FullExportAlter> Alters,
-    [property: JsonPropertyName("fronts")] IReadOnlyList<FullExportFront> Fronts,
-    [property: JsonPropertyName("tags")] IReadOnlyList<FullExportTag> Tags,
-    [property: JsonPropertyName("polls")] IReadOnlyList<FullExportPoll> Polls);
+public sealed record OctoconExportPayload(
+    [property: JsonPropertyName("user")] OctoconExportUser User,
+    [property: JsonPropertyName("alters")] IReadOnlyList<OctoconExportAlter> Alters,
+    [property: JsonPropertyName("fronts")] IReadOnlyList<OctoconExportFront> Fronts,
+    [property: JsonPropertyName("tags")] IReadOnlyList<OctoconExportTag> Tags,
+    [property: JsonPropertyName("polls")] IReadOnlyList<OctoconExportPoll> Polls);
 
-public sealed record FullExportUser(
+public sealed record OctoconExportUser(
     [property: JsonPropertyName("username")] string? Username,
     [property: JsonPropertyName("description")] string? Description,
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("avatar_url")] string? AvatarUrl,
-    [property: JsonPropertyName("fields")] IReadOnlyList<FullExportUserField> Fields);
+    [property: JsonPropertyName("fields")] IReadOnlyList<OctoconExportUserField> Fields);
 
-public sealed record FullExportUserField(
+public sealed record OctoconExportUserField(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("type")] string Type,
     [property: JsonPropertyName("locked")] bool Locked,
     [property: JsonPropertyName("security_level")] VisibilityLevel SecurityLevel);
 
-public sealed record FullExportAlter(
+public sealed record OctoconExportAlter(
     [property: JsonPropertyName("id")] short Id,
     [property: JsonPropertyName("name")] string? Name,
     [property: JsonPropertyName("pronouns")] string? Pronouns,
@@ -69,20 +69,20 @@ public sealed record FullExportAlter(
     [property: JsonPropertyName("avatar_url")] string? AvatarUrl,
     [property: JsonPropertyName("proxy_name")] string? ProxyName,
     [property: JsonPropertyName("discord_proxies")] IReadOnlyList<string> DiscordProxies,
-    [property: JsonPropertyName("fields")] IReadOnlyList<FullExportAlterField> Fields);
+    [property: JsonPropertyName("fields")] IReadOnlyList<OctoconExportAlterField> Fields);
 
-public sealed record FullExportAlterField(
+public sealed record OctoconExportAlterField(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("value")] string Value);
 
-public sealed record FullExportFront(
+public sealed record OctoconExportFront(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("alter_id")] short AlterId,
     [property: JsonPropertyName("comment")] string? Comment,
     [property: JsonPropertyName("time_start")] string TimeStart,
     [property: JsonPropertyName("time_end")] string? TimeEnd);
 
-public sealed record FullExportTag(
+public sealed record OctoconExportTag(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("description")] string? Description,
@@ -93,7 +93,7 @@ public sealed record FullExportTag(
     [property: JsonPropertyName("updated_at")] string UpdatedAt,
     [property: JsonPropertyName("alters")] IReadOnlyList<short> Alters);
 
-public sealed record FullExportPoll(
+public sealed record OctoconExportPoll(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("title")] string Title,
     [property: JsonPropertyName("description")] string Description,

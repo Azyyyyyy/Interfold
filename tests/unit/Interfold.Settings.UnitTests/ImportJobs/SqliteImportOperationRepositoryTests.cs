@@ -1,14 +1,16 @@
+using Dapper;
 using Interfold.Infrastructure.InMemory;
 using Interfold.Infrastructure.Sqlite;
 using Interfold.Infrastructure.Sqlite.Repository;
 using Interfold.Settings.Contracts.Ids;
 using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
 // Per-system mutex contract for the in-memory IImportOperationRepository. The InMemory
 // implementation guarantees at most one
-// queued-or-running operation per (system, kind) pair.
+// queued-or-running operation per (system, format) pair.
 public sealed class SqliteImportOperationRepositoryTests
 {
     private static SqliteImportOperationRepository CreateRepo()
@@ -22,7 +24,7 @@ public sealed class SqliteImportOperationRepositoryTests
     {
         var repo = CreateRepo();
 
-        var claim = await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
+        var claim = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-1"));
 
         using (Assert.Multiple())
         {
@@ -38,9 +40,9 @@ public sealed class SqliteImportOperationRepositoryTests
     public async Task TryClaim_WhileActive_CollapsesOntoExistingOperation()
     {
         var repo = CreateRepo();
-        var first = await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
+        var first = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-1"));
 
-        var second = await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.SimplyPlural, new("idem-2"));
+        var second = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-2"));
 
         using (Assert.Multiple())
         {
@@ -55,27 +57,27 @@ public sealed class SqliteImportOperationRepositoryTests
     public async Task TryClaim_DifferentSystems_BothSucceed()
     {
         var repo = CreateRepo();
-        var claimA = await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
+        var claimA = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-1"));
 
-        var claimB = await repo.TryClaimAsync(new("sys-b"), ImportOperationKind.SimplyPlural, new("idem-2"));
+        var claimB = await repo.TryClaimAsync(new("sys-b"), ImportFormat.SimplyPlural, new("idem-2"));
 
         using (Assert.Multiple())
         {
             await Assert.That(claimA.IsNew).IsTrue();
             await Assert.That(claimB.IsNew).IsTrue()
-                .Because("System B's import must not be blocked by system A's — the mutex partition is per (system, kind).");
+                .Because("System B's import must not be blocked by system A's — the mutex partition is per (system, format).");
             await Assert.That(claimB.OperationId).IsNotEqualTo(claimA.OperationId)
                 .Because("Each fresh claim must mint its own operation_id; sharing ids across systems would break the audit trail.");
         }
     }
 
     [Test]
-    public async Task TryClaim_SameSystemDifferentKinds_BothSucceed()
+    public async Task TryClaim_SameSystemDifferentFormats_BothSucceed()
     {
         var repo = CreateRepo();
-        var spClaim = await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
+        var spClaim = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-1"));
 
-        var pkClaim = await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.PluralKit, new("idem-2"));
+        var pkClaim = await repo.TryClaimAsync(new("sys-a"), ImportFormat.PluralKit, new("idem-2"));
 
         using (Assert.Multiple())
         {
@@ -89,10 +91,10 @@ public sealed class SqliteImportOperationRepositoryTests
     public async Task TryClaim_AfterSucceeded_ReleasesSlotAndAllowsReclaim()
     {
         var repo = CreateRepo();
-        var first = await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
-        await repo.MarkSucceededAsync(new("sys-a"), first.OperationId, ImportOperationKind.SimplyPlural, alterCount: 5);
+        var first = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-1"));
+        await repo.MarkSucceededAsync(new("sys-a"), first.OperationId, ImportFormat.SimplyPlural, alterCount: 5);
 
-        var second = await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.SimplyPlural, new("idem-2"));
+        var second = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-2"));
 
         using (Assert.Multiple())
         {
@@ -107,10 +109,10 @@ public sealed class SqliteImportOperationRepositoryTests
     public async Task TryClaim_AfterFailed_ReleasesSlotAndAllowsReclaim()
     {
         var repo = CreateRepo();
-        var first = await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
-        await repo.MarkFailedAsync(new("sys-a"), first.OperationId, ImportOperationKind.SimplyPlural, ImportErrorCode.ImportFailed, "synthetic");
+        var first = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-1"));
+        await repo.MarkFailedAsync(new("sys-a"), first.OperationId, ImportFormat.SimplyPlural, ImportErrorCode.ImportFailed, "synthetic");
 
-        var second = await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.SimplyPlural, new("idem-2"));
+        var second = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-2"));
 
         await Assert.That(second.IsNew).IsTrue()
             .Because("MarkFailed must free the slot exactly like MarkSucceeded — both are terminal transitions.");
@@ -127,7 +129,7 @@ public sealed class SqliteImportOperationRepositoryTests
         var tasks = Enumerable.Range(0, parallelism).Select(async i =>
         {
             await barrier.Task;
-            return await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.SimplyPlural, new($"idem-{i}"));
+            return await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new($"idem-{i}"));
         }).ToArray();
 
         barrier.SetResult();
@@ -150,8 +152,8 @@ public sealed class SqliteImportOperationRepositoryTests
     public async Task MarkRunning_OnAlreadyTerminal_IsNoOp()
     {
         var repo = CreateRepo();
-        var claim = await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
-        await repo.MarkSucceededAsync(new("sys-a"), claim.OperationId, ImportOperationKind.SimplyPlural, alterCount: 3);
+        var claim = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-1"));
+        await repo.MarkSucceededAsync(new("sys-a"), claim.OperationId, ImportFormat.SimplyPlural, alterCount: 3);
 
         await repo.MarkRunningAsync(new("sys-a"), claim.OperationId);
 
@@ -165,12 +167,29 @@ public sealed class SqliteImportOperationRepositoryTests
     public async Task GetStaleRunning_OnlyReturnsRowsOlderThanThreshold()
     {
         var repo = CreateRepo();
-        var claim = await repo.TryClaimAsync(new("sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
+        var claim = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-1"));
         await repo.MarkRunningAsync(new("sys-a"), claim.OperationId);
 
         var stale = await repo.GetStaleRunningAsync(TimeSpan.FromMinutes(10));
 
         await Assert.That(stale.Count).IsEqualTo(0)
             .Because("A row that just started must never be classified as stale; otherwise the worker's startup sweep would fail in-flight imports on every restart.");
+    }
+
+    [Test]
+    public async Task TryClaim_NullRawPayload_StoresNullInDatabase()
+    {
+        var factory = InMemoryServiceCollectionExtensions.CreateIsolatedConnectionFactory();
+        var repo = new SqliteImportOperationRepository(factory, TimeProvider.System);
+
+        var claim = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-1"), rawPayload: null);
+
+        await using var connection = await factory.OpenConnectionAsync();
+        var rawInDb = await connection.QueryFirstOrDefaultAsync<string>(
+            "SELECT raw_payload FROM import_operations WHERE operation_id = @id",
+            new { id = claim.OperationId.Value.ToString("N") });
+
+        await Assert.That(rawInDb).IsNull()
+            .Because("Sensitive imports like SP and PK must not store payloads into the database.");
     }
 }

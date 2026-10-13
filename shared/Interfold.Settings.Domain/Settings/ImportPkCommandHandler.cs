@@ -1,8 +1,10 @@
+using System.Text.Json;
 using Interfold.Settings.Contracts;
 using Interfold.Settings.Contracts.Models.Commands;
 using Interfold.Settings.Contracts.Models.ImportOperations;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
 using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
@@ -30,10 +32,14 @@ public sealed class ImportPkCommandHandler : ICommandHandler<ImportPkCommand, Im
         if (CommandHandler.RejectIfBlank<ImportDispatchCommandResult>(command.OperationId, command.Payload.Token.Value, EntityRefs.SettingsImportPkInvalid) is { } blankReject)
             return blankReject;
 
+        var rawPayload = JsonSerializer.Serialize(new PkImportPayload(command.Payload.Token.Value));
+
+        // Sensitive credentials (token) are carried in-memory only and NOT persisted to the database.
         var claim = await _operations.TryClaimAsync(
             command.PrincipalId,
-            ImportOperationKind.PluralKit,
+            ImportFormat.PluralKit,
             command.IdempotencyKey,
+            rawPayload: null,
             cancellationToken).ConfigureAwait(false);
 
         if (claim.IsNew)
@@ -42,16 +48,15 @@ public sealed class ImportPkCommandHandler : ICommandHandler<ImportPkCommand, Im
                 new ImportJobItem(
                     claim.OperationId,
                     command.PrincipalId,
-                    ImportOperationKind.PluralKit,
-                    command.Payload.Token,
-                    RecoveryCode: null),
+                    ImportFormat.PluralKit,
+                    rawPayload),
                 cancellationToken).ConfigureAwait(false);
         }
 
         var result = new ImportDispatchCommandResult(
             command.PrincipalId,
             claim.OperationId,
-            ImportOperationKind.PluralKit,
+            ImportFormat.PluralKit,
             Status: claim.IsNew
                 ? ImportOperationDispatchStatus.Queued
                 : ImportOperationDispatchStatus.Running,

@@ -1,13 +1,14 @@
 using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Settings.Domain.Abstractions.ImportJobs;
 
-/// <summary>Per-kind importer used by the background worker. Worker matches
-/// <see cref="Kind"/> to the dequeued <see cref="ImportJobItem.Kind"/>. Implementations
+/// <summary>Per-format importer used by the background worker. Worker matches
+/// <see cref="Format"/> to the dequeued <see cref="ImportJobItem.Format"/>. Implementations
 /// live wherever the downstream client lives (SP runner in Interfold.Api; PK is a stub).</summary>
 public interface IImportJobRunner
 {
-    ImportOperationKind Kind { get; }
+    ImportFormat Format { get; }
 
     /// <summary>Runs the import. MUST NOT throw on graceful failure — return
     /// <see cref="ImportJobOutcome.Success"/> = false with a populated ErrorCode. Any

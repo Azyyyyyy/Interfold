@@ -1,13 +1,14 @@
-using Interfold.Shared.Contracts.Ids;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Settings.Contracts.Ids;
 using Interfold.Settings.Contracts.Models.ImportOperations;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
 // FIFO delivery, cancellation, back-pressure for InProcessImportJobQueue. Per-(system,
-// kind) dedupe lives on IImportOperationRepository, not here.
+// format) dedupe lives on IImportOperationRepository, not here.
 public sealed class InProcessImportJobQueueTests
 {
     [Test]
@@ -126,7 +127,6 @@ public sealed class InProcessImportJobQueueTests
     private static ImportJobItem NewItem(string systemId) => new(
         new ImportOperationId(Guid.NewGuid()),
         new SystemId(systemId),
-        ImportOperationKind.SimplyPlural,
-        Token: new ImportToken("synthetic-token"),
-        RecoveryCode: null);
+        ImportFormat.SimplyPlural,
+        RawPayload: "{ token: \"synthetic-token\"  }");
 }

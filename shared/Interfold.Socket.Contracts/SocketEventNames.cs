@@ -30,6 +30,8 @@ public static class SocketEventNames
         public const string SpFailed = "sp_import_failed";
         public const string PkComplete = "pk_import_complete";
         public const string PkFailed = "pk_import_failed";
+        public const string OctoconComplete = "octocon_import_complete";
+        public const string OctoconFailed = "octocon_import_failed";
     }
 
     public static class Fronting

@@ -4,11 +4,12 @@ using Interfold.Infrastructure.Sqlite;
 using Interfold.Infrastructure.Sqlite.Repository;
 using Interfold.Settings.Contracts.Models.ImportOperations;
 using Interfold.Settings.Domain.Settings;
+using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
 // PK dispatch is the stub-importer twin of SP; re-asserting the shape here keeps a
-// regression in either handler loud. Per-kind extras (recovery-code contract, cross-kind
+// regression in either handler loud. Per-format extras (recovery-code contract, cross-format
 // concurrency) stay inline; shared skeleton is ImportDispatchScenario.
 public sealed class ImportPkCommandHandlerDispatchTests
 {
@@ -23,10 +24,10 @@ public sealed class ImportPkCommandHandlerDispatchTests
         {
             await Assert.That(result.Accepted).IsTrue();
             await Assert.That(result.Result!.Status).IsEqualTo(ImportOperationDispatchStatus.Queued);
-            await Assert.That(result.Result!.Kind).IsEqualTo(ImportOperationKind.PluralKit)
-                .Because("PK dispatches must surface the 'pk' kind so the worker routes to the PK runner — wiring it to 'sp' would silently run SP code against a PK token.");
+            await Assert.That(result.Result!.Format).IsEqualTo(ImportFormat.PluralKit)
+                .Because("PK dispatches must surface the 'pk' format so the worker routes to the PK runner — wiring it to 'sp' would silently run SP code against a PK token.");
             await Assert.That(scenario.Capture.Enqueued).HasCount(1);
-            await Assert.That(scenario.Capture.Enqueued[0].RecoveryCode).IsNull()
+            await Assert.That(scenario.Capture.Enqueued[0].RawPayload).EqualTo("{\"token\":\"synthetic-pk-token\"}")
                 .Because("PK has no recovery-code concept; carrying one through would be a contract leak from the SP path.");
         }
     }
@@ -49,7 +50,7 @@ public sealed class ImportPkCommandHandlerDispatchTests
         }
     }
 
-    // LWT mutex partitions on (system, kind) — SP and PK for the same system run
+    // LWT mutex partitions on (system, format) — SP and PK for the same system run
     // independently. Inline (not on the shared scenario) because it needs two handlers.
     [Test]
     public async Task HandleAsync_SpAndPk_SameSystem_BothClaimDistinctSlots()
@@ -70,11 +71,11 @@ public sealed class ImportPkCommandHandlerDispatchTests
         {
             await Assert.That(spResult.Result!.Status).IsEqualTo(ImportOperationDispatchStatus.Queued);
             await Assert.That(pkResult.Result!.Status).IsEqualTo(ImportOperationDispatchStatus.Queued)
-                .Because("A PK dispatch must not be blocked by an in-flight SP dispatch for the same system — the mutex is per (system, kind).");
+                .Because("A PK dispatch must not be blocked by an in-flight SP dispatch for the same system — the mutex is per (system, format).");
             await Assert.That(spResult.Result!.OperationId).IsNotEqualTo(pkResult.Result!.OperationId)
-                .Because("Distinct kinds must get distinct operation_ids; aliasing them would corrupt the audit trail.");
+                .Because("Distinct formats must get distinct operation_ids; aliasing them would corrupt the audit trail.");
             await Assert.That(capture.Enqueued).HasCount(2)
-                .Because("Both dispatches must produce their own worker run — one per kind.");
+                .Because("Both dispatches must produce their own worker run — one per format.");
         }
 
         await queue.DisposeAsync();
@@ -88,7 +89,8 @@ public sealed class ImportPkCommandHandlerDispatchTests
         var result = await scenario.DispatchAsync(token: string.Empty);
 
         await Assert.That(result.Accepted).IsFalse()
-            .Because("PK dispatches with no token are invalid input — the handler must reject before claiming a slot.");
-        await Assert.That(scenario.Capture.Enqueued).IsEmpty();
+            .Because("A blank PK token must fail validation before any mutex claim is attempted.");
+        await Assert.That(scenario.Capture.Enqueued).IsEmpty()
+            .Because("Validation failure must never push an item onto the worker queue.");
     }
 }

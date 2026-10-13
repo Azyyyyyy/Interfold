@@ -203,7 +203,7 @@ public sealed class ExportServiceTests
     }
 
     [Test]
-    public async Task BuildFullAsync_MatchesReferenceShape()
+    public async Task BuildOctoconAsync_MatchesReferenceShape()
     {
         var service = BuildService(
             ExportFixtures.BuildProfile(),
@@ -213,7 +213,7 @@ public sealed class ExportServiceTests
             BuildFronts(),
             BuildFields());
 
-        var payload = await service.BuildFullAsync(ExportFixtures.OwnerId, CancellationToken.None);
+        var payload = await service.BuildOctoconAsync(ExportFixtures.OwnerId, CancellationToken.None);
         var actual = JsonNode.Parse(JsonSerializer.SerializeToUtf8Bytes(payload, ExportJsonOptions.Default))
             ?? throw new InvalidOperationException("full payload serialised to null root.");
         var expected = JsonNode.Parse(ExportFixtures.ExpectedFullJson())
@@ -229,7 +229,7 @@ public sealed class ExportServiceTests
     // corrupt row), so ExportService only sees populated ones. Documenting the shape here
     // via a two-element fixture — the "drop" branch is exercised by the fronting repo tests.
     [Test]
-    public async Task BuildFullAsync_EmitsAllFrontsReturnedByRepository()
+    public async Task BuildOctoconAsync_EmitsAllFrontsReturnedByRepository()
     {
         var service = BuildService(
             ExportFixtures.BuildProfile(description: "desc"),
@@ -239,7 +239,7 @@ public sealed class ExportServiceTests
             BuildFronts(),
             BuildFields());
 
-        var payload = await service.BuildFullAsync(ExportFixtures.OwnerId, CancellationToken.None);
+        var payload = await service.BuildOctoconAsync(ExportFixtures.OwnerId, CancellationToken.None);
 
         await Assert.That(payload.Fronts.Count).IsEqualTo(2);
         await Assert.That(payload.Fronts[0].Id).IsEqualTo(ExportFixtures.FrontOpenId);
@@ -247,7 +247,7 @@ public sealed class ExportServiceTests
     }
 
     [Test]
-    public async Task BuildFullAsync_MapsUnsupportedFieldTypesToText()
+    public async Task BuildOctoconAsync_MapsUnsupportedFieldTypesToText()
     {
         var customFields = new[]
         {
@@ -267,7 +267,7 @@ public sealed class ExportServiceTests
             BuildFronts(),
             customFields);
 
-        var payload = await service.BuildFullAsync(ExportFixtures.OwnerId, CancellationToken.None);
+        var payload = await service.BuildOctoconAsync(ExportFixtures.OwnerId, CancellationToken.None);
 
         await Assert.That(payload.User.Fields[0].Type).IsEqualTo("text");
         await Assert.That(payload.User.Fields[1].Type).IsEqualTo("number");
@@ -278,7 +278,7 @@ public sealed class ExportServiceTests
     }
 
     [Test]
-    public async Task BuildFullAsync_NullValuesBecomeBlankStrings()
+    public async Task BuildOctoconAsync_NullValuesBecomeBlankStrings()
     {
         var alterWithNullField = new AlterReadModel(
             ExportFixtures.AlterOneId,
@@ -319,14 +319,14 @@ public sealed class ExportServiceTests
             BuildFronts(),
             BuildFields());
 
-        var payload = await service.BuildFullAsync(ExportFixtures.OwnerId, CancellationToken.None);
+        var payload = await service.BuildOctoconAsync(ExportFixtures.OwnerId, CancellationToken.None);
 
         await Assert.That(payload.Alters[0].Fields[0].Value).IsEqualTo(string.Empty);
         await Assert.That(payload.Polls[0].Description).IsEqualTo(string.Empty);
     }
 
     [Test]
-    public async Task BuildFullAsync_PreservesChoicePollDataWithChoiceProperty()
+    public async Task BuildOctoconAsync_PreservesChoicePollDataWithChoiceProperty()
     {
         var choiceData = new ChoicePollData(
             new[] { new PollDataChoice(new PollChoiceId("c1"), "Option") },
@@ -355,7 +355,7 @@ public sealed class ExportServiceTests
             BuildFronts(),
             BuildFields());
 
-        var payload = await service.BuildFullAsync(ExportFixtures.OwnerId, CancellationToken.None);
+        var payload = await service.BuildOctoconAsync(ExportFixtures.OwnerId, CancellationToken.None);
         var pollData = payload.Polls[0].Data;
 
         await Assert.That(pollData.TryGetProperty("choices", out _)).IsFalse();
