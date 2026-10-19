@@ -21,6 +21,14 @@ public sealed record CreatePollCommand(
     DateTime InsertedAtUtc
 );
 
+public sealed record ImportPollWrite(
+    string Title,
+    string? Description,
+    PollType Type,
+    JsonElement Data,
+    DateTime? TimeEnd,
+    DateTime InsertedAtUtc);
+
 // The Id property name is frozen: it serializes as "id" in persisted command JSON
 // and idempotency hashes.
 public sealed record UpdatePollCommand(

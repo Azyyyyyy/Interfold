@@ -5,6 +5,15 @@ namespace Interfold.Alters.Contracts.Models.Commands;
 
 public sealed record CreateAlterCommand(string Name, DateTimeOffset CreatedAt);
 
+public sealed record ImportAlterWrite(
+    string Name,
+    string? Pronouns,
+    string? Description,
+    HexColor? Color,
+    string? ProxyName,
+    IReadOnlyList<AlterFieldCommand>? Fields,
+    DateTimeOffset CreatedAt);
+
 // Property-initialiser record shape (rather than positional) so callers only spell out
 // the fields they actually want to set — the alter-avatar handlers in AltersController
 // were previously passing 13-14 nulls positionally which drowned the meaningful arguments.

@@ -1,5 +1,6 @@
 using Interfold.Alters.Contracts.Abstractions;
 using Interfold.Settings.Api.Services.Export;
+using Interfold.Settings.Api.Services.Octocon;
 using Interfold.Settings.Api.Services.Http;
 using Interfold.Settings.Api.Services.ImportJobs;
 using Interfold.Settings.Api.Services.Secrets;
@@ -51,6 +52,7 @@ public static class SettingsModuleServiceCollectionExtensions
             .AddSingleton<DeleteAvatarCommandHandler>()
             .AddSingleton<ImportPkCommandHandler>()
             .AddSingleton<ImportSpCommandHandler>()
+            .AddSingleton<ImportOctoconCommandHandler>()
             .AddSingleton<UnlinkDiscordCommandHandler>()
             .AddSingleton<UnlinkEmailCommandHandler>()
             .AddSingleton<UnlinkAppleCommandHandler>()
@@ -70,6 +72,8 @@ public static class SettingsModuleServiceCollectionExtensions
         services.AddSingleton<ISimplyPluralImportService, SimplyPluralImportService>();
         services.AddSingleton<IImportJobRunner, SpImportJobRunner>();
         services.AddSingleton<IImportJobRunner, PkImportJobRunner>();
+        services.AddSingleton<IOctoconImportService, OctoconImportService>();
+        services.AddSingleton<IImportJobRunner, OctoconImportJobRunner>();
         services.AddHostedService<ImportJobBackgroundService>();
         services.AddSingleton<IExportService, ExportService>();
         services.AddSingleton<IAlterFieldDefinitions, AlterFieldDefinitionsAdapter>();

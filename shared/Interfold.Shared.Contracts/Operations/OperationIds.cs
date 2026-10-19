@@ -16,6 +16,7 @@ public static class OperationIds
     public static readonly OperationId SettingsAvatarDelete = new("cmd.settings.avatar.delete");
     public static readonly OperationId SettingsImportPk = new("cmd.settings.import.pk");
     public static readonly OperationId SettingsImportSp = new("cmd.settings.import.sp");
+    public static readonly OperationId SettingsImportOctocon = new("cmd.settings.import.octocon");
     public static readonly OperationId SettingsAuthUnlinkDiscord = new("cmd.settings.auth.unlink_discord");
     public static readonly OperationId SettingsAuthUnlinkEmail = new("cmd.settings.auth.unlink_email");
     public static readonly OperationId SettingsAuthUnlinkApple = new("cmd.settings.auth.unlink_apple");

@@ -22,7 +22,7 @@ public sealed record SettingsCommandResult(SystemId SystemId, SettingsAction Act
 public sealed record ImportDispatchCommandResult(
     SystemId SystemId,
     ImportOperationId OperationId,
-    ImportOperationKind Kind,
+    ImportFormat Format,
     ImportOperationDispatchStatus Status,
     DateTimeOffset StartedAt,
     bool Replay) : ICommandResult<ImportDispatchCommandResult>

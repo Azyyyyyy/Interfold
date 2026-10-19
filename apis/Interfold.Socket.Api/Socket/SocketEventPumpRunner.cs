@@ -81,7 +81,9 @@ public static class SocketEventPumpRunner
             SubscribeAsync<SimplyPluralImportCompletedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)),
             SubscribeAsync<SimplyPluralImportFailedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)),
             SubscribeAsync<PluralKitImportCompletedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)),
-            SubscribeAsync<PluralKitImportFailedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)));
+            SubscribeAsync<PluralKitImportFailedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)),
+            SubscribeAsync<OctoconImportCompletedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)),
+            SubscribeAsync<OctoconImportFailedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)));
     }
 
     private static async Task SubscribeAsync<TEvent>(

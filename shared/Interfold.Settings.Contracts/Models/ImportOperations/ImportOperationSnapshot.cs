@@ -16,7 +16,7 @@ namespace Interfold.Settings.Contracts.Models.ImportOperations;
 public sealed record ImportOperationSnapshot(
     SystemId SystemId,
     ImportOperationId OperationId,
-    ImportOperationKind Kind,
+    ImportFormat Format,
     ImportOperationStatus Status,
     DateTimeOffset StartedAt,
     DateTimeOffset? FinishedAt,

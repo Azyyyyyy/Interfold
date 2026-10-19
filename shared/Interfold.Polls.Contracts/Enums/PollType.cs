@@ -12,7 +12,4 @@ public enum PollType : short
 
     [JsonStringEnumMemberName("choice")]
     Choice = 1,
-
-    [JsonStringEnumMemberName("approval")]
-    Approval = 2,
 }

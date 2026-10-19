@@ -4,6 +4,7 @@ using Interfold.Alters.Contracts.Models;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Fronting.Contracts.Ids;
+using Interfold.Fronting.Contracts.Models.Commands;
 using Interfold.Fronting.Contracts.Models.Read;
 using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Sqlite;
@@ -65,62 +66,128 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         var frontIdText = frontId.ToString("N");
         var startedMs = startedAt.ToUnixTimeMilliseconds();
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            var already = await connection.ExecuteScalarAsync(
-                """
-                SELECT 1 FROM current_fronts
-                WHERE user_id = @user_id AND alter_id = @alter_id
-                LIMIT 1
-                """,
-                new { user_id = systemId, alter_id = alterId.Value },
-                tx);
-            if (already is not null and not DBNull)
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var already = await work.Connection.ExecuteScalarAsync(
+            """
+            SELECT 1 FROM current_fronts
+            WHERE user_id = @user_id AND alter_id = @alter_id
+            LIMIT 1
+            """,
+            new { user_id = systemId, alter_id = alterId.Value },
+            work.Transaction);
+        if (already is not null and not DBNull)
+            return null;
+
+        await work.Connection.ExecuteAsync(
+            """
+            INSERT INTO current_fronts (user_id, alter_id, id, comment, time_start)
+            VALUES (@user_id, @alter_id, @id, @comment, @time_start)
+            """,
+            new
             {
-                await tx.RollbackAsync(cancellationToken);
-                return null;
+                user_id = systemId,
+                alter_id = alterId.Value,
+                id = frontIdText,
+                comment,
+                time_start = startedMs,
+            },
+            work.Transaction);
+
+        await work.Connection.ExecuteAsync(
+            """
+            INSERT INTO fronts (user_id, id, alter_id, comment, time_start, time_end)
+            VALUES (@user_id, @id, @alter_id, @comment, @time_start, NULL)
+            """,
+            new
+            {
+                user_id = systemId,
+                id = frontIdText,
+                alter_id = alterId.Value,
+                comment,
+                time_start = startedMs,
+            },
+            work.Transaction);
+
+        await work.CommitAsync(cancellationToken);
+        return new FrontId(frontId);
+    }
+
+    public async Task ImportManyAsync(
+        SystemId systemId,
+        IReadOnlyList<ImportFrontWrite> fronts,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (fronts.Count == 0)
+            return;
+
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var alreadyOpen = (await work.Connection.QueryAsync<long>(
+            """
+            SELECT alter_id FROM current_fronts
+            WHERE user_id = @user_id
+            """,
+            new { user_id = systemId },
+            work.Transaction)).ToHashSet();
+
+        foreach (var front in fronts)
+        {
+            var frontIdText = Guid.NewGuid().ToString("N");
+            var startedMs = front.StartedAt.ToUnixTimeMilliseconds();
+            if (front.EndedAt is null)
+            {
+                if (!alreadyOpen.Add(front.AlterId.Value))
+                    continue;
+
+                await work.Connection.ExecuteAsync(
+                    """
+                    INSERT INTO current_fronts (user_id, alter_id, id, comment, time_start)
+                    VALUES (@user_id, @alter_id, @id, @comment, @time_start)
+                    """,
+                    new
+                    {
+                        user_id = systemId,
+                        alter_id = front.AlterId.Value,
+                        id = frontIdText,
+                        comment = front.Comment,
+                        time_start = startedMs,
+                    },
+                    work.Transaction);
+                await work.Connection.ExecuteAsync(
+                    """
+                    INSERT INTO fronts (user_id, id, alter_id, comment, time_start, time_end)
+                    VALUES (@user_id, @id, @alter_id, @comment, @time_start, NULL)
+                    """,
+                    new
+                    {
+                        user_id = systemId,
+                        id = frontIdText,
+                        alter_id = front.AlterId.Value,
+                        comment = front.Comment,
+                        time_start = startedMs,
+                    },
+                    work.Transaction);
+                continue;
             }
 
-            await connection.ExecuteAsync(
-                """
-                INSERT INTO current_fronts (user_id, alter_id, id, comment, time_start)
-                VALUES (@user_id, @alter_id, @id, @comment, @time_start)
-                """,
-                new
-                {
-                    user_id = systemId,
-                    alter_id = alterId.Value,
-                    id = frontIdText,
-                    comment,
-                    time_start = startedMs,
-                },
-                tx);
-
-            await connection.ExecuteAsync(
+            await work.Connection.ExecuteAsync(
                 """
                 INSERT INTO fronts (user_id, id, alter_id, comment, time_start, time_end)
-                VALUES (@user_id, @id, @alter_id, @comment, @time_start, NULL)
+                VALUES (@user_id, @id, @alter_id, @comment, @time_start, @time_end)
                 """,
                 new
                 {
                     user_id = systemId,
                     id = frontIdText,
-                    alter_id = alterId.Value,
-                    comment,
+                    alter_id = front.AlterId.Value,
+                    comment = front.Comment,
                     time_start = startedMs,
+                    time_end = front.EndedAt.Value.ToUnixTimeMilliseconds(),
                 },
-                tx);
+                work.Transaction);
+        }
 
-            await tx.CommitAsync(cancellationToken);
-            return new FrontId(frontId);
-        }
-        catch
-        {
-            await tx.RollbackAsync(cancellationToken);
-            throw;
-        }
+        await work.CommitAsync(cancellationToken);
     }
 
     public async Task<bool> EndAsync(

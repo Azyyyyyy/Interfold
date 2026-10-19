@@ -25,6 +25,7 @@ public static class SharedApiServiceCollectionExtensions
         {
             mvcOptions.ModelBinderProviders.Insert(0, new SystemIdModelBinderProvider());
             mvcOptions.ModelBinderProviders.Insert(0, new UnixSecondsModelBinderProvider());
+            mvcOptions.ModelBinderProviders.Insert(0, new EnumWireModelBinderProvider());
         });
 
         services.Configure<JsonOptions>(options =>

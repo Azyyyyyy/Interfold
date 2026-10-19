@@ -36,3 +36,7 @@ public sealed record SimplyPluralImportFailedEvent(SystemId TargetSystemId) : IT
 public sealed record PluralKitImportCompletedEvent(SystemId TargetSystemId, int AlterCount) : ITargetedClusterEvent;
 
 public sealed record PluralKitImportFailedEvent(SystemId TargetSystemId) : ITargetedClusterEvent;
+
+public sealed record OctoconImportCompletedEvent(SystemId TargetSystemId, int AlterCount) : ITargetedClusterEvent;
+
+public sealed record OctoconImportFailedEvent(SystemId TargetSystemId) : ITargetedClusterEvent;

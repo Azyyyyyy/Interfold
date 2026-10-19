@@ -47,6 +47,7 @@ public static class ErrorCodes
     public static readonly ErrorCode AvatarUrlInvalid = new("avatar_url_invalid");
     public static readonly ErrorCode AvatarUrlTooLong = new("avatar_url_too_long");
     public static readonly ErrorCode InvalidExportFormat = new("invalid_export_format");
+    public static readonly ErrorCode InvalidImportFormat = new("invalid_import_format");
 
     // Auth
     public static readonly ErrorCode InvalidOAuthProvider = new("invalid_oauth_provider");

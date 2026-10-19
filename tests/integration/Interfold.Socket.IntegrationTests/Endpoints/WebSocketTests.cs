@@ -593,6 +593,29 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         await ws.CloseTestDoneAsync(token);
     }
 
+    [Test]
+    public async Task Api_UserSocketEndpoint_PushesOctoconImportLifecycleEvents_OnEventBusPublish(CancellationToken token)
+    {
+        var systemId = UniqueId("sys-octocon-import");
+        var topic = $"system:{systemId}";
+        var (rawWs, socketToken) = await WebSocketHarness.ConnectAndJoinAsync(fixture, systemId, token);
+        using var ws = rawWs;
+
+        await fixture.Factory.EventBus.PublishAsync(new OctoconImportCompletedEvent(AsSystemId(systemId), 4), token);
+
+        var completeFrame = await ws.ReceiveEventFrameAsync(token, SocketEventNames.Imports.OctoconComplete, maxFrames: 4);
+        await Assert.That(completeFrame).IsNotNull().Because("Expected octocon_import_complete push after bus publish.");
+        await Assert.That(completeFrame!.RawPayload?.GetProperty("alter_count").GetInt32() ?? -1)
+            .IsEqualTo(4).Because("Expected alter_count=4 in octocon_import_complete payload (legacy contract is snake_case).");
+
+        await fixture.Factory.EventBus.PublishAsync(new OctoconImportFailedEvent(AsSystemId(systemId)), token);
+
+        var failedFrame = await ws.ReceiveEventFrameAsync(token, SocketEventNames.Imports.OctoconFailed, maxFrames: 4);
+        await Assert.That(failedFrame).IsNotNull().Because("Expected octocon_import_failed push after bus publish.");
+
+        await ws.CloseTestDoneAsync(token);
+    }
+
     /// <summary>Regression for the docker-deployment crash: the WebSocket endpoint relay
     /// used to build its outbound URL from the inbound Host (operator-facing hostname +
     /// host-mapped port), which the container can neither resolve nor reach. Recorder

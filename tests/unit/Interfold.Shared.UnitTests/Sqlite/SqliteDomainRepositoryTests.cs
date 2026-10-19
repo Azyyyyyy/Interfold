@@ -1,5 +1,7 @@
+using System.Text.Json;
 using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Friendships.Contracts.Ids;
+using Interfold.Fronting.Contracts.Models.Commands;
 using Interfold.Alters.Domain;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Friendships.Contracts.Models.Read;
@@ -446,6 +448,101 @@ public sealed class SqlitePollRepositoryTests
 
             await Assert.That(await repo.DeleteAsync(systemId, id.Value)).IsTrue();
             await Assert.That(await repo.ExistsAsync(systemId, id.Value)).IsFalse();
+        }
+        finally
+        {
+            SqliteTestDb.Delete(path);
+        }
+    }
+}
+
+public sealed class SqliteImportBatchTests
+{
+    [Test]
+    public async Task UncommittedAlterImport_LeavesNoRows()
+    {
+        var path = await SqliteTestDb.CreateMigratedAsync();
+        try
+        {
+            var factory = SqliteTestDb.Factory(path);
+            var friendships = SqliteTestDb.Friendships(factory);
+            var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
+            var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
+            IAlterRepository alters = new SqliteAlterRepository(
+                factory, friendships, settings, alterFields,
+                NullLogger<SqliteAlterRepository>.Instance);
+            var systemId = new SystemId("batch01");
+            var transactions = new SqliteStorageTransactionFactory(factory);
+
+            await using (var transaction = await transactions.BeginAsync())
+            {
+                var ids = await alters.ImportManyAsync(systemId, [
+                    new ImportAlterWrite("One", null, null, null, null, null, DateTimeOffset.UtcNow),
+                    new ImportAlterWrite("Two", null, null, null, null, null, DateTimeOffset.UtcNow),
+                ]);
+                await Assert.That(ids.Count).IsEqualTo(2);
+            }
+
+            await Assert.That((await alters.ListAsync(systemId)).Count).IsEqualTo(0);
+        }
+        finally
+        {
+            SqliteTestDb.Delete(path);
+        }
+    }
+
+    [Test]
+    public async Task CommittedImport_WritesAltersFrontsAndVotePoll()
+    {
+        var path = await SqliteTestDb.CreateMigratedAsync();
+        try
+        {
+            var factory = SqliteTestDb.Factory(path);
+            var friendships = SqliteTestDb.Friendships(factory);
+            var settings = new SqliteSettingsFieldRepository(factory, TimeProvider.System);
+            var alterFields = new AlterFieldDefinitionsAdapter(settings, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
+            IAlterRepository alters = new SqliteAlterRepository(
+                factory, friendships, settings, alterFields,
+                NullLogger<SqliteAlterRepository>.Instance);
+            IFrontingRepository fronts = new SqliteFrontingRepository(
+                factory, friendships, alters, NullLogger<SqliteFrontingRepository>.Instance, TimeProvider.System);
+            IPollRepository polls = new SqlitePollRepository(factory, TimeProvider.System);
+            var systemId = new SystemId("batch02");
+            var transactions = new SqliteStorageTransactionFactory(factory);
+            var started = DateTimeOffset.UtcNow.AddHours(-2);
+            using var vote = JsonDocument.Parse("""{"responses":[],"allow_veto":true}""");
+
+            IReadOnlyList<AlterId> ids;
+            await using (var transaction = await transactions.BeginAsync())
+            {
+                ids = await alters.ImportManyAsync(systemId, [
+                    new ImportAlterWrite("Open", null, null, null, null, null, started),
+                    new ImportAlterWrite("Closed", null, null, null, null, null, started),
+                ]);
+                await fronts.ImportManyAsync(systemId, [
+                    new ImportFrontWrite(ids[0], "still", started, null),
+                    new ImportFrontWrite(ids[1], "done", started, started.AddHours(1)),
+                ]);
+                await polls.CreateManyAsync(systemId, [
+                    new ImportPollWrite("Vote", null, PollType.Vote, vote.RootElement.Clone(), null, DateTime.UtcNow),
+                ]);
+                await transaction.CommitAsync();
+            }
+
+            var active = await fronts.ListActiveAsync(systemId);
+            var history = await fronts.ListAllAsync(systemId);
+            var stored = await polls.ListAsync(systemId);
+
+            using (Assert.Multiple())
+            {
+                await Assert.That((await alters.ListAsync(systemId)).Count).IsEqualTo(2);
+                await Assert.That(active.Count).IsEqualTo(1);
+                await Assert.That(active[0].Front.AlterId).IsEqualTo(ids[0]);
+                await Assert.That(history.Count).IsEqualTo(2);
+                await Assert.That(stored.Count).IsEqualTo(1);
+                await Assert.That(stored[0].Type).IsEqualTo(PollType.Vote);
+                await Assert.That(stored[0].Data.GetProperty("allow_veto").GetBoolean()).IsTrue();
+            }
         }
         finally
         {

@@ -25,13 +25,14 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
 
     public async Task<ImportOperationClaim> TryClaimAsync(
         SystemId systemId,
-        ImportOperationKind kind,
+        ImportFormat format,
         IdempotencyKey idempotencyKey,
+        string? rawPayload = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var kindWire = kind.ToWire();
+        var kindWire = format.ToWire();
         var newOperationId = Guid.NewGuid();
         var nowMs = _clock.GetUtcNow().ToUnixTimeMilliseconds();
 
@@ -78,9 +79,9 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
             await connection.ExecuteAsync(
                 """
                 INSERT INTO import_operations
-                    (system_id, operation_id, kind, status, started_at, idempotency_key)
+                    (system_id, operation_id, kind, status, started_at, idempotency_key, raw_payload)
                 VALUES
-                    (@system_id, @operation_id, @kind, @status, @started_at, @idempotency_key)
+                    (@system_id, @operation_id, @kind, @status, @started_at, @idempotency_key, @raw_payload)
                 """,
                 new
                 {
@@ -90,6 +91,7 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
                     status = ImportOperationStatus.Queued.ToWire(),
                     started_at = nowMs,
                     idempotency_key = idempotencyKey.Value,
+                    raw_payload = rawPayload,
                 },
                 tx);
 
@@ -131,7 +133,7 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
     public async Task MarkSucceededAsync(
         SystemId systemId,
         ImportOperationId operationId,
-        ImportOperationKind kind,
+        ImportFormat format,
         int alterCount,
         CancellationToken cancellationToken = default)
     {
@@ -158,7 +160,7 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
                 },
                 tx);
 
-            await ReleaseSlotAsync(connection, tx, systemId, kind.ToWire(), operationId.Value, cancellationToken);
+            await ReleaseSlotAsync(connection, tx, systemId, format.ToWire(), operationId.Value, cancellationToken);
             await tx.CommitAsync(cancellationToken);
         }
         catch
@@ -171,7 +173,7 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
     public async Task MarkFailedAsync(
         SystemId systemId,
         ImportOperationId operationId,
-        ImportOperationKind kind,
+        ImportFormat format,
         ImportErrorCode errorCode,
         string? errorMessage,
         CancellationToken cancellationToken = default)
@@ -203,7 +205,7 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
                 },
                 tx);
 
-            await ReleaseSlotAsync(connection, tx, systemId, kind.ToWire(), operationId.Value, cancellationToken);
+            await ReleaseSlotAsync(connection, tx, systemId, format.ToWire(), operationId.Value, cancellationToken);
             await tx.CommitAsync(cancellationToken);
         }
         catch
@@ -241,7 +243,7 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
 
     public async Task<ImportOperationId?> GetActiveOperationIdAsync(
         SystemId systemId,
-        ImportOperationKind kind,
+        ImportFormat format,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -254,7 +256,7 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
             WHERE system_id = @system_id AND kind = @kind
             LIMIT 1
             """,
-            new { system_id = systemId, kind = kind.ToWire() });
+            new { system_id = systemId, kind = format.ToWire() });
         return raw is null ? null : new ImportOperationId(ParseOperationId(raw));
     }
 
@@ -307,11 +309,11 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
             ? parsed
             : ImportOperationStatus.Queued;
 
-        if (!row.Kind.TryParseWire<ImportOperationKind>(out var kind))
+        if (!row.Kind.TryParseWire<ImportFormat>(out var format))
         {
             throw new InvalidOperationException(
                 $"[import-ops] Encountered unknown kind '{row.Kind}' in import_operations row. " +
-                "Data schema drift — add the new value to ImportOperationKind before rolling this migration.");
+                "Data schema drift — add the new value to ImportFormat before rolling this migration.");
         }
 
         var startedAt = DateTimeOffset.FromUnixTimeMilliseconds(row.StartedAt);
@@ -329,7 +331,7 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
         return new ImportOperationSnapshot(
             row.SystemId,
             new ImportOperationId(ParseOperationId(row.OperationId)),
-            kind,
+            format,
             status,
             startedAt,
             finishedAt,
@@ -338,7 +340,6 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
             row.ErrorMessage,
             new IdempotencyKey(row.IdempotencyKey));
     }
-
 
     private static string FormatOperationId(Guid id) => id.ToString("N");
 

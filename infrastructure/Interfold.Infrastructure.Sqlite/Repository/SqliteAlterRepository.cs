@@ -48,16 +48,15 @@ public sealed class SqliteAlterRepository : IAlterRepository
     {
         var createdAtMs = command.CreatedAt.ToUnixTimeMilliseconds();
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
 
-        var max = await connection.ExecuteScalarAsync<long>(
+        var max = await work.Connection.ExecuteScalarAsync<long>(
             "SELECT COALESCE(MAX(id), 0) FROM alters WHERE system_id = @system_id",
             new { system_id = systemId },
-            tx);
+            work.Transaction);
         var nextId = checked((short)(max + 1));
 
-        await connection.ExecuteAsync(
+        await work.Connection.ExecuteAsync(
             """
             INSERT INTO alters (
                 system_id, id, name, alias, security_level,
@@ -75,10 +74,83 @@ public sealed class SqliteAlterRepository : IAlterRepository
                 inserted_at = createdAtMs,
                 updated_at = createdAtMs,
             },
-            tx);
+            work.Transaction);
 
-        await tx.CommitAsync(cancellationToken);
+        await work.CommitAsync(cancellationToken);
         return new AlterId(nextId);
+    }
+
+    public async Task<IReadOnlyList<AlterId>> ImportManyAsync(
+        SystemId systemId,
+        IReadOnlyList<ImportAlterWrite> alters,
+        CancellationToken cancellationToken = default)
+    {
+        if (alters.Count == 0)
+            return [];
+
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var max = await work.Connection.ExecuteScalarAsync<long>(
+            "SELECT COALESCE(MAX(id), 0) FROM alters WHERE system_id = @system_id",
+            new { system_id = systemId },
+            work.Transaction);
+
+        var ids = new AlterId[alters.Count];
+        for (var i = 0; i < alters.Count; i++)
+        {
+            var alter = alters[i];
+            var nextId = checked((short)(max + 1 + i));
+            var createdAtMs = alter.CreatedAt.ToUnixTimeMilliseconds();
+            await work.Connection.ExecuteAsync(
+                """
+                INSERT INTO alters (
+                    system_id, id, name, alias, pronouns, description, security_level,
+                    color, proxy_name, untracked, archived, pinned, inserted_at, updated_at)
+                VALUES (
+                    @system_id, @id, @name, NULL, @pronouns, @description, @security_level,
+                    @color, @proxy_name, 0, 0, 0, @inserted_at, @updated_at)
+                """,
+                new
+                {
+                    system_id = systemId,
+                    id = nextId,
+                    name = alter.Name,
+                    pronouns = alter.Pronouns,
+                    description = alter.Description,
+                    security_level = (short)VisibilityLevel.Private,
+                    color = alter.Color?.Value,
+                    proxy_name = alter.ProxyName,
+                    inserted_at = createdAtMs,
+                    updated_at = createdAtMs,
+                },
+                work.Transaction);
+
+            if (alter.Fields is { Count: > 0 })
+            {
+                foreach (var field in alter.Fields)
+                {
+                    await work.Connection.ExecuteAsync(
+                        """
+                        INSERT INTO alter_fields (system_id, alter_id, field_id, value)
+                        VALUES (@system_id, @alter_id, @field_id, @value)
+                        ON CONFLICT(system_id, alter_id, field_id) DO UPDATE SET
+                            value = excluded.value
+                        """,
+                        new
+                        {
+                            system_id = systemId,
+                            alter_id = nextId,
+                            field_id = field.Id.Value.ToString("N"),
+                            value = field.Value,
+                        },
+                        work.Transaction);
+                }
+            }
+
+            ids[i] = new AlterId(nextId);
+        }
+
+        await work.CommitAsync(cancellationToken);
+        return ids;
     }
 
     public async Task<bool> ExistsAsync(
@@ -97,10 +169,9 @@ public sealed class SqliteAlterRepository : IAlterRepository
     {
         var updatedAtMs = command.UpdatedAt.ToUnixTimeMilliseconds();
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
 
-        if (!await RowExistsAsync(connection, tx, systemId, command.AlterId.Value))
+        if (!await RowExistsAsync(work.Connection, work.Transaction, systemId, command.AlterId.Value))
         {
             return false;
         }
@@ -150,20 +221,20 @@ public sealed class SqliteAlterRepository : IAlterRepository
         if (!string.IsNullOrWhiteSpace(command.Alias))
             Set("alias", "alias", command.Alias);
 
-        var updated = await connection.ExecuteAsync(
+        var updated = await work.Connection.ExecuteAsync(
             $"""
             UPDATE alters
             SET {string.Join(", ", sets)}
             WHERE system_id = @system_id AND id = @id
             """,
             parameters,
-            tx);
+            work.Transaction);
 
         if (command.Fields is not null)
         {
             foreach (var field in command.Fields)
             {
-                await connection.ExecuteAsync(
+                await work.Connection.ExecuteAsync(
                     """
                     INSERT INTO alter_fields (system_id, alter_id, field_id, value)
                     VALUES (@system_id, @alter_id, @field_id, @value)
@@ -177,11 +248,11 @@ public sealed class SqliteAlterRepository : IAlterRepository
                         field_id = field.Id.Value.ToString("N"),
                         value = field.Value,
                     },
-                    tx);
+                    work.Transaction);
             }
         }
 
-        await tx.CommitAsync(cancellationToken);
+        await work.CommitAsync(cancellationToken);
         return updated > 0;
     }
 

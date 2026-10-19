@@ -30,23 +30,40 @@ public sealed class SqliteAccountRepository : IAccountRepository
         _timeProvider = timeProvider;
     }
 
-    public async Task EnsureExistsAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    Task IAccountRepository.EnsureExistsAsync(SystemId systemId, CancellationToken cancellationToken)
+        => EnsureExistsAsync(systemId, connection: null, transaction: null, cancellationToken);
+
+    public async Task<bool> EnsureExistsAsync(
+        SystemId systemId,
+        SqliteConnection? connection = null,
+        SqliteTransaction? transaction = null,
+        CancellationToken cancellationToken = default)
     {
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
-        int inserted;
-        await using (var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken))
+        var ownsConnection = connection is null;
+        connection ??= await _connectionFactory.OpenConnectionAsync(cancellationToken);
+
+        try
         {
-            inserted = await connection.ExecuteAsync(
+            var inserted = await connection.ExecuteAsync(
                 """
                 INSERT OR IGNORE INTO accounts (system_id, created_at, updated_at)
                 VALUES (@system_id, @now, @now)
                 """,
-                new { system_id = systemId, now = nowMs });
-        }
+                new { system_id = systemId, now = nowMs },
+                transaction);
 
-        if (inserted > 0)
+            // Encryption is a second store. Write it only when this call opened the
+            // connection, so a caller that still might roll back does not leave an orphan row.
+            if (inserted > 0 && ownsConnection)
+                await _encryptionStates.UpsertAsync(systemId, false, null, EncryptionSalt.NewRandom(), cancellationToken);
+
+            return inserted > 0;
+        }
+        finally
         {
-            await _encryptionStates.UpsertAsync(systemId, false, null, EncryptionSalt.NewRandom(), cancellationToken);
+            if (ownsConnection)
+                await connection.DisposeAsync();
         }
     }
 
@@ -66,16 +83,20 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
     public async Task<bool> UpdateDescriptionAsync(SystemId systemId, string description, CancellationToken cancellationToken = default)
     {
-        await EnsureExistsAsync(systemId, cancellationToken);
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await connection.ExecuteAsync(
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var inserted = await EnsureExistsAsync(systemId, work.Connection, work.Transaction, cancellationToken);
+        var rows = await work.Connection.ExecuteAsync(
             """
             UPDATE accounts
             SET description = @value, updated_at = @now
             WHERE system_id = @system_id
             """,
-            new { system_id = systemId, value = description, now = nowMs });
+            new { system_id = systemId, value = description, now = nowMs },
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
+        if (inserted && work.Owns)
+            await _encryptionStates.UpsertAsync(systemId, false, null, EncryptionSalt.NewRandom(), cancellationToken);
         return rows > 0;
     }
 
@@ -85,7 +106,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
         AvatarSource source,
         CancellationToken cancellationToken = default)
     {
-        await EnsureExistsAsync(systemId, cancellationToken);
+        await EnsureExistsAsync(systemId, cancellationToken: cancellationToken);
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.ExecuteAsync(
@@ -106,7 +127,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
     public async Task<bool> ClearAvatarAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        await EnsureExistsAsync(systemId, cancellationToken);
+        await EnsureExistsAsync(systemId, cancellationToken: cancellationToken);
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.ExecuteAsync(

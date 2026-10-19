@@ -43,42 +43,59 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         DateTime insertedAtUtc,
         CancellationToken cancellationToken = default)
     {
-        var fieldId = Guid.NewGuid();
-        var fieldHex = fieldId.ToString("N");
-        var insertedAtMs = new DateTimeOffset(DateTime.SpecifyKind(insertedAtUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+        var ids = await CreateManyAsync(
+            systemId,
+            [new SettingsFieldInsert(name, type, securityLevel, locked, insertedAtUtc)],
+            cancellationToken);
+        return ids.Count == 0 ? null : ids[0];
+    }
+
+    public async Task<IReadOnlyList<FieldId>> CreateManyAsync(
+        SystemId systemId,
+        IReadOnlyList<SettingsFieldInsert> fields,
+        CancellationToken cancellationToken = default)
+    {
+        if (fields.Count == 0)
+            return [];
+
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
-
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
-
-        var nextIndex = await connection.ExecuteScalarAsync<long>(
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var nextIndex = await work.Connection.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM settings_fields WHERE system_id = @system_id",
             new { system_id = systemId },
-            tx);
+            work.Transaction);
 
-        await connection.ExecuteAsync(
-            """
-            INSERT INTO settings_fields (
-                system_id, id, name, type, security_level, locked, idx, inserted_at, updated_at)
-            VALUES (
-                @system_id, @id, @name, @type, @security_level, @locked, @idx, @inserted_at, @updated_at)
-            """,
-            new
-            {
-                system_id = systemId,
-                id = fieldHex,
-                name,
-                type = (short)type,
-                security_level = (short)securityLevel,
-                locked = locked ? 1 : 0,
-                idx = (int)nextIndex,
-                inserted_at = insertedAtMs,
-                updated_at = nowMs,
-            },
-            tx);
+        var ids = new FieldId[fields.Count];
+        for (var i = 0; i < fields.Count; i++)
+        {
+            var field = fields[i];
+            var fieldId = Guid.NewGuid();
+            var insertedAtMs = new DateTimeOffset(DateTime.SpecifyKind(field.InsertedAtUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+            await work.Connection.ExecuteAsync(
+                """
+                INSERT INTO settings_fields (
+                    system_id, id, name, type, security_level, locked, idx, inserted_at, updated_at)
+                VALUES (
+                    @system_id, @id, @name, @type, @security_level, @locked, @idx, @inserted_at, @updated_at)
+                """,
+                new
+                {
+                    system_id = systemId,
+                    id = fieldId.ToString("N"),
+                    name = field.Name,
+                    type = (short)field.Type,
+                    security_level = (short)field.SecurityLevel,
+                    locked = field.Locked ? 1 : 0,
+                    idx = (int)nextIndex + i,
+                    inserted_at = insertedAtMs,
+                    updated_at = nowMs,
+                },
+                work.Transaction);
+            ids[i] = new FieldId(fieldId);
+        }
 
-        await tx.CommitAsync(cancellationToken);
-        return new FieldId(fieldId);
+        await work.CommitAsync(cancellationToken);
+        return ids;
     }
 
     public async Task<bool> UpdateAsync(

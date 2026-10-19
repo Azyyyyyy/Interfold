@@ -115,10 +115,10 @@ public sealed class SqliteImportOperationRepositoryTests
             var systemId = new SystemId("importer");
             var key = new IdempotencyKey("idem-1");
 
-            var first = await repo.TryClaimAsync(systemId, ImportOperationKind.SimplyPlural, key);
+            var first = await repo.TryClaimAsync(systemId, ImportFormat.SimplyPlural, key);
             await Assert.That(first.IsNew).IsTrue();
 
-            var second = await repo.TryClaimAsync(systemId, ImportOperationKind.SimplyPlural, new IdempotencyKey("idem-2"));
+            var second = await repo.TryClaimAsync(systemId, ImportFormat.SimplyPlural, new IdempotencyKey("idem-2"));
             await Assert.That(second.IsNew).IsFalse();
             await Assert.That(second.OperationId).IsEqualTo(first.OperationId);
 
@@ -127,13 +127,13 @@ public sealed class SqliteImportOperationRepositoryTests
             await Assert.That(running).IsNotNull();
             await Assert.That(running!.Status).IsEqualTo(ImportOperationStatus.Running);
 
-            await repo.MarkSucceededAsync(systemId, first.OperationId, ImportOperationKind.SimplyPlural, alterCount: 4);
+            await repo.MarkSucceededAsync(systemId, first.OperationId, ImportFormat.SimplyPlural, alterCount: 4);
             var done = await repo.GetByIdAsync(systemId, first.OperationId);
             await Assert.That(done!.Status).IsEqualTo(ImportOperationStatus.Succeeded);
             await Assert.That(done.AlterCount).IsEqualTo(4);
-            await Assert.That(await repo.GetActiveOperationIdAsync(systemId, ImportOperationKind.SimplyPlural)).IsNull();
+            await Assert.That(await repo.GetActiveOperationIdAsync(systemId, ImportFormat.SimplyPlural)).IsNull();
 
-            var third = await repo.TryClaimAsync(systemId, ImportOperationKind.SimplyPlural, new IdempotencyKey("idem-3"));
+            var third = await repo.TryClaimAsync(systemId, ImportFormat.SimplyPlural, new IdempotencyKey("idem-3"));
             await Assert.That(third.IsNew).IsTrue();
             await Assert.That(third.OperationId).IsNotEqualTo(first.OperationId);
         }
@@ -153,7 +153,7 @@ public sealed class SqliteImportOperationRepositoryTests
             var repo = new SqliteImportOperationRepository(SqliteTestDb.Factory(path), clock);
             var systemId = new SystemId("stale-user");
 
-            var claim = await repo.TryClaimAsync(systemId, ImportOperationKind.PluralKit, new IdempotencyKey("s1"));
+            var claim = await repo.TryClaimAsync(systemId, ImportFormat.PluralKit, new IdempotencyKey("s1"));
             await repo.MarkRunningAsync(systemId, claim.OperationId);
 
             clock.Advance(TimeSpan.FromHours(2));
@@ -179,19 +179,19 @@ public sealed class SqliteImportOperationRepositoryTests
             var repo = new SqliteImportOperationRepository(SqliteTestDb.Factory(path), TimeProvider.System);
             var systemId = new SystemId("fail-user");
 
-            var claim = await repo.TryClaimAsync(systemId, ImportOperationKind.SimplyPlural, new IdempotencyKey("f1"));
+            var claim = await repo.TryClaimAsync(systemId, ImportFormat.SimplyPlural, new IdempotencyKey("f1"));
             await repo.MarkRunningAsync(systemId, claim.OperationId);
             await repo.MarkFailedAsync(
                 systemId,
                 claim.OperationId,
-                ImportOperationKind.SimplyPlural,
+                ImportFormat.SimplyPlural,
                 ImportErrorCode.SpAuthFailed,
                 "bad token");
 
             var snap = await repo.GetByIdAsync(systemId, claim.OperationId);
             await Assert.That(snap!.Status).IsEqualTo(ImportOperationStatus.Failed);
             await Assert.That(snap.ErrorCode).IsEqualTo(ImportErrorCode.SpAuthFailed);
-            await Assert.That(await repo.GetActiveOperationIdAsync(systemId, ImportOperationKind.SimplyPlural)).IsNull();
+            await Assert.That(await repo.GetActiveOperationIdAsync(systemId, ImportFormat.SimplyPlural)).IsNull();
         }
         finally
         {

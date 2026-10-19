@@ -1,8 +1,10 @@
+using System.Text.Json;
 using Interfold.Settings.Contracts;
 using Interfold.Settings.Contracts.Models.Commands;
 using Interfold.Settings.Contracts.Models.ImportOperations;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
 using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
@@ -31,10 +33,16 @@ public sealed class ImportSpCommandHandler : ICommandHandler<ImportSpCommand, Im
         if (CommandHandler.RejectIfBlank<ImportDispatchCommandResult>(command.OperationId, command.Payload.Token.Value, EntityRefs.SettingsImportSpInvalid) is { } blankReject)
             return blankReject;
 
+        var rawPayload = JsonSerializer.Serialize(new SpImportPayload(
+            command.Payload.Token.Value,
+            command.Payload.RecoveryCode?.Value));
+
+        // Sensitive credentials (tokens/recovery codes) are carried in-memory only and NOT persisted to the database.
         var claim = await _operations.TryClaimAsync(
             command.PrincipalId,
-            ImportOperationKind.SimplyPlural,
+            ImportFormat.SimplyPlural,
             command.IdempotencyKey,
+            rawPayload: null,
             cancellationToken).ConfigureAwait(false);
 
         if (claim.IsNew)
@@ -43,9 +51,8 @@ public sealed class ImportSpCommandHandler : ICommandHandler<ImportSpCommand, Im
                 new ImportJobItem(
                     claim.OperationId,
                     command.PrincipalId,
-                    ImportOperationKind.SimplyPlural,
-                    command.Payload.Token,
-                    command.Payload.RecoveryCode),
+                    ImportFormat.SimplyPlural,
+                    rawPayload),
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -54,7 +61,7 @@ public sealed class ImportSpCommandHandler : ICommandHandler<ImportSpCommand, Im
         var result = new ImportDispatchCommandResult(
             command.PrincipalId,
             claim.OperationId,
-            ImportOperationKind.SimplyPlural,
+            ImportFormat.SimplyPlural,
             Status: claim.IsNew
                 ? ImportOperationDispatchStatus.Queued
                 : ImportOperationDispatchStatus.Running,

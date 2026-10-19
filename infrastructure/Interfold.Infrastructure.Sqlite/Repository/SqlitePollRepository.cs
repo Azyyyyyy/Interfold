@@ -76,8 +76,8 @@ public sealed class SqlitePollRepository : IPollRepository
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         var insertedMs = ToUnixMs(command.InsertedAtUtc);
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await connection.ExecuteAsync(
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        await work.Connection.ExecuteAsync(
             """
             INSERT INTO polls
                 (user_id, id, title, description, type, data, time_end, inserted_at, updated_at)
@@ -94,9 +94,56 @@ public sealed class SqlitePollRepository : IPollRepository
                 time_end = command.TimeEnd is { } end ? ToUnixMs(end) : (long?)null,
                 inserted_at = insertedMs,
                 updated_at = nowMs,
-            });
-
+            },
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
         return new PollId(pollGuid);
+    }
+
+    public async Task<IReadOnlyList<PollId>> CreateManyAsync(
+        SystemId systemId,
+        IReadOnlyList<ImportPollWrite> polls,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (polls.Count == 0)
+            return [];
+
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var ids = new PollId[polls.Count];
+        for (var i = 0; i < polls.Count; i++)
+        {
+            var poll = polls[i];
+            var pollGuid = Guid.NewGuid();
+            var data = poll.Data.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+                ? "{}"
+                : poll.Data.GetRawText();
+            await work.Connection.ExecuteAsync(
+                """
+                INSERT INTO polls
+                    (user_id, id, title, description, type, data, time_end, inserted_at, updated_at)
+                VALUES
+                    (@user_id, @id, @title, @description, @type, @data, @time_end, @inserted_at, @updated_at)
+                """,
+                new
+                {
+                    user_id = systemId,
+                    id = pollGuid.ToString("N"),
+                    title = poll.Title,
+                    description = poll.Description,
+                    type = (short)poll.Type,
+                    data,
+                    time_end = poll.TimeEnd is { } end ? ToUnixMs(end) : (long?)null,
+                    inserted_at = ToUnixMs(poll.InsertedAtUtc),
+                    updated_at = nowMs,
+                },
+                work.Transaction);
+            ids[i] = new PollId(pollGuid);
+        }
+
+        await work.CommitAsync(cancellationToken);
+        return ids;
     }
 
     public async Task<bool> ExistsAsync(

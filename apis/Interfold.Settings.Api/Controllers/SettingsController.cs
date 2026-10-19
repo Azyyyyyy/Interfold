@@ -48,6 +48,7 @@ public sealed class SettingsController : InterfoldControllerBase
     private readonly DeleteAvatarCommandHandler _deleteAvatarHandler;
     private readonly ImportPkCommandHandler _importPkHandler;
     private readonly ImportSpCommandHandler _importSpHandler;
+    private readonly ImportOctoconCommandHandler _importOctoconHandler;
     private readonly UnlinkDiscordCommandHandler _unlinkDiscordHandler;
     private readonly UnlinkEmailCommandHandler _unlinkEmailHandler;
     private readonly UnlinkAppleCommandHandler _unlinkAppleHandler;
@@ -76,6 +77,7 @@ public sealed class SettingsController : InterfoldControllerBase
         DeleteAvatarCommandHandler deleteAvatarHandler,
         ImportPkCommandHandler importPkHandler,
         ImportSpCommandHandler importSpHandler,
+        ImportOctoconCommandHandler importOctoconHandler,
         UnlinkDiscordCommandHandler unlinkDiscordHandler,
         UnlinkEmailCommandHandler unlinkEmailHandler,
         UnlinkAppleCommandHandler unlinkAppleHandler,
@@ -105,6 +107,7 @@ public sealed class SettingsController : InterfoldControllerBase
         _deleteAvatarHandler = deleteAvatarHandler;
         _importPkHandler = importPkHandler;
         _importSpHandler = importSpHandler;
+        _importOctoconHandler = importOctoconHandler;
         _unlinkDiscordHandler = unlinkDiscordHandler;
         _unlinkEmailHandler = unlinkEmailHandler;
         _unlinkAppleHandler = unlinkAppleHandler;
@@ -123,7 +126,7 @@ public sealed class SettingsController : InterfoldControllerBase
 
     /// <summary>
     /// Downloads the authenticated user's export in either PluralKit v2 importable form
-    /// (<c>?format=pk</c>) or the full-fidelity Octocon backup (<c>?format=full</c>).
+    /// (<c>?format=pk</c>) or the full-fidelity Octocon backup (<c>?format=octocon</c>).
     /// </summary>
     /// <remarks>
     /// Response body is the raw JSON payload at the root, allowing PluralKit users to save the file and feed it directly to PK's
@@ -141,7 +144,7 @@ public sealed class SettingsController : InterfoldControllerBase
         var payload = fmt switch
         {
             ExportFormat.Pk => (object)await _exportService.BuildPkAsync(PrincipalId, ct),
-            ExportFormat.Full => await _exportService.BuildFullAsync(PrincipalId, ct),
+            ExportFormat.Octocon => await _exportService.BuildOctoconAsync(PrincipalId, ct),
             _ => throw new InvalidOperationException($"Unhandled ExportFormat: {fmt}"),
         };
 
@@ -149,6 +152,13 @@ public sealed class SettingsController : InterfoldControllerBase
         var wire = EnumWire<ExportFormat>.ToWire(fmt);
         return File(bytes, "application/json", $"octocon_export_{wire}.json");
     }
+
+    /// <summary>
+    /// Returns the export formats currently supported by the API.
+    /// </summary>
+    [HttpGet("export/formats")]
+    public Response<ExportFormat[]> GetExportFormats()
+        => Enum.GetValues<ExportFormat>();
 
     [HttpGet("link_token")]
     public async Task<IActionResult> GetLinkToken(CancellationToken ct)
@@ -293,14 +303,7 @@ public sealed class SettingsController : InterfoldControllerBase
     /// </summary>
     [HttpPost("import-pk")]
     public async Task<Response<ImportDispatchResponse>> ImportPk([FromBody] SettingsImportRequest req, CancellationToken ct)
-    {
-        var envelope = BuildEnvelope(OperationIds.SettingsImportPk, new ImportPkCommand(req.Token)
-        );
-
-        return CommandAccepted(
-            await _importPkHandler.HandleAsync(envelope, ct),
-            r => new ImportDispatchResponse(r.OperationId, r.Status, r.StartedAt));
-    }
+        => await DispatchImportPkAsync(req, ct);
 
     /// <summary>
     /// Dispatches a Simply Plural import onto the background worker. Returns 202 Accepted
@@ -315,29 +318,92 @@ public sealed class SettingsController : InterfoldControllerBase
     /// </summary>
     [HttpPost("import-sp")]
     public async Task<Response<ImportDispatchResponse>> ImportSp([FromBody] SettingsImportRequest req, CancellationToken ct)
+        => await DispatchImportSpAsync(req, ct);
+
+    /// <summary>
+    /// Central import endpoint. Dispatches an asynchronous import onto the background worker
+    /// for the specified <paramref name="format"/> (<c>octocon</c>, <c>pk</c>, or <c>sp</c>).
+    /// Returns 202 Accepted with the dispatched operation_id. The actual import outcome is
+    /// pushed over the WebSocket as format-specific completion/failure events.
+    /// </summary>
+    [HttpPost("import")]
+    public async Task<Response<ImportDispatchResponse>> Import(
+        [FromQuery] ImportFormat? format,
+        [FromBody] JsonElement payload,
+        CancellationToken ct)
     {
-        // recoveryCode is nullable at this layer, but the resolver's out param is a
-        // non-nullable RecoveryCode — we can't write it directly into the nullable outer
-        // local, so the guard splits into a nested-if. Splitting it also makes the
-        // "code supplied but blank" case a clean no-op: nothing to decrypt, nothing to
-        // return an error for.
+        if (format is not { } fmt)
+        {
+            return new ErrorResponse("Invalid import format.", ErrorCodes.InvalidImportFormat, HttpStatusCode.BadRequest);
+        }
+
+        if (payload.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+        {
+            return new ErrorResponse("Import payload cannot be empty.", ErrorCodes.BadRequest, HttpStatusCode.BadRequest);
+        }
+
+        return fmt switch
+        {
+            ImportFormat.Octocon => await DispatchImportOctoconAsync(payload.GetRawText(), ct),
+            ImportFormat.PluralKit => ImportRequestJson.TryDeserialize(payload, out var pkReq, out var pkError)
+                ? await DispatchImportPkAsync(pkReq, ct)
+                : pkError,
+            ImportFormat.SimplyPlural => ImportRequestJson.TryDeserialize(payload, out var spReq, out var spError)
+                ? await DispatchImportSpAsync(spReq, ct)
+                : spError,
+            _ => throw new InvalidOperationException($"Unhandled ImportFormat: {fmt}"),
+        };
+    }
+
+    private async Task<Response<ImportDispatchResponse>> DispatchImportPkAsync(
+        SettingsImportRequest req,
+        CancellationToken ct)
+    {
+        var envelope = BuildEnvelope(OperationIds.SettingsImportPk, new ImportPkCommand(req.Token));
+
+        return CommandAccepted(
+            await _importPkHandler.HandleAsync(envelope, ct),
+            r => new ImportDispatchResponse(r.OperationId, r.Status, r.StartedAt));
+    }
+
+    private async Task<Response<ImportDispatchResponse>> DispatchImportSpAsync(
+        SettingsImportRequest req,
+        CancellationToken ct)
+    {
         RecoveryCode? recoveryCode = null;
         if (req.RecoveryCode is { } suppliedRecoveryCode
             && !string.IsNullOrWhiteSpace(suppliedRecoveryCode.Value))
         {
             if (!TryResolveRecoveryCode(suppliedRecoveryCode.Value, out var resolved, out var decryptionErrorCode))
-                return new ErrorResponse("Failed to decrypt recovery code.", decryptionErrorCode, System.Net.HttpStatusCode.BadRequest);
+                return new ErrorResponse("Failed to decrypt recovery code.", decryptionErrorCode, HttpStatusCode.BadRequest);
 
             recoveryCode = resolved;
         }
 
-        var envelope = BuildEnvelope(OperationIds.SettingsImportSp, new ImportSpCommand(req.Token, recoveryCode)
-        );
+        var envelope = BuildEnvelope(OperationIds.SettingsImportSp, new ImportSpCommand(req.Token, recoveryCode));
 
         return CommandAccepted(
             await _importSpHandler.HandleAsync(envelope, ct),
             r => new ImportDispatchResponse(r.OperationId, r.Status, r.StartedAt));
     }
+
+    private async Task<Response<ImportDispatchResponse>> DispatchImportOctoconAsync(
+        string rawJson,
+        CancellationToken ct)
+    {
+        var envelope = BuildEnvelope(OperationIds.SettingsImportOctocon, new ImportOctoconCommand(rawJson));
+
+        return CommandAccepted(
+            await _importOctoconHandler.HandleAsync(envelope, ct),
+            r => new ImportDispatchResponse(r.OperationId, r.Status, r.StartedAt));
+    }
+
+    /// <summary>
+    /// Returns the import formats currently supported by the API.
+    /// </summary>
+    [HttpGet("import/formats")]
+    public Response<ImportFormat[]> GetImportFormats()
+        => Enum.GetValues<ImportFormat>();
 
     [HttpPost("unlink_discord")]
     public async Task<Response> UnlinkDiscord(CancellationToken ct)
@@ -465,7 +531,7 @@ public sealed class SettingsController : InterfoldControllerBase
     /// Setup / recover both project to the same wire shape (base64-encoded UTF-8 bytes
     /// of the symmetric key material), and both handlers surface an
     /// <see cref="EncryptionCommandResult"/>, so the projection lives once here and
-    /// both endpoints hand it to <c>DispatchOkAsync</c>.
+    /// both endpoints hand it to <c>DispatchOkAsync</c> directions.
     /// </summary>
     private static EncryptionKeyResponse ToEncryptionKeyResponse(EncryptionCommandResult result)
         => new(Convert.ToBase64String(Encoding.UTF8.GetBytes(result.Key.Value)));
