@@ -2,6 +2,7 @@
 using System.Text.Json;
 using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Fronting.Contracts.Models.Commands;
 using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Polls.Contracts.Models;
 using Interfold.Polls.Contracts.Models.Commands;
@@ -14,6 +15,7 @@ using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Api.Services;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Tags.Contracts.Ids;
 using Interfold.Tags.Contracts.Models.Commands;
@@ -33,6 +35,7 @@ public sealed class OctoconImportService : IOctoconImportService
     private readonly IAvatarStorage _avatarStorage;
     private readonly ILogger<OctoconImportService> _logger;
     private readonly TimeProvider _timeProvider;
+    private readonly IStorageTransactionFactory _transactions;
 
     public OctoconImportService(
         IHttpClientFactory httpClientFactory,
@@ -44,7 +47,8 @@ public sealed class OctoconImportService : IOctoconImportService
         IPollRepository pollRepository,
         IAvatarStorage avatarStorage,
         ILogger<OctoconImportService> logger,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IStorageTransactionFactory transactions)
     {
         _httpClientFactory = httpClientFactory;
         _alterRepository = alterRepository;
@@ -56,6 +60,7 @@ public sealed class OctoconImportService : IOctoconImportService
         _avatarStorage = avatarStorage;
         _logger = logger;
         _timeProvider = timeProvider;
+        _transactions = transactions;
     }
 
     public async Task<ImportJobOutcome> ImportAsync(
@@ -68,11 +73,7 @@ public sealed class OctoconImportService : IOctoconImportService
         OctoconExportPayload? payload;
         try
         {
-            var options = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true,
-            };
-            payload = JsonSerializer.Deserialize<OctoconExportPayload>(rawPayload, options);
+            payload = JsonSerializer.Deserialize<OctoconExportPayload>(rawPayload, ExportJsonOptions.Default);
             if (payload is null)
             {
                 return new ImportJobOutcome(false, 0, ImportErrorCode.ImportFailed, "Failed to deserialize Octocon payload.");
@@ -84,44 +85,39 @@ public sealed class OctoconImportService : IOctoconImportService
             return new ImportJobOutcome(false, 0, ImportErrorCode.ImportFailed, $"Invalid JSON payload: {ex.Message}");
         }
 
-        try
+        var now = _timeProvider.GetUtcNow();
+        int alterCount;
+        List<(AlterId AlterId, string Url)> alterAvatarUrls;
         {
-            var now = _timeProvider.GetUtcNow();
-
-            // 1. Custom Fields
-            var fieldIdMap = await ImportFieldsAsync(systemId, payload.User?.Fields, now.UtcDateTime, cancellationToken).ConfigureAwait(false);
-
-            // 2. Alters
-            var (alterCount, alterIdMap, alterAvatarUrls) = await ImportAltersAsync(systemId, payload.Alters, fieldIdMap, now, cancellationToken).ConfigureAwait(false);
-
-            // 3. Tags
-            await ImportTagsAsync(systemId, payload.Tags, alterIdMap, now.UtcDateTime, cancellationToken).ConfigureAwait(false);
-
-            // 4. Fronts
-            await ImportFrontsAsync(systemId, payload.Fronts, alterIdMap, now, cancellationToken).ConfigureAwait(false);
-
-            // 5. Polls
-            await ImportPollsAsync(systemId, payload.Polls, alterIdMap, now.UtcDateTime, cancellationToken).ConfigureAwait(false);
-
-            // 6. User profile
-            if (!string.IsNullOrWhiteSpace(payload.User?.Description))
+            await using var transaction = await _transactions.BeginAsync(cancellationToken);
+            try
             {
-                var desc = payload.User.Description;
-                var truncated = desc.Length > 3000 ? desc[..3000] : desc;
-                await _accountRepository.UpdateDescriptionAsync(systemId, truncated, cancellationToken).ConfigureAwait(false);
+                var fieldIdMap = await ImportFieldsAsync(systemId, payload.User?.Fields, now.UtcDateTime, cancellationToken).ConfigureAwait(false);
+                (alterCount, var alterIdMap, alterAvatarUrls) = await ImportAltersAsync(systemId, payload.Alters, fieldIdMap, now, cancellationToken).ConfigureAwait(false);
+                await ImportTagsAsync(systemId, payload.Tags, alterIdMap, now.UtcDateTime, cancellationToken).ConfigureAwait(false);
+                await ImportFrontsAsync(systemId, payload.Fronts, alterIdMap, now, cancellationToken).ConfigureAwait(false);
+                await ImportPollsAsync(systemId, payload.Polls, alterIdMap, now.UtcDateTime, cancellationToken).ConfigureAwait(false);
+
+                if (!string.IsNullOrWhiteSpace(payload.User?.Description))
+                {
+                    var desc = payload.User.Description;
+                    var truncated = desc.Length > 3000 ? desc[..3000] : desc;
+                    await _accountRepository.UpdateDescriptionAsync(systemId, truncated, cancellationToken).ConfigureAwait(false);
+                }
+
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             }
-
-            // 7. Avatars download & save to internal storage (legacy CDN shutdown)
-            await DownloadAndSaveAvatarsAsync(systemId, payload.User?.AvatarUrl, alterAvatarUrls, cancellationToken).ConfigureAwait(false);
-
-            _logger.LogInformation("Octocon backup import completed successfully for system {SystemId}: {AlterCount} alters imported", systemId, alterCount);
-            return new ImportJobOutcome(true, alterCount);
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed during Octocon backup data ingestion for system {SystemId}", systemId);
+                return new ImportJobOutcome(false, 0, ImportErrorCode.ImportFailed, ex.Message);
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed during Octocon backup data ingestion for system {SystemId}", systemId);
-            return new ImportJobOutcome(false, 0, ImportErrorCode.ImportFailed, ex.Message);
-        }
+
+        await DownloadAndSaveAvatarsAsync(systemId, payload.User?.AvatarUrl, alterAvatarUrls, cancellationToken).ConfigureAwait(false);
+
+        _logger.LogInformation("Octocon backup import completed successfully for system {SystemId}: {AlterCount} alters imported", systemId, alterCount);
+        return new ImportJobOutcome(true, alterCount);
     }
 
     private async Task<Dictionary<Guid, FieldId>> ImportFieldsAsync(
@@ -131,34 +127,24 @@ public sealed class OctoconImportService : IOctoconImportService
         CancellationToken ct)
     {
         var fieldIdMap = new Dictionary<Guid, FieldId>();
-        if (fields is null)
+        if (fields is not { Count: > 0 })
             return fieldIdMap;
 
+        var writes = new List<SettingsFieldInsert>(fields.Count);
         foreach (var field in fields)
         {
             var fieldType = FieldType.Text;
             if (field.Type is { Length: > 0 } && Enum.TryParse<FieldType>(field.Type, ignoreCase: true, out var parsedType))
-            {
                 fieldType = parsedType;
-            }
 
             var name = string.IsNullOrWhiteSpace(field.Name) ? "Unnamed field" : field.Name;
             if (name.Length > 100) name = name[..100];
-
-            var createdId = await _fieldRepository.CreateAsync(
-                systemId,
-                name,
-                fieldType,
-                field.SecurityLevel,
-                field.Locked,
-                nowUtc,
-                ct).ConfigureAwait(false);
-
-            if (createdId is not null)
-            {
-                fieldIdMap[field.Id] = createdId.Value;
-            }
+            writes.Add(new SettingsFieldInsert(name, fieldType, field.SecurityLevel, field.Locked, nowUtc));
         }
+
+        var created = await _fieldRepository.CreateManyAsync(systemId, writes, ct).ConfigureAwait(false);
+        for (var i = 0; i < fields.Count; i++)
+            fieldIdMap[fields[i].Id] = created[i];
 
         return fieldIdMap;
     }
@@ -172,35 +158,21 @@ public sealed class OctoconImportService : IOctoconImportService
     {
         var alterIdMap = new Dictionary<short, AlterId>();
         var alterAvatarUrls = new List<(AlterId AlterId, string Url)>();
-        var alterCount = 0;
 
-        if (alters is null)
-            return (alterCount, alterIdMap, alterAvatarUrls);
+        if (alters is not { Count: > 0 })
+            return (0, alterIdMap, alterAvatarUrls);
 
+        var writes = new List<ImportAlterWrite>(alters.Count);
         foreach (var alter in alters)
         {
             var name = string.IsNullOrWhiteSpace(alter.Name) ? "Unnamed alter" : alter.Name;
             if (name.Length > 80) name = name[..80];
-
-            var createdAlterId = await _alterRepository.CreateAsync(
-                systemId,
-                new CreateAlterCommand(name, now),
-                ct).ConfigureAwait(false);
-
-            if (createdAlterId is null)
-                continue;
-
-            var newAlterId = createdAlterId.Value;
-            alterIdMap[alter.Id] = newAlterId;
-            alterCount++;
 
             var pronouns = alter.Pronouns;
             if (pronouns?.Length > 50) pronouns = pronouns[..50];
 
             var desc = alter.Description;
             if (desc?.Length > 3000) desc = desc[..3000];
-
-            var color = ParseColor(alter.Color);
 
             List<AlterFieldCommand>? fields = null;
             if (alter.Fields is { Count: > 0 })
@@ -209,33 +181,30 @@ public sealed class OctoconImportService : IOctoconImportService
                 foreach (var f in alter.Fields)
                 {
                     if (fieldIdMap.TryGetValue(f.Id, out var newFieldId))
-                    {
                         fields.Add(new AlterFieldCommand(newFieldId, f.Value ?? string.Empty));
-                    }
                 }
                 if (fields.Count == 0) fields = null;
             }
 
-            var updateCommand = new UpdateAlterCommand
-            {
-                AlterId = newAlterId,
-                Description = desc,
-                Pronouns = pronouns,
-                Color = HexColor.FromNullable(color),
-                ProxyName = alter.ProxyName,
-                Fields = fields,
-                UpdatedAt = now,
-            };
-
-            await _alterRepository.UpdateAsync(systemId, updateCommand, ct).ConfigureAwait(false);
-
-            if (!string.IsNullOrWhiteSpace(alter.AvatarUrl))
-            {
-                alterAvatarUrls.Add((newAlterId, alter.AvatarUrl));
-            }
+            writes.Add(new ImportAlterWrite(
+                name,
+                pronouns,
+                desc,
+                HexColor.FromNullable(ParseColor(alter.Color)),
+                alter.ProxyName,
+                fields,
+                now));
         }
 
-        return (alterCount, alterIdMap, alterAvatarUrls);
+        var created = await _alterRepository.ImportManyAsync(systemId, writes, ct).ConfigureAwait(false);
+        for (var i = 0; i < alters.Count; i++)
+        {
+            alterIdMap[alters[i].Id] = created[i];
+            if (alters[i].AvatarUrl is { } avatarUrl && !string.IsNullOrWhiteSpace(avatarUrl))
+                alterAvatarUrls.Add((created[i], avatarUrl));
+        }
+
+        return (created.Count, alterIdMap, alterAvatarUrls);
     }
 
     private async Task ImportTagsAsync(
@@ -245,71 +214,50 @@ public sealed class OctoconImportService : IOctoconImportService
         DateTime nowUtc,
         CancellationToken ct)
     {
-        if (tags is null)
+        if (tags is not { Count: > 0 })
             return;
 
-        var tagIdMap = new Dictionary<Guid, TagId>();
-
-        // Pass 1: Create tags & update details
+        var writes = new List<ImportTagWrite>(tags.Count);
         foreach (var tag in tags)
         {
             var name = string.IsNullOrWhiteSpace(tag.Name) ? "Unnamed tag" : tag.Name;
             if (name.Length > 100) name = name[..100];
 
-            var insertedAt = ParseIsoTimestamp(tag.InsertedAt, new DateTimeOffset(nowUtc, TimeSpan.Zero)).UtcDateTime;
-            var createdTagId = await _tagRepository.CreateAsync(
-                systemId,
-                new CreateTagCommand(name, ParentTagId: null, insertedAt),
-                ct).ConfigureAwait(false);
-
-            if (createdTagId is null)
-                continue;
-
-            var newTagId = createdTagId.Value;
-            tagIdMap[tag.Id] = newTagId;
-
             var desc = tag.Description;
             if (desc?.Length > 1000) desc = desc[..1000];
-            var color = ParseColor(tag.Color);
+            if (string.IsNullOrWhiteSpace(desc)) desc = null;
 
-            if (!string.IsNullOrWhiteSpace(desc) || !string.IsNullOrWhiteSpace(color) || tag.SecurityLevel != VisibilityLevel.Private)
-            {
-                await _tagRepository.UpdateAsync(systemId, new UpdateTagCommand(
-                    TagId: newTagId,
-                    Name: null,
-                    Color: HexColor.FromNullable(color),
-                    Description: desc,
-                    SecurityLevel: tag.SecurityLevel
-                ), ct).ConfigureAwait(false);
-            }
+            var insertedAt = ParseIsoTimestamp(tag.InsertedAt, new DateTimeOffset(nowUtc, TimeSpan.Zero)).UtcDateTime;
+            writes.Add(new ImportTagWrite(name, desc, HexColor.FromNullable(ParseColor(tag.Color)), tag.SecurityLevel, insertedAt));
         }
 
-        // Pass 2: Set parent tags
-        foreach (var tag in tags)
-        {
-            if (tag.ParentTagId is { } parentGuid && tagIdMap.TryGetValue(tag.Id, out var ourTagId))
-            {
-                if (tagIdMap.TryGetValue(parentGuid, out var parentTagId))
-                {
-                    await _tagRepository.SetParentAsync(systemId, ourTagId, parentTagId, ct).ConfigureAwait(false);
-                }
-            }
-        }
+        var created = await _tagRepository.CreateManyAsync(systemId, writes, ct).ConfigureAwait(false);
+        var tagIdMap = new Dictionary<Guid, TagId>(tags.Count);
+        for (var i = 0; i < tags.Count; i++)
+            tagIdMap[tags[i].Id] = created[i];
 
-        // Pass 3: Attach alters
+        var parents = new List<SetParentTagCommand>();
+        var attachments = new List<AttachAlterToTagCommand>();
         foreach (var tag in tags)
         {
-            if (tag.Alters is not { Count: > 0 } || !tagIdMap.TryGetValue(tag.Id, out var ourTagId))
+            if (!tagIdMap.TryGetValue(tag.Id, out var ourTagId))
+                continue;
+
+            if (tag.ParentTagId is { } parentGuid && tagIdMap.TryGetValue(parentGuid, out var parentTagId))
+                parents.Add(new SetParentTagCommand(ourTagId, parentTagId));
+
+            if (tag.Alters is not { Count: > 0 })
                 continue;
 
             foreach (var oldAlterId in tag.Alters)
             {
                 if (alterIdMap.TryGetValue(oldAlterId, out var newAlterId))
-                {
-                    await _tagRepository.AttachAlterAsync(systemId, ourTagId, newAlterId, ct).ConfigureAwait(false);
-                }
+                    attachments.Add(new AttachAlterToTagCommand(ourTagId, newAlterId));
             }
         }
+
+        await _tagRepository.SetParentsAsync(systemId, parents, ct).ConfigureAwait(false);
+        await _tagRepository.AttachAltersAsync(systemId, attachments, ct).ConfigureAwait(false);
     }
 
     private async Task ImportFrontsAsync(
@@ -319,26 +267,24 @@ public sealed class OctoconImportService : IOctoconImportService
         DateTimeOffset now,
         CancellationToken ct)
     {
-        if (fronts is null)
+        if (fronts is not { Count: > 0 })
             return;
 
+        var writes = new List<ImportFrontWrite>(fronts.Count);
         foreach (var front in fronts)
         {
             if (!alterIdMap.TryGetValue(front.AlterId, out var newAlterId))
                 continue;
 
-            var timeStart = ParseIsoTimestamp(front.TimeStart, now);
             var comment = front.Comment;
             if (comment?.Length > 50) comment = comment[..50];
-
-            await _frontingRepository.StartAsync(systemId, newAlterId, comment, timeStart, ct).ConfigureAwait(false);
-
-            if (!string.IsNullOrWhiteSpace(front.TimeEnd))
-            {
-                var timeEnd = ParseIsoTimestamp(front.TimeEnd, now);
-                await _frontingRepository.EndAsync(systemId, newAlterId, timeEnd, ct).ConfigureAwait(false);
-            }
+            DateTimeOffset? timeEnd = string.IsNullOrWhiteSpace(front.TimeEnd)
+                ? null
+                : ParseIsoTimestamp(front.TimeEnd, now);
+            writes.Add(new ImportFrontWrite(newAlterId, comment, ParseIsoTimestamp(front.TimeStart, now), timeEnd));
         }
+
+        await _frontingRepository.ImportManyAsync(systemId, writes, ct).ConfigureAwait(false);
     }
 
     private async Task ImportPollsAsync(
@@ -348,9 +294,10 @@ public sealed class OctoconImportService : IOctoconImportService
         DateTime nowUtc,
         CancellationToken ct)
     {
-        if (polls is null)
+        if (polls is not { Count: > 0 })
             return;
 
+        var writes = new List<ImportPollWrite>(polls.Count);
         foreach (var poll in polls)
         {
             var title = string.IsNullOrWhiteSpace(poll.Title) ? "Unnamed poll" : poll.Title;
@@ -364,30 +311,19 @@ public sealed class OctoconImportService : IOctoconImportService
                 ? ParseIsoTimestamp(poll.TimeEnd, new DateTimeOffset(nowUtc, TimeSpan.Zero)).UtcDateTime
                 : null;
 
-            var createdPollId = await _pollRepository.CreateAsync(
-                systemId,
-                new CreatePollCommand(title, desc, poll.Type, timeEnd, insertedAt),
-                ct).ConfigureAwait(false);
-
-            if (createdPollId is null)
-                continue;
-
-            var mappedData = BuildMappedPollData(poll.Type, poll.Data, alterIdMap);
-            if (mappedData.ValueKind != JsonValueKind.Undefined)
-            {
-                await _pollRepository.UpdateAsync(systemId, new UpdatePollCommand(
-                    Id: createdPollId.Value,
-                    Title: null,
-                    Description: null,
-                    TimeEnd: null,
-                    HasTimeEnd: false,
-                    Data: mappedData
-                ), ct).ConfigureAwait(false);
-            }
+            writes.Add(new ImportPollWrite(
+                title,
+                desc,
+                poll.Type,
+                BuildMappedPollData(poll.Type, poll.Data, alterIdMap),
+                timeEnd,
+                insertedAt));
         }
+
+        await _pollRepository.CreateManyAsync(systemId, writes, ct).ConfigureAwait(false);
     }
 
-    private static JsonElement BuildMappedPollData(
+    internal static JsonElement BuildMappedPollData(
         PollType pollType,
         JsonElement data,
         Dictionary<short, AlterId> alterIdMap)
@@ -398,8 +334,9 @@ public sealed class OctoconImportService : IOctoconImportService
         if (pollType == PollType.Choice)
         {
             var choices = new List<PollDataChoice>();
-            var choiceProperty = data.TryGetProperty("choice", out var ch) ? ch :
-                                 data.TryGetProperty("choices", out var chs) ? chs : default;
+            // Octocon spells the options array "choice". The stored shape uses "choices".
+            if (!data.TryGetProperty("choice", out var choiceProperty))
+                choiceProperty = default;
 
             if (choiceProperty.ValueKind == JsonValueKind.Array)
             {

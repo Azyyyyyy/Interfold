@@ -13,6 +13,11 @@ public interface IPollRepository
 
     Task<PollId?> CreateAsync(SystemId systemId, CreatePollCommand command, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<PollId>> CreateManyAsync(
+        SystemId systemId,
+        IReadOnlyList<ImportPollWrite> polls,
+        CancellationToken cancellationToken = default);
+
     Task<bool> ExistsAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default);
 
     Task<bool> UpdateAsync(SystemId systemId, UpdatePollCommand command, CancellationToken cancellationToken = default);

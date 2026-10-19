@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Fronting.Contracts.Models.Commands;
 using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Polls.Contracts.Ids;
 using Interfold.Polls.Contracts.Models;
@@ -14,6 +15,7 @@ using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Api.Services;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Tags.Contracts.Ids;
 using Interfold.Tags.Contracts.Models.Commands;
@@ -55,19 +57,17 @@ public sealed class OctoconImportServiceTests
         var allocatedTag2Id = new TagId(Guid.Parse("33333333-3333-3333-3333-333333333333"));
         var allocatedPollId = new PollId(Guid.Parse("44444444-4444-4444-4444-444444444444"));
 
-        fieldsMock.CreateAsync(Any<SystemId>(), Any<string>(), Any<FieldType>(), Any<VisibilityLevel>(), Any<bool>(), Any<DateTime>(), Any<CancellationToken>())
-            .Returns(allocatedFieldId);
+        fieldsMock.CreateManyAsync(Any<SystemId>(), Any<IReadOnlyList<SettingsFieldInsert>>(), Any<CancellationToken>())
+            .Returns(new[] { allocatedFieldId });
 
-        var alterCallCount = 0;
-        altersMock.CreateAsync(Any<SystemId>(), Any<CreateAlterCommand>(), Any<CancellationToken>())
-            .Returns((_, _, _) => alterCallCount++ == 0 ? allocatedAlter1Id : allocatedAlter2Id);
+        altersMock.ImportManyAsync(Any<SystemId>(), Any<IReadOnlyList<ImportAlterWrite>>(), Any<CancellationToken>())
+            .Returns(new[] { allocatedAlter1Id, allocatedAlter2Id });
 
-        var tagCallCount = 0;
-        tagsMock.CreateAsync(Any<SystemId>(), Any<CreateTagCommand>(), Any<CancellationToken>())
-            .Returns((_, _, _) => tagCallCount++ == 0 ? allocatedTag1Id : allocatedTag2Id);
+        tagsMock.CreateManyAsync(Any<SystemId>(), Any<IReadOnlyList<ImportTagWrite>>(), Any<CancellationToken>())
+            .Returns(new[] { allocatedTag1Id, allocatedTag2Id });
 
-        pollsMock.CreateAsync(Any<SystemId>(), Any<CreatePollCommand>(), Any<CancellationToken>())
-            .Returns(allocatedPollId);
+        pollsMock.CreateManyAsync(Any<SystemId>(), Any<IReadOnlyList<ImportPollWrite>>(), Any<CancellationToken>())
+            .Returns(new[] { allocatedPollId });
 
         avatarStorageMock.SaveSystemAvatarAsync(Any<SystemId>(), Any<Stream>(), Any<CancellationToken>())
             .Returns(new AvatarUrl("http://localhost/avatars/sys.png"));
@@ -90,7 +90,8 @@ public sealed class OctoconImportServiceTests
             pollsMock.Object,
             avatarStorageMock.Object,
             NullLogger<OctoconImportService>.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            new ImmediateStorageTransactionFactory());
 
         const string jsonPayload = """
         {
@@ -209,8 +210,8 @@ public sealed class OctoconImportServiceTests
         var accountsMock = IAccountRepository.Mock(MockBehavior.Loose);
         var avatarStorageMock = IAvatarStorage.Mock(MockBehavior.Loose);
 
-        altersMock.CreateAsync(Any<SystemId>(), Any<CreateAlterCommand>(), Any<CancellationToken>())
-            .Returns(new AlterId(201));
+        altersMock.ImportManyAsync(Any<SystemId>(), Any<IReadOnlyList<ImportAlterWrite>>(), Any<CancellationToken>())
+            .Returns(new[] { new AlterId(201) });
 
         // HTTP handler returns 500 InternalServerError
         var httpHandler = new TestHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
@@ -226,7 +227,8 @@ public sealed class OctoconImportServiceTests
             pollsMock.Object,
             avatarStorageMock.Object,
             NullLogger<OctoconImportService>.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            new ImmediateStorageTransactionFactory());
 
         const string jsonPayload = """
         {
@@ -277,7 +279,8 @@ public sealed class OctoconImportServiceTests
             pollsMock.Object,
             avatarStorageMock.Object,
             NullLogger<OctoconImportService>.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            new ImmediateStorageTransactionFactory());
 
         var outcome = await service.ImportAsync(TestSystemId, "{ invalid json broken");
 
@@ -286,6 +289,47 @@ public sealed class OctoconImportServiceTests
             await Assert.That(outcome.Success).IsFalse();
             await Assert.That(outcome.AlterCount).IsEqualTo(0);
             await Assert.That(outcome.ErrorCode).IsEqualTo(ImportErrorCode.ImportFailed);
+        }
+    }
+
+    [Test]
+    public async Task BuildMappedPollData_ChoiceReadsChoicePropertyOnly()
+    {
+        using var choiceDoc = JsonDocument.Parse("""{"choice":[{"id":"c1","name":"Red"}]}""");
+        using var choicesDoc = JsonDocument.Parse("""{"choices":[{"id":"c1","name":"Red"}]}""");
+        var alterIdMap = new Dictionary<short, AlterId>();
+
+        var fromChoice = OctoconImportService.BuildMappedPollData(PollType.Choice, choiceDoc.RootElement, alterIdMap);
+        var fromChoices = OctoconImportService.BuildMappedPollData(PollType.Choice, choicesDoc.RootElement, alterIdMap);
+
+        using (Assert.Multiple())
+        {
+            await Assert.That(fromChoice.GetProperty("choices").GetArrayLength()).IsEqualTo(1);
+            await Assert.That(fromChoice.GetProperty("choices")[0].GetProperty("name").GetString()).IsEqualTo("Red");
+            await Assert.That(fromChoices.GetProperty("choices").GetArrayLength()).IsEqualTo(0);
+        }
+    }
+
+    [Test]
+    public async Task BuildMappedPollData_VoteKeepsVoteResponses()
+    {
+        using var voteDoc = JsonDocument.Parse("""
+            {
+              "allow_veto": true,
+              "responses": [ { "alter_id": 1, "vote": "yes", "comment": "aye" } ]
+            }
+            """);
+        var alterIdMap = new Dictionary<short, AlterId> { [1] = new AlterId(101) };
+
+        var mapped = OctoconImportService.BuildMappedPollData(PollType.Vote, voteDoc.RootElement, alterIdMap);
+
+        using (Assert.Multiple())
+        {
+            await Assert.That(mapped.TryGetProperty("choices", out _)).IsFalse();
+            await Assert.That(mapped.GetProperty("allow_veto").GetBoolean()).IsTrue();
+            await Assert.That(mapped.GetProperty("responses").GetArrayLength()).IsEqualTo(1);
+            await Assert.That(mapped.GetProperty("responses")[0].GetProperty("vote").GetString()).IsEqualTo("yes");
+            await Assert.That(mapped.GetProperty("responses")[0].GetProperty("alter_id").GetInt16()).IsEqualTo((short)101);
         }
     }
 }

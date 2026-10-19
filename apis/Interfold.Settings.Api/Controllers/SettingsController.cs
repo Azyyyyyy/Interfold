@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -32,12 +31,6 @@ namespace Interfold.Settings.Api.Controllers;
 [Route("api/settings")]
 public sealed class SettingsController : InterfoldControllerBase
 {
-    private static readonly JsonSerializerOptions ImportRequestJsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        PropertyNameCaseInsensitive = true,
-    };
-
     private readonly IAccountRepository _accountRepository;
     private readonly ISingletonTaskOwner _singletonTaskOwner;
     private readonly IAvatarStorage _avatarStorage;
@@ -352,10 +345,10 @@ public sealed class SettingsController : InterfoldControllerBase
         return fmt switch
         {
             ImportFormat.Octocon => await DispatchImportOctoconAsync(payload.GetRawText(), ct),
-            ImportFormat.PluralKit => TryDeserializeImportRequest(payload, out var pkReq, out var pkError)
+            ImportFormat.PluralKit => ImportRequestJson.TryDeserialize(payload, out var pkReq, out var pkError)
                 ? await DispatchImportPkAsync(pkReq, ct)
                 : pkError,
-            ImportFormat.SimplyPlural => TryDeserializeImportRequest(payload, out var spReq, out var spError)
+            ImportFormat.SimplyPlural => ImportRequestJson.TryDeserialize(payload, out var spReq, out var spError)
                 ? await DispatchImportSpAsync(spReq, ct)
                 : spError,
             _ => throw new InvalidOperationException($"Unhandled ImportFormat: {fmt}"),
@@ -403,38 +396,6 @@ public sealed class SettingsController : InterfoldControllerBase
         return CommandAccepted(
             await _importOctoconHandler.HandleAsync(envelope, ct),
             r => new ImportDispatchResponse(r.OperationId, r.Status, r.StartedAt));
-    }
-
-    private static bool TryDeserializeImportRequest(
-        JsonElement payload,
-        [NotNullWhen(true)] out SettingsImportRequest? request,
-        [NotNullWhen(false)] out ErrorResponse? error)
-    {
-        if (payload.ValueKind != JsonValueKind.Object)
-        {
-            request = null;
-            error = new ErrorResponse("The request payload was invalid.", ErrorCodes.BadRequest, HttpStatusCode.BadRequest);
-            return false;
-        }
-
-        try
-        {
-            request = payload.Deserialize<SettingsImportRequest>(ImportRequestJsonOptions);
-            if (request is null)
-            {
-                error = new ErrorResponse("Import payload cannot be empty.", ErrorCodes.BadRequest, HttpStatusCode.BadRequest);
-                return false;
-            }
-
-            error = null;
-            return true;
-        }
-        catch (JsonException)
-        {
-            request = null;
-            error = new ErrorResponse("The request payload was invalid.", ErrorCodes.BadRequest, HttpStatusCode.BadRequest);
-            return false;
-        }
     }
 
     /// <summary>

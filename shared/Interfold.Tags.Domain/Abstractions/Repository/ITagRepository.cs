@@ -10,6 +10,21 @@ public interface ITagRepository
     /// <summary>Returns the new tag's ID on success, null if the parent was not found.</summary>
     Task<TagId?> CreateAsync(SystemId systemId, CreateTagCommand command, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<TagId>> CreateManyAsync(
+        SystemId systemId,
+        IReadOnlyList<ImportTagWrite> tags,
+        CancellationToken cancellationToken = default);
+
+    Task SetParentsAsync(
+        SystemId systemId,
+        IReadOnlyList<SetParentTagCommand> parents,
+        CancellationToken cancellationToken = default);
+
+    Task AttachAltersAsync(
+        SystemId systemId,
+        IReadOnlyList<AttachAlterToTagCommand> attachments,
+        CancellationToken cancellationToken = default);
+
     Task<bool> ExistsAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default);
 
     /// <summary>Returns true if the tag was found and updated, false if not found.</summary>

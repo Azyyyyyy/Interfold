@@ -154,6 +154,7 @@ internal sealed class SqliteWork : IAsyncDisposable
 
     public SqliteConnection Connection => _connection;
     public SqliteTransaction Transaction => _transaction;
+    internal bool Owns => _owns;
 
     private SqliteWork(SqliteConnection connection, SqliteTransaction transaction, bool owns)
     {
