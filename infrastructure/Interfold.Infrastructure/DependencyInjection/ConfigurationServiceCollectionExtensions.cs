@@ -14,11 +14,6 @@ public static class ConfigurationServiceCollectionExtensions
 {
     public static IServiceCollection AddInterfoldOptions(this IServiceCollection services)
     {
-        services.AddOptions<ClusterConfiguration>()
-            .Configure<IConfiguration>(ApplyCluster)
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
         // Cross-field IValidatableObject fires at ValidateOnStart so malformed retry
         // knobs / missing SQLite connection strings fail at boot, not first query.
         services.AddOptions<PersistenceConfiguration>()
@@ -84,15 +79,6 @@ public static class ConfigurationServiceCollectionExtensions
             new ConfigurationChangeTokenSource<TOptions>(
                 Options.DefaultName, sp.GetRequiredService<IConfiguration>()));
         return builder;
-    }
-
-    internal static void ApplyCluster(ClusterConfiguration opts, IConfiguration config)
-    {
-        // Guard against OCTOCON_NODE_GROUP="" short-circuiting the FLY_PROCESS_GROUP
-        // fallback — EnvironmentVariablesConfigurationProvider surfaces "" as a real value.
-        opts.NodeGroup = EnumWireExtensions.ParseNodeGroup(
-            NullIfEmpty(config[OctoconEnvKeys.FlyProcessGroup])
-            ?? NullIfEmpty(config[OctoconEnvKeys.NodeGroup]));
     }
 
     internal static void ApplyPersistence(PersistenceConfiguration opts, IConfiguration config)

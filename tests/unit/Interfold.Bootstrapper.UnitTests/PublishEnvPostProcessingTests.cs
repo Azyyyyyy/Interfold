@@ -69,7 +69,6 @@ public sealed class PublishEnvPostProcessingTests
             "JWT_AUTHORITY",
             "JWT_AUDIENCE",
             "CORS_ALLOWED_ORIGINS",
-            "NODE_GROUP",
             "AVATAR_PUBLIC_BASE",
             "OTLP_ENDPOINT",
             "ADVERTISE_OTLP_TO_CLIENTS",
@@ -199,7 +198,6 @@ public sealed class PublishEnvPostProcessingTests
     {
         // Every operator tuning field must round-trip verbatim.
         var (config, secrets) = MakeInputs();
-        config.Api.NodeGroup = NodeGroup.Primary;
         config.Api.Storage.AvatarStorageRoot = "/srv/avatars";
         config.Api.Storage.AvatarPublicBase = "https://cdn.example.com/a/";
         config.Observability.OtlpEndpoint = "http://otel-collector:4317";
@@ -213,7 +211,6 @@ public sealed class PublishEnvPostProcessingTests
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
-        await Assert.That(replacements.Parameters["NODE_GROUP"]).IsEqualTo("primary");
         await Assert.That(replacements.Parameters.ContainsKey("AVATAR_STORAGE_ROOT")).IsFalse()
             .Because("Avatar host path is a bind-mount source, not an Aspire parameter");
         await Assert.That(replacements.BindMounts["interfold-api:/app/data/avatars"]).IsEqualTo(
@@ -271,7 +268,6 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(replacements.Parameters["SOCKET_BATCH_BYTES_THRESHOLD"]).IsEqualTo(string.Empty);
 
         // Non-nullable tuning fields fall back to their property-initialiser defaults.
-        await Assert.That(replacements.Parameters["NODE_GROUP"]).IsEqualTo("auxiliary");
         await Assert.That(replacements.Parameters["DB_RETRY_ATTEMPTS"]).IsEqualTo("3");
         await Assert.That(replacements.Parameters["DB_RETRY_INITIAL_DELAY_MS"]).IsEqualTo("100");
         await Assert.That(replacements.Parameters["DB_RETRY_MAX_DELAY_MS"]).IsEqualTo("1500");
@@ -444,8 +440,8 @@ public sealed class PublishEnvPostProcessingTests
                 .Because($"env-key '{envKey}' must be the upper-snake-cased form of the kebab-cased Aspire parameter '{bareName}' (config-key '{configKey}')");
         }
 
-        // Spec-frozen at 21 — bump this AND the enumerator together.
-        await Assert.That(seenConfigKeys.Count).IsEqualTo(21)
-            .Because("shared-parameter count is spec-frozen at 21; update BOTH the enumerator AND this assertion together");
+        // Spec-frozen at 20 — bump this AND the enumerator together.
+        await Assert.That(seenConfigKeys.Count).IsEqualTo(20)
+            .Because("shared-parameter count is spec-frozen at 20; update BOTH the enumerator AND this assertion together");
     }
 }

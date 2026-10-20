@@ -49,8 +49,6 @@ frontend URLs, deep-link protocol.
 — WebSocket batch flush threshold.
 - `[ObservabilityConfiguration](../shared/Interfold.Contracts/Configuration/ObservabilityConfiguration.cs)`
 — OTLP endpoint.
-- `[ClusterConfiguration](../shared/Interfold.Contracts/Configuration/ClusterConfiguration.cs)`
-— node group (Primary / Auxiliary / Sidecar).
 - `[TestingConfiguration](../shared/Interfold.Contracts/Configuration/TestingConfiguration.cs)`
 — test-only gating switches.
 
@@ -130,7 +128,6 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
   },
   "api": {
     "image": "ghcr.io/azyyyyyy/interfold-api:latest",
-    "nodeGroup": "auxiliary",
     "oauth": {
       "googleClientId": "",
       "googleClientSecret": "",
@@ -685,15 +682,6 @@ your `.env`, they are dead values — the API no longer reads them.
 | `OCTOCON_OTLP_ENDPOINT` | *empty* (= OTLP exporter not registered) | OTLP endpoint for the API's own traces/metrics, e.g. `http://localhost:4317`. Sourced from `BootstrapConfig.observability.otlpEndpoint` via Aspire parameter `otlp-endpoint`; empty normalised to `null` by `ApplyObservability` so the OTLP exporter is not registered. Non-empty values must parse as absolute http(s) URIs. (bootstrapper-managed) |
 | `OCTOCON_ADVERTISE_OTLP_TO_CLIENTS` | `false` | Opt-in: when `true`, `GET /api/telemetry/otlp` may advertise `OCTOCON_OTLP_ENDPOINT` if no client override is set. Off by default so configuring the API exporter does not expose it to clients. Sourced from `BootstrapConfig.observability.advertiseOtlpToClients` via Aspire parameter `advertise-otlp-to-clients`. (bootstrapper-managed) |
 | `OCTOCON_CLIENT_OTLP_HTTP_ENDPOINT` | *empty* | Optional dedicated OTLP/HTTP URL for `GET /api/telemetry/otlp`. When set, always wins over the server endpoint. Use when clients need a different URL than the API exporter. Empty + advertise off → discovery 404. Sourced from `BootstrapConfig.observability.clientOtlpHttpEndpoint` via Aspire parameter `client-otlp-http-endpoint`. Non-empty values must parse as absolute http(s) URIs. The API does **not** ingest OTLP. **`aspire run`:** AppHost stamps this with `ASPIRE_DASHBOARD_OTLP_HTTP_ENDPOINT_URL` (`http://localhost:21247`) and turns advertise on, so the wasm client’s `GET /api/telemetry/otlp` points at the Aspire dashboard. Dashboard OTLP CORS is the edge origin; OTLP auth is unsecured because the client only sends the URL (no `x-otlp-api-key`). Override with `Parameters:client-otlp-http-endpoint`. |
-
-
-#### Cluster
-
-
-| Env var              | Default     | Notes                                             |
-| -------------------- | ----------- | ------------------------------------------------- |
-| `FLY_PROCESS_GROUP`  | *null*      | Fly.io automatic. Wins over `OCTOCON_NODE_GROUP`. |
-| `OCTOCON_NODE_GROUP` | `auxiliary` | Sourced from `BootstrapConfig.api.nodeGroup` via Aspire parameter `node-group`; restricted to `primary` / `auxiliary` / `sidecar` by `ConfigPhase.Validate` (lower-cased on read by `ApplyCluster`). (bootstrapper-managed) |
 
 
 #### Socket

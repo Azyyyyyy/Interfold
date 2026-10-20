@@ -21,7 +21,7 @@ public sealed class FrontNotifierBackgroundService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("FrontNotifierBackgroundService starting (primary node).");
+        logger.LogInformation("FrontNotifierBackgroundService starting.");
 
         var subscription = ConsumeEventsAsync(stoppingToken);
         var flush = FlushLoopAsync(stoppingToken);

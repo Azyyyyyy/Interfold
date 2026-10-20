@@ -332,35 +332,7 @@ public sealed class ConfigValidationTests
             c.Edge.Routing.WebHost = "";
         }, "subdomain");
 
-    // --- Cluster / Storage / Observability / Socket / Persistence tuning validation ---
-
-    [Test]
-    public async Task InvalidNodeGroupInJsonFailsDeserialization()
-    {
-        // Rejection lives in the JSON converter, not Validate.
-        const string badJson = """
-        {
-            "api": { "nodeGroup": "guardian" }
-        }
-        """;
-        var ex = Assert.Throws<JsonException>(() =>
-            JsonSerializer.Deserialize(badJson, BootstrapJsonContext.Default.BootstrapConfig));
-        await Assert.That(ex.Message).Contains("NodeGroup");
-        await Assert.That(ex.Message).Contains("nodeGroup");
-    }
-
-    [Test]
-    public async Task EachValidNodeGroupPasses()
-    {
-        // Drives future allow-list extensions to fail here first.
-        foreach (var nodeGroup in Enum.GetValues<NodeGroup>())
-        {
-            var cfg = MakeValid();
-            cfg.Api.NodeGroup = nodeGroup;
-            ConfigPhase.Validate(cfg);
-        }
-        await Task.CompletedTask;
-    }
+    // --- Storage / Observability / Socket / Persistence tuning validation ---
 
     [Test]
     public async Task EmptyOptionalStringsPass()

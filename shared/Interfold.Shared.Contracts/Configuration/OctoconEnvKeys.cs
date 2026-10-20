@@ -5,8 +5,6 @@ namespace Interfold.Shared.Contracts.Configuration;
 /// for operators.</summary>
 public static class OctoconEnvKeys
 {
-    public const string NodeGroup = "OCTOCON_NODE_GROUP";
-
     public const string Persistence = "OCTOCON_PERSISTENCE";
     public const string SqliteConnection = "OCTOCON_SQLITE_CONNECTION";
     public const string DbRetryAttempts = "OCTOCON_DB_RETRY_ATTEMPTS";
@@ -57,7 +55,4 @@ public static class OctoconEnvKeys
     // Interfold.<Feature>.IntegrationTests / TestingConfiguration only.
     public const string RunApiIntegration = "OCTOCON_RUN_API_INTEGRATION";
     public const string RunLiveIntegration = "OCTOCON_RUN_LIVE_INTEGRATION";
-
-    // Fly.io process group — read as NodeGroup fallback.
-    public const string FlyProcessGroup = "FLY_PROCESS_GROUP";
 }

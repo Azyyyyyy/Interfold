@@ -122,7 +122,6 @@ internal static class PublishPhase
             CorsOriginsWithAccessCallback(config.Api.CorsAllowedOrigins, access?.TeamDomain));
 
         // Non-secret operator tuning knobs.
-        yield return (AppHostParameterKeys.NodeGroup, "NODE_GROUP", config.Api.NodeGroup.ToWire());
         yield return (AppHostParameterKeys.AvatarPublicBase, "AVATAR_PUBLIC_BASE", config.Api.Storage.AvatarPublicBase ?? string.Empty);
         yield return (AppHostParameterKeys.OtlpEndpoint, "OTLP_ENDPOINT", config.Observability.OtlpEndpoint ?? string.Empty);
         yield return (AppHostParameterKeys.AdvertiseOtlpToClients, "ADVERTISE_OTLP_TO_CLIENTS", config.Observability.AdvertiseOtlpToClients ? "true" : "false");

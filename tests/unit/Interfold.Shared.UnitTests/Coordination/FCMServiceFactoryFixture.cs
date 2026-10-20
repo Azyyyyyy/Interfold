@@ -6,7 +6,6 @@ using Interfold.Infrastructure.Sqlite;
 using Interfold.Settings.Contracts.Configuration;
 using Interfold.Settings.Domain;
 using Interfold.Shared.Contracts.Configuration;
-using Interfold.Shared.Contracts.Enums;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -22,7 +21,7 @@ public sealed class FCMServiceFactoryFixture : IAsyncInitializer
 {
     public Task InitializeAsync() => Task.CompletedTask;
 
-    public FCMFactoryScope CreateScope(NodeGroup role, bool seedServiceAccount)
+    public FCMFactoryScope CreateScope(bool seedServiceAccount)
     {
         var services = new ServiceCollection();
         services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
@@ -44,7 +43,7 @@ public sealed class FCMServiceFactoryFixture : IAsyncInitializer
                 ? "{\"type\":\"service_account\",\"project_id\":\"test\"}" 
                 : null);
 
-        services.AddInterfoldCluster(role);
+        services.AddInterfoldCluster();
         return new FCMFactoryScope(services.BuildServiceProvider());
     }
 }

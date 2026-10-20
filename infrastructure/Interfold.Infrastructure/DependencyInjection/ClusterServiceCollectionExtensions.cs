@@ -1,4 +1,3 @@
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -12,14 +11,10 @@ namespace Interfold.Infrastructure.DependencyInjection;
 
 public static partial class ServiceCollectionExtensions
 {
-    /// <summary>Registers node-role and cluster coordination services. Call after
+    /// <summary>Registers in-process cluster coordination services. Call after
     /// <see cref="AddInterfoldPersistence"/> in <c>Program.cs</c>.</summary>
-    public static IServiceCollection AddInterfoldCluster(
-        this IServiceCollection services,
-        NodeGroup role)
+    public static IServiceCollection AddInterfoldCluster(this IServiceCollection services)
     {
-        services.AddSingleton<INodeRoleContext>(new NodeRoleContext(role));
-
         services.AddSingleton<IClusterEventBus, InProcessEventBus>();
 
         // Per-system mutex lives in IImportOperationRepository (LWT on
@@ -30,12 +25,9 @@ public static partial class ServiceCollectionExtensions
         services.AddSingleton<NullFCMService>();
         services.AddSingleton<FirebaseFCMService>();
 
-        // Primary + seeded fcm:service_account_json → real sender; otherwise no-op.
+        // Seeded fcm:service_account_json → real sender; otherwise no-op.
         services.AddSingleton<IFCMService>(sp =>
         {
-            if (role != NodeGroup.Primary)
-                return sp.GetRequiredService<NullFCMService>();
-
             var serviceAccountJson = sp.GetRequiredService<IOptions<FcmConfiguration>>().Value.ServiceAccountJson;
 
             if (string.IsNullOrWhiteSpace(serviceAccountJson))
@@ -49,16 +41,7 @@ public static partial class ServiceCollectionExtensions
             return sp.GetRequiredService<FirebaseFCMService>();
         });
 
-        ISingletonTaskOwner taskOwner = role == NodeGroup.Primary
-            ? new PrimaryOnlySingletonTaskOwner()
-            : new NullSingletonTaskOwner();
-
-        services.AddSingleton(taskOwner);
-
-        if (role == NodeGroup.Primary)
-        {
-            services.AddHostedService<FrontNotifierBackgroundService>();
-        }
+        services.AddHostedService<FrontNotifierBackgroundService>();
 
         return services;
     }
