@@ -102,7 +102,6 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(config.Api.CorsAllowedOrigins.Count).IsEqualTo(0);
 
         // Blank string/null fields reproduce the pre-bootstrapper "env var unset" behaviour.
-        await Assert.That(config.Api.NodeGroup).IsEqualTo(NodeGroup.Auxiliary);
         await Assert.That(config.Observability.OtlpEndpoint).IsEqualTo(string.Empty);
         await Assert.That(config.Observability.AdvertiseOtlpToClients).IsFalse();
         await Assert.That(config.Observability.ClientOtlpHttpEndpoint).IsEqualTo(string.Empty);
@@ -299,9 +298,9 @@ public sealed class ConfigInteractivePromptTests
     {
         // Paired per provider (ID then secret): secrets sit at 38 / 40 / 42.
         var console = NewConsole();
-        EditField(console, fieldIndex: 38, "google-secret-xyz");
-        EditField(console, fieldIndex: 40, "discord-secret-abc");
-        EditField(console, fieldIndex: 42, "apple-secret-jwt");
+        EditField(console, fieldIndex: 37, "google-secret-xyz");
+        EditField(console, fieldIndex: 39, "discord-secret-abc");
+        EditField(console, fieldIndex: 41, "apple-secret-jwt");
         ConfirmForm(console);
 
         // maskSecrets:false keeps the prompt off the ReadKey path so PushTextWithEnter suffices.
@@ -317,9 +316,9 @@ public sealed class ConfigInteractivePromptTests
     {
         // Public IDs → plain PromptStr (no masking). ID rows sit at 37 / 39 / 41.
         var console = NewConsole();
-        EditField(console, fieldIndex: 37, "1234.apps.googleusercontent.com");
-        EditField(console, fieldIndex: 39, "9876543210");
-        EditField(console, fieldIndex: 41, "com.example.interfold.signin");
+        EditField(console, fieldIndex: 36, "1234.apps.googleusercontent.com");
+        EditField(console, fieldIndex: 38, "9876543210");
+        EditField(console, fieldIndex: 40, "com.example.interfold.signin");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -351,7 +350,7 @@ public sealed class ConfigInteractivePromptTests
         // IDs are public → the menu row echoes the value verbatim, not <set>/<empty>.
         const string googleId = "1234.apps.googleusercontent.com";
         var console = NewConsole();
-        EditField(console, fieldIndex: 37, googleId);
+        EditField(console, fieldIndex: 36, googleId);
         ConfirmForm(console);
 
         PromptWithoutDetection(console);
@@ -554,7 +553,6 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(output).Contains("JWT audience (aud claim)");
         await Assert.That(output).Contains("CORS allowed origins");
         await Assert.That(output).Contains("API image");
-        await Assert.That(output).Contains("Cluster node group");
         await Assert.That(output).Contains("OTLP endpoint");
         await Assert.That(output).Contains("Advertise OTLP to clients");
         await Assert.That(output).Contains("Client OTLP/HTTP endpoint");
@@ -644,10 +642,10 @@ public sealed class ConfigInteractivePromptTests
     {
         // Happy-path edit of every row in the four-row backup section (43..46).
         var console = NewConsole();
-        EditField(console, fieldIndex: 43, "y");                           // Enabled := true
-        EditField(console, fieldIndex: 44, "Mon..Fri 03:30");              // Schedule
-        EditField(console, fieldIndex: 45, "30");                          // RetainCount
-        EditField(console, fieldIndex: 46, "/srv/backups/interfold");     // Directory
+        EditField(console, fieldIndex: 42, "y");                           // Enabled := true
+        EditField(console, fieldIndex: 43, "Mon..Fri 03:30");              // Schedule
+        EditField(console, fieldIndex: 44, "30");                          // RetainCount
+        EditField(console, fieldIndex: 45, "/srv/backups/interfold");     // Directory
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -663,7 +661,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // 0 is outside [1..1000]; PromptInt re-prompts and the second answer sticks.
         var console = NewConsole();
-        EditField(console, fieldIndex: 45, "0", "7");
+        EditField(console, fieldIndex: 44, "0", "7");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -687,41 +685,15 @@ public sealed class ConfigInteractivePromptTests
     }
 
     [Test]
-    public async Task EditingNodeGroupCapturesValue()
-    {
-        // Happy-path edit; rejection covered by NodeGroupPromptEnforcesChoices below.
-        var console = NewConsole();
-        EditField(console, fieldIndex: 26, "primary");
-        ConfirmForm(console);
-
-        var config = PromptWithoutDetection(console);
-
-        await Assert.That(config.Api.NodeGroup).IsEqualTo(NodeGroup.Primary);
-    }
-
-    [Test]
-    public async Task NodeGroupPromptEnforcesChoices()
-    {
-        // AddChoices re-prompts on non-listed values.
-        var console = NewConsole();
-        EditField(console, fieldIndex: 26, "guardian", "sidecar");
-        ConfirmForm(console);
-
-        var config = PromptWithoutDetection(console);
-
-        await Assert.That(config.Api.NodeGroup).IsEqualTo(NodeGroup.Sidecar);
-    }
-
-    [Test]
     public async Task EditingStorageAndObservabilityCapturesValues()
     {
         // Non-empty round-trip; blank-state pinned by ConfirmingFormImmediatelyUsesDefaults.
         var console = NewConsole();
-        EditField(console, fieldIndex: 27, "http://otel-collector:4317");
-        EditField(console, fieldIndex: 28, "y");
-        EditField(console, fieldIndex: 29, "http://otel-collector:4318");
-        EditField(console, fieldIndex: 30, "/var/lib/interfold/avatars");
-        EditField(console, fieldIndex: 31, "https://cdn.example.com/avatars/");
+        EditField(console, fieldIndex: 26, "http://otel-collector:4317");
+        EditField(console, fieldIndex: 27, "y");
+        EditField(console, fieldIndex: 28, "http://otel-collector:4318");
+        EditField(console, fieldIndex: 29, "/var/lib/interfold/avatars");
+        EditField(console, fieldIndex: 30, "https://cdn.example.com/avatars/");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -738,11 +710,11 @@ public sealed class ConfigInteractivePromptTests
     {
         // Row 28 uses PromptNullableInt; the other four use PromptInt. All five round-trip.
         var console = NewConsole();
-        EditField(console, fieldIndex: 32, "131072");
-        EditField(console, fieldIndex: 33, "5");
-        EditField(console, fieldIndex: 34, "250");
-        EditField(console, fieldIndex: 35, "3000");
-        EditField(console, fieldIndex: 36, "16");
+        EditField(console, fieldIndex: 31, "131072");
+        EditField(console, fieldIndex: 32, "5");
+        EditField(console, fieldIndex: 33, "250");
+        EditField(console, fieldIndex: 34, "3000");
+        EditField(console, fieldIndex: 35, "16");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -759,7 +731,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Blank on row 28 must clear to null (PromptNullableInt contract), not fall back to the existing value.
         var console = NewConsole();
-        EditField(console, fieldIndex: 32, string.Empty);
+        EditField(console, fieldIndex: 31, string.Empty);
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -773,7 +745,7 @@ public sealed class ConfigInteractivePromptTests
         // 9999 breaches the [1..100] bound on row 29; second answer sticks. Pins that the
         // tuning fields share PromptInt's validator with the port rows.
         var console = NewConsole();
-        EditField(console, fieldIndex: 33, "9999", "5");
+        EditField(console, fieldIndex: 32, "9999", "5");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -804,7 +776,7 @@ public sealed class ConfigInteractivePromptTests
         // TextPrompt echo; the guard is that it never appears NEXT TO the label.
         const string secret = "google-secret-xyz";
         var console = NewConsole();
-        EditField(console, fieldIndex: 38, secret);
+        EditField(console, fieldIndex: 37, secret);
         ConfirmForm(console);
 
         PromptWithoutDetection(console);
@@ -827,16 +799,16 @@ public sealed class ConfigInteractivePromptTests
     {
         // Happy-path edit of every row in the nine-row update section (47..55).
         var console = NewConsole();
-        EditField(console, fieldIndex: 47, "y");                                    // Chain updates
-        EditField(console, fieldIndex: 48, "n");                                    // Bootstrapper self-update before images
+        EditField(console, fieldIndex: 46, "y");                                    // Chain updates
+        EditField(console, fieldIndex: 47, "n");                                    // Bootstrapper self-update before images
         Navigate(console, 49);
         console.Input.PushKey(ConsoleKey.Enter);                                  // Channel (SelectionPrompt; default stable)
-        EditField(console, fieldIndex: 50, "n");                                    // Self-update on bootstrap
-        EditField(console, fieldIndex: 51, "n");                                    // Rollback bootstrapper on failure
-        EditField(console, fieldIndex: 52, "300");                                  // HealthCheckTimeoutSeconds
-        EditField(console, fieldIndex: 53, "y");                                    // AutoRestoreOnFailure := true
-        EditField(console, fieldIndex: 54, "n");                                    // RecreateOnUpdate := false
-        EditField(console, fieldIndex: 55, "interfold-api,interfold-web");            // Services
+        EditField(console, fieldIndex: 49, "n");                                    // Self-update on bootstrap
+        EditField(console, fieldIndex: 50, "n");                                    // Rollback bootstrapper on failure
+        EditField(console, fieldIndex: 51, "300");                                  // HealthCheckTimeoutSeconds
+        EditField(console, fieldIndex: 52, "y");                                    // AutoRestoreOnFailure := true
+        EditField(console, fieldIndex: 53, "n");                                    // RecreateOnUpdate := false
+        EditField(console, fieldIndex: 54, "interfold-api,interfold-web");            // Services
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -856,7 +828,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // 9999 breaches the [1..3600] bound; second answer sticks.
         var console = NewConsole();
-        EditField(console, fieldIndex: 52, "9999", "60");
+        EditField(console, fieldIndex: 51, "9999", "60");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -870,7 +842,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Unknown entry re-prompts against ValidUpdateServices; second answer sticks.
         var console = NewConsole();
-        EditField(console, fieldIndex: 55,
+        EditField(console, fieldIndex: 54,
             "not-a-real-service",
             "interfold-api,edge-nginx");
         ConfirmForm(console);
@@ -888,7 +860,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Blank = "every service" (stored as empty array) — the un-scope path in the UI.
         var console = NewConsole();
-        EditField(console, fieldIndex: 55, string.Empty);
+        EditField(console, fieldIndex: 54, string.Empty);
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -951,7 +923,7 @@ public sealed class ConfigInteractivePromptTests
         // per-char + Enter sequence matches what ReadKey consumes.
         const string secret = "google-secret-xyz";
         var console = NewConsole();
-        EditField(console, fieldIndex: 38, secret);
+        EditField(console, fieldIndex: 37, secret);
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console, maskSecrets: true);
@@ -996,7 +968,7 @@ public sealed class ConfigInteractivePromptTests
         File.WriteAllText(sa, FirebaseServiceAccountFixture);
 
         var console = NewConsole();
-        Navigate(console, downArrows: 56);
+        Navigate(console, downArrows: 55);
         // Auto-detect is the first choice — Enter without a DownArrow.
         console.Input.PushKey(ConsoleKey.Enter);
         console.Input.PushTextWithEnter(folder);
@@ -1035,7 +1007,7 @@ public sealed class ConfigInteractivePromptTests
         File.WriteAllText(sa, FirebaseServiceAccountFixture);
 
         var console = NewConsole();
-        Navigate(console, downArrows: 56);
+        Navigate(console, downArrows: 55);
         // Per-file is the 2nd choice — one DownArrow before Enter.
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.Enter);
@@ -1060,7 +1032,7 @@ public sealed class ConfigInteractivePromptTests
     {
         // Cancel is the 4th choice — three DownArrows. Every *Path must stay empty.
         var console = NewConsole();
-        Navigate(console, downArrows: 56);
+        Navigate(console, downArrows: 55);
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.DownArrow);

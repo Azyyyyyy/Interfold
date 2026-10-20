@@ -75,7 +75,6 @@ public static class AppHostParameterKeys
     public const string JwtAuthority = "Parameters:jwt-authority";
     public const string JwtAudience = "Parameters:jwt-audience";
     public const string CorsAllowedOrigins = "Parameters:cors-allowed-origins";
-    public const string NodeGroup = "Parameters:node-group";
     public const string AvatarPublicBase = "Parameters:avatar-public-base";
     public const string OtlpEndpoint = "Parameters:otlp-endpoint";
     public const string AdvertiseOtlpToClients = "Parameters:advertise-otlp-to-clients";

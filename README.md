@@ -221,20 +221,8 @@ We welcome contributions to Octocon! If you'd like to contribute, please follow 
 While we respect your time, please note that not every contribution will be accepted; certain features may not align with our project's goals or privacy/security standards. If you'd like to contribute a new feature, your best bet is to reach out to us in the `#development` channel on our [Discord server](https://discord.gg/octocon) first to discuss its feasibility. Alternatively, we welcome PRs implementing accepted suggestions posted on [our issue tracker](https://github.com/octocondev/issues/issues?q=is%3Aissue%20state%3Aopen%20type%3ASuggestion%20(label%3A%22Low%20Priority%22%20OR%20label%3A%22High%20Priority%22%20OR%20label%3AUrgent))
 
 ## Deployment structure
-Octocon is designed as a distributed monolith, meaning that while the components have a clear separation of concerns, they share a common codebase which is compiled and deployed as one executable.
 
-Octocon is generally run in a cluster of nodes, which are designed to be globally distributed across the world. One "primary" node interfaces with a generally larger database instance and handles certain types of global state, while "auxiliary" nodes interface with smaller database instances. This allows for low-latency access to the data from anywhere in the world.
-
-When not running on Fly.io, an Octocon node knows its role in the overall cluster through an environment variable (`NODE_GROUP`), which determines which parts of the supervision tree it will run, and how it will advertise itself to its peers.
-
-In production, Octocon is configured to discover other nodes using the [libcluster](https://github.com/bitwalker/libcluster) library with a custom Tailscale strategy. All that is necessary is for each node to form a Distributed Erlang cluster; Octocon has internal logic to determine and cache each node's role in the cluster through an RPC communication step.
-
-There are 3 node groups:
-- `primary`: A node running in the primary region, which interfaces with a larger database instance and handles certain types of global state. Other nodes proxy some requests to a `primary` node.
-- `auxiliary`: A node running in an auxiliary region, which interfaces with a smaller database instance. These nodes are largely only responsible for serving HTTP requests to the API.
-- `sidecar`: A node responsible for isolating CPU-bound tasks from the rest of the cluster, such as image processing and heavy encryption tasks. Ideally, **at least one** sidecar should be present in the cluster. If no sidecar is present, nodes will run these tasks themselves.
-
-**Note**: Running multiple `primary` nodes is heavily experimental and not currently recommended - our Discord library (Nostrum) still doesn't behave well in this type of distributed environment.
+Interfold is a self-hosted single-process API. Background work (fronting push notifications, import jobs) and HTTP serve in the same host — there is no multi-node role split.
 
 ## Configuration & integrations
 
@@ -279,7 +267,6 @@ than editing `.env` by hand.
 - `OCTOCON_JWT_AUTHORITY` / `OCTOCON_JWT_AUDIENCE` — JWT `iss` / `aud` claims. Sourced from `BootstrapConfig.api.oauth.jwtAuthority` / `api.oauth.jwtAudience`; authority derives the same way as the callback URL; audience defaults to `octocon`.
 - `OCTOCON_CF_ACCESS_TEAM_DOMAIN` / `OCTOCON_CF_ACCESS_AUD` — Cloudflare Access JWT exchange. Empty disables `GET /auth/cloudflare` and `POST /auth/cloudflare/session`. Written from `{outputDir}/.cloudflare-access.json` after Access is provisioned. See [configuration.md](docs/configuration.md#edgecloudflare-cloudflare-tunnel) for the Access callback URI (Google and Discord) and client contract.
 - `OCTOCON_CORS_ALLOWED_ORIGINS` — comma-separated CORS allow-list. Sourced from `BootstrapConfig.api.corsAllowedOrigins`; defaults to one entry per `edge.hosts` so a fresh bootstrap never ships with the API's "allow any origin" fallback.
-- `OCTOCON_NODE_GROUP` — cluster node role (`primary` / `auxiliary` / `sidecar`). Sourced from `BootstrapConfig.api.nodeGroup`; defaults to `auxiliary`. Fly.io stacks override via `FLY_PROCESS_GROUP` at runtime.
 - `OCTOCON_AVATAR_STORAGE_ROOT` / `OCTOCON_AVATAR_PUBLIC_BASE` — local avatar storage. Self-host compose always sets the container root to `/app/data/avatars` and bind-mounts `BootstrapConfig.storage.avatarStorageRoot` (blank → `{outputDir}/data/avatars`). `avatarPublicBase` blank means the API serves `/avatars/*` itself; set an https URL to stamp CDN links.
 - `OCTOCON_OTLP_ENDPOINT` — OTLP endpoint for the API's own traces/metrics, e.g. `http://localhost:4317`. Sourced from `BootstrapConfig.observability.otlpEndpoint`; empty disables the exporter.
 - `OCTOCON_ADVERTISE_OTLP_TO_CLIENTS` — when `true`, discovery may advertise the server OTLP URL via `GET /api/telemetry/otlp` (opt-in; default `false`). Sourced from `BootstrapConfig.observability.advertiseOtlpToClients`.

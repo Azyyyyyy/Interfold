@@ -146,9 +146,6 @@ public sealed class ApiSection
     [JsonPropertyName("image")]
     public string Image { get; set; } = BootstrapperApiImage.Default;
 
-    [JsonPropertyName("nodeGroup")]
-    public NodeGroup NodeGroup { get; set; } = NodeGroup.Auxiliary;
-
     [JsonPropertyName("oauth")]
     public ApiOAuthSection OAuth { get; set; } = new();
 

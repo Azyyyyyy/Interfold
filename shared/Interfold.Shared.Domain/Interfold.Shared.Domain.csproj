@@ -7,9 +7,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\shared\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <!-- Pure cross-cutting-abstractions module: IIdempotencyStore, ICommandHandler,
-         IdempotentCommandHandler, IClusterEventBus, INodeRoleContext,
-         ISingletonTaskOwner, ISimplyPluralImportService, marker types. Feature-owned
-         repositories and adapters live in their feature.Domain / feature.Contracts projects. -->
+         IdempotentCommandHandler, IClusterEventBus, ISimplyPluralImportService, marker
+         types. Feature-owned repositories and adapters live in their feature.Domain /
+         feature.Contracts projects. -->
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />

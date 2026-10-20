@@ -74,11 +74,6 @@
         // Optional client-only OTLP/HTTP URL for discovery. Empty + advertise off → 404.
         "OCTOCON_CLIENT_OTLP_HTTP_ENDPOINT": "",
 
-        // --- Cluster ---
-        // Resolution order: FLY_PROCESS_GROUP -> OCTOCON_NODE_GROUP -> "auxiliary".
-        // Values: primary | auxiliary | sidecar. Solo dev typically runs as 'primary'.
-        "OCTOCON_NODE_GROUP": "primary",
-
         // --- Sockets ---
         // Outbound WebSocket batch flush threshold in bytes. Empty uses the built-in default.
         "OCTOCON_SOCKET_BATCH_BYTES_THRESHOLD": ""

@@ -21,7 +21,6 @@ using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Shared.Domain.Abstractions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -32,7 +31,6 @@ namespace Interfold.Settings.Api.Controllers;
 public sealed class SettingsController : InterfoldControllerBase
 {
     private readonly IAccountRepository _accountRepository;
-    private readonly ISingletonTaskOwner _singletonTaskOwner;
     private readonly IAvatarStorage _avatarStorage;
     private readonly IOptionsMonitor<AuthenticationConfiguration> _authenticationConfiguration;
     private readonly IOptionsMonitor<FirebaseClientConfiguration> _firebaseClientConfiguration;
@@ -64,7 +62,6 @@ public sealed class SettingsController : InterfoldControllerBase
 
     public SettingsController(
         IAccountRepository accountRepository,
-        ISingletonTaskOwner singletonTaskOwner,
         UpdateUsernameCommandHandler usernameHandler,
         UpdateDescriptionCommandHandler descriptionHandler,
         AddPushTokenCommandHandler addPushTokenHandler,
@@ -94,7 +91,6 @@ public sealed class SettingsController : InterfoldControllerBase
         IExportService exportService)
     {
         _accountRepository = accountRepository;
-        _singletonTaskOwner = singletonTaskOwner;
         _usernameHandler = usernameHandler;
         _descriptionHandler = descriptionHandler;
         _addPushTokenHandler = addPushTokenHandler;
@@ -163,28 +159,8 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpGet("link_token")]
     public async Task<IActionResult> GetLinkToken(CancellationToken ct)
     {
-        // Token creation (write) is gated to primary nodes only — mirrors
-        // Octocon.Global.LinkTokenRegistry singleton in the legacy Elixir runtime.
-        // On auxiliary/sidecar nodes attempt a read-only lookup; if no token has
-        // been provisioned yet, return 503 to inform the caller to retry via a
-        // primary node.
-        var principal = PrincipalId;
-        if (_singletonTaskOwner.OwnsTask(SettingsTaskNames.LinkTokenRegistry))
-        {
-            var result = await _createLinkTokenHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsLinkToken, new CreateLinkTokenCommand()), ct);
-            return Ok(new SuccessResponse<LinkTokenReadModel>(new LinkTokenReadModel(result.Result!.Token)));
-        }
-
-        var existing = await _accountRepository.GetLinkTokenAsync(principal, ct);
-        if (existing is null)
-        {
-            // 503 shape is intentionally non-standard (has `hint` instead of `code`) — the
-            // Kotlin client and legacy Elixir server both use this shape, so the typed
-            // record preserves it byte-for-byte.
-            return StatusCode(503, new LinkTokenUnavailableResponse("link_token_unavailable", "Retry on a primary node."));
-        }
-
-        return Ok(new SuccessResponse<LinkTokenReadModel>(new LinkTokenReadModel(existing.Value)));
+        var result = await _createLinkTokenHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsLinkToken, new CreateLinkTokenCommand()), ct);
+        return Ok(new SuccessResponse<LinkTokenReadModel>(new LinkTokenReadModel(result.Result!.Token)));
     }
 
     [HttpPost("username")]

@@ -301,11 +301,6 @@ internal static class ConfigPhase
                                                         console, DerivedCorsShow(c))),
                 ("Pre-built Interfold API image",   () => c.Api.Image,
                                                     () => c.Api.Image = PromptStr("Pre-built Interfold API image reference", c.Api.Image)),
-                ("Cluster node group",              () => c.Api.NodeGroup.ToWire(),
-                                                    () => c.Api.NodeGroup = EnumWireExtensions.ParseNodeGroup(console.Prompt(
-                                                        new TextPrompt<string>("Cluster node group:")
-                                                            .DefaultValue(c.Api.NodeGroup.ToWire())
-                                                            .AddChoices(ValidNodeGroups)))),
                 ("OTLP endpoint",                   () => ShowOrEmpty(c.Observability.OtlpEndpoint),
                                                     () => c.Observability.OtlpEndpoint = PromptStr(
                                                         "OTLP endpoint (blank to disable API export)",
@@ -897,11 +892,6 @@ internal static class ConfigPhase
     /// <summary>Renders empty as <c>&lt;empty&gt;</c> so operators can tell unset from missing.</summary>
     private static string ShowOrEmpty(string value) =>
         string.IsNullOrEmpty(value) ? "<empty>" : value;
-
-    internal static readonly string[] ValidNodeGroups = Enum
-        .GetValues<NodeGroup>()
-        .Select(g => g.ToWire())
-        .ToArray();
 
     internal static readonly string[] ValidBootstrapPersistenceModes =
     [

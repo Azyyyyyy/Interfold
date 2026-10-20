@@ -197,7 +197,6 @@ public static class InterfoldAppHost
         // fresh bootstrap reproduces "env var unset" behaviour. Empty for the nullable
         // knobs (avatars, OTLP, socket threshold) — ApplyStorage / ApplyObservability
         // normalise empty → null.
-        var nodeGroup = builder.AddConfiguredParameter(AppHostParameterKeys.NodeGroup, "auxiliary", publishValueAsDefault: true);
         var avatarPublicBase = builder.AddConfiguredParameter(AppHostParameterKeys.AvatarPublicBase, publishValueAsDefault: true);
         var otlpEndpoint = builder.AddConfiguredParameter(AppHostParameterKeys.OtlpEndpoint, publishValueAsDefault: true);
         var advertiseOtlpToClients = builder.AddConfiguredParameter(AppHostParameterKeys.AdvertiseOtlpToClients, "false", publishValueAsDefault: true);
@@ -313,7 +312,6 @@ public static class InterfoldAppHost
                    .WithEnvironment(OctoconEnvKeys.JwtAuthority, jwtAuthority)
                    .WithEnvironment(OctoconEnvKeys.JwtAudience, jwtAudience)
                    .WithEnvironment(OctoconEnvKeys.CorsAllowedOrigins, corsAllowedOrigins)
-                   .WithEnvironment(OctoconEnvKeys.NodeGroup, nodeGroup)
                    .WithEnvironment(OctoconEnvKeys.AvatarStorageRoot, ContainerMountPaths.InterfoldAvatars)
                    .WithEnvironment(OctoconEnvKeys.AvatarPublicBase, avatarPublicBase)
                    .WithEnvironment(OctoconEnvKeys.OtlpEndpoint, otlpEndpoint)

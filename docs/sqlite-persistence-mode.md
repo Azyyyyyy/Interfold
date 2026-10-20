@@ -37,7 +37,6 @@ Integration test suites run against `SqliteWebFactoryFixture` and `InMemoryWebFa
 | Friends* / SendFriendRequestPrefixTests | green |
 | FrontingControllerTests | green |
 | Journals* | green |
-| NodeRoleControllerTests | green |
 | PollsControllerTests | green |
 | Settings* / AvatarSourceTests | green |
 | WebSocket* / ReplayParityTests | green |
@@ -174,7 +173,6 @@ All feature suites use the two active fixture types and are verified green local
 | TagsControllerTests | green |
 | PublicSystemsControllerTests | green (same intentional skip as InMemory) |
 | WebSocket* | green |
-| NodeRoleControllerTests | green |
 | ReplayParityTests | green |
 
 Parity is covered by the same controller and socket suites for both active modes.

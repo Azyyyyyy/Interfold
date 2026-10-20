@@ -5,8 +5,6 @@ using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Settings.Contracts.Models.Read;
 using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Configuration;
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.Read;
 using Microsoft.Extensions.DependencyInjection;
@@ -36,22 +34,18 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     public async Task Callback_FullFlow_Succeeds()
     {
         // Callback exercises the end-to-end LinkToken → Callback → LinkIdentityToUserAsync
-        // pipeline, which needs BOTH the seed (POST-equivalent to the link_token endpoint's
-        // Primary-only write) AND the callback to land on the same host / repository
-        // instance. WebApplicationFactory<Program> can hand back different IServiceProvider
-        // trees across `Factory.Services` vs an HTTP request scope, so a repo access via
-        // `Factory.Services` seeds a DIFFERENT InMemory dict than the one the callback
-        // resolves against. Using a private factory pinned to NodeGroup=Primary keeps the
-        // whole flow inside a single client / single SP, and the /api/settings/link_token
-        // endpoint's write branch (SingletonTaskOwner.OwnsTask(...) == true) actually mints
-        // the token. Sibling test below carries the same rationale.
-        await using var factory = CreatePrimaryNodeFactory();
+        // pipeline, which needs BOTH the mint and the callback to land on the same host /
+        // repository instance. WebApplicationFactory<Program> can hand back different
+        // IServiceProvider trees across `Factory.Services` vs an HTTP request scope, so a
+        // repo access via `Factory.Services` seeds a DIFFERENT InMemory dict than the one
+        // the callback resolves against. A private factory keeps the whole flow inside a
+        // single client / single SP. Sibling test below carries the same rationale.
+        await using var factory = fixture.CreatePrivateFactory();
         using var client = TestClient.NoRedirect(factory);
         var user = UniqueId("link-flow-u");
         await EnsureUserExistsAsync(client, user);
 
-        // 1. Get Link Token for the user (Primary-node write path — enabled by the
-        // factory config above so /api/settings/link_token mints instead of returning 503).
+        // 1. Get Link Token for the user.
         using var tokenRes = await client.SendAuthedGetAsync("/api/settings/link_token", user);
         var tokenEnv = await tokenRes.ReadEnvelopeAsync<LinkTokenReadModel>(HttpStatusCode.OK);
         var token = tokenEnv.Data.Token;
@@ -91,9 +85,8 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     public async Task Callback_WhenAlreadyLinkedToAnotherUser_Returns500InternalServerError()
     {
         // See Callback_FullFlow_Succeeds for the private-factory rationale — same story
-        // (Primary-node write path for /api/settings/link_token + single-SP seed→callback
-        // chain).
-        await using var factory = CreatePrimaryNodeFactory();
+        // (single-SP mint→callback chain).
+        await using var factory = fixture.CreatePrivateFactory();
         using var client = TestClient.NoRedirect(factory);
         var userA = UniqueId("link-err-a");
         var userB = UniqueId("link-err-b");
@@ -112,7 +105,7 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
             ProviderIdentity.FromDiscord(new DiscordId(discordIdStr)));
         await Assert.That(linkResult).IsEqualTo(AccountLinkResult.Success);
 
-        // Get link token for user B via HTTP (Primary-node write path).
+        // Get link token for user B via HTTP.
         using var tokenRes = await client.SendAuthedGetAsync("/api/settings/link_token", userB);
         var tokenEnv = await tokenRes.ReadEnvelopeAsync<LinkTokenReadModel>(HttpStatusCode.OK);
         var token = tokenEnv.Data.Token;
@@ -128,9 +121,4 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         using var response = await client.SendAsync(callbackRequest);
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.InternalServerError);
     }
-
-    // CreatePrivateFactory copies each backend's connection wiring (incl. Sqlite CS).
-    private InterfoldWebApplicationFactory CreatePrimaryNodeFactory()
-        => fixture.CreatePrivateFactory()
-            .WithConfiguration(OctoconEnvKeys.NodeGroup, NodeGroup.Primary.ToWire());
 }

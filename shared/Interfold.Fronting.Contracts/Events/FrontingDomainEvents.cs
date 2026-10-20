@@ -4,8 +4,8 @@ using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Fronting.Contracts.Events;
 
-/// <summary>Published to <c>IClusterEventBus</c> on any fronting-state change. Consumed on
-/// primary nodes by <c>FrontNotifierBackgroundService</c> for FCM fan-out (Phase N).</summary>
+/// <summary>Published to <c>IClusterEventBus</c> on any fronting-state change. Consumed by
+/// <c>FrontNotifierBackgroundService</c> for FCM fan-out.</summary>
 public sealed record FrontingStateChangedEvent(SystemId TargetSystemId) : ITargetedClusterEvent;
 
 public sealed record FrontDeletedEvent(SystemId TargetSystemId, FrontId FrontId) : ITargetedClusterEvent;

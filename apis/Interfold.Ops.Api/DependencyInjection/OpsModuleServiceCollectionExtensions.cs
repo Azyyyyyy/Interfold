@@ -9,8 +9,7 @@ namespace Interfold.Ops.Api.DependencyInjection;
 /// <c>Add&lt;Feature&gt;Module</c> extensions.</summary>
 public static class OpsModuleServiceCollectionExtensions
 {
-    /// <summary>No-op today. <c>NodeRoleController</c> binds <c>INodeRoleContext</c>
-    /// (registered by <c>AddInterfoldCluster</c>); <c>TrustController</c> binds
+    /// <summary>No-op today. <c>TrustController</c> binds
     /// <c>IOptions&lt;TrustOptions&gt;</c> (registered by <c>AddInterfoldOptions</c>);
     /// nothing here to register.</summary>
     public static IServiceCollection AddOpsModule(this IServiceCollection services) => services;
