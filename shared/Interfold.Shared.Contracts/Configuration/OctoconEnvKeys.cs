@@ -22,6 +22,18 @@ public static class OctoconEnvKeys
         "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_DEEP_LINK_SECRET";
     public const string InMemorySecretsSeedAuthJwtRsa256PrivatePem =
         "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_JWT_RSA256_PRIVATE_PEM";
+    public const string InMemorySecretsSeedFcmServiceAccountJson =
+        "OCTOCON_INMEMORY_SECRETS_SEED:FCM_SERVICE_ACCOUNT_JSON";
+    public const string InMemorySecretsSeedFirebaseClientWeb =
+        "OCTOCON_INMEMORY_SECRETS_SEED:FIREBASE_CLIENT_WEB";
+    public const string InMemorySecretsSeedFirebaseClientAndroid =
+        "OCTOCON_INMEMORY_SECRETS_SEED:FIREBASE_CLIENT_ANDROID";
+    public const string InMemorySecretsSeedFirebaseClientIos =
+        "OCTOCON_INMEMORY_SECRETS_SEED:FIREBASE_CLIENT_IOS";
+
+    public const string FrontNotifierQuietMs = "OCTOCON_FRONT_NOTIFIER_QUIET_MS";
+    public const string FrontNotifierFlushMs = "OCTOCON_FRONT_NOTIFIER_FLUSH_MS";
+    public const string TestHooks = "OCTOCON_TEST_HOOKS";
 
     public const string AuthCallbackBaseUrl = "OCTOCON_AUTH_CALLBACK_BASE_URL";
     public const string JwtAuthority = "OCTOCON_JWT_AUTHORITY";

@@ -98,6 +98,10 @@ public static class InMemoryServiceCollectionExtensions
             Seed(SecretsStoreKeys.AuthJwtEs256PrivatePem, seed.AuthJwtEs256PrivatePem);
             Seed(SecretsStoreKeys.AuthDeepLinkSecret, seed.AuthDeepLinkSecret);
             Seed(SecretsStoreKeys.AuthJwtRsa256PrivatePem, seed.AuthJwtRsa256PrivatePem);
+            Seed(SecretsStoreKeys.FcmServiceAccountJson, seed.FcmServiceAccountJson);
+            Seed(SecretsStoreKeys.FirebaseClientWeb, seed.FirebaseClientWeb);
+            Seed(SecretsStoreKeys.FirebaseClientAndroid, seed.FirebaseClientAndroid);
+            Seed(SecretsStoreKeys.FirebaseClientIos, seed.FirebaseClientIos);
             return;
 
             void Seed(SecretsStoreKey key, string? value)

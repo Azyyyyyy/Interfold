@@ -19,4 +19,17 @@ public sealed class InMemorySecretsSeedOptions
 
     /// <summary>Env: OCTOCON_INMEMORY_SECRETS_SEED__AUTH_JWT_RSA256_PRIVATE_PEM.</summary>
     public string? AuthJwtRsa256PrivatePem { get; set; }
+
+    /// <summary>Env: OCTOCON_INMEMORY_SECRETS_SEED__FCM_SERVICE_ACCOUNT_JSON.</summary>
+    public string? FcmServiceAccountJson { get; set; }
+
+    /// <summary>Env: OCTOCON_INMEMORY_SECRETS_SEED__FIREBASE_CLIENT_WEB.
+    /// Snake_case JSON matching <c>FirebaseWebClientConfig</c> (includes <c>vapid_key</c>).</summary>
+    public string? FirebaseClientWeb { get; set; }
+
+    /// <summary>Env: OCTOCON_INMEMORY_SECRETS_SEED__FIREBASE_CLIENT_ANDROID.</summary>
+    public string? FirebaseClientAndroid { get; set; }
+
+    /// <summary>Env: OCTOCON_INMEMORY_SECRETS_SEED__FIREBASE_CLIENT_IOS.</summary>
+    public string? FirebaseClientIos { get; set; }
 }

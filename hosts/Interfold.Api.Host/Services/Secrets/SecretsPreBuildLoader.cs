@@ -80,6 +80,10 @@ internal static class SecretsPreBuildLoader
         [SecretsStoreKeys.AuthJwtEs256PrivatePem] = config[OctoconEnvKeys.InMemorySecretsSeedAuthJwtEs256PrivatePem],
         [SecretsStoreKeys.AuthDeepLinkSecret] = config[OctoconEnvKeys.InMemorySecretsSeedAuthDeepLinkSecret],
         [SecretsStoreKeys.AuthJwtRsa256PrivatePem] = config[OctoconEnvKeys.InMemorySecretsSeedAuthJwtRsa256PrivatePem],
+        [SecretsStoreKeys.FcmServiceAccountJson] = config[OctoconEnvKeys.InMemorySecretsSeedFcmServiceAccountJson],
+        [SecretsStoreKeys.FirebaseClientWeb] = config[OctoconEnvKeys.InMemorySecretsSeedFirebaseClientWeb],
+        [SecretsStoreKeys.FirebaseClientAndroid] = config[OctoconEnvKeys.InMemorySecretsSeedFirebaseClientAndroid],
+        [SecretsStoreKeys.FirebaseClientIos] = config[OctoconEnvKeys.InMemorySecretsSeedFirebaseClientIos],
     };
 
     private static void ApplyLeafPfxPasswordIfNeeded(
