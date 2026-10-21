@@ -6,6 +6,7 @@ using Interfold.Shared.Domain.Abstractions;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Settings.Contracts.Configuration;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Contracts.Configuration;
 
 namespace Interfold.Infrastructure.DependencyInjection;
 
@@ -22,6 +23,9 @@ public static partial class ServiceCollectionExtensions
         services.AddSingleton<IImportJobQueue, InProcessImportJobQueue>();
 
         // Both implementations are registered concretely so the factory below can pick.
+        services.AddOptions<FrontNotifierConfiguration>();
+        services.AddOptions<TestHooksConfiguration>();
+
         services.AddSingleton<NullFCMService>();
         services.AddSingleton<FirebaseFCMService>();
 
@@ -39,6 +43,15 @@ public static partial class ServiceCollectionExtensions
             }
 
             return sp.GetRequiredService<FirebaseFCMService>();
+        });
+
+        services.AddSingleton<InMemoryFcmSendOutbox>();
+        services.AddSingleton<IFcmSendRecorder>(sp =>
+        {
+            var hooks = sp.GetService<IOptions<TestHooksConfiguration>>()?.Value;
+            return hooks is { Enabled: true }
+                ? sp.GetRequiredService<InMemoryFcmSendOutbox>()
+                : NullFcmSendRecorder.Instance;
         });
 
         services.AddHostedService<FrontNotifierBackgroundService>();

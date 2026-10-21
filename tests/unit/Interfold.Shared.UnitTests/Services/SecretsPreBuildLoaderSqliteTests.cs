@@ -68,6 +68,8 @@ public sealed class SecretsPreBuildLoaderSqliteTests
                 [OctoconEnvKeys.InMemorySecretsSeedAuthDeepLinkSecret] = "mem-deeplink",
                 [OctoconEnvKeys.InMemorySecretsSeedAuthJwtEs256PrivatePem] = "mem-es256",
                 [OctoconEnvKeys.InMemorySecretsSeedAuthJwtRsa256PrivatePem] = "mem-rsa256",
+                [OctoconEnvKeys.InMemorySecretsSeedFcmServiceAccountJson] = "{\"type\":\"service_account\"}",
+                [OctoconEnvKeys.InMemorySecretsSeedFirebaseClientWeb] = "{\"api_key\":\"web\"}",
             });
 
         var snapshot = SecretsPreBuildLoader.Load(builder);
@@ -76,6 +78,8 @@ public sealed class SecretsPreBuildLoaderSqliteTests
         await Assert.That(snapshot.Get(SecretsStoreKeys.AuthDeepLinkSecret)).IsEqualTo("mem-deeplink");
         await Assert.That(snapshot.Get(SecretsStoreKeys.AuthJwtEs256PrivatePem)).IsEqualTo("mem-es256");
         await Assert.That(snapshot.Get(SecretsStoreKeys.AuthJwtRsa256PrivatePem)).IsEqualTo("mem-rsa256");
+        await Assert.That(snapshot.Get(SecretsStoreKeys.FcmServiceAccountJson)).IsEqualTo("{\"type\":\"service_account\"}");
+        await Assert.That(snapshot.Get(SecretsStoreKeys.FirebaseClientWeb)).IsEqualTo("{\"api_key\":\"web\"}");
     }
 
     [Test]

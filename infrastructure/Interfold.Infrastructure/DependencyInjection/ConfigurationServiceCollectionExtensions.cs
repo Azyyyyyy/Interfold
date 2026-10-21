@@ -64,6 +64,14 @@ public static class ConfigurationServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
+        services.AddOptions<FrontNotifierConfiguration>()
+            .Configure<IConfiguration>(ApplyFrontNotifier)
+            .ValidateOnStart();
+
+        services.AddOptions<TestHooksConfiguration>()
+            .Configure<IConfiguration>(ApplyTestHooks)
+            .ValidateOnStart();
+
         return services;
     }
 
@@ -145,6 +153,23 @@ public static class ConfigurationServiceCollectionExtensions
         opts.AuthJwtEs256PrivatePem = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedAuthJwtEs256PrivatePem]);
         opts.AuthDeepLinkSecret = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedAuthDeepLinkSecret]);
         opts.AuthJwtRsa256PrivatePem = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedAuthJwtRsa256PrivatePem]);
+        opts.FcmServiceAccountJson = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedFcmServiceAccountJson]);
+        opts.FirebaseClientWeb = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedFirebaseClientWeb]);
+        opts.FirebaseClientAndroid = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedFirebaseClientAndroid]);
+        opts.FirebaseClientIos = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedFirebaseClientIos]);
+    }
+
+    private static void ApplyFrontNotifier(FrontNotifierConfiguration opts, IConfiguration config)
+    {
+        opts.QuietMs = TryParseInt(config[OctoconEnvKeys.FrontNotifierQuietMs])
+            ?? FrontNotifierConfiguration.DefaultQuietMs;
+        opts.FlushMs = TryParseInt(config[OctoconEnvKeys.FrontNotifierFlushMs])
+            ?? FrontNotifierConfiguration.DefaultFlushMs;
+    }
+
+    private static void ApplyTestHooks(TestHooksConfiguration opts, IConfiguration config)
+    {
+        opts.Enabled = config[OctoconEnvKeys.TestHooks] is "1" or "true" or "TRUE";
     }
 
     private static int? TryParseInt(string? value)
