@@ -1,23 +1,15 @@
 using Interfold.Infrastructure.Coordination;
 using Interfold.Shared.Api.Controllers.Base;
-using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Api.Filters;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
 
 namespace Interfold.Settings.Api.Controllers;
 
-/// <summary>Test-only FCM outbox. 404 unless <c>OCTOCON_TEST_HOOKS=1</c>.</summary>
+/// <summary>Test-only FCM outbox. Hidden unless <c>OCTOCON_TEST_HOOKS=1</c>.</summary>
 [Route("api/internal/test/fcm-sends")]
-public sealed class FcmTestHooksController(
-    IFcmSendRecorder recorder,
-    IOptions<TestHooksConfiguration> hooks) : InterfoldControllerBase
+[RequireTestHooks]
+public sealed class FcmTestHooksController(IFcmSendRecorder recorder) : InterfoldControllerBase
 {
     [HttpGet]
-    public IActionResult List()
-    {
-        if (!hooks.Value.Enabled)
-            return NotFound();
-
-        return Ok(new { data = recorder.Snapshot() });
-    }
+    public IActionResult List() => Ok(new { data = recorder.Snapshot() });
 }
