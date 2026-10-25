@@ -157,16 +157,15 @@ public sealed class SettingsController : InterfoldControllerBase
         => Enum.GetValues<ExportFormat>();
 
     [HttpGet("link_token")]
-    public async Task<IActionResult> GetLinkToken(CancellationToken ct)
+    public async Task<Response<LinkTokenReadModel>> GetLinkToken(CancellationToken ct)
     {
         var result = await _createLinkTokenHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsLinkToken, new CreateLinkTokenCommand()), ct);
-        return Ok(new SuccessResponse<LinkTokenReadModel>(new LinkTokenReadModel(result.Result!.Token)));
+        return new SuccessResponse<LinkTokenReadModel>(new LinkTokenReadModel(result.Result!.Token));
     }
 
     [HttpPost("username")]
     public async Task<Response> UpdateUsername([FromBody] SettingsUsernameRequest req, CancellationToken ct)
     {
-        var principal = PrincipalId;
         return await DispatchNoContentAsync(_usernameHandler, OperationIds.SettingsUsernameUpdate, new UpdateUsernameCommand(req.Username)
         , ct);
     }
@@ -465,7 +464,7 @@ public sealed class SettingsController : InterfoldControllerBase
     /* New endpoints from here! */
     [HttpGet("public-key")]
     [AllowAnonymous]
-    public async Task<Response<string>> GetPublicKey(CancellationToken ct)
+    public Response<string> GetPublicKey()
     {
         var authenticationConfiguration = _authenticationConfiguration.CurrentValue;
         return authenticationConfiguration.Rsa256PublicKey;
@@ -488,7 +487,7 @@ public sealed class SettingsController : InterfoldControllerBase
     /// </summary>
     [HttpGet("firebase-config")]
     [AllowAnonymous]
-    public async Task<Response<FirebaseClientConfigResponse>> GetFirebaseConfig(
+    public Response<FirebaseClientConfigResponse> GetFirebaseConfig(
         [FromQuery] string? platform,
         CancellationToken ct)
     {
@@ -500,8 +499,15 @@ public sealed class SettingsController : InterfoldControllerBase
         return new SuccessResponse<FirebaseClientConfigResponse>(payload!);
     }
 
+    /// <summary>Whether a Discord bot is currently active on this API instance.</summary>
+    [HttpGet("discord-bot")]
+    [AllowAnonymous]
+    public Response<DiscordBotStatusResponse> GetDiscordBotStatus()
+        => new DiscordBotStatusResponse(Active: false);
+
+
     private bool TryResolveRecoveryCode(string candidate, out RecoveryCode recoveryCode, out ErrorCode errorCode)
-        => Helpers.RecoveryCodeResolver.TryResolve(candidate, _authenticationConfiguration.CurrentValue.Rsa256PrivateKey, out recoveryCode, out errorCode);
+        => RecoveryCodeResolver.TryResolve(candidate, _authenticationConfiguration.CurrentValue.Rsa256PrivateKey, out recoveryCode, out errorCode);
 
     /// <summary>
     /// Setup / recover both project to the same wire shape (base64-encoded UTF-8 bytes

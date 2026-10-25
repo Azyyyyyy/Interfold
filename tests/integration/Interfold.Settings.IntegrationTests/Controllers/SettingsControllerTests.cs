@@ -176,5 +176,14 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
             await Assert.That(afterDelete.Data.AvatarUrl).IsNull();
         });
     }
+
+    [Test]
+    public async Task DiscordBot_ReportsInactive()
+    {
+        using var client = TestClient.NoRedirect(fixture);
+        using var res = await client.GetAsync("/api/settings/discord-bot");
+        var envelope = await res.ReadEnvelopeAsync<DiscordBotStatusResponse>(HttpStatusCode.OK);
+        await Assert.That(envelope.Data.Active).IsFalse();
+    }
 }
 
