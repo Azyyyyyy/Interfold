@@ -63,7 +63,7 @@ public sealed class SecretTokensFromFactoryTests
             await Assert.That(result).IsNotNull()
                 .Because("A non-blank link token is a valid input and must wrap.");
             await Assert.That(result!.Value.Value).IsEqualTo(valid)
-                .Because("From must not transform the input — the link token is used verbatim as the Scylla lookup key and any normalization would silently break the one-time-link handshake.");
+                .Because("From must not transform the input — the link token is used verbatim as the lookup key and any normalization would silently break the one-time-link handshake.");
         }
     }
 

@@ -11,8 +11,8 @@ internal static class FriendshipEventBusExtensions
 {
     public static async ValueTask PublishFriendshipAddedBothWaysAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId from,
-        ScopedSystemId to,
+        SystemId from,
+        SystemId to,
         CancellationToken cancellationToken = default)
     {
         await eventBus.PublishAsync(new FriendshipAddedEvent(from, to), cancellationToken);
@@ -21,8 +21,8 @@ internal static class FriendshipEventBusExtensions
 
     public static async ValueTask PublishFriendshipRemovedBothWaysAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId from,
-        ScopedSystemId to,
+        SystemId from,
+        SystemId to,
         CancellationToken cancellationToken = default)
     {
         await eventBus.PublishAsync(new FriendshipRemovedEvent(from, to), cancellationToken);
@@ -32,8 +32,8 @@ internal static class FriendshipEventBusExtensions
     // Sender-cancel ordering: sender's outbound first, then recipient's inbound.
     public static async ValueTask PublishRequestRemovedFromThenToAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId from,
-        ScopedSystemId to,
+        SystemId from,
+        SystemId to,
         CancellationToken cancellationToken = default)
     {
         await eventBus.PublishAsync(new FriendRequestRemovedFromEvent(from, to), cancellationToken);
@@ -43,8 +43,8 @@ internal static class FriendshipEventBusExtensions
     // Recipient-reject/accept ordering: recipient's inbound first, then sender's outbound.
     public static async ValueTask PublishRequestRemovedToThenFromAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId to,
-        ScopedSystemId from,
+        SystemId to,
+        SystemId from,
         CancellationToken cancellationToken = default)
     {
         await eventBus.PublishAsync(new FriendRequestRemovedToEvent(to, from), cancellationToken);

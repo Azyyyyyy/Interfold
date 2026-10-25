@@ -21,7 +21,7 @@ namespace Interfold.Infrastructure.Sqlite.Repository;
 public sealed class SqliteTagRepository : ITagRepository
 {
     private readonly ISqliteConnectionFactory _connectionFactory;
-    private readonly IFriendshipRepository? _friendships;
+    private readonly IFriendshipRepository _friendships;
     private readonly IAlterRepository _alterRepository;
     private readonly ILogger<SqliteTagRepository> _logger;
     private readonly TimeProvider _timeProvider;
@@ -45,16 +45,15 @@ public sealed class SqliteTagRepository : ITagRepository
         CreateTagCommand command,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         var insertedAtMs = new DateTimeOffset(DateTime.SpecifyKind(command.InsertedAtUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
 
         string? parentId = null;
         if (command.ParentTagId is { } parent && parent != TagId.Empty)
         {
-            if (!await TagExistsAsync(connection, systemKey, parent.Value.ToString("N")))
+            if (!await TagExistsAsync(work.Connection, work.Transaction, systemId, parent.Value.ToString("N")))
             {
                 return null;
             }
@@ -65,7 +64,7 @@ public sealed class SqliteTagRepository : ITagRepository
         var tagGuid = Guid.NewGuid();
         var tagIdHex = tagGuid.ToString("N");
 
-        await connection.ExecuteAsync(
+        await work.Connection.ExecuteAsync(
             """
             INSERT INTO tags (
                 system_id, id, parent_tag_id, name, description, color,
@@ -76,16 +75,117 @@ public sealed class SqliteTagRepository : ITagRepository
             """,
             new
             {
-                system_id = systemKey,
+                system_id = systemId,
                 id = tagIdHex,
                 parent_tag_id = parentId,
                 name = command.Name,
                 security_level = (short)VisibilityLevel.Private,
                 inserted_at = insertedAtMs,
                 updated_at = nowMs,
-            });
+            },
+            work.Transaction);
 
+        await work.CommitAsync(cancellationToken);
         return new TagId(tagGuid);
+    }
+
+    public async Task<IReadOnlyList<TagId>> CreateManyAsync(
+        SystemId systemId,
+        IReadOnlyList<ImportTagWrite> tags,
+        CancellationToken cancellationToken = default)
+    {
+        if (tags.Count == 0)
+            return [];
+
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var ids = new TagId[tags.Count];
+        for (var i = 0; i < tags.Count; i++)
+        {
+            var tag = tags[i];
+            var tagGuid = Guid.NewGuid();
+            var insertedAtMs = new DateTimeOffset(DateTime.SpecifyKind(tag.InsertedAtUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+            await work.Connection.ExecuteAsync(
+                """
+                INSERT INTO tags (
+                    system_id, id, parent_tag_id, name, description, color,
+                    security_level, inserted_at, updated_at)
+                VALUES (
+                    @system_id, @id, NULL, @name, @description, @color,
+                    @security_level, @inserted_at, @updated_at)
+                """,
+                new
+                {
+                    system_id = systemId,
+                    id = tagGuid.ToString("N"),
+                    name = tag.Name,
+                    description = tag.Description,
+                    color = tag.Color?.Value,
+                    security_level = (short)tag.SecurityLevel,
+                    inserted_at = insertedAtMs,
+                    updated_at = nowMs,
+                },
+                work.Transaction);
+            ids[i] = new TagId(tagGuid);
+        }
+
+        await work.CommitAsync(cancellationToken);
+        return ids;
+    }
+
+    public async Task SetParentsAsync(
+        SystemId systemId,
+        IReadOnlyList<SetParentTagCommand> parents,
+        CancellationToken cancellationToken = default)
+    {
+        if (parents.Count == 0)
+            return;
+
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        await work.Connection.ExecuteAsync(
+            """
+            UPDATE tags
+            SET parent_tag_id = @parent_tag_id, updated_at = @updated_at
+            WHERE system_id = @system_id AND id = @id
+            """,
+            parents.Select(parent => new
+            {
+                parent_tag_id = parent.ParentTagId.Value.ToString("N"),
+                updated_at = nowMs,
+                system_id = systemId,
+                id = parent.TagId.Value.ToString("N"),
+            }),
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
+    }
+
+    public async Task AttachAltersAsync(
+        SystemId systemId,
+        IReadOnlyList<AttachAlterToTagCommand> attachments,
+        CancellationToken cancellationToken = default)
+    {
+        if (attachments.Count == 0)
+            return;
+
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        await work.Connection.ExecuteAsync(
+            """
+            INSERT INTO alter_tags (system_id, tag_id, alter_id, inserted_at, updated_at)
+            VALUES (@system_id, @tag_id, @alter_id, @inserted_at, @updated_at)
+            ON CONFLICT(system_id, tag_id, alter_id) DO NOTHING
+            """,
+            attachments.Select(attachment => new
+            {
+                system_id = systemId,
+                tag_id = attachment.TagId.Value.ToString("N"),
+                alter_id = attachment.AlterId.Value,
+                inserted_at = nowMs,
+                updated_at = nowMs,
+            }),
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
     }
 
     public async Task<bool> ExistsAsync(
@@ -93,9 +193,8 @@ public sealed class SqliteTagRepository : ITagRepository
         TagId tagId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        return await TagExistsAsync(connection, systemKey, tagId.Value.ToString("N"));
+        return await TagExistsAsync(connection, systemId, tagId.Value.ToString("N"));
     }
 
     public async Task<bool> UpdateAsync(
@@ -103,12 +202,11 @@ public sealed class SqliteTagRepository : ITagRepository
         UpdateTagCommand command,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         var tagHex = command.TagId.Value.ToString("N");
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        if (!await TagExistsAsync(connection, systemKey, tagHex))
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        if (!await TagExistsAsync(work.Connection, work.Transaction, systemId, tagHex))
         {
             return false;
         }
@@ -116,7 +214,7 @@ public sealed class SqliteTagRepository : ITagRepository
         var sets = new List<string> { "updated_at = @updated_at" };
         var parameters = new DynamicParameters();
         parameters.Add("updated_at", nowMs);
-        parameters.Add("system_id", systemKey);
+        parameters.Add("system_id", systemId);
         parameters.Add("id", tagHex);
 
         if (command.Name is not null)
@@ -148,13 +246,15 @@ public sealed class SqliteTagRepository : ITagRepository
             return true;
         }
 
-        var updated = await connection.ExecuteAsync(
+        var updated = await work.Connection.ExecuteAsync(
             $"""
             UPDATE tags
             SET {string.Join(", ", sets)}
             WHERE system_id = @system_id AND id = @id
             """,
-            parameters);
+            parameters,
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
         return updated > 0;
     }
 
@@ -163,12 +263,11 @@ public sealed class SqliteTagRepository : ITagRepository
         TagId tagId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var tagHex = tagId.Value.ToString("N");
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
 
-        if (!await TagExistsAsync(work.Connection, work.Transaction, systemKey, tagHex))
+        if (!await TagExistsAsync(work.Connection, work.Transaction, systemId, tagHex))
             return false;
 
         await work.Connection.ExecuteAsync(
@@ -176,7 +275,7 @@ public sealed class SqliteTagRepository : ITagRepository
             DELETE FROM alter_tags
             WHERE system_id = @system_id AND tag_id = @tag_id
             """,
-            new { system_id = systemKey, tag_id = tagHex },
+            new { system_id = systemId, tag_id = tagHex },
             work.Transaction);
 
         var removed = await work.Connection.ExecuteAsync(
@@ -184,7 +283,7 @@ public sealed class SqliteTagRepository : ITagRepository
             DELETE FROM tags
             WHERE system_id = @system_id AND id = @id
             """,
-            new { system_id = systemKey, id = tagHex },
+            new { system_id = systemId, id = tagHex },
             work.Transaction);
 
         await work.CommitAsync(cancellationToken);
@@ -197,17 +296,16 @@ public sealed class SqliteTagRepository : ITagRepository
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var tagHex = tagId.Value.ToString("N");
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        if (!await TagExistsAsync(connection, systemKey, tagHex))
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        if (!await TagExistsAsync(work.Connection, work.Transaction, systemId, tagHex))
         {
             return false;
         }
 
-        await connection.ExecuteAsync(
+        await work.Connection.ExecuteAsync(
             """
             INSERT INTO alter_tags (system_id, tag_id, alter_id, inserted_at, updated_at)
             VALUES (@system_id, @tag_id, @alter_id, @inserted_at, @updated_at)
@@ -215,12 +313,14 @@ public sealed class SqliteTagRepository : ITagRepository
             """,
             new
             {
-                system_id = systemKey,
+                system_id = systemId,
                 tag_id = tagHex,
                 alter_id = alterId.Value,
                 inserted_at = nowMs,
                 updated_at = nowMs,
-            });
+            },
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
         return true;
     }
 
@@ -230,7 +330,6 @@ public sealed class SqliteTagRepository : ITagRepository
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var tagHex = tagId.Value.ToString("N");
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
@@ -241,7 +340,7 @@ public sealed class SqliteTagRepository : ITagRepository
             """,
             new
             {
-                system_id = systemKey,
+                system_id = systemId,
                 tag_id = tagHex,
                 alter_id = alterId.Value,
             });
@@ -253,14 +352,13 @@ public sealed class SqliteTagRepository : ITagRepository
         AlterId alterId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
         var ids = (await work.Connection.QueryAsync<string>(
             """
             SELECT tag_id FROM alter_tags
             WHERE system_id = @system_id AND alter_id = @alter_id
             """,
-            new { system_id = systemKey, alter_id = alterId.Value },
+            new { system_id = systemId, alter_id = alterId.Value },
             work.Transaction)).Select(id => TagId.Parse(id, null)).ToArray();
 
         if (ids.Length > 0)
@@ -270,7 +368,7 @@ public sealed class SqliteTagRepository : ITagRepository
                 DELETE FROM alter_tags
                 WHERE system_id = @system_id AND alter_id = @alter_id
                 """,
-                new { system_id = systemKey, alter_id = alterId.Value },
+                new { system_id = systemId, alter_id = alterId.Value },
                 work.Transaction);
         }
 
@@ -283,7 +381,6 @@ public sealed class SqliteTagRepository : ITagRepository
         TagId tagId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var parentHex = await connection.QueryFirstOrDefaultAsync<string?>(
             """
@@ -291,7 +388,7 @@ public sealed class SqliteTagRepository : ITagRepository
             WHERE system_id = @system_id AND id = @id
             LIMIT 1
             """,
-            new { system_id = systemKey, id = tagId.Value.ToString("N") });
+            new { system_id = systemId, id = tagId.Value.ToString("N") });
 
         return parentHex is null ? null : new TagId(Guid.Parse(parentHex));
     }
@@ -302,19 +399,18 @@ public sealed class SqliteTagRepository : ITagRepository
         TagId parentTagId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var tagHex = tagId.Value.ToString("N");
         var parentHex = parentTagId.Value.ToString("N");
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        if (!await TagExistsAsync(connection, systemKey, tagHex) ||
-            !await TagExistsAsync(connection, systemKey, parentHex))
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        if (!await TagExistsAsync(work.Connection, work.Transaction, systemId, tagHex) ||
+            !await TagExistsAsync(work.Connection, work.Transaction, systemId, parentHex))
         {
             return false;
         }
 
-        var updated = await connection.ExecuteAsync(
+        var updated = await work.Connection.ExecuteAsync(
             """
             UPDATE tags
             SET parent_tag_id = @parent_tag_id, updated_at = @updated_at
@@ -324,9 +420,11 @@ public sealed class SqliteTagRepository : ITagRepository
             {
                 parent_tag_id = parentHex,
                 updated_at = nowMs,
-                system_id = systemKey,
+                system_id = systemId,
                 id = tagHex,
-            });
+            },
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
         return updated > 0;
     }
 
@@ -335,12 +433,11 @@ public sealed class SqliteTagRepository : ITagRepository
         TagId tagId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var tagHex = tagId.Value.ToString("N");
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        if (!await TagExistsAsync(connection, systemKey, tagHex))
+        if (!await TagExistsAsync(connection, systemId, tagHex))
         {
             return false;
         }
@@ -351,7 +448,7 @@ public sealed class SqliteTagRepository : ITagRepository
             SET parent_tag_id = NULL, updated_at = @updated_at
             WHERE system_id = @system_id AND id = @id
             """,
-            new { updated_at = nowMs, system_id = systemKey, id = tagHex });
+            new { updated_at = nowMs, system_id = systemId, id = tagHex });
         return updated > 0;
     }
 
@@ -359,10 +456,9 @@ public sealed class SqliteTagRepository : ITagRepository
         SystemId systemId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await LoadTagRowsAsync(connection, systemKey, tagIdHex: null);
-        var memberships = await LoadMembershipsAsync(connection, systemKey);
+        var rows = await LoadTagRowsAsync(connection, systemId, tagIdHex: null);
+        var memberships = await LoadMembershipsAsync(connection, systemId);
 
         return rows
             .OrderBy(r => r.IdHex, StringComparer.Ordinal)
@@ -376,14 +472,12 @@ public sealed class SqliteTagRepository : ITagRepository
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
-        var ownerId = SqliteStorageKeys.Normalize(systemId).Value;
-        var friendshipLevel = await SqliteStorageKeys.ResolveFriendshipLevelAsync(
-            systemId, viewerSystemId, _friendships, cancellationToken);
-        var systemKey = SqliteStorageKeys.Persist(systemId);
+        var friendshipLevel = await _friendships.GetFriendshipLevelAsync(
+            systemId, viewerSystemId, cancellationToken);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await LoadTagRowsAsync(connection, systemKey, tagIdHex: null);
-        var memberships = await LoadMembershipsAsync(connection, systemKey);
+        var rows = await LoadTagRowsAsync(connection, systemId, tagIdHex: null);
+        var memberships = await LoadMembershipsAsync(connection, systemId);
 
         var visible = new List<TagPublicReadModel>();
         foreach (var row in rows.Where(r => r.SecurityLevel.CanBeViewedBy(friendshipLevel))
@@ -404,7 +498,7 @@ public sealed class SqliteTagRepository : ITagRepository
         }
 
         GuardedInstrumentation.RecordList(
-            _logger, "tag", nameof(ListGuardedAsync), viewerSystemId, ownerId,
+            _logger, "tag", nameof(ListGuardedAsync), viewerSystemId, systemId,
             totalCount: rows.Count, visibleCount: visible.Count, sw.Elapsed.TotalMilliseconds);
         return visible;
     }
@@ -414,17 +508,16 @@ public sealed class SqliteTagRepository : ITagRepository
         TagId tagId,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = SqliteStorageKeys.Persist(systemId);
         var tagHex = tagId.Value.ToString("N");
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await LoadTagRowsAsync(connection, systemKey, tagHex);
+        var rows = await LoadTagRowsAsync(connection, systemId, tagHex);
         if (rows.Count == 0)
         {
             return null;
         }
 
-        var alterIds = await LoadAlterIdsForTagAsync(connection, systemKey, tagHex);
+        var alterIds = await LoadAlterIdsForTagAsync(connection, systemId, tagHex);
         return MapTagReadModel(rows[0], alterIds, systemId);
     }
 
@@ -435,18 +528,16 @@ public sealed class SqliteTagRepository : ITagRepository
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
-        var ownerId = SqliteStorageKeys.Normalize(systemId).Value;
-        var friendshipLevel = await SqliteStorageKeys.ResolveFriendshipLevelAsync(
-            systemId, viewerSystemId, _friendships, cancellationToken);
-        var systemKey = SqliteStorageKeys.Persist(systemId);
+        var friendshipLevel = await _friendships.GetFriendshipLevelAsync(
+            systemId, viewerSystemId, cancellationToken);
         var tagHex = tagId.Value.ToString("N");
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await LoadTagRowsAsync(connection, systemKey, tagHex);
+        var rows = await LoadTagRowsAsync(connection, systemId, tagHex);
         if (rows.Count == 0)
         {
             GuardedInstrumentation.RecordGet(
-                _logger, "tag", nameof(GetGuardedAsync), viewerSystemId, ownerId,
+                _logger, "tag", nameof(GetGuardedAsync), viewerSystemId, systemId,
                 tagHex, found: false, filtered: false, sw.Elapsed.TotalMilliseconds);
             return null;
         }
@@ -455,12 +546,12 @@ public sealed class SqliteTagRepository : ITagRepository
         if (!row.SecurityLevel.CanBeViewedBy(friendshipLevel))
         {
             GuardedInstrumentation.RecordGet(
-                _logger, "tag", nameof(GetGuardedAsync), viewerSystemId, ownerId,
+                _logger, "tag", nameof(GetGuardedAsync), viewerSystemId, systemId,
                 tagHex, found: false, filtered: true, sw.Elapsed.TotalMilliseconds);
             return null;
         }
 
-        var alterIds = await LoadAlterIdsForTagAsync(connection, systemKey, tagHex);
+        var alterIds = await LoadAlterIdsForTagAsync(connection, systemId, tagHex);
         var alters = new List<BareAlter>();
         foreach (var alterId in alterIds.OrderBy(x => x.Value))
         {
@@ -473,21 +564,21 @@ public sealed class SqliteTagRepository : ITagRepository
 
         var result = MapTagPublicReadModel(row, alters, systemId);
         GuardedInstrumentation.RecordGet(
-            _logger, "tag", nameof(GetGuardedAsync), viewerSystemId, ownerId,
+            _logger, "tag", nameof(GetGuardedAsync), viewerSystemId, systemId,
             tagHex, found: true, filtered: false, sw.Elapsed.TotalMilliseconds);
         return result;
     }
 
     private static async Task<bool> TagExistsAsync(
         SqliteConnection connection,
-        string systemKey,
+        SystemId systemId,
         string tagHex)
-        => await TagExistsAsync(connection, tx: null, systemKey, tagHex);
+        => await TagExistsAsync(connection, tx: null, systemId, tagHex);
 
     private static async Task<bool> TagExistsAsync(
         SqliteConnection connection,
         IDbTransaction? tx,
-        string systemKey,
+        SystemId systemId,
         string tagHex)
     {
         var found = await connection.ExecuteScalarAsync<long?>(
@@ -496,14 +587,14 @@ public sealed class SqliteTagRepository : ITagRepository
             WHERE system_id = @system_id AND id = @id
             LIMIT 1
             """,
-            new { system_id = systemKey, id = tagHex },
+            new { system_id = systemId, id = tagHex },
             tx);
         return found is not null;
     }
 
     private static async Task<List<TagRow>> LoadTagRowsAsync(
         SqliteConnection connection,
-        string systemKey,
+        SystemId systemId,
         string? tagIdHex)
     {
         var sql = tagIdHex is null
@@ -525,8 +616,8 @@ public sealed class SqliteTagRepository : ITagRepository
         var dtos = await connection.QueryAsync<TagRowDto>(
             sql,
             tagIdHex is null
-                ? new { system_id = systemKey }
-                : new { system_id = systemKey, id = tagIdHex });
+                ? new { system_id = systemId }
+                : new { system_id = systemId, id = tagIdHex });
 
         return dtos.Select(MapTagRow).ToList();
     }
@@ -544,7 +635,7 @@ public sealed class SqliteTagRepository : ITagRepository
 
     private static async Task<Dictionary<string, List<AlterId>>> LoadMembershipsAsync(
         SqliteConnection connection,
-        string systemKey)
+        SystemId systemId)
     {
         var rows = await connection.QueryAsync<AlterTagRow>(
             """
@@ -552,7 +643,7 @@ public sealed class SqliteTagRepository : ITagRepository
             FROM alter_tags
             WHERE system_id = @system_id
             """,
-            new { system_id = systemKey });
+            new { system_id = systemId });
 
         var result = new Dictionary<string, List<AlterId>>(StringComparer.Ordinal);
         foreach (var row in rows)
@@ -571,7 +662,7 @@ public sealed class SqliteTagRepository : ITagRepository
 
     private static async Task<IReadOnlyList<AlterId>> LoadAlterIdsForTagAsync(
         SqliteConnection connection,
-        string systemKey,
+        SystemId systemId,
         string tagHex)
     {
         var alterIds = await connection.QueryAsync<long>(
@@ -581,7 +672,7 @@ public sealed class SqliteTagRepository : ITagRepository
             WHERE system_id = @system_id AND tag_id = @tag_id
             ORDER BY alter_id
             """,
-            new { system_id = systemKey, tag_id = tagHex });
+            new { system_id = systemId, tag_id = tagHex });
 
         return alterIds.Select(id => new AlterId((short)id)).ToArray();
     }

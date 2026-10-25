@@ -5,6 +5,7 @@ using Interfold.Alters.Contracts.Models;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Fronting.Contracts.Models.Read;
 using Interfold.Fronting.Domain.Abstractions.Repository;
+using Interfold.Polls.Contracts.Models;
 using Interfold.Polls.Contracts.Models.Read;
 using Interfold.Polls.Domain.Abstractions.Repository;
 using Interfold.Settings.Api.Services.Export;
@@ -202,7 +203,7 @@ public sealed class ExportServiceTests
     }
 
     [Test]
-    public async Task BuildFullAsync_MatchesReferenceShape()
+    public async Task BuildOctoconAsync_MatchesReferenceShape()
     {
         var service = BuildService(
             ExportFixtures.BuildProfile(),
@@ -212,7 +213,7 @@ public sealed class ExportServiceTests
             BuildFronts(),
             BuildFields());
 
-        var payload = await service.BuildFullAsync(ExportFixtures.OwnerId, CancellationToken.None);
+        var payload = await service.BuildOctoconAsync(ExportFixtures.OwnerId, CancellationToken.None);
         var actual = JsonNode.Parse(JsonSerializer.SerializeToUtf8Bytes(payload, ExportJsonOptions.Default))
             ?? throw new InvalidOperationException("full payload serialised to null root.");
         var expected = JsonNode.Parse(ExportFixtures.ExpectedFullJson())
@@ -224,11 +225,11 @@ public sealed class ExportServiceTests
 
     // Reference's `format_full_export` drops fronts where alter_id or time_start are missing
     // (accounts.ex:1215). Our contract encodes both as non-nullable on FrontHistoryReadModel,
-    // but ListAllAsync's *impl* must drop rows with a null time_start (Scylla can hand back a
+    // but ListAllAsync's *impl* must drop rows with a null time_start (storage can hand back a
     // corrupt row), so ExportService only sees populated ones. Documenting the shape here
     // via a two-element fixture — the "drop" branch is exercised by the fronting repo tests.
     [Test]
-    public async Task BuildFullAsync_EmitsAllFrontsReturnedByRepository()
+    public async Task BuildOctoconAsync_EmitsAllFrontsReturnedByRepository()
     {
         var service = BuildService(
             ExportFixtures.BuildProfile(description: "desc"),
@@ -238,11 +239,129 @@ public sealed class ExportServiceTests
             BuildFronts(),
             BuildFields());
 
-        var payload = await service.BuildFullAsync(ExportFixtures.OwnerId, CancellationToken.None);
+        var payload = await service.BuildOctoconAsync(ExportFixtures.OwnerId, CancellationToken.None);
 
         await Assert.That(payload.Fronts.Count).IsEqualTo(2);
         await Assert.That(payload.Fronts[0].Id).IsEqualTo(ExportFixtures.FrontOpenId);
         await Assert.That(payload.Fronts[1].Id).IsEqualTo(ExportFixtures.FrontClosedId);
+    }
+
+    [Test]
+    public async Task BuildOctoconAsync_MapsUnsupportedFieldTypesToText()
+    {
+        var customFields = new[]
+        {
+            new SettingsFieldReadModel(ExportFixtures.FieldOneId, "TextField", FieldType.Text, VisibilityLevel.Public, false, 0, ExportFixtures.FixedInsertedAt),
+            new SettingsFieldReadModel(new FieldId(Guid.NewGuid()), "NumberField", FieldType.Number, VisibilityLevel.Public, false, 1, ExportFixtures.FixedInsertedAt),
+            new SettingsFieldReadModel(new FieldId(Guid.NewGuid()), "BoolField", FieldType.Boolean, VisibilityLevel.Public, false, 2, ExportFixtures.FixedInsertedAt),
+            new SettingsFieldReadModel(new FieldId(Guid.NewGuid()), "DateField", FieldType.Date, VisibilityLevel.Public, false, 3, ExportFixtures.FixedInsertedAt),
+            new SettingsFieldReadModel(new FieldId(Guid.NewGuid()), "ColourField", FieldType.Colour, VisibilityLevel.Public, false, 4, ExportFixtures.FixedInsertedAt),
+            new SettingsFieldReadModel(new FieldId(Guid.NewGuid()), "TimestampField", FieldType.Timestamp, VisibilityLevel.Public, false, 5, ExportFixtures.FixedInsertedAt),
+        };
+
+        var service = BuildService(
+            ExportFixtures.BuildProfile(),
+            BuildAlters(),
+            BuildTags(),
+            BuildPolls(),
+            BuildFronts(),
+            customFields);
+
+        var payload = await service.BuildOctoconAsync(ExportFixtures.OwnerId, CancellationToken.None);
+
+        await Assert.That(payload.User.Fields[0].Type).IsEqualTo("text");
+        await Assert.That(payload.User.Fields[1].Type).IsEqualTo("number");
+        await Assert.That(payload.User.Fields[2].Type).IsEqualTo("boolean");
+        await Assert.That(payload.User.Fields[3].Type).IsEqualTo("text");
+        await Assert.That(payload.User.Fields[4].Type).IsEqualTo("text");
+        await Assert.That(payload.User.Fields[5].Type).IsEqualTo("text");
+    }
+
+    [Test]
+    public async Task BuildOctoconAsync_NullValuesBecomeBlankStrings()
+    {
+        var alterWithNullField = new AlterReadModel(
+            ExportFixtures.AlterOneId,
+            "Alpha",
+            description: null,
+            avatarUrl: null,
+            avatarSource: null,
+            color: null,
+            pronouns: null,
+            securityLevel: VisibilityLevel.Public,
+            fields: [ new AlterPublicFieldReadModel(ExportFixtures.FieldOneId, "NullField", FieldType.Text, Value: null) ],
+            proxyName: null,
+            alias: null,
+            untracked: false,
+            archived: false,
+            pinned: false);
+
+        using var doc = JsonDocument.Parse("{}");
+        var pollWithNullDesc = new[]
+        {
+            new PollReadModel(
+                ExportFixtures.PollOneId,
+                ExportFixtures.OwnerId,
+                "Title",
+                Description: null,
+                PollType.Vote,
+                doc.RootElement.Clone(),
+                TimeEnd: null,
+                InsertedAt: ExportFixtures.FixedInsertedAt,
+                UpdatedAt: ExportFixtures.FixedUpdatedAt)
+        };
+
+        var service = BuildService(
+            ExportFixtures.BuildProfile(),
+            new[] { alterWithNullField },
+            BuildTags(),
+            pollWithNullDesc,
+            BuildFronts(),
+            BuildFields());
+
+        var payload = await service.BuildOctoconAsync(ExportFixtures.OwnerId, CancellationToken.None);
+
+        await Assert.That(payload.Alters[0].Fields[0].Value).IsEqualTo(string.Empty);
+        await Assert.That(payload.Polls[0].Description).IsEqualTo(string.Empty);
+    }
+
+    [Test]
+    public async Task BuildOctoconAsync_PreservesChoicePollDataWithChoiceProperty()
+    {
+        var choiceData = new ChoicePollData(
+            new[] { new PollDataChoice(new PollChoiceId("c1"), "Option") },
+            Array.Empty<PollDataResponse>());
+        var doc = PollDataJson.ToJsonElement(choiceData);
+
+        var choicePoll = new[]
+        {
+            new PollReadModel(
+                ExportFixtures.PollOneId,
+                ExportFixtures.OwnerId,
+                "Choice Poll",
+                "Description",
+                PollType.Choice,
+                doc,
+                TimeEnd: null,
+                InsertedAt: ExportFixtures.FixedInsertedAt,
+                UpdatedAt: ExportFixtures.FixedUpdatedAt)
+        };
+
+        var service = BuildService(
+            ExportFixtures.BuildProfile(),
+            BuildAlters(),
+            BuildTags(),
+            choicePoll,
+            BuildFronts(),
+            BuildFields());
+
+        var payload = await service.BuildOctoconAsync(ExportFixtures.OwnerId, CancellationToken.None);
+        var pollData = payload.Polls[0].Data;
+
+        await Assert.That(pollData.TryGetProperty("choices", out _)).IsFalse();
+        await Assert.That(pollData.TryGetProperty("choice", out var choiceElement)).IsTrue();
+        await Assert.That(choiceElement.GetArrayLength()).IsEqualTo(1);
+        await Assert.That(choiceElement[0].GetProperty("name").GetString()).IsEqualTo("Option");
     }
 
     [Test]

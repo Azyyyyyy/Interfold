@@ -14,13 +14,8 @@ public static class ConfigurationServiceCollectionExtensions
 {
     public static IServiceCollection AddInterfoldOptions(this IServiceCollection services)
     {
-        services.AddOptions<ClusterConfiguration>()
-            .Configure<IConfiguration>(ApplyCluster)
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
         // Cross-field IValidatableObject fires at ValidateOnStart so malformed retry
-        // knobs / missing Postgres connection strings fail at boot, not first query.
+        // knobs / missing SQLite connection strings fail at boot, not first query.
         services.AddOptions<PersistenceConfiguration>()
             .Configure<IConfiguration>(ApplyPersistence)
             .ValidateDataAnnotations()
@@ -64,14 +59,17 @@ public static class ConfigurationServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
-        services.AddOptions<ScyllaOverrideOptions>()
-            .Configure<IConfiguration>(ApplyScyllaOverride)
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
         services.AddOptions<InMemorySecretsSeedOptions>()
             .Configure<IConfiguration>(ApplyInMemorySecretsSeed)
             .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddOptions<FrontNotifierConfiguration>()
+            .Configure<IConfiguration>(ApplyFrontNotifier)
+            .ValidateOnStart();
+
+        services.AddOptions<TestHooksConfiguration>()
+            .Configure<IConfiguration>(ApplyTestHooks)
             .ValidateOnStart();
 
         return services;
@@ -91,25 +89,10 @@ public static class ConfigurationServiceCollectionExtensions
         return builder;
     }
 
-    internal static void ApplyCluster(ClusterConfiguration opts, IConfiguration config)
-    {
-        // Guard against OCTOCON_NODE_GROUP="" short-circuiting the FLY_PROCESS_GROUP
-        // fallback — EnvironmentVariablesConfigurationProvider surfaces "" as a real value.
-        opts.NodeGroup = EnumWireExtensions.ParseNodeGroup(
-            NullIfEmpty(config[OctoconEnvKeys.FlyProcessGroup])
-            ?? NullIfEmpty(config[OctoconEnvKeys.NodeGroup]));
-    }
-
     internal static void ApplyPersistence(PersistenceConfiguration opts, IConfiguration config)
     {
-        var keyspace = EnumWireExtensions.ParseScyllaKeyspace(
-            config[OctoconEnvKeys.ScyllaKeyspace] ?? "nam");
         opts.Mode = EnumWireExtensions.ParsePersistenceMode(config[OctoconEnvKeys.Persistence]);
-        opts.ScyllaKeyspace = keyspace;
-        opts.PostgresConnectionString = config[OctoconEnvKeys.PostgresConnection]
-            ?? "Host=localhost;Port=5432;Database=interfold;Username=interfold;Password=interfold";
         opts.SqliteConnectionString = config[OctoconEnvKeys.SqliteConnection] ?? "";
-        opts.IsSingleScyllaInstance = bool.TryParse(config[OctoconEnvKeys.SingleScyllaInstance], out var singleKs) && singleKs;
         opts.DbRetryAttempts = TryParseInt(config[OctoconEnvKeys.DbRetryAttempts]) ?? 3;
         opts.DbRetryInitialDelay = TimeSpan.FromMilliseconds(
             TryParseInt(config[OctoconEnvKeys.DbRetryInitialDelayMs]) ?? 100);
@@ -164,23 +147,29 @@ public static class ConfigurationServiceCollectionExtensions
             .ToArray();
     }
 
-    private static void ApplyScyllaOverride(ScyllaOverrideOptions opts, IConfiguration config)
-    {
-        var contactPointsRaw = NullIfEmpty(config[OctoconEnvKeys.ScyllaContactPoints]);
-        opts.ContactPoints = contactPointsRaw is null
-            ? null
-            : contactPointsRaw
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        opts.Port = TryParseInt(config[OctoconEnvKeys.ScyllaPort]);
-    }
-
     private static void ApplyInMemorySecretsSeed(InMemorySecretsSeedOptions opts, IConfiguration config)
     {
         opts.EncryptionPepper = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedEncryptionPepper]);
         opts.AuthJwtEs256PrivatePem = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedAuthJwtEs256PrivatePem]);
         opts.AuthDeepLinkSecret = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedAuthDeepLinkSecret]);
         opts.AuthJwtRsa256PrivatePem = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedAuthJwtRsa256PrivatePem]);
+        opts.FcmServiceAccountJson = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedFcmServiceAccountJson]);
+        opts.FirebaseClientWeb = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedFirebaseClientWeb]);
+        opts.FirebaseClientAndroid = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedFirebaseClientAndroid]);
+        opts.FirebaseClientIos = NullIfEmpty(config[OctoconEnvKeys.InMemorySecretsSeedFirebaseClientIos]);
+    }
+
+    private static void ApplyFrontNotifier(FrontNotifierConfiguration opts, IConfiguration config)
+    {
+        opts.QuietMs = TryParseInt(config[OctoconEnvKeys.FrontNotifierQuietMs])
+            ?? FrontNotifierConfiguration.DefaultQuietMs;
+        opts.FlushMs = TryParseInt(config[OctoconEnvKeys.FrontNotifierFlushMs])
+            ?? FrontNotifierConfiguration.DefaultFlushMs;
+    }
+
+    private static void ApplyTestHooks(TestHooksConfiguration opts, IConfiguration config)
+    {
+        opts.Enabled = config[OctoconEnvKeys.TestHooks] is "1" or "true" or "TRUE";
     }
 
     private static int? TryParseInt(string? value)

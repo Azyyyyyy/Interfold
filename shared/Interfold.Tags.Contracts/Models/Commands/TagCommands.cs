@@ -13,6 +13,13 @@ namespace Interfold.Tags.Contracts.Models.Commands;
 /// </summary>
 public sealed record CreateTagCommand(string Name, TagId? ParentTagId, DateTime InsertedAtUtc);
 
+public sealed record ImportTagWrite(
+    string Name,
+    string? Description,
+    HexColor? Color,
+    VisibilityLevel SecurityLevel,
+    DateTime InsertedAtUtc);
+
 public sealed record UpdateTagCommand(
 	TagId TagId,
 	string? Name,

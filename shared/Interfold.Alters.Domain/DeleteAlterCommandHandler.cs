@@ -55,7 +55,7 @@ public sealed class DeleteAlterCommandHandler : IdempotentCommandHandler<DeleteA
     }
 
     private async ValueTask PublishCascadeAsync(
-        ScopedSystemId systemId,
+        SystemId systemId,
         AlterId alterId,
         AlterDeletionResult deletion,
         CancellationToken cancellationToken)

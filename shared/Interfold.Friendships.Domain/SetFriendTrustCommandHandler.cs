@@ -29,12 +29,9 @@ public sealed class SetFriendTrustCommandHandler : IdempotentCommandHandler<SetF
 
 protected override async Task<CommandExecutionResult<FriendshipCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SetFriendTrustCommand> command,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
-
-        var canonicalFriendSystemId = FriendshipCommandNormalization.ComposePeerId(
-            command.PrincipalId,
-            command.Payload.FriendSystemId);
+        var canonicalFriendSystemId = command.Payload.FriendSystemId;
 
         if (await FriendshipCommandFlow.ExecuteMutationOrRejectAsync(
                 command,

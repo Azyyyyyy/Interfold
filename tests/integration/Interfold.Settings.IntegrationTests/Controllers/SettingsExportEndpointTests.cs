@@ -75,7 +75,7 @@ public sealed class SettingsExportEndpointTests(IWebFactoryFixture fixture) : Ba
     }
 
     [Test]
-    public async Task Export_FullFormat_ReturnsAttachmentWithFullBody()
+    public async Task Export_OctoconFormat_ReturnsAttachmentWithOctoconBody()
     {
         using var client = TestClient.NoRedirect(fixture);
 
@@ -83,16 +83,16 @@ public sealed class SettingsExportEndpointTests(IWebFactoryFixture fixture) : Ba
         await EnsureUserExistsAsync(client, principal);
         _ = await CreateAlterAsync(client, principal, "AlphaAlter");
 
-        using var res = await client.SendAuthedGetAsync("/api/settings/export?format=full", principal);
+        using var res = await client.SendAuthedGetAsync("/api/settings/export?format=octocon", principal);
         var body = await res.Content.ReadAsStringAsync();
 
         using (Assert.Multiple())
         {
             await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.OK)
-                .Because($"Expected 200 for ?format=full; body: {body}");
+                .Because($"Expected 200 for ?format=octocon; body: {body}");
             await Assert.That(res.Content.Headers.ContentType?.MediaType).IsEqualTo("application/json");
             await Assert.That(res.Content.Headers.ContentDisposition?.DispositionType).IsEqualTo("attachment");
-            await Assert.That(res.Content.Headers.ContentDisposition?.FileName).IsEqualTo("octocon_export_full.json");
+            await Assert.That(res.Content.Headers.ContentDisposition?.FileName).IsEqualTo("octocon_export_octocon.json");
 
             using var doc = JsonDocument.Parse(body);
             await Assert.That(doc.RootElement.TryGetProperty("user", out _)).IsTrue();
@@ -114,5 +114,32 @@ public sealed class SettingsExportEndpointTests(IWebFactoryFixture fixture) : Ba
         using var res = await client.SendAuthedGetAsync("/api/settings/export?format=PK", principal);
         await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.OK)
             .Because("Enum model binder is case-insensitive so ?format=PK binds to ExportFormat.Pk.");
+    }
+
+    [Test]
+    public async Task ExportFormats_ReturnsSupportedFormats()
+    {
+        using var client = TestClient.NoRedirect(fixture);
+
+        var principal = "export-formats-user";
+        await EnsureUserExistsAsync(client, principal);
+
+        using var res = await client.SendAuthedGetAsync("/api/settings/export/formats", principal);
+        var envelope = await res.ReadEnvelopeAsync<string[]>(HttpStatusCode.OK);
+
+        using (Assert.Multiple())
+        {
+            await Assert.That(envelope.Data).Contains("pk");
+            await Assert.That(envelope.Data).Contains("octocon");
+        }
+    }
+
+    [Test]
+    public async Task ExportFormats_Unauthenticated_ReturnsUnauthorized()
+    {
+        using var client = TestClient.NoRedirect(fixture);
+
+        using var res = await client.GetAsync("/api/settings/export/formats");
+        await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
     }
 }

@@ -106,10 +106,9 @@ internal static class ExportFixtures
 
     public static string ExpectedFullJson()
     {
-        // Full export echoes raw values without pk-side truncation. `time_start` /
-        // `time_end` land as ISO-8601 with the DateTimeOffset's `+00:00`; DateTime(Kind=Utc)
-        // stamps as `...Z` — STJ's built-in DateTime/DateTimeOffset writers do this
-        // unconditionally, no custom converter needed.
+        // Full export echoes raw values without pk-side truncation. Timestamps
+        // land as UTC ISO-8601 without trailing Z or offset ("yyyy-MM-ddTHH:mm:ss"),
+        // matching Octocon's Elixir NaiveDateTime wire representation.
         return """
         {
           "user": {
@@ -152,15 +151,15 @@ internal static class ExportFixtures
               "id": "55555555-5555-5555-5555-555555555555",
               "alter_id": 1,
               "comment": "open front",
-              "time_start": "2024-05-01T00:00:00+00:00",
+              "time_start": "2024-05-01T00:00:00",
               "time_end": null
             },
             {
               "id": "66666666-6666-6666-6666-666666666666",
               "alter_id": 2,
               "comment": "closed front",
-              "time_start": "2024-04-01T00:00:00+00:00",
-              "time_end": "2024-04-02T00:00:00+00:00"
+              "time_start": "2024-04-01T00:00:00",
+              "time_end": "2024-04-02T00:00:00"
             }
           ],
           "tags": [
@@ -171,8 +170,8 @@ internal static class ExportFixtures
               "color": "#112233",
               "security_level": "public",
               "parent_tag_id": null,
-              "inserted_at": "2024-01-02T03:04:05Z",
-              "updated_at": "2024-06-07T08:09:10Z",
+              "inserted_at": "2024-01-02T03:04:05",
+              "updated_at": "2024-06-07T08:09:10",
               "alters": [1, 2]
             },
             {
@@ -182,8 +181,8 @@ internal static class ExportFixtures
               "color": null,
               "security_level": "public",
               "parent_tag_id": "22222222-2222-2222-2222-222222222222",
-              "inserted_at": "2024-01-02T03:04:05Z",
-              "updated_at": "2024-06-07T08:09:10Z",
+              "inserted_at": "2024-01-02T03:04:05",
+              "updated_at": "2024-06-07T08:09:10",
               "alters": [1]
             }
           ],
@@ -194,9 +193,9 @@ internal static class ExportFixtures
               "description": "poll description",
               "type": "vote",
               "data": {"foo":"bar"},
-              "time_end": "2024-12-31T23:59:59Z",
-              "inserted_at": "2024-01-02T03:04:05Z",
-              "updated_at": "2024-06-07T08:09:10Z"
+              "time_end": "2024-12-31T23:59:59",
+              "inserted_at": "2024-01-02T03:04:05",
+              "updated_at": "2024-06-07T08:09:10"
             }
           ]
         }

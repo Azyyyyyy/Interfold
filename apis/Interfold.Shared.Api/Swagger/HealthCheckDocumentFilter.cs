@@ -36,7 +36,7 @@ public class HealthCheckDocumentFilter : IDocumentFilter
                 {
                     Tags = [new OpenApiTag { Name = "Health" }],
                     Summary = "Readiness probe",
-                    Description = "Returns 200 if all dependencies (Scylla, Postgres) are reachable.",
+                    Description = "Returns 200 if all dependencies (SQLite) are reachable.",
                     Responses = new OpenApiResponses
                     {
                         ["200"] = healthyResponse,

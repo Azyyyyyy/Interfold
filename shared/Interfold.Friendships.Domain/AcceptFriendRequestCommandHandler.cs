@@ -17,8 +17,8 @@ public sealed class AcceptFriendRequestCommandHandler : IdempotentCommandHandler
     public AcceptFriendRequestCommandHandler(
         IFriendshipRepository repository,
         IIdempotencyStore idempotencyStore,
-        IClusterEventBus eventBus)
-:base(idempotencyStore)    {
+        IClusterEventBus eventBus) : base(idempotencyStore)   
+    {
         _repository = repository;
         _eventBus = eventBus;
     }
@@ -26,38 +26,28 @@ public sealed class AcceptFriendRequestCommandHandler : IdempotentCommandHandler
 
     protected override EntityRef DuplicateEntityRef => EntityRefs.FriendRequestAccept;
 
-protected override async Task<CommandExecutionResult<FriendshipCommandResult>> ExecuteCoreAsync (
+    protected override async Task<CommandExecutionResult<FriendshipCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<AcceptFriendRequestCommand> command,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
-
-        var canonicalSourceSystemId = FriendshipCommandNormalization.ComposePeerId(
-            command.PrincipalId,
-            command.Payload.SourceSystemId);
-
-        var canonicalPrincipalId = FriendshipCommandNormalization.CanonicalPrincipalForPeer(
-            command.Payload.SourceSystemId,
-            command.PrincipalId);
-
         var outcome = await _repository.AcceptRequestAsync(
             command.PrincipalId,
-            canonicalSourceSystemId,
+            command.Payload.SourceSystemId,
             cancellationToken);
 
         if (FriendshipCommandFlow.RejectIfMutationOutcomeFailed(command, outcome) is { } rejection)
             return rejection;
 
         await _eventBus.PublishFriendshipAddedBothWaysAsync(
-            canonicalPrincipalId,
-            canonicalSourceSystemId,
+            command.PrincipalId,
+            command.Payload.SourceSystemId,
             cancellationToken);
 
         await _eventBus.PublishRequestRemovedFromThenToAsync(
-            canonicalPrincipalId,
-            canonicalSourceSystemId,
+            command.PrincipalId,
+            command.Payload.SourceSystemId,
             cancellationToken);
 
-        return FriendshipCommandFlow.Success(command.PrincipalId, canonicalSourceSystemId, FriendshipAction.Accepted);
+        return FriendshipCommandFlow.Success(command.PrincipalId, command.Payload.SourceSystemId, FriendshipAction.Accepted);
     }
-
 }

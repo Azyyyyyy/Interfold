@@ -10,7 +10,7 @@ public static class TagsModuleServiceCollectionExtensions
 {
     /// <summary>Registers everything the Tags feature owns: the seven tag command-handler
     /// singletons. <c>ITagRepository</c> is registered by the active persistence adapter
-    /// (Scylla / Postgres / InMemory) via <c>AddInterfoldPersistence</c>, so no repository
+    /// (Sqlite / InMemory) via <c>AddInterfoldPersistence</c>, so no repository
     /// registration lives here.</summary>
     public static IServiceCollection AddTagsModule(this IServiceCollection services) =>
         services

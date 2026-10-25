@@ -14,7 +14,7 @@ namespace Interfold.Settings.Domain.Settings;
 internal static class SettingsFieldCommandFlow
 {
     public static CommandExecutionResult<SettingsFieldCommandResult> Success(
-        ScopedSystemId systemId,
+        SystemId systemId,
         SettingsFieldAction action,
         FieldId fieldId)
         => CommandExecutionResult<SettingsFieldCommandResult>.Success(

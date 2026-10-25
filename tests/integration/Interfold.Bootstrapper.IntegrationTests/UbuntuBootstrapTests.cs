@@ -36,35 +36,13 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
         var composeBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/docker-compose.yaml");
         var compose = Encoding.UTF8.GetString(composeBytes);
 
-        await Assert.That(compose).Contains("msg-db:").Because("compose missing msg-db service");
-        await Assert.That(compose).Contains("scylla:").Because("compose missing scylla service");
-        await Assert.That(compose).Contains("interfold-api").Because("compose missing interfold-api service");
+        await Assert.That(compose).Contains("interfold-api:").Because("compose missing interfold-api service");
+        await Assert.That(compose).Contains("edge-nginx:").Because("compose missing edge-nginx service");
         await Assert.That(compose).DoesNotContain("${Parameters_").Because("unresolved parameter placeholder leaked into compose");
-
-        // Admin work moved into the bootstrapper's DatabaseInitPhase, so the compose graph must
-        // no longer reference the legacy bootstrap-auth init containers, and the only
-        // *connection string* it ships is the app user's. The msg-db service still gets a
-        // POSTGRES_USER / POSTGRES_PASSWORD pair, but those are init-only credentials for the
-        // transient `db_init` cluster owner that DatabaseInitPhase scrambles in-cluster as one
-        // of its final steps - they're not a connection string anything connects with.
-        await Assert.That(compose).DoesNotContain("pg-bootstrap-auth")
-            .Because("legacy pg-bootstrap-auth init container leaked back into compose");
-        await Assert.That(compose).DoesNotContain("scylla-bootstrap-auth")
-            .Because("legacy scylla-bootstrap-auth init container leaked back into compose");
-        await Assert.That(compose).DoesNotContain("SCYLLA_ADMIN_PASSWORD")
-            .Because("scylla admin password must not appear in compose - it lives in internal.secrets");
-        await Assert.That(compose).DoesNotContain("POSTGRES_ADMIN_PASSWORD")
-            .Because("postgres admin password must not appear in compose - it lives in internal.secrets");
-        await Assert.That(compose).Contains(PostgresRoles.Init)
-            .Because("msg-db cluster owner must be the disposable 'db_init' role, not the app user");
-        await Assert.That(compose).Contains("POSTGRES_INIT_PASSWORD")
-            .Because("compose must reference POSTGRES_INIT_PASSWORD for the disposable cluster owner");
     }
 
     // Each compose-up test now binds a private host-port window inside the shared DinD via
-    // CreateScratchAsync's port allocator, so concurrent `compose up` calls no longer collide on
-    // 5432/9042/etc. The previous `ubuntu-compose-up` NotInParallel serialiser is therefore
-    // gone — the DinD's inner dockerd throughput is the new (much higher) ceiling.
+    // CreateScratchAsync's port allocator, so concurrent `compose up` calls no longer collide.
     [Test]
     public async Task StackComesUpHealthy()
     {
@@ -140,10 +118,6 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
             .Because("secrets file must be owned by root");
     }
 
-    // Rotate-secrets runs db-init -> launch (it has to refresh the in-cluster admin password) so
-    // it host-binds postgres / scylla / api ports too. Per-test port allocation in
-    // CreateScratchAsync means each invocation lands on a private port window, so the previous
-    // NotInParallel("ubuntu-compose-up") key is no longer required for safety.
     [Test]
     public async Task RotateSecretsRegeneratesPasswordsAndPreservesCerts()
     {
@@ -153,9 +127,6 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
         await Assert.That(pair.PostLeafSha).IsEqualTo(pair.PreLeafSha).Because("certs must remain unchanged on rotate-secrets");
     }
 
-    // Rotate-certs also runs db-init (defensive against an empty DB volume) -> launch, so like
-    // rotate-secrets it host-binds postgres / scylla / api ports. The per-test port allocation
-    // makes that safe to run concurrently with sibling compose-up tests.
     [Test]
     public async Task RotateCertsRegeneratesCertsAndPreservesSecrets()
     {
@@ -243,6 +214,3 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
 
     private static string ShaOf(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 }
-
-
-

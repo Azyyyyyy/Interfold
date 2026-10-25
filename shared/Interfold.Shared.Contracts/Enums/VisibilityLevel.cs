@@ -4,7 +4,7 @@ namespace Interfold.Shared.Contracts.Enums;
 
 /// <summary>
 /// Per-alter visibility tier. Values are wire-stable (JSON string form matches the
-/// enum member name) and Scylla-stable (persisted as <c>smallint</c> with the ordinal
+/// enum member name) and persistence-stable (persisted as <c>smallint</c> with the ordinal
 /// below), so re-ordering members is a breaking change for both persisted rows and
 /// deployed clients.
 /// </summary>

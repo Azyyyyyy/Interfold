@@ -9,8 +9,6 @@ namespace Interfold.Friendships.IntegrationTests.Controllers;
 [Category("Friendships")]
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class FriendRequestsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     private static string UniqueId(string prefix) => TestIds.NewSystemId(prefix, maxLen: 24);

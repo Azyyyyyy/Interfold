@@ -5,8 +5,6 @@ using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Settings.Contracts.Models.Read;
 using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Configuration;
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.Read;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,8 +14,6 @@ namespace Interfold.Auth.IntegrationTests.Controllers;
 [Category("Auth")]
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     private static string UniqueId(string prefix) => TestIds.NewSystemId(prefix, maxLen: 24);
@@ -38,22 +34,18 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     public async Task Callback_FullFlow_Succeeds()
     {
         // Callback exercises the end-to-end LinkToken → Callback → LinkIdentityToUserAsync
-        // pipeline, which needs BOTH the seed (POST-equivalent to the link_token endpoint's
-        // Primary-only write) AND the callback to land on the same host / repository
-        // instance. WebApplicationFactory<Program> can hand back different IServiceProvider
-        // trees across `Factory.Services` vs an HTTP request scope, so a repo access via
-        // `Factory.Services` seeds a DIFFERENT InMemory dict than the one the callback
-        // resolves against. Using a private factory pinned to NodeGroup=Primary keeps the
-        // whole flow inside a single client / single SP, and the /api/settings/link_token
-        // endpoint's write branch (SingletonTaskOwner.OwnsTask(...) == true) actually mints
-        // the token. Sibling test below carries the same rationale.
-        await using var factory = CreatePrimaryNodeFactory();
+        // pipeline, which needs BOTH the mint and the callback to land on the same host /
+        // repository instance. WebApplicationFactory<Program> can hand back different
+        // IServiceProvider trees across `Factory.Services` vs an HTTP request scope, so a
+        // repo access via `Factory.Services` seeds a DIFFERENT InMemory dict than the one
+        // the callback resolves against. A private factory keeps the whole flow inside a
+        // single client / single SP. Sibling test below carries the same rationale.
+        await using var factory = fixture.CreatePrivateFactory();
         using var client = TestClient.NoRedirect(factory);
         var user = UniqueId("link-flow-u");
         await EnsureUserExistsAsync(client, user);
 
-        // 1. Get Link Token for the user (Primary-node write path — enabled by the
-        // factory config above so /api/settings/link_token mints instead of returning 503).
+        // 1. Get Link Token for the user.
         using var tokenRes = await client.SendAuthedGetAsync("/api/settings/link_token", user);
         var tokenEnv = await tokenRes.ReadEnvelopeAsync<LinkTokenReadModel>(HttpStatusCode.OK);
         var token = tokenEnv.Data.Token;
@@ -81,21 +73,20 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
 
         // 3. Verify in repository that identity is linked. Repositories return the scoped
         // wire form (e.g. "nam:link-flow-u-abc") — the raw region tag varies per adapter
-        // (InMemory hashes the id, Scylla resolves by the operator-configured keyspace),
+        // (InMemory hashes the id, Sqlite resolves by the operator-configured region),
         // so compare on the region-stripped raw id, which is stable across all backends.
         var accountRepo = factory.Services.GetRequiredService<IAccountRepository>();
         var linkedSystemId = await accountRepo.TryFindSystemIdByDiscordIdAsync(new DiscordId(discordIdStr));
         await Assert.That(linkedSystemId).IsNotNull();
-        await Assert.That(ScopedSystemId.StripRegionPrefix(linkedSystemId!.Value)).IsEqualTo(user);
+        await Assert.That(linkedSystemId!.Value).IsEqualTo(user);
     }
 
     [Test]
     public async Task Callback_WhenAlreadyLinkedToAnotherUser_Returns500InternalServerError()
     {
         // See Callback_FullFlow_Succeeds for the private-factory rationale — same story
-        // (Primary-node write path for /api/settings/link_token + single-SP seed→callback
-        // chain).
-        await using var factory = CreatePrimaryNodeFactory();
+        // (single-SP mint→callback chain).
+        await using var factory = fixture.CreatePrivateFactory();
         using var client = TestClient.NoRedirect(factory);
         var userA = UniqueId("link-err-a");
         var userB = UniqueId("link-err-b");
@@ -110,11 +101,11 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         var accountRepo = factory.Services.GetRequiredService<IAccountRepository>();
         var discordIdStr = $"discord-err-{Guid.NewGuid():N}";
         var linkResult = await accountRepo.LinkIdentityToUserAsync(
-            ScopedSystemId.Compose(ScyllaKeyspace.Nam, userA).AsSystemId(),
+            new SystemId(userA),
             ProviderIdentity.FromDiscord(new DiscordId(discordIdStr)));
         await Assert.That(linkResult).IsEqualTo(AccountLinkResult.Success);
 
-        // Get link token for user B via HTTP (Primary-node write path).
+        // Get link token for user B via HTTP.
         using var tokenRes = await client.SendAuthedGetAsync("/api/settings/link_token", userB);
         var tokenEnv = await tokenRes.ReadEnvelopeAsync<LinkTokenReadModel>(HttpStatusCode.OK);
         var token = tokenEnv.Data.Token;
@@ -130,9 +121,4 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         using var response = await client.SendAsync(callbackRequest);
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.InternalServerError);
     }
-
-    // CreatePrivateFactory copies each backend's connection wiring (incl. Sqlite CS).
-    private InterfoldWebApplicationFactory CreatePrimaryNodeFactory()
-        => fixture.CreatePrivateFactory()
-            .WithConfiguration(OctoconEnvKeys.NodeGroup, NodeGroup.Primary.ToWire());
 }

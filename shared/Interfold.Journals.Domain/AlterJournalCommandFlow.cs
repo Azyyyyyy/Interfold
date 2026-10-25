@@ -12,7 +12,7 @@ namespace Interfold.Journals.Domain;
 internal static class AlterJournalCommandFlow
 {
     public static CommandExecutionResult<AlterJournalCommandResult> Success(
-        ScopedSystemId systemId,
+        SystemId systemId,
         EntryId entryId,
         AlterId alterId)
         => CommandExecutionResult<AlterJournalCommandResult>.Success(

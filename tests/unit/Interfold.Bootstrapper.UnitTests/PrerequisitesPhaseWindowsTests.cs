@@ -1,8 +1,6 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Phases;
 using Interfold.Bootstrapper.UnitTests.Attributes;
-using Interfold.Bootstrapper.Util;
-using TUnit.Core.Exceptions;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
@@ -73,41 +71,5 @@ public sealed class PrerequisitesPhaseWindowsTests
             setProcessPath: value => captured = value);
 
         await Assert.That(captured).IsEqualTo(@"C:\Machine\bin");
-    }
-
-    [Test]
-    [Arguments(1, 116_563)]
-    [Arguments(3, 249_689)]
-    public async Task MinimumContainerAioMatchesPerNodeFormula(int nodes, int expected)
-    {
-        await Assert.That(PrerequisitesPhase.MinimumContainerAio(nodes)).IsEqualTo(expected);
-        await Assert.That(PrerequisitesPhase.IsContainerAioSufficient(expected, nodes)).IsTrue();
-        await Assert.That(PrerequisitesPhase.IsContainerAioSufficient(expected - 1, nodes)).IsFalse();
-    }
-
-    // Needs a reachable Docker Desktop daemon + alpine pull. Opt in via Explicit.
-    [Test]
-    [Explicit]
-    [RequiresWindows]
-    public async Task ProbeContainerAioReadsAioMaxNrFromDockerDesktopVm()
-    {
-        if (!await PrerequisitesPhase.DockerComposeReadyAsync())
-        {
-            throw new SkipTestException("Docker Desktop not on PATH / compose not ready.");
-        }
-
-        var probe = await ProcessRunner.RunAsync(
-            "docker",
-            ["run", "--rm", "alpine", "cat", "/proc/sys/fs/aio-max-nr"]);
-        if (probe.ExitCode != 0 || !int.TryParse(probe.StdOut.Trim(), out var current))
-        {
-            throw new SkipTestException(
-                $"Could not read fs.aio-max-nr via alpine (exit={probe.ExitCode}): {probe.StdErr}");
-        }
-
-        await Assert.That(current).IsGreaterThan(0);
-
-        var logger = new PhaseLogger(TestSupport.MakeOptions(outputDir: Path.GetTempPath()));
-        await PrerequisitesPhase.ProbeContainerAioAsync(scyllaNodes: 1, logger, CancellationToken.None);
     }
 }

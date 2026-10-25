@@ -1,10 +1,13 @@
+using System.Globalization;
 using System.Text;
+using System.Text.Json;
+using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Settings.Api.Services.Export;
 
-// Reference parity helpers for the pk-side transforms in
-// octocon/lib/octocon/accounts.ex:1273-1332.
+// Reference parity helpers for the export transforms in
+// octocon/lib/octocon/accounts.ex.
 internal static class ExportHelpers
 {
     // Mirrors Elixir's `String.byte_slice(input, 0, maxBytes)`: clip on the UTF-8 byte
@@ -62,5 +65,61 @@ internal static class ExportHelpers
         return new PkProxyTag(
             ByteTruncateUtf8(prefix, 50),
             ByteTruncateUtf8(suffix, 50));
+    }
+
+    // Formats UTC ISO-8601 without trailing Z or offset (matches Elixir's NaiveDateTime output
+    // e.g. "2024-01-02T03:04:05").
+    public static string FormatExportTimestamp(DateTime value)
+    {
+        var utc = value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
+        return utc.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
+    }
+
+    public static string FormatExportTimestamp(DateTimeOffset value)
+    {
+        return value.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
+    }
+
+    // Maps custom field type to Octocon export schema ("text" | "number" | "boolean"),
+    // falling back to "text" for unsupported/extended types.
+    public static string MapExportFieldType(FieldType type) => type switch
+    {
+        FieldType.Text => "text",
+        FieldType.Number => "number",
+        FieldType.Boolean => "boolean",
+        _ => "text",
+    };
+
+    // Adapts poll data interior for the Octocon export schema ("choice"), while the
+    // rest of the system and Kotlin client consume "choices".
+    public static JsonElement FormatPollDataForExport(JsonElement data)
+    {
+        if (data.ValueKind != JsonValueKind.Object)
+            return data;
+
+        if (!data.TryGetProperty("choices", out _))
+            return data;
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (var prop in data.EnumerateObject())
+            {
+                if (prop.NameEquals("choices"))
+                {
+                    writer.WritePropertyName("choice");
+                    prop.Value.WriteTo(writer);
+                }
+                else
+                {
+                    prop.WriteTo(writer);
+                }
+            }
+            writer.WriteEndObject();
+        }
+
+        using var doc = JsonDocument.Parse(stream.ToArray());
+        return doc.RootElement.Clone();
     }
 }

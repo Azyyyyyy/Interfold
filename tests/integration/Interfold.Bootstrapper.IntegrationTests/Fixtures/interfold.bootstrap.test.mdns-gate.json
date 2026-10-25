@@ -4,9 +4,15 @@
     "outputDir": "/opt/deploy"
   },
   "edge": {
-    "hosts": ["definitely-not-resolvable.local", "api.test.local", "127.0.0.1"],
+    "hosts": [
+      "definitely-not-resolvable.local",
+      "api.test.local",
+      "127.0.0.1"
+    ],
     "tlsMode": "privateCa",
-    "routing": { "mode": "path" },
+    "routing": {
+      "mode": "path"
+    },
     "certificates": {
       "rootCaName": "Interfold Test Root CA",
       "certYears": 2,
@@ -14,9 +20,7 @@
     }
   },
   "datastores": {
-    "persistence": "scylla-postgres",
-    "postgres": { "database": "test_pg_db" },
-    "cql": { "backend": "scylla-single" }
+    "persistence": "sqlite"
   },
   "api": {
     "image": "interfold-api:test",

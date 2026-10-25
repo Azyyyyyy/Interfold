@@ -71,32 +71,4 @@ public sealed class ConfigSchemaVersionTests
         using var doc = JsonDocument.Parse(written);
         await Assert.That(doc.RootElement.GetProperty("schemaVersion").GetInt32()).IsEqualTo(21);
     }
-
-    [Test]
-    public async Task DetectVersionReadsWireMinorAndDoesNotMigrateNewerFile()
-    {
-        const string json = """
-            {
-              "schemaVersion": 21,
-              "deployment": { "includeWeb": false },
-              "edge": {
-                "hosts": ["a.example.com"],
-                "tlsMode": "privateCa",
-                "routing": { "mode": "path", "apiHost": "", "webHost": "" },
-                "ports": { "http": 80, "https": 443 }
-              }
-            }
-            """;
-
-        using var doc = JsonDocument.Parse(json);
-        await Assert.That(ConfigSchemaMigrator.DetectVersion(doc.RootElement))
-            .IsEqualTo(new ConfigSchemaVersion(2, 1));
-
-        var result = ConfigSchemaMigrator.MigrateIfNeeded(
-            json,
-            "interfold.bootstrap.json",
-            new Interfold.Bootstrapper.Cli.PhaseLogger(
-                TestSupport.MakeOptions(outputDir: Path.GetTempPath())));
-        await Assert.That(result.DidMigrate).IsFalse();
-    }
 }

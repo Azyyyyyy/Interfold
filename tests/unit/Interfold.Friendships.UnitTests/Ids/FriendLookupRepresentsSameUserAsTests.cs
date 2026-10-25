@@ -1,15 +1,15 @@
+using Interfold.Friendships.Contracts;
 using Interfold.Friendships.Contracts.Ids;
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Ids;
 
 // Pins the FriendLookupExtensions.RepresentsSameUserAs extension that backs the
-// FriendRequestsController.Send self-request guard — moved off ScopedSystemId when
+// FriendRequestsController.Send self-request guard — moved off SystemId when
 // FriendLookup relocated to Interfold.Friendships.Contracts.
 public sealed class FriendLookupRepresentsSameUserAsTests
 {
-    private static readonly ScopedSystemId Principal = ScopedSystemId.Compose(ScyllaKeyspace.Nam, "abcdefg");
+    private static readonly SystemId Principal = new SystemId("abcdefg");
 
     // Bare and id:-prefixed both parse as FriendLookupKind.Id and delegate through the
     // SystemId primitive's raw-id branch.

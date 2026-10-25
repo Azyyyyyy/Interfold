@@ -85,13 +85,11 @@ public static class RootCli
         };
 
         // --- backup-specific options ---
-        // Component selector: postgres = pg_dump only; scylla = nodetool snapshot only;
-        // all = both, in that order. Invalid values are caught by BackupPhase, not here,
-        // so the error reads "unknown component 'foo'" with the same shape every consumer
-        // sees rather than System.CommandLine's generic parse failure.
+        // Invalid values are caught by BackupPhase so the error reads "unknown component"
+        // rather than System.CommandLine's generic parse failure.
         var backupComponentOpt = new Option<string>("--component")
         {
-            Description = "Which database to back up: 'postgres', 'scylla', 'sqlite', or 'all'. Defaults to 'all'.",
+            Description = "Which database to back up: 'sqlite' or 'all'. Defaults to 'all'.",
             DefaultValueFactory = _ => "all"
         };
         var backupRetainOpt = new Option<int?>("--retain")
@@ -156,24 +154,13 @@ public static class RootCli
         };
 
         // --- restore-specific options ---
-        // Two path selectors + a mtime resolver + a --force to skip the confirmation
-        // prompt. Restoring nothing (all three archive selectors omitted with --restore-latest
-        // false) is caught by RestorePhase, not here.
-        var restorePostgresOpt = new Option<string?>("--restore-postgres")
-        {
-            Description = "Path to a specific pg_dump archive (custom format) to restore. Mutually exclusive with --restore-latest for the postgres component."
-        };
-        var restoreScyllaOpt = new Option<string?>("--restore-scylla")
-        {
-            Description = "Path to a specific scylla .tar.gz archive to restore. Mutually exclusive with --restore-latest for the scylla component."
-        };
         var restoreSqliteOpt = new Option<string?>("--restore-sqlite")
         {
-            Description = "Path to a specific SQLite .db archive to restore (databaseMode=sqlite)."
+            Description = "Path to a specific SQLite .db archive to restore."
         };
         var restoreLatestOpt = new Option<bool>("--restore-latest")
         {
-            Description = "Pick the newest archive by mtime under {backupRoot}/{component}/ for every component that wasn't explicitly named on the CLI."
+            Description = "Pick the newest archive by mtime under {backupRoot}/sqlite/ when --restore-sqlite is omitted."
         };
         var restoreForceOpt = new Option<bool>("--force")
         {
@@ -247,7 +234,7 @@ public static class RootCli
 
         // ---------- backup ----------
         var backupCmd = new Command("backup",
-            "Snapshot Postgres + Scylla/Cassandra to {outputDir}/backups/ and prune older copies. Idempotent.");
+            "Snapshot the SQLite database to {outputDir}/backups/ and prune older copies. Idempotent.");
         AddSharedOptions(backupCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
         backupCmd.Options.Add(backupComponentOpt);
         backupCmd.Options.Add(backupRetainOpt);
@@ -321,8 +308,6 @@ public static class RootCli
         var restoreCmd = new Command("restore",
             "Restore DB state from backup archives. Destructive — requires --force in non-interactive mode.");
         AddSharedOptions(restoreCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
-        restoreCmd.Options.Add(restorePostgresOpt);
-        restoreCmd.Options.Add(restoreScyllaOpt);
         restoreCmd.Options.Add(restoreSqliteOpt);
         restoreCmd.Options.Add(restoreLatestOpt);
         restoreCmd.Options.Add(restoreForceOpt);
@@ -331,8 +316,6 @@ public static class RootCli
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
             rotateSecrets: false, rotateCerts: false, ct,
             backupDirOpt: backupDirOpt,
-            restorePostgresOpt: restorePostgresOpt,
-            restoreScyllaOpt: restoreScyllaOpt,
             restoreSqliteOpt: restoreSqliteOpt,
             restoreLatestOpt: restoreLatestOpt,
             restoreForceOpt: restoreForceOpt));
@@ -393,8 +376,6 @@ public static class RootCli
         Option<bool>? skipPreUpdateBackupOpt = null,
         Option<string[]>? updateServicesOpt = null,
         Option<int?>? healthCheckTimeoutOpt = null,
-        Option<string?>? restorePostgresOpt = null,
-        Option<string?>? restoreScyllaOpt = null,
         Option<string?>? restoreSqliteOpt = null,
         Option<bool>? restoreLatestOpt = null,
         Option<bool>? restoreForceOpt = null,
@@ -437,8 +418,6 @@ public static class RootCli
             SkipPreUpdateBackup: skipPreUpdateBackupOpt is not null && parse.GetValue(skipPreUpdateBackupOpt),
             UpdateServices: updateServicesOpt is null ? null : parse.GetValue(updateServicesOpt),
             HealthCheckTimeoutOverride: healthCheckTimeoutOpt is null ? null : parse.GetValue(healthCheckTimeoutOpt),
-            RestorePostgresArchive: restorePostgresOpt is null ? null : parse.GetValue(restorePostgresOpt),
-            RestoreScyllaArchive: restoreScyllaOpt is null ? null : parse.GetValue(restoreScyllaOpt),
             RestoreSqliteArchive: restoreSqliteOpt is null ? null : parse.GetValue(restoreSqliteOpt),
             RestoreLatest: restoreLatestOpt is not null && parse.GetValue(restoreLatestOpt),
             RestoreForce: restoreForceOpt is not null && parse.GetValue(restoreForceOpt),

@@ -132,27 +132,4 @@ internal static class PhaseArtifactLoader
                 "Run `bootstrap` first to generate them.", ex);
         }
     }
-
-    /// <summary>
-    /// Validates that <see cref="GeneratedSecrets.PostgresAdminPassword"/> is non-empty and
-    /// returns the <c>(adminUser, adminPassword)</c> pair. Emits
-    /// <see cref="PhaseFailureReasons.MissingAdminPassword"/> and throws when the password is
-    /// missing or empty.
-    /// </summary>
-    public static (string AdminUser, string AdminPassword) RequireAdminPassword(
-        GeneratedSecrets secrets,
-        PhaseLogger logger,
-        string phase)
-    {
-        var adminUser = $"{secrets.PostgresUser}_admin";
-        var adminPassword = secrets.PostgresAdminPassword;
-        if (string.IsNullOrEmpty(adminPassword))
-        {
-            logger.PhaseFail(phase, PhaseFailureReasons.MissingAdminPassword);
-            throw new InvalidOperationException(
-                "secrets/secrets.json does not contain a PostgresAdminPassword. " +
-                "Either it predates DatabaseInitPhase or it was hand-edited; re-run `bootstrap`.");
-        }
-        return (adminUser, adminPassword);
-    }
 }

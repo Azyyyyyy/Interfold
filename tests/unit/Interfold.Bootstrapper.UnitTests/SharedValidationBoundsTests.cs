@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Configuration.Validation;
 using Interfold.Shared.Contracts.Enums;
@@ -257,7 +258,7 @@ public sealed class SharedValidationBoundsTests
         },
         Datastores =
         {
-            Cql = { Backend = CqlBackend.ScyllaSingle },
+            Persistence = PersistenceMode.Sqlite,
         },
     };
 
@@ -268,7 +269,7 @@ public sealed class SharedValidationBoundsTests
         DbRetryInitialDelay = TimeSpan.FromMilliseconds(100),
         DbRetryMaxDelay = TimeSpan.FromMilliseconds(1500),
         HydrationMaxConcurrency = 8,
-        PostgresConnectionString = "Host=localhost;Port=5432;Database=interfold;Username=interfold;Password=interfold",
+        SqliteConnectionString = "Data Source=interfold.db",
     };
 
     /// <summary>

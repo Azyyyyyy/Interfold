@@ -14,7 +14,7 @@ public static class AltersModuleServiceCollectionExtensions
     /// <see cref="IAlterExistenceCheck"/> adapter over <c>IAlterRepository</c>
     /// consumed by Journals and Tags handlers (spine-level abstraction so those
     /// features don't back-reference Alters.Domain). <c>IAlterRepository</c> itself
-    /// is registered by the active persistence adapter (Scylla / Postgres / InMemory)
+    /// is registered by the active persistence adapter (Sqlite / InMemory)
     /// via <c>AddInterfoldPersistence</c>, so no repository registration lives here.</summary>
     public static IServiceCollection AddAltersModule(this IServiceCollection services) =>
         services

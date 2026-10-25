@@ -10,7 +10,7 @@ public static class FriendshipsModuleServiceCollectionExtensions
 {
     /// <summary>Registers everything the Friendships feature owns: the six friendship
     /// command-handler singletons. <c>IFriendshipRepository</c> is registered by the active
-    /// persistence adapter (Scylla / Postgres / InMemory) via
+    /// persistence adapter (Sqlite / InMemory) via
     /// <c>AddInterfoldPersistence</c>, so no repository registration lives here.</summary>
     public static IServiceCollection AddFriendshipsModule(this IServiceCollection services) =>
         services

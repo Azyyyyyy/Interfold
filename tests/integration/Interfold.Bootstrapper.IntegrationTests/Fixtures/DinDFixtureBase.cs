@@ -38,8 +38,7 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
     /// <summary>false skips API image preload + external pulls (Alpine negative-path).</summary>
     protected virtual bool PreloadImages => true;
 
-    /// <summary>Extra images to preload beyond the baseline; cassandra fixture uses this
-    /// for <c>cassandra:5</c>.</summary>
+    /// <summary>Extra images to preload beyond the baseline.</summary>
     protected virtual IReadOnlyList<string> AdditionalPreloadImages => [];
 
     /// <summary>When true, inner dockerd enables the containerd image store (see
@@ -85,8 +84,6 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
         {
             await WaitForInnerDockerAsync().ConfigureAwait(false);
             await ExecAsync(["docker", "load", "-i", "/opt/api-image.tar"]).ConfigureAwait(false);
-            await ExecAsync(["docker", "pull", "timescale/timescaledb:latest-pg18"]).ConfigureAwait(false);
-            await ExecAsync(["docker", "pull", "scylladb/scylla:2026.1"]).ConfigureAwait(false);
             foreach (var image in AdditionalPreloadImages)
             {
                 await ExecAsync(["docker", "pull", image]).ConfigureAwait(false);
@@ -232,48 +229,6 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
         await _dinD.CopyAsync(bytes, containerPath, 0, 0, Mode0600, ct).ConfigureAwait(false);
     }
 
-    /// <summary>Shared <c>docker compose exec msg-db psql</c> shape. <paramref name="quotedSql"/>
-    /// carries its outer shell quoting; <paramref name="password"/> is forwarded verbatim
-    /// (literals or shell expressions); <paramref name="softFail"/> appends <c>2&gt;&amp;1 || true</c>
-    /// for probes that expect a non-zero exit.</summary>
-    public Task<ExecResult> PsqlAsync(
-        string composeFile,
-        string user,
-        string database,
-        string quotedSql,
-        string? password = null,
-        string psqlFlags = "-tAc",
-        string? host = "127.0.0.1",
-        bool softFail = false,
-        CancellationToken ct = default)
-    {
-        // "PGPASSWORD" stays a literal — the csproj holds the bootstrapper reference with
-        // ExcludeAssets="all" (compile-link not allowed), and the env-var name is fixed by
-        // the Postgres client protocol, so no drift risk.
-        var pwPrefix = password is null ? string.Empty : $"-e PGPASSWORD={password} ";
-        var hostArg = host is null ? string.Empty : $"-h {host} ";
-        var tail = softFail ? " 2>&1 || true" : string.Empty;
-        var cmd = $"docker compose -f {composeFile} exec -T {pwPrefix}msg-db " +
-                  $"psql -U {user} -d {database} {hostArg}{psqlFlags} {quotedSql}{tail}";
-        return ExecAsync(["sh", "-c", cmd], ct);
-    }
-
-    /// <summary>Shared <c>docker compose exec scylla cqlsh</c> shape. <paramref name="softFail"/>
-    /// defaults to true because auth probes typically expect a non-zero exit and grep the output.</summary>
-    public Task<ExecResult> CqlshAsync(
-        string composeFile,
-        string user,
-        string password,
-        string quotedCqlExpression,
-        bool softFail = true,
-        CancellationToken ct = default)
-    {
-        var tail = softFail ? " 2>&1 || true" : string.Empty;
-        var cmd = $"docker compose -f {composeFile} exec -T scylla " +
-                  $"cqlsh -u {user} -p {password} -e {quotedCqlExpression}{tail}";
-        return ExecAsync(["sh", "-c", cmd], ct);
-    }
-
     /// <summary>Captures stdout/stderr into <see cref="BootstrapperLogs"/>.</summary>
     public async Task<ExecResult> RunBootstrapperAsync(string testName, IList<string> args, CancellationToken ct = default)
     {
@@ -414,7 +369,7 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
         var text = Encoding.UTF8.GetString(raw);
         return System.Text.RegularExpressions.Regex.Replace(
             text,
-            @"""(postgresPassword|scyllaPassword|scyllaAdminPassword|encryptionPrivateKeyB64|encryptionPepper|leafPfxPassword)""\s*:\s*""[^""]*""",
+            @"""(encryptionPrivateKeyB64|encryptionPepper|leafPfxPassword)""\s*:\s*""[^""]*""",
             "\"$1\": \"***\"");
     }
 

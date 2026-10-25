@@ -12,7 +12,7 @@ using Interfold.Shared.Contracts.Ids;
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter, AllowMultiple = false)]
 public sealed class ValidAlterIdAttribute : ValidationAttribute
 {
-    // Cassandra smallint column ceiling. Now a tautology after AlterId.Value narrowed
+    // Smallint column ceiling. Now a tautology after AlterId.Value narrowed
     // to short; retained for the null/negative case that the type can't express.
     public const short MaxValue = short.MaxValue;
 

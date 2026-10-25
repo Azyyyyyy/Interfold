@@ -1,18 +1,15 @@
 using Interfold.Settings.Contracts.Ids;
-using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Settings.Domain.Abstractions.ImportJobs;
 
 /// <summary>A unit of work for the async import worker. Handler → in-process queue →
-/// runner; secrets travel through this record but never persist to
-/// <c>import_operations</c>.</summary>
-/// <param name="Token">Third-party API token. Sensitive — never log.</param>
-/// <param name="RecoveryCode">Optional SP recovery code, plaintext post-decryption.
-/// Null for PK / SP-without-recovery. Sensitive — never log.</param>
+/// runner; carries the raw request payload (tokens serialized for third-party imports,
+/// raw JSON string for direct imports).</summary>
+/// <param name="RawPayload">Raw import payload (sensitive for token-bearing imports — never log).</param>
 public sealed record ImportJobItem(
     ImportOperationId OperationId,
-    ScopedSystemId SystemId,
-    ImportOperationKind Kind,
-    ImportToken Token,
-    RecoveryCode? RecoveryCode);
+    SystemId SystemId,
+    ImportFormat Format,
+    string RawPayload);

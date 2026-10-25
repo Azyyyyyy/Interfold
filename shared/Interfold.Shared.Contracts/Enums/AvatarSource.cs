@@ -4,7 +4,7 @@ namespace Interfold.Shared.Contracts.Enums;
 
 /// <summary>
 /// Discriminator for the hosting source of an avatar URL.
-/// Stored as <c>smallint</c> in Scylla, exposed on the wire as snake-case strings
+/// Stored as <c>smallint</c> in persistence, exposed on the wire as snake-case strings
 /// for parity with <see cref="Interfold.Shared.Contracts.Models.VisibilityLevel"/>.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<AvatarSource>))]

@@ -25,18 +25,10 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
 
     /// <summary>
     /// Documented set of keys we expect <c>PublishPhase.BuildEnvReplacements</c> to fill in the
-    /// emitted <c>.env</c>. Mirror of the 6 parameter keys asserted by the unit test after the
-    /// encryption-pepper / JWT / OAuth-secret / leaf-PFX-password migration into
-    /// <c>internal.secrets</c> — keeping the list duplicated catches drift in either direction
-    /// at integration time.
+    /// emitted <c>.env</c>.
     /// </summary>
     private static readonly string[] ExpectedEnvParameterKeys =
     [
-        "POSTGRES_USER",
-        "POSTGRES_PASSWORD",
-        "POSTGRES_INIT_PASSWORD",
-        "SCYLLA_USER",
-        "SCYLLA_PASSWORD",
         "ENCRYPTION_PRIVATE_KEY",
     ];
 
@@ -52,8 +44,7 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
         var env = DotEnvParser.ParseEnv(envBytes);
 
         // The compose graph emits one bind-mount key per service+target pair; Aspire names them
-        // <SERVICE>_BINDMOUNTS__<N>. Single-mode scylla emits one rackdc mount + the api gets
-        // one (/certs only — /keys was removed when JWT material moved into internal.secrets).
+        // <SERVICE>_BINDMOUNTS__<N>.
         var bindMountKeys = env
             .Where(kv => kv.Key.Contains("BIND", StringComparison.Ordinal))
             .ToList();
@@ -122,23 +113,13 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
         }
 
         // OAuth client secrets + leaf PFX password must NOT appear in the .env any more —
-        // they live inside internal.secrets and are loaded at API startup (via
-        // SecretsBootstrapService and the one-shot Kestrel Npgsql loader).
+        // they live inside internal.secrets and are loaded at API startup.
         await Assert.That(env.ContainsKey("GOOGLE_OAUTH_CLIENT_SECRET")).IsFalse()
             .Because("the google oauth client secret must not leak into compose .env");
         await Assert.That(env.ContainsKey("DISCORD_OAUTH_CLIENT_SECRET")).IsFalse()
             .Because("the discord oauth client secret must not leak into compose .env");
         await Assert.That(env.ContainsKey("LEAF_PFX_PASSWORD")).IsFalse()
             .Because("the leaf PFX password must live in internal.secrets, not the .env");
-
-        // Negative invariants — the admin passwords must NEVER appear in the published .env.
-        await Assert.That(env.ContainsKey("POSTGRES_ADMIN_PASSWORD")).IsFalse()
-            .Because("postgres admin credential must live in internal.secrets, not the .env");
-        await Assert.That(env.ContainsKey("SCYLLA_ADMIN_PASSWORD")).IsFalse()
-            .Because("scylla admin credential must live in internal.secrets, not the .env");
     }
 
 }
-
-
-

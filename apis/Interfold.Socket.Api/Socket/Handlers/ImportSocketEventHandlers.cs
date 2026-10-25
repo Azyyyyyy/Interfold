@@ -19,6 +19,12 @@ public static class ImportSocketEventHandlers
     public static Task HandleAsync(PluralKitImportFailedEvent evt, SocketPushContext context)
         => SendFailedAsync(evt.TargetSystemId, SocketEventNames.Imports.PkFailed, context);
 
+    public static Task HandleAsync(OctoconImportCompletedEvent evt, SocketPushContext context)
+        => SendCompletedAsync(evt.TargetSystemId, SocketEventNames.Imports.OctoconComplete, evt.AlterCount, context);
+
+    public static Task HandleAsync(OctoconImportFailedEvent evt, SocketPushContext context)
+        => SendFailedAsync(evt.TargetSystemId, SocketEventNames.Imports.OctoconFailed, context);
+
     private static async Task SendCompletedAsync(SystemId systemId, string eventName, int alterCount, SocketPushContext context)
     {
         await context.SendIfJoinedAsync(systemId, eventName, new ImportCompletedSocketPayload(alterCount));

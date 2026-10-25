@@ -68,7 +68,7 @@ public sealed class DeleteAccountCommandHandler : IdempotentCommandHandler<Delet
         // FriendshipRemovedEvent on the cluster bus so their sockets refresh their
         // friend-list. IdempotentCommandHandler skips ExecuteCoreAsync on replay, so this
         // list is only ever populated once per idempotency key — same guard the previous
-        // ExecuteAndPublishAsync gave us via `Result.Replay: false`.
+        // ExecuteAndPublishAsync gave us via `Result.Replay: false`!.
         var unfriendedIds = new List<SystemId>();
 
         return SettingsIdempotentCommandFlow.ExecuteMutationAsync(
@@ -122,14 +122,7 @@ public sealed class DeleteAccountCommandHandler : IdempotentCommandHandler<Delet
 
                 foreach (var friendId in unfriendedIds)
                 {
-                    // The friendship repos return bare (region-stripped) ids in their DeleteAll
-                    // results — compose with the principal's region so the socket router filter
-                    // sees a scoped TargetSystemId. Cross-region friendships would want the
-                    // friend's own region here; a same-region compose is the current behaviour.
-                    var friendTarget = ScopedSystemId.Compose(
-                        command.PrincipalId.Region,
-                        friendId);
-                    await _eventBus.PublishAsync(new FriendshipRemovedEvent(friendTarget, command.PrincipalId), ct);
+                    await _eventBus.PublishAsync(new FriendshipRemovedEvent(friendId, command.PrincipalId), ct);
                 }
             },
             cancellationToken);

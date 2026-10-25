@@ -10,7 +10,7 @@ public static class PollsModuleServiceCollectionExtensions
 {
     /// <summary>Registers everything the Polls feature owns: the three poll command-handler
     /// singletons. <c>IPollRepository</c> is registered by the active persistence adapter
-    /// (Scylla / Postgres / InMemory) via <c>AddInterfoldPersistence</c>, so no repository
+    /// (Sqlite / InMemory) via <c>AddInterfoldPersistence</c>, so no repository
     /// registration lives here.</summary>
     public static IServiceCollection AddPollsModule(this IServiceCollection services) =>
         services

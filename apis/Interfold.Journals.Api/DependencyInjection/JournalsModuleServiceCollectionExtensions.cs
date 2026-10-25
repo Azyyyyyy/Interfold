@@ -14,7 +14,7 @@ public static class JournalsModuleServiceCollectionExtensions
     /// <see cref="IJournalAlterCascade"/> adapter over <c>IJournalRepository</c>
     /// consumed by <c>DeleteAlterCommandHandler</c> (spine-level abstraction so
     /// Alters.Domain doesn't back-reference Journals.Domain). <c>IJournalRepository</c>
-    /// itself is registered by the active persistence adapter (Scylla / Postgres /
+    /// itself is registered by the active persistence adapter (Sqlite /
     /// InMemory) via <c>AddInterfoldPersistence</c>, so no repository registration
     /// lives here.</summary>
     public static IServiceCollection AddJournalsModule(this IServiceCollection services) =>

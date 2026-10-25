@@ -1,14 +1,17 @@
-using Interfold.Shared.Domain.Abstractions;
 using Interfold.Infrastructure.Coordination;
-using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Infrastructure.InMemory;
+using Interfold.Infrastructure.Sqlite;
+using Interfold.Infrastructure.Sqlite.Repository;
 using Interfold.Settings.Api.Services.ImportJobs;
 using Interfold.Settings.Contracts.Events;
 using Interfold.Settings.Contracts.Ids;
 using Interfold.Settings.Contracts.Models.ImportOperations;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
 using Interfold.Settings.Domain.Abstractions.Repository;
-using Microsoft.Extensions.Logging.Abstractions;
+using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Domain.Abstractions;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
@@ -17,7 +20,7 @@ namespace Interfold.Api.UnitTests.ImportJobs;
 // frames is separately pinned by WebSocketTests.
 public sealed class ImportJobBackgroundServiceTests
 {
-    private static readonly ScopedSystemId TestSystemId = ScopedSystemId.ParseScoped("nam:sys-worker-test");
+    private static readonly SystemId TestSystemId = new SystemId("nam:sys-worker-test");
 
     [Test]
     public async Task RunAsync_RunnerSucceeds_MarksSucceededAndPublishesCompleteEvent()
@@ -58,19 +61,20 @@ public sealed class ImportJobBackgroundServiceTests
     // Thrown exceptions MUST be swallowed so the loop survives; treated identically to
     // a graceful failure with error_code = exception.
     [Test]
-    public async Task RunAsync_RunnerThrows_MarksFailedWithExceptionCodeAndPublishesFailedEvent()
+    public async Task RunAsync_RunnerThrows_SwallowsException_MarksFailedAndPublishesFailedEvent()
     {
-        await using var harness = await Harness.RunAsync(new StubRunner(throws: new InvalidOperationException("boom")));
+        var boom = new InvalidOperationException("simulated runner crash");
+        await using var harness = await Harness.RunAsync(new StubRunner(throws: boom));
 
         var snapshot = await harness.GetOperationAsync();
         using (Assert.Multiple())
         {
             await Assert.That(snapshot!.Status).IsEqualTo(ImportOperationStatus.Failed)
-                .Because("A thrown exception must NOT leave the row pinned at Running — that would deadlock the per-system slot until the next host restart sweep.");
+                .Because("A runner exception must terminate the row in Failed so the per-system slot isn't held forever.");
             await Assert.That(snapshot.ErrorCode).IsEqualTo(ImportErrorCode.Exception)
-                .Because("Thrown exceptions are categorised as 'exception' so the audit trail distinguishes them from runner-reported graceful failures.");
+                .Because("Crash path records the generic Exception code in the terminal row.");
             await Assert.That(harness.EventBus.Published).Contains(e => e is SimplyPluralImportFailedEvent)
-                .Because("Even on a thrown exception, the client must receive a failure frame — otherwise the dialog stays on Importing forever.");
+                .Because("A runner crash must publish SimplyPluralImportFailedEvent so the client flips out of Importing.");
         }
     }
 
@@ -79,22 +83,22 @@ public sealed class ImportJobBackgroundServiceTests
     {
         await using var harness = await Harness.RunAsync(new StubRunner(succeed: true, alterCount: 3));
 
-        var second = await harness.Operations.TryClaimAsync(TestSystemId, ImportOperationKind.SimplyPlural, new("idem-2"));
+        var second = await harness.Operations.TryClaimAsync(TestSystemId, ImportFormat.SimplyPlural, new("idem-2"));
         await Assert.That(second.IsNew).IsTrue()
             .Because("After the worker terminates an operation, a second click for the same system must claim a fresh slot — otherwise users could never re-import after a successful or failed run.");
     }
 
-    // DI-misregistration guard: an unregistered kind must not pin the slot.
+    // DI-misregistration guard: an unregistered format must not pin the slot.
     [Test]
-    public async Task RunAsync_UnknownKind_MarksFailedWithNoRunnerCode()
+    public async Task RunAsync_UnknownFormat_MarksFailedWithNoRunnerCode()
     {
         await using var harness = await Harness.RunAsync(
             runner: new StubRunner(succeed: true),
-            jobKindOverride: ImportOperationKind.PluralKit);
+            jobFormatOverride: ImportFormat.PluralKit);
 
         var snapshot = await harness.GetOperationAsync();
         await Assert.That(snapshot!.Status).IsEqualTo(ImportOperationStatus.Failed)
-            .Because("If no runner is registered for the requested kind the worker must fail the row rather than leave it queued indefinitely.");
+            .Because("If no runner is registered for the requested format the worker must fail the row rather than leave it queued indefinitely.");
         await Assert.That(snapshot.ErrorCode).IsEqualTo(ImportErrorCode.NoRunner)
             .Because("The 'no_runner' code is the agreed signal for a DI misregistration; operators grep on it to alert on missing platform integrations.");
     }
@@ -111,15 +115,16 @@ public sealed class ImportJobBackgroundServiceTests
         public Task<ImportOperationSnapshot?> GetOperationAsync() =>
             Operations.GetByIdAsync(TestSystemId, OperationId);
 
-        public static async Task<Harness> RunAsync(StubRunner runner, ImportOperationKind? jobKindOverride = null)
+        public static async Task<Harness> RunAsync(StubRunner runner, ImportFormat? jobFormatOverride = null)
         {
             var queue = new InProcessImportJobQueue();
-            var operations = new InMemoryImportOperationRepository();
+            var factory = InMemoryServiceCollectionExtensions.CreateIsolatedConnectionFactory();
+            var operations = new SqliteImportOperationRepository(factory, TimeProvider.System);
             var bus = new CapturingEventBus();
-            var jobKind = jobKindOverride ?? ImportOperationKind.SimplyPlural;
+            var jobFormat = jobFormatOverride ?? ImportFormat.SimplyPlural;
 
-            var claim = await operations.TryClaimAsync(TestSystemId, ImportOperationKind.SimplyPlural, new("idem-1"));
-            var item = new ImportJobItem(claim.OperationId, TestSystemId, jobKind, Token: new("synthetic"), RecoveryCode: null);
+            var claim = await operations.TryClaimAsync(TestSystemId, ImportFormat.SimplyPlural, new("idem-1"));
+            var item = new ImportJobItem(claim.OperationId, TestSystemId, jobFormat, RawPayload: "{ token: \"synthetic\" }");
 
             var cts = new CancellationTokenSource();
             var worker = new ImportJobBackgroundService(
@@ -132,9 +137,9 @@ public sealed class ImportJobBackgroundServiceTests
             await worker.StartAsync(cts.Token);
             await queue.EnqueueAsync(item, cts.Token);
 
-            // Unknown-kind path short-circuits without calling RunAsync, so skip the
+            // Unknown-format path short-circuits without calling RunAsync, so skip the
             // runner gate for those and rely on terminal polling alone.
-            if (jobKindOverride is null)
+            if (jobFormatOverride is null)
             {
                 await runner.Observed.Task.WaitAsync(TimeSpan.FromSeconds(5));
             }
@@ -199,7 +204,7 @@ public sealed class ImportJobBackgroundServiceTests
             _throws = throws;
         }
 
-        public ImportOperationKind Kind => ImportOperationKind.SimplyPlural;
+        public ImportFormat Format => ImportFormat.SimplyPlural;
 
         public Task<ImportJobOutcome> RunAsync(ImportJobItem item, CancellationToken cancellationToken = default)
         {
@@ -227,7 +232,7 @@ public sealed class ImportJobBackgroundServiceTests
             return ValueTask.CompletedTask;
         }
 
-        public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(ScopedSystemId? targetSystemId, CancellationToken ct = default)
+        public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(SystemId? targetSystemId, CancellationToken ct = default)
             where TEvent : class => EmptyAsync<TEvent>();
 
         private static async IAsyncEnumerable<T> EmptyAsync<T>()

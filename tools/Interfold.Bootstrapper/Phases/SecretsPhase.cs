@@ -6,12 +6,12 @@ using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.Phases;
 
-/// <summary>Phase 3 — generates DB/admin passwords, an RSA-2048 encryption keypair, encryption
+/// <summary>Phase 3 — generates an RSA-2048 encryption keypair, encryption
 /// pepper, JWT signing keypairs (RSA-2048 + ES256), and the deep-link HMAC secret. Persists to
 /// <c>deploy/secrets/secrets.json</c> with mode 0600. Idempotent: reruns reuse the existing
 /// file unless <c>--rotate-secrets</c> is passed. JWT keys + deep-link secret live only in
-/// <c>secrets.json</c> until <see cref="DatabaseInitPhase"/> seeds them into
-/// <c>internal.secrets</c>; they are never written as standalone PEMs or bind-mounted.</summary>
+/// <c>secrets.json</c> until <see cref="SqliteDatabaseInitPhase"/> seeds them into
+/// the database; they are never written as standalone PEMs or bind-mounted.</summary>
 internal static partial class SecretsPhase
 {
     // Drops 0/O, 1/l/I and shell-tricky punctuation; 32 chars ≈ 190 bits of entropy.
@@ -39,26 +39,9 @@ internal static partial class SecretsPhase
         {
             logger.PhaseSkip(Phase, PhaseFailureReasons.Skip.AlreadyPresent);
             var existing = await LoadAsync(secretsPath, ct).ConfigureAwait(false);
-            // Backfill for secrets.json files that predate DatabaseInitPhase; without this a
-            // rerun would set an empty admin password (psql ALTER ROLE accepts '').
-            var mutated = false;
-            if (string.IsNullOrEmpty(existing.PostgresInitPassword))
-            {
-                existing.PostgresInitPassword = RandomPassword();
-                mutated = true;
-            }
-            if (string.IsNullOrEmpty(existing.PostgresAdminPassword))
-            {
-                existing.PostgresAdminPassword = RandomPassword();
-                mutated = true;
-            }
-            if (string.IsNullOrEmpty(existing.ScyllaAdminPassword))
-            {
-                existing.ScyllaAdminPassword = RandomPassword();
-                mutated = true;
-            }
             // Post-store-migration additions; backfill on rerun so pre-migration deployments
             // keep working without forcing `--rotate-secrets`.
+            var mutated = false;
             if (string.IsNullOrEmpty(existing.DeepLinkSecret))
             {
                 existing.DeepLinkSecret = RandomDeepLinkSecret();
@@ -143,15 +126,6 @@ internal static partial class SecretsPhase
 
         return new GeneratedSecrets
         {
-            PostgresUser = "interfold",
-            PostgresPassword = RandomPassword(),
-            // Transient — scrambled in-cluster after first-boot bootstrap; .env goes stale by design.
-            PostgresInitPassword = RandomPassword(),
-            // Lives in internal.secrets; never injected into compose or AppHost parameters.
-            PostgresAdminPassword = RandomPassword(),
-            ScyllaUser = "interfold",
-            ScyllaPassword = RandomPassword(),
-            ScyllaAdminPassword = RandomPassword(),
             EncryptionPrivateKeyB64 = dataPrivateB64,
             EncryptionPepper = RandomPassword(),
             DeepLinkSecret = RandomDeepLinkSecret(),

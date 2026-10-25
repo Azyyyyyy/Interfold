@@ -6,7 +6,7 @@ namespace Interfold.Shared.Domain.Observability;
 
 // Centralised metric-emission + structured-log helpers for the guarded-visibility
 // read paths. Keeps the tag shape identical across every repository (Alter, Tag,
-// Fronting) and every backend (Scylla, InMemory) so downstream aggregators can
+// Fronting) and every backend (Sqlite, InMemory) so downstream aggregators can
 // group by entity_type without worrying about site-to-site tag drift.
 public static class GuardedInstrumentation
 {

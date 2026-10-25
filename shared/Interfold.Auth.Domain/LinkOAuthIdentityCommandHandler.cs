@@ -9,7 +9,7 @@ using Interfold.Shared.Domain.Abstractions;
 
 namespace Interfold.Auth.Domain;
 
-public sealed record LinkOAuthIdentityCommandResult(AccountLinkResult Result, ScopedSystemId? SystemId);
+public sealed record LinkOAuthIdentityCommandResult(AccountLinkResult Result, SystemId? SystemId);
 
 public sealed class LinkOAuthIdentityCommandHandler : ICommandHandler<LinkOAuthIdentityCommand, LinkOAuthIdentityCommandResult>
 {
@@ -29,13 +29,13 @@ public sealed class LinkOAuthIdentityCommandHandler : ICommandHandler<LinkOAuthI
         var linkToken = command.Payload.LinkToken;
         var identity = command.Payload.Identity;
 
-        var resolvedSystemId = await _accountRepository.ResolveSystemIdByLinkTokenAsync(linkToken, cancellationToken);
-        if (string.IsNullOrWhiteSpace(resolvedSystemId?.Value) || !ScopedSystemId.TryParseScoped(resolvedSystemId.Value, out var systemId))
+        var systemId = await _accountRepository.ResolveSystemIdByLinkTokenAsync(linkToken, cancellationToken);
+        if (string.IsNullOrWhiteSpace(systemId?.Value))
             return CommandHandler.RejectInvariant<LinkOAuthIdentityCommandResult>(command.OperationId, EntityRefs.AuthLinkInvalidToken);
 
-        await _accountRepository.ClearLinkTokenAsync(systemId, cancellationToken);
+        await _accountRepository.ClearLinkTokenAsync(systemId.Value, cancellationToken);
 
-        var result = await _accountRepository.LinkIdentityToUserAsync(systemId, identity, cancellationToken);
+        var result = await _accountRepository.LinkIdentityToUserAsync(systemId.Value, identity, cancellationToken);
 
         if (result == AccountLinkResult.Success)
         {
@@ -43,17 +43,17 @@ public sealed class LinkOAuthIdentityCommandHandler : ICommandHandler<LinkOAuthI
             {
                 case { Discord: { } discordId }:
                     await _eventBus.PublishAsync(
-                        new SettingsDiscordAccountLinkedEvent(systemId, discordId),
+                        new SettingsDiscordAccountLinkedEvent(systemId.Value, discordId),
                         cancellationToken);
                     break;
                 case { Google: { } email }:
                     await _eventBus.PublishAsync(
-                        new SettingsGoogleAccountLinkedEvent(systemId, email),
+                        new SettingsGoogleAccountLinkedEvent(systemId.Value, email),
                         cancellationToken);
                     break;
                 case { Apple: { } appleId }:
                     await _eventBus.PublishAsync(
-                        new SettingsAppleAccountLinkedEvent(systemId, appleId),
+                        new SettingsAppleAccountLinkedEvent(systemId.Value, appleId),
                         cancellationToken);
                     break;
             }

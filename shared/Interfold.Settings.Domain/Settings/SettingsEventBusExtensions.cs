@@ -12,7 +12,7 @@ internal static class SettingsEventBusExtensions
     /// a <c>username_updated</c> frame.</summary>
     public static ValueTask PublishProfileUpdatedAsync(
         this IClusterEventBus eventBus,
-        ScopedSystemId principalId,
+        SystemId principalId,
         bool includeUsername,
         CancellationToken cancellationToken = default)
         => eventBus.PublishAsync(new SettingsProfileUpdatedEvent(principalId, includeUsername), cancellationToken);

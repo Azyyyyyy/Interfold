@@ -13,25 +13,11 @@ internal static class BootstrapConfigFile
         CancellationToken ct)
     {
         var json = await File.ReadAllTextAsync(configPath, ct).ConfigureAwait(false);
-        var migration = ConfigSchemaMigrator.MigrateIfNeeded(json, configPath, logger);
-        if (migration.DidMigrate)
-        {
-            await ConfigSchemaMigrator.PersistMigratedAsync(
-                migration.OriginalJson!,
-                migration.Json,
-                configPath,
-                ct).ConfigureAwait(false);
-        }
 
-        var config = JsonSerializer.Deserialize(migration.Json, BootstrapJsonContext.Default.BootstrapConfig)
+        var config = JsonSerializer.Deserialize(json, BootstrapJsonContext.Default.BootstrapConfig)
             ?? throw new InvalidOperationException($"Failed to parse {configPath} (returned null).");
 
         ConfigPhase.ResolveDerivedDefaults(config);
-
-        if (migration.DidMigrate && migration.V1Snapshot is not null)
-        {
-            PublicEndpointUrls.LogMigrationNotice(config, migration.V1Snapshot, configPath, logger);
-        }
 
         return config;
     }

@@ -1,5 +1,6 @@
 using System.Net;
 using Interfold.Friendships.Api.Helpers;
+using Interfold.Friendships.Contracts;
 using Interfold.Friendships.Contracts.Ids;
 using Interfold.Friendships.Contracts.Models.Commands;
 using Interfold.Friendships.Contracts.Models.Read;

@@ -6,7 +6,6 @@ using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
 using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -14,27 +13,6 @@ namespace Interfold.Bootstrapper.Phases;
 /// (Linux: distro packages + AIO sysctl; Windows: Docker Desktop via winget/choco).</summary>
 internal static partial class PrerequisitesPhase
 {
-    // Seastar's own startup error text; keep aligned with scripts/docker/ensure-host-aio.sh
-    // and tests/integration/Interfold.IntegrationTests.Shared/TestServices/HostAioPrerequisite.cs.
-    private const int AioPerNodeMin = 66_563;
-    private const int AioPerNodeRecommended = 116_562;
-    private const int AioHeadroom = 50_000;
-    private const string AioSysctlPath = "/proc/sys/fs/aio-max-nr";
-    private const string SysctlDropIn = "/etc/sysctl.d/99-interfold.conf";
-
-    /// <summary>Raw-string overload for the pre-validation peek in
-    /// <see cref="PeekPersistenceModeAsync"/>.</summary>
-    internal static int ResolveScyllaNodeCount(string? cqlBackendWire)
-        => ResolveScyllaNodeCount(CqlBackendMapping.ToDatabaseMode(CqlBackendMapping.ParseWire(cqlBackendWire)));
-
-    internal static int ResolveScyllaNodeCount(DatabaseMode databaseMode) => databaseMode switch
-    {
-        DatabaseMode.Multi => 7,
-        DatabaseMode.Cassandra => 0,
-        DatabaseMode.Sqlite => 0,
-        _ => 1,
-    };
-
     public static async Task RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
         string Phase = BootstrapPhase.Prereqs.ToWireName();
@@ -64,47 +42,10 @@ internal static partial class PrerequisitesPhase
         await EnsureDockerAsync(distro, logger, ct).ConfigureAwait(false);
         await EnsureOpenSslAsync(distro, logger, ct).ConfigureAwait(false);
 
-        // Tolerant peek — defaults to sqlite (skip Seastar AIO) on missing/malformed files.
-        // ConfigPhase still owns full schema validation.
-        var peekedPersistence = await PeekPersistenceModeAsync(options, logger, ct).ConfigureAwait(false);
-        if (peekedPersistence == PersistenceMode.Sqlite)
-        {
-            logger.Info("    persistence=sqlite; skipping fs.aio-max-nr Seastar tuning");
-        }
-        else
-        {
-            var peekedCql = await PeekCqlDatabaseModeAsync(options, logger, ct).ConfigureAwait(false);
-            await EnsureAioLimitAsync(ResolveScyllaNodeCount(peekedCql), logger, ct).ConfigureAwait(false);
-        }
+        // SQLite persistence: skip Seastar AIO sysctl tuning.
+        logger.Info("    persistence=sqlite; skipping fs.aio-max-nr Seastar tuning");
 
         logger.PhaseDone(Phase);
-    }
-
-    private static async Task<PersistenceMode> PeekPersistenceModeAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
-    {
-        try
-        {
-            return await BootstrapConfigPeek.PeekPersistenceModeAsync(options.ConfigPath, ct).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            // ConfigPhase will surface a useful error against the same file next.
-            logger.Warn($"could not pre-read datastores.persistence from {options.ConfigPath} for AIO sizing ({ex.GetType().Name}); defaulting to sqlite.");
-            return PersistenceMode.Sqlite;
-        }
-    }
-
-    private static async Task<DatabaseMode> PeekCqlDatabaseModeAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
-    {
-        try
-        {
-            return await BootstrapConfigPeek.PeekCqlDatabaseModeAsync(options.ConfigPath, ct).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            logger.Warn($"could not pre-read datastores.cql.backend from {options.ConfigPath} for AIO sizing ({ex.GetType().Name}); defaulting to single-node baseline.");
-            return DatabaseMode.Single;
-        }
     }
 
     private static void EnsureLinux(PhaseLogger logger)
@@ -363,55 +304,6 @@ internal static partial class PrerequisitesPhase
         }
     }
 
-    private static async Task EnsureAioLimitAsync(int scyllaNodes, PhaseLogger logger, CancellationToken ct)
-    {
-        if (!File.Exists(AioSysctlPath))
-        {
-            logger.Warn($"{AioSysctlPath} not present; skipping AIO tuning (likely running in a constrained container).");
-            return;
-        }
-
-        // Cassandra-only (scyllaNodes==0) or an operator override still gets persisted so
-        // reboots can't silently regress.
-        var minRequired = scyllaNodes * AioPerNodeMin + AioHeadroom;
-        var target = scyllaNodes * AioPerNodeRecommended + AioHeadroom;
-
-        var current = int.Parse((await File.ReadAllTextAsync(AioSysctlPath, ct).ConfigureAwait(false)).Trim());
-        if (current >= minRequired)
-        {
-            logger.Info($"    fs.aio-max-nr={current} (>= {minRequired} for {scyllaNodes} Scylla node(s)); ok");
-            await PersistSysctlAsync(Math.Max(current, target), logger, ct).ConfigureAwait(false);
-            return;
-        }
-
-        logger.Info($"    fs.aio-max-nr={current} (< {minRequired} for {scyllaNodes} Scylla node(s)); raising to {target}");
-        try
-        {
-            await File.WriteAllTextAsync(AioSysctlPath, target.ToString(), ct).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                $"Failed to raise fs.aio-max-nr to {target}: {ex.Message}. " +
-                $"Set it manually with `sudo sysctl -w fs.aio-max-nr={target}` and re-run.", ex);
-        }
-        await PersistSysctlAsync(target, logger, ct).ConfigureAwait(false);
-    }
-
-    private static async Task PersistSysctlAsync(int value, PhaseLogger logger, CancellationToken ct)
-    {
-        var content = $"# Interfold bootstrapper - required by Scylla/Seastar.\nfs.aio-max-nr = {value}\n";
-        try
-        {
-            await File.WriteAllTextAsync(SysctlDropIn, content, ct).ConfigureAwait(false);
-            logger.Info($"    persisted to {SysctlDropIn}");
-        }
-        catch (Exception ex)
-        {
-            logger.Warn($"could not write {SysctlDropIn}: {ex.Message} (setting is in effect for this boot)");
-        }
-    }
-
     [SupportedOSPlatform("windows")]
     private static async Task RunWindowsAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
@@ -430,16 +322,7 @@ internal static partial class PrerequisitesPhase
             await EnsureDockerDesktopRunningAsync(logger, ct).ConfigureAwait(false);
         }
 
-        var peekedPersistence = await PeekPersistenceModeAsync(options, logger, ct).ConfigureAwait(false);
-        if (peekedPersistence == PersistenceMode.Sqlite)
-        {
-            logger.Info("    persistence=sqlite; skipping container AIO probe");
-        }
-        else
-        {
-            var peekedCql = await PeekCqlDatabaseModeAsync(options, logger, ct).ConfigureAwait(false);
-            await ProbeContainerAioAsync(ResolveScyllaNodeCount(peekedCql), logger, ct).ConfigureAwait(false);
-        }
+        logger.Info("    persistence=sqlite; skipping container AIO probe");
     }
 
     internal static async Task<bool> DockerComposeReadyAsync(CancellationToken ct = default)
@@ -606,42 +489,4 @@ internal static partial class PrerequisitesPhase
         }
     }
 
-    internal static async Task ProbeContainerAioAsync(int scyllaNodes, PhaseLogger logger, CancellationToken ct)
-    {
-        var minRequired = MinimumContainerAio(scyllaNodes);
-        try
-        {
-            var probe = await ProcessRunner.RunAsync(
-                "docker",
-                ["run", "--rm", "alpine", "cat", "/proc/sys/fs/aio-max-nr"],
-                ct: ct).ConfigureAwait(false);
-            if (probe.ExitCode != 0 || !int.TryParse(probe.StdOut.Trim(), out var current))
-            {
-                logger.Warn("could not probe fs.aio-max-nr inside a container; skipping AIO check. " +
-                            "Scylla/Seastar needs a high aio-max-nr in the Docker Desktop Linux VM.");
-                return;
-            }
-
-            if (IsContainerAioSufficient(current, scyllaNodes))
-            {
-                logger.Info($"    container fs.aio-max-nr={current} (>= {minRequired} for {scyllaNodes} Scylla node(s)); ok");
-                return;
-            }
-
-            logger.Warn(
-                $"container fs.aio-max-nr={current} (< {minRequired} for {scyllaNodes} Scylla node(s)). " +
-                "Raise it inside the Docker Desktop Linux VM if Scylla fails to start; the bootstrapper " +
-                "does not write WSL sysctl (distro name is not stable).");
-        }
-        catch (Exception ex)
-        {
-            logger.Warn($"AIO container probe failed ({ex.GetType().Name}: {ex.Message}); continuing.");
-        }
     }
-
-    internal static int MinimumContainerAio(int scyllaNodes) =>
-        scyllaNodes * AioPerNodeMin + AioHeadroom;
-
-    internal static bool IsContainerAioSufficient(int current, int scyllaNodes) =>
-        current >= MinimumContainerAio(scyllaNodes);
-}

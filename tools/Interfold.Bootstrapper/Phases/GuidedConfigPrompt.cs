@@ -273,7 +273,7 @@ internal static class GuidedConfigPrompt
             ReachabilityCloudflare);
         var lan = reach == ReachabilityLan;
 
-        // Scylla and Postgres stay in the advanced editor. Guided always uses SQLite.
+        // Guided always uses SQLite.
         config.Datastores.Persistence = PersistenceMode.Sqlite;
         var includeWeb = AskYesNo(console, "Include the web UI (interfold-web)", config.Deployment.IncludeWeb);
 
@@ -1087,15 +1087,7 @@ internal static class GuidedConfigPrompt
 
     private static string DescribePersistence(BootstrapConfig config)
     {
-        if (config.UsesSqlite)
-        {
-            return "SQLite";
-        }
-
-        return "Scylla and Postgres (" +
-               $"{config.Datastores.Cql.Backend.ToWire()}, " +
-               $"database {config.Datastores.Postgres.Database}, " +
-               $"keyspace {config.Datastores.Cql.Keyspace.ToWire()})";
+        return "SQLite";
     }
 
     private static string DescribePorts(BootstrapConfig config)

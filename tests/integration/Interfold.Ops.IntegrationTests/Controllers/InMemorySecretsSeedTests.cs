@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using Interfold.IntegrationTests.Shared;
 using Interfold.IntegrationTests.Shared.TestServices;
+using Interfold.Settings.Domain.Abstractions.Repository;
+using Microsoft.Extensions.DependencyInjection;
 using Interfold.Shared.Contracts;
 
 namespace Interfold.Ops.IntegrationTests.Controllers;
@@ -36,6 +38,7 @@ public class InMemorySecretsSeedTests : BaseEndpointTest
         using var client = factory.CreateClient();
 
         var principalId = TestIds.NewSystemId("sys-secrets-seed", maxLen: 24);
+        await factory.Services.GetRequiredService<IAccountRepository>().EnsureExistsAsync(new(principalId));
 
         // POST /api/settings/username is a [Authorize]-gated route. Reaching 204 NoContent
         // proves end-to-end that:
@@ -111,6 +114,7 @@ public class InMemorySecretsSeedTests : BaseEndpointTest
             using var client = factory.CreateClient();
 
             var principalId = TestIds.NewSystemId("sys-secrets-env", maxLen: 24);
+            await factory.Services.GetRequiredService<IAccountRepository>().EnsureExistsAsync(new(principalId));
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/settings/username")
             {
                 Content = JsonContent.Create(new { username = principalId })

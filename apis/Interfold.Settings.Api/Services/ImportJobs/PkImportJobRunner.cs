@@ -1,5 +1,6 @@
 using Interfold.Settings.Contracts.Models.ImportOperations;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Settings.Api.Services.ImportJobs;
 
@@ -9,7 +10,7 @@ namespace Interfold.Settings.Api.Services.ImportJobs;
 /// keeping the runner registered means:
 ///
 /// <list type="bullet">
-///   <item>The async-job machinery (queue, worker, operation row, LWT mutex) is identical for SP and PK — no second wiring pass required when the real importer lands.</item>
+///   <item>The async-job machinery (queue, worker, operation row, LWT mutex) is identical for SP, PK, and Octocon — no second wiring pass required when the real importer lands.</item>
 ///   <item>The <c>pk_import_complete</c> WebSocket frame fires with <c>alter_count = 0</c> immediately on dispatch, which matches the existing handler's stub behaviour and keeps the contract self-consistent for any client that already listens.</item>
 /// </list>
 ///
@@ -19,7 +20,7 @@ namespace Interfold.Settings.Api.Services.ImportJobs;
 /// </summary>
 public sealed class PkImportJobRunner : IImportJobRunner
 {
-    public ImportOperationKind Kind => ImportOperationKind.PluralKit;
+    public ImportFormat Format => ImportFormat.PluralKit;
 
     public Task<ImportJobOutcome> RunAsync(ImportJobItem item, CancellationToken cancellationToken = default)
     {

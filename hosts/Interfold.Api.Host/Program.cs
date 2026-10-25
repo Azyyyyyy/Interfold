@@ -6,8 +6,6 @@ using Interfold.Friendships.Api.DependencyInjection;
 using Interfold.Fronting.Api.DependencyInjection;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory;
-using Interfold.Infrastructure.Postgres;
-using Interfold.Infrastructure.Scylla;
 using Interfold.Infrastructure.Sqlite;
 using Interfold.Journals.Api.DependencyInjection;
 using Interfold.Ops.Api.DependencyInjection;
@@ -48,9 +46,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // Fetches every internal.secrets row the API's PostConfigure patchers need before host build.
 var secretsSnapshot = SecretsPreBuildLoader.Load(builder.Configuration);
 
-ScyllaServiceCollectionExtensions.Register();
 InMemoryServiceCollectionExtensions.Register();
-PostgresServiceCollectionExtensions.Register();
 SqliteServiceCollectionExtensions.Register();
 
 // Register typed options BEFORE the startup snapshots below so tests can override them
@@ -105,9 +101,9 @@ builder.Services.AddSocketModule();
 // AddSystemsModule is a no-op today and exists for wiring symmetry with the other modules.
 builder.Services.AddSystemsModule();
 
-// Ops feature module hosts NodeRoleController + TrustController; no owned handlers,
-// no .Domain project, no .Contracts project (nothing cross-module to share).
-// AddOpsModule is a no-op today and exists for wiring symmetry with the other modules.
+// Ops feature module hosts TrustController; no owned handlers, no .Domain project,
+// no .Contracts project (nothing cross-module to share). AddOpsModule is a no-op today
+// and exists for wiring symmetry with the other modules.
 builder.Services.AddOpsModule();
 
 // AuthenticationConfiguration is deliberately absent from this probe: its patchers pull
@@ -118,7 +114,6 @@ builder.Services.AddOpsModule();
 // the shared ConfigurationManager (which WebApplicationFactory<T> reuses in tests).
 PersistenceConfiguration persistenceConfig;
 CorsOptions corsOptions;
-ClusterConfiguration clusterConfig;
 var probeServices = StartupProbeConfigurationProxy.SwapInto(builder.Services, builder.Configuration);
 #pragma warning disable ASP0000
 using (var probeProvider = probeServices.BuildServiceProvider(validateScopes: false))
@@ -126,7 +121,6 @@ using (var probeProvider = probeServices.BuildServiceProvider(validateScopes: fa
 {
     persistenceConfig = probeProvider.GetRequiredService<IOptions<PersistenceConfiguration>>().Value;
     corsOptions = probeProvider.GetRequiredService<IOptions<CorsOptions>>().Value;
-    clusterConfig = probeProvider.GetRequiredService<IOptions<ClusterConfiguration>>().Value;
 }
 
 // Allow-list from OCTOCON_CORS_ALLOWED_ORIGINS; blank = allow-any (dev-only).
@@ -161,7 +155,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddSingleton<ISecretsSnapshot>(secretsSnapshot);
 builder.Services.AddSingleton(secretsSnapshot);
 
-builder.Services.AddInterfoldCluster(clusterConfig.NodeGroup);
+builder.Services.AddInterfoldCluster();
 builder.Services.AddInterfoldPersistence(persistenceConfig.Mode, persistenceConfig);
 builder.Services.AddInterfoldDomainHandlers();
 
@@ -169,13 +163,7 @@ builder.Services.AddInterfoldDomainHandlers();
 // lives in HealthCheckExtensions.AddReadyAndStartup.
 var healthChecks = builder.Services.AddHealthChecks();
 
-if (persistenceConfig.Mode == PersistenceMode.ScyllaPostgres)
-{
-    healthChecks
-        .AddReadyAndStartup<ScyllaHealthChecker>("scylla")
-        .AddReadyAndStartup<PostgresHealthChecker>("postgres");
-}
-else if (persistenceConfig.Mode == PersistenceMode.Sqlite)
+if (persistenceConfig.Mode == PersistenceMode.Sqlite)
 {
     healthChecks.AddReadyAndStartup<SqliteHealthChecker>("sqlite");
 }

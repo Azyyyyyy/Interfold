@@ -4,13 +4,11 @@ using Interfold.Bootstrapper.IntegrationTests.Fixtures;
 namespace Interfold.Bootstrapper.IntegrationTests;
 
 /// <summary>
-/// Confirms a second <c>bootstrap</c> against an already-running stack short-circuits the
-/// expensive admin work via the in-cluster state probes
-/// (<c>PostgresAlreadyInitializedAsync</c> / <c>ScyllaAlreadyInitializedAsync</c>) and leaves
-/// the existing containers untouched.
+/// Confirms a second <c>bootstrap</c> against an already-running stack short-circuits
+/// idempotent work and leaves the existing containers untouched.
 /// </summary>
 /// <remarks>
-/// Both tests in this file run a full bootstrap (which host-binds postgres / scylla / api
+/// Both tests in this file run a full bootstrap (which host-binds api
 /// ports) but each one lands on its own port window inside the shared DinD via
 /// <see cref="DinDFixtureBase.CreateScratchAsync"/>'s allocator, so they can execute
 /// concurrently with each other and with every other compose-up test in the assembly.
@@ -30,7 +28,7 @@ public class BootstrapIdempotenceTests(UbuntuDinDFixture dinD)
         var scratch = await dinD.CreateScratchAsync(nameof(SecondBootstrapShortCircuitsDbInit), TestConfigPaths.DefaultConfig);
 
         // First bootstrap: full path - prereqs (skipped) -> config -> secrets -> certs -> publish
-        // -> db-init -> launch. Brings the postgres + scylla admin work all the way through.
+        // -> db-init -> launch. Brings the admin work all the way through.
         var first = await dinD.RunOnScratchAsync(scratch, $"{nameof(SecondBootstrapShortCircuitsDbInit)}-first", "bootstrap",
             "--skip-prereqs");
         await Assert.That(first.ExitCode).IsEqualTo(0)
@@ -46,17 +44,14 @@ public class BootstrapIdempotenceTests(UbuntuDinDFixture dinD)
         // The machine-readable phase status lines on stderr should report skips for the
         // already-completed work. db-init's short-circuit doesn't emit a `phase=db-init
         // status=skipped` line (it's a fine-grained in-method check), but the stdout from the
-        // phase logs the postgres + scylla state-probe success.
+        // phase logs the sqlite state check success.
         await Assert.That(second.Stderr).Contains("phase=secrets status=skipped")
             .Because("secrets phase should self-skip on a second run");
         await Assert.That(second.Stderr).Contains("phase=certs status=skipped")
             .Because("certs phase should self-skip on a second run");
         await Assert.That(second.Stdout)
-            .Contains("postgres already initialised")
-            .Because("postgres state probe should report short-circuit on rerun");
-        await Assert.That(second.Stdout)
-            .Contains("scylla already initialised")
-            .Because("scylla state probe should report short-circuit on rerun");
+            .Contains("Sqlite db-init: secrets already present; skipping upsert")
+            .Because("sqlite db-init should report secrets already present on rerun");
     }
 
     [Test]
@@ -102,6 +97,3 @@ public class BootstrapIdempotenceTests(UbuntuDinDFixture dinD)
             .ToHashSet(StringComparer.Ordinal);
     }
 }
-
-
-

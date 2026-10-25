@@ -68,7 +68,7 @@ public static class DinDParallelLimitCalculator
 
     /// <summary>
     /// Slots supported by the disk budget after reserving the headroom fraction of the
-    /// total drive. <c>floor((freeDisk - totalDisk * headroom%) / diskPerSlot)</c>.
+    /// total drive. <c>floor((freeDisk - totalDisk * headroom%)) / diskPerSlot)</c>.
     /// Returns 0 if the drive is already tighter than the headroom (operators see the
     /// diagnostic line and can free space or override); the outer clamp lifts to 1 so
     /// the suite still tries to run one at a time. Returns <see cref="HardCeiling"/>
@@ -104,7 +104,7 @@ public readonly record struct ResourceBudget(
 /// <summary>
 /// Per-slot resource cost + free-space headroom expectations. Defaults are tuned
 /// against the fixture inventory: outer DinD idle (~0.5 GB) plus a peak inner
-/// compose stack (Scylla ~1.5 GB + Postgres ~0.2 GB + API ~0.2 GB) plus safety.
+/// compose stack (API and edge services) plus safety.
 /// Each field is env-overridable via <see cref="FromEnvironment"/>.
 /// </summary>
 public readonly record struct SlotCosts(
@@ -114,7 +114,7 @@ public readonly record struct SlotCosts(
     int MemHeadroomPct,
     int DiskHeadroomPct)
 {
-    /// <summary>Default CPU units reserved per active DinD slot (1 shard/core for Scylla + dockerd overhead).</summary>
+    /// <summary>Default CPU units reserved per active DinD slot (service + dockerd overhead).</summary>
     public const double DefaultCpuPerSlot = 1.5;
     /// <summary>Default memory reserved per active DinD slot (outer + inner peak).</summary>
     public const long DefaultMemPerSlotBytes = 2560L * 1024 * 1024;

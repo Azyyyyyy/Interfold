@@ -49,7 +49,7 @@ public readonly struct StorageTransactionAwaiter : ICriticalNotifyCompletion
 }
 
 /// <summary>
-/// Scylla and the in-memory store apply each repository call as it runs, so disposing
+/// The in-memory store applies each repository call as it runs, so disposing
 /// this scope cannot undo those writes. SQLite is the implementation that actually rolls back.
 /// </summary>
 public sealed class ImmediateStorageTransactionFactory : IStorageTransactionFactory

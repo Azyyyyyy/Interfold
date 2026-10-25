@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Interfold.Alters.Contracts.Models;
 using Interfold.Fronting.Contracts.Models.Read;
 using Interfold.Socket.Contracts;
@@ -18,11 +19,18 @@ public sealed record SocketJoinInitPayload(
     IReadOnlyList<FrontActiveReadModel> Fronts,
     IReadOnlyList<TagReadModel> Tags) : ISocketPayload;
 
+[method: JsonConstructor]
 public sealed record SocketJoinBatchedPayload(
     bool Batched,
     SocketSelfReadModel System,
-    IReadOnlyList<AlterReadModel>? Alters,
-    IReadOnlyList<FrontActiveReadModel>? Fronts,
-    IReadOnlyList<TagReadModel>? Tags) : ISocketPayload;
+    IReadOnlyList<AlterReadModel>? Alters = null,
+    IReadOnlyList<FrontActiveReadModel>? Fronts = null,
+    IReadOnlyList<TagReadModel>? Tags = null) : ISocketPayload
+{
+    public SocketJoinBatchedPayload(SocketSelfReadModel system)
+        : this(Batched: true, System: system, Alters: null, Fronts: null, Tags: null)
+    {
+    }
+}
 
 public sealed record SocketBatchedAltersPayload(int BatchIndex, int TotalBatches, IReadOnlyList<AlterReadModel> Alters) : ISocketPayload;

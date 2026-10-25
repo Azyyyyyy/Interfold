@@ -1,6 +1,10 @@
+using System.Text.Json;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Contracts.Models.Commands;
 using Interfold.Settings.Contracts.Models.ImportOperations;
 using Interfold.Settings.Domain.Abstractions;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Settings.Api.Services.ImportJobs;
 
@@ -8,15 +12,7 @@ namespace Interfold.Settings.Api.Services.ImportJobs;
 /// Bridges the generic <see cref="IImportJobRunner"/> contract to the concrete Simply
 /// Plural importer (<see cref="ISimplyPluralImportService"/>). One per-process registration
 /// (singleton). The background worker resolves this instance when it dequeues an item
-/// with <see cref="ImportOperationKind.SimplyPlural"/>.
-///
-/// <para>
-/// R7: <see cref="ISimplyPluralImportService.ImportAsync"/> now returns
-/// <see cref="ImportJobOutcome"/> directly, so this runner is a pure pass-through. The
-/// terminal-state contract (graceful failures must populate <see cref="ImportJobOutcome.ErrorCode"/>,
-/// throws are classified as <c>exception</c>) is enforced by the service, not translated
-/// here.
-/// </para>
+/// with <see cref="ImportFormat.SimplyPlural"/>.
 /// </summary>
 public sealed class SpImportJobRunner : IImportJobRunner
 {
@@ -27,8 +23,18 @@ public sealed class SpImportJobRunner : IImportJobRunner
         _importService = importService;
     }
 
-    public ImportOperationKind Kind => ImportOperationKind.SimplyPlural;
+    public ImportFormat Format => ImportFormat.SimplyPlural;
 
     public Task<ImportJobOutcome> RunAsync(ImportJobItem item, CancellationToken cancellationToken = default)
-        => _importService.ImportAsync(item.SystemId, item.Token, item.RecoveryCode, cancellationToken);
+    {
+        var payload = JsonSerializer.Deserialize<SpImportPayload>(item.RawPayload);
+        if (payload is null)
+        {
+            return Task.FromResult(new ImportJobOutcome(false, 0, ImportErrorCode.SpImportFailed, "Failed to deserialize Simply Plural payload."));
+        }
+
+        var token = new ImportToken(payload.Token);
+        RecoveryCode? recoveryCode = payload.RecoveryCode is { } code ? new RecoveryCode(code) : (RecoveryCode?)null;
+        return _importService.ImportAsync(item.SystemId, token, recoveryCode, cancellationToken);
+    }
 }

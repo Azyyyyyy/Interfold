@@ -18,7 +18,7 @@ public sealed class InProcessEventBus : IClusterEventBus, IDisposable
         void CompleteAll();
     }
 
-    private sealed record Subscription<TEvent>(ChannelWriter<TEvent> Writer, ScopedSystemId? TargetSystemId)
+    private sealed record Subscription<TEvent>(ChannelWriter<TEvent> Writer, SystemId? TargetSystemId)
         where TEvent : class;
 
     private sealed class TopicBag<TEvent> : ITopicBag where TEvent : class
@@ -80,7 +80,7 @@ public sealed class InProcessEventBus : IClusterEventBus, IDisposable
         => SubscribeAsync<TEvent>(targetSystemId: null, ct);
 
     public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(
-        ScopedSystemId? targetSystemId,
+        SystemId? targetSystemId,
         CancellationToken ct = default)
         where TEvent : class
     {

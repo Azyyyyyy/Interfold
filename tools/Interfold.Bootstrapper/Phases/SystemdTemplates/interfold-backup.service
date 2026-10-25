@@ -1,5 +1,5 @@
 [Unit]
-Description=Interfold database backup (Postgres + Scylla/Cassandra)
+Description=Interfold database backup (SQLite)
 Documentation=https://github.com/Azyyyyyy/octocon
 After=interfold.service
 Wants=interfold.service

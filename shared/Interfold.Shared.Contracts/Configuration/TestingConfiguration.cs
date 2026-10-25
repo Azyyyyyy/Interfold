@@ -19,32 +19,4 @@ public sealed class TestingConfiguration
     /// Env: OCTOCON_RUN_LIVE_INTEGRATION
     /// </summary>
     public bool RunLiveIntegration { get; init; }
-
-    /// <summary>
-    /// Scylla contact points for live testing.
-    /// Env: OCTOCON_TEST_SCYLLA_CONTACT_POINTS
-    /// Default: '127.0.0.1'
-    /// </summary>
-    public string TestScyllaContactPoints { get; init; } = "127.0.0.1";
-
-    /// <summary>
-    /// Scylla username for live testing.
-    /// Env: OCTOCON_TEST_SCYLLA_USERNAME
-    /// Default: 'cassandra'
-    /// </summary>
-    public string TestScyllaUsername { get; init; } = "cassandra";
-
-    /// <summary>
-    /// Scylla password for live testing.
-    /// Env: OCTOCON_TEST_SCYLLA_PASSWORD
-    /// Default: 'cassandra'
-    /// </summary>
-    public string TestScyllaPassword { get; init; } = "cassandra";
-
-    /// <summary>
-    /// Region for live testing.
-    /// Env: OCTOCON_TEST_REGION
-    /// Default: 'nam'
-    /// </summary>
-    public string TestRegion { get; init; } = "nam";
 }

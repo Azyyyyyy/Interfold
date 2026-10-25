@@ -31,8 +31,6 @@ namespace Interfold.Friendships.IntegrationTests.Friendships;
 [Category("Friendships")]
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<SqliteWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]
-[ClassDataSource<CassandraWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     // ---------------- Backend-uniform: bare id + id: prefix ----------------

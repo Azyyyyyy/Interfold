@@ -7,7 +7,7 @@
 > While it is functional and provides everything required for the client to work, it's still not as performant or reliable as it should be!
 > A lot of [work](https://github.com/users/Azyyyyyy/projects/1) is pending to get this new backend built with the care it should have, please be patient <3
 
-It's also a wacky monolith built with [.NET](https://dotnet.microsoft.com/en-us/learn/dotnet/what-is-dotnet), [ScyllaDB](https://www.scylladb.com/) and [PostgreSQL](https://www.postgresql.org/). Designed to run on bare-metal hardware!
+It's also a wacky monolith built with [.NET](https://dotnet.microsoft.com/en-us/learn/dotnet/what-is-dotnet) and SQLite. Designed to run on bare-metal hardware!
 
 ## Project structure TO EDIT
 This repository contains the backend code for Octocon, which is structured into three main components:
@@ -89,19 +89,29 @@ cd .\interfold-bootstrap
 
    ```json
    {
+     "schemaVersion": 2,
      "deployment": {
-       "outputDir": "./deploy",
-       "domains": ["api.example.com"],
-       "rootCaName": "Interfold Root CA",
-       "certYears": 5,
-       "trustStoreInstall": true
+       "outputDir": "./deploy"
      },
-     "ports": { "edgeHttp": 80, "edgeHttps": 443 },
-     "databaseMode": "single",
-     "apiImage": "ghcr.io/azyyyyyy/interfold-api:latest",
-     "oauth": {
-       "googleClientSecret": "...",
-       "discordClientSecret": ""
+     "edge": {
+       "hosts": ["api.example.com"],
+       "tlsMode": "privateCa",
+       "ports": { "http": 80, "https": 443 },
+       "certificates": {
+         "rootCaName": "Interfold Root CA",
+         "certYears": 5,
+         "trustStoreInstall": true
+       }
+     },
+     "datastores": {
+       "persistence": "sqlite"
+     },
+     "api": {
+       "image": "ghcr.io/azyyyyyy/interfold-api:latest",
+       "oauth": {
+         "googleClientSecret": "...",
+         "discordClientSecret": ""
+       }
      }
    }
    ```
@@ -123,7 +133,7 @@ cd .\interfold-bootstrap
    This walks through six phases — prereqs → config → secrets → certs → publish → launch —
    ending with the API's `/health/ready` returning 200.
 
-Generated artifacts land under `./deploy/`:
+Generated artifacts land under `./deploy/` :
 
 ```
 deploy/
@@ -141,11 +151,11 @@ deploy/
 | `interfold-bootstrap` (default `bootstrap`) | Run all six phases. Idempotent on rerun. |
 | `interfold-bootstrap publish` | Run config + secrets + certs + compose-emit; do not `docker compose up`. |
 | `interfold-bootstrap up` | Run only `docker compose up -d` + health wait against an already-generated compose file. |
-| `interfold-bootstrap rotate-secrets` | Regenerate DB/admin passwords + encryption keypair + pepper, re-emit compose, restart the API. Certs unchanged. |
+| `interfold-bootstrap rotate-secrets` | Regenerate encryption keypair + pepper + JWT signing keypairs + deep-link secret, re-emit compose, restart the API. Certs unchanged. |
 | `interfold-bootstrap rotate-certs` | Regenerate root CA + leaf cert, re-install into the trust store, re-emit compose. Secrets unchanged. |
 | `interfold-bootstrap update-self` | Download and atomically replace the running bootstrapper binary from GitHub Releases (`stable`, `bleeding-edge`, or a pin like `bootstrap-v0.0.1`). |
 | `interfold-bootstrap update-images` | Pull newer compose images, optionally recreate services, and health-check the stack. |
-| `interfold-bootstrap backup` | Snapshot Postgres + Scylla to `{outputDir}/backups/`. |
+| `interfold-bootstrap backup` | Snapshot SQLite to `{outputDir}/backups/`. |
 | `interfold-bootstrap restore` | Restore from a prior backup archive. |
 | `interfold-bootstrap install-service` | Render and install systemd units (`interfold.service`, backup timer, update service). |
 
@@ -194,13 +204,11 @@ Self-hosting and dev use the same resource graph. For local development, run the
 AppHost directly:
 
 ```bash
-cd csharp/Interfold.AppHost
-aspire run
+dotnet run --project hosts/Interfold.AppHost
 ```
 
-This brings the same Postgres + ScyllaDB + bootstrap-auth + API stack up under the Aspire
-dashboard. Use `dotnet user-secrets` to populate the `Parameters:*` secrets the AppHost
-guards on (see `csharp/Interfold.AppHost/InterfoldAppHost.cs`).
+This brings the API stack up under the Aspire dashboard. Use `dotnet user-secrets` to populate the `Parameters:*` secrets the AppHost
+guards on (see `hosts/Interfold.AppHost/InterfoldAppHost.cs`).
 
 ## Contributing
 
@@ -213,20 +221,8 @@ We welcome contributions to Octocon! If you'd like to contribute, please follow 
 While we respect your time, please note that not every contribution will be accepted; certain features may not align with our project's goals or privacy/security standards. If you'd like to contribute a new feature, your best bet is to reach out to us in the `#development` channel on our [Discord server](https://discord.gg/octocon) first to discuss its feasibility. Alternatively, we welcome PRs implementing accepted suggestions posted on [our issue tracker](https://github.com/octocondev/issues/issues?q=is%3Aissue%20state%3Aopen%20type%3ASuggestion%20(label%3A%22Low%20Priority%22%20OR%20label%3A%22High%20Priority%22%20OR%20label%3AUrgent))
 
 ## Deployment structure
-Octocon is designed as a distributed monolith, meaning that while the components have a clear separation of concerns, they share a common codebase which is compiled and deployed as one executable.
 
-Octocon is generally run in a cluster of nodes, which are designed to be globally distributed across the world. One "primary" node interfaces with a generally larger database instance and handles certain types of global state, while "auxiliary" nodes interface with smaller database instances. This allows for low-latency access to the data from anywhere in the world.
-
-When not running on Fly.io, an Octocon node knows its role in the overall cluster through an environment variable (`NODE_GROUP`), which determines which parts of the supervision tree it will run, and how it will advertise itself to its peers.
-
-In production, Octocon is configured to discover other nodes using the [libcluster](https://github.com/bitwalker/libcluster) library with a custom Tailscale strategy. All that is necessary is for each node to form a Distributed Erlang cluster; Octocon has internal logic to determine and cache each node's role in the cluster through an RPC communication step.
-
-There are 3 node groups:
-- `primary`: A node running in the primary region, which interfaces with a larger database instance and handles certain types of global state. Other nodes proxy some requests to a `primary` node.
-- `auxiliary`: A node running in an auxiliary region, which interfaces with a smaller database instance. These nodes are largely only responsible for serving HTTP requests to the API.
-- `sidecar`: A node responsible for isolating CPU-bound tasks from the rest of the cluster, such as image processing and heavy encryption tasks. Ideally, **at least one** sidecar should be present in the cluster. If no sidecar is present, nodes will run these tasks themselves.
-
-**Note**: Running multiple `primary` nodes is heavily experimental and not currently recommended - our Discord library (Nostrum) still doesn't behave well in this type of distributed environment.
+Interfold is a self-hosted single-process API. Background work (fronting push notifications, import jobs) and HTTP serve in the same host — there is no multi-node role split.
 
 ## Configuration & integrations
 
@@ -237,15 +233,15 @@ There are 3 node groups:
 
 For a self-hosted deployment, the bootstrapper writes:
 
-- `deploy/secrets/secrets.json` (mode 0600) — auto-generated DB passwords, encryption
-  pepper, JWT signing keypairs (RSA-2048 + ES256), deep-link HMAC secret, leaf PFX
+- `deploy/secrets/secrets.json` (mode 0600) — auto-generated encryption pepper, JWT
+  signing keypairs (RSA-2048 + ES256), deep-link HMAC secret, leaf PFX
   password. Never overwritten without `--rotate-secrets`.
 - `deploy/.env` — compose-bound subset that needs to be visible to Docker at `up` time
-  (DB usernames/passwords, encryption private key, encryption pepper). Re-emitted from
+  (encryption private key, encryption pepper). Re-emitted from
   `secrets.json` on every bootstrapper run.
-- `internal.secrets` rows inside Postgres — the durable, in-cluster source of truth for
+- `internal.secrets` rows inside SQLite — the durable, in-cluster source of truth for
   everything the API reads at runtime (auth/OAuth secrets, JWT keys, deep-link HMAC,
-  leaf PFX password, Scylla credentials). Seeded by `DatabaseInitPhase`.
+  leaf PFX password). Seeded by `SqliteDatabaseInitPhase`.
 
 The only secrets you set by hand live in [`interfold.bootstrap.json`](#one-shot-install):
 OAuth client secrets (`googleClientSecret`, `discordClientSecret`, `appleClientSecret`).
@@ -261,25 +257,24 @@ rendered into the OAuth redirect URL), so rerun the bootstrapper to change them 
 than editing `.env` by hand.
 
 - `OCTOCON_{GOOGLE,DISCORD,APPLE}_OAUTH_CLIENT_ID` — sourced from
-  `BootstrapConfig.oauth.{google,discord,apple}ClientId`; leaving a provider's ID empty
+  `BootstrapConfig.api.oauth.{google,discord,apple}ClientId`; leaving a provider's ID empty
   disables that provider entirely.
-- `OCTOCON_{GOOGLE,DISCORD,APPLE}_OAUTH_CLIENT_SECRET`
-- `OCTOCON_POSTGRES_CONNECTION`
-- `OCTOCON_PERSISTENCE`, `OCTOCON_SINGLE_SCYLLA_INSTANCE`
-- `OCTOCON_SCYLLA_KEYSPACE` — per-instance region identity (one of `nam`/`eur`/`sam`/`sas`/`eas`/`ocn`/`gdpr`). Sourced from `BootstrapConfig.scyllaKeyspace`; defaults to `nam`. The interactive form constrains the row to the seven valid values.
+- `OCTOCON_PERSISTENCE` — persistence mode (`sqlite` or `inmemory`). Sourced from
+  `BootstrapConfig.datastores.persistence`.
+- `OCTOCON_SQLITE_CONNECTION` — SQLite connection string pointing to the mounted SQLite
+  database (`Data Source=/app/data/sqlite/interfold.db`).
 - `OCTOCON_AUTH_CALLBACK_BASE_URL` — base URL the API's OAuth callbacks redirect to. Sourced from `BootstrapConfig.api.oauth.callbackBaseUrl`; defaults derive from `edge.tlsMode` / `edge.ports` (or bare `https://{host}` when `edge.cloudflare.enabled`; subdomain routing may use `edge.routing.apiHost`).
 - `OCTOCON_JWT_AUTHORITY` / `OCTOCON_JWT_AUDIENCE` — JWT `iss` / `aud` claims. Sourced from `BootstrapConfig.api.oauth.jwtAuthority` / `api.oauth.jwtAudience`; authority derives the same way as the callback URL; audience defaults to `octocon`.
 - `OCTOCON_CF_ACCESS_TEAM_DOMAIN` / `OCTOCON_CF_ACCESS_AUD` — Cloudflare Access JWT exchange. Empty disables `GET /auth/cloudflare` and `POST /auth/cloudflare/session`. Written from `{outputDir}/.cloudflare-access.json` after Access is provisioned. See [configuration.md](docs/configuration.md#edgecloudflare-cloudflare-tunnel) for the Access callback URI (Google and Discord) and client contract.
 - `OCTOCON_CORS_ALLOWED_ORIGINS` — comma-separated CORS allow-list. Sourced from `BootstrapConfig.api.corsAllowedOrigins`; defaults to one entry per `edge.hosts` so a fresh bootstrap never ships with the API's "allow any origin" fallback.
-- `OCTOCON_NODE_GROUP` — cluster node role (`primary` / `auxiliary` / `sidecar`). Sourced from `BootstrapConfig.api.nodeGroup`; defaults to `auxiliary`. Fly.io stacks override via `FLY_PROCESS_GROUP` at runtime.
 - `OCTOCON_AVATAR_STORAGE_ROOT` / `OCTOCON_AVATAR_PUBLIC_BASE` — local avatar storage. Self-host compose always sets the container root to `/app/data/avatars` and bind-mounts `BootstrapConfig.storage.avatarStorageRoot` (blank → `{outputDir}/data/avatars`). `avatarPublicBase` blank means the API serves `/avatars/*` itself; set an https URL to stamp CDN links.
 - `OCTOCON_OTLP_ENDPOINT` — OTLP endpoint for the API's own traces/metrics, e.g. `http://localhost:4317`. Sourced from `BootstrapConfig.observability.otlpEndpoint`; empty disables the exporter.
 - `OCTOCON_ADVERTISE_OTLP_TO_CLIENTS` — when `true`, discovery may advertise the server OTLP URL via `GET /api/telemetry/otlp` (opt-in; default `false`). Sourced from `BootstrapConfig.observability.advertiseOtlpToClients`.
 - `OCTOCON_CLIENT_OTLP_HTTP_ENDPOINT` — optional client-only OTLP/HTTP URL for discovery; when set, overrides the server URL. `aspire run` stamps the Aspire dashboard OTLP/HTTP endpoint so wasm traces show in the dashboard. The API does not ingest OTLP.
 - `OCTOCON_SOCKET_BATCH_BYTES_THRESHOLD` — WebSocket batched-payload flush threshold (bytes). Sourced from `BootstrapConfig.socket.batchBytesThreshold`; nullable — `null` means the API uses its compile-time default.
-- `OCTOCON_DB_RETRY_ATTEMPTS` / `OCTOCON_DB_RETRY_INITIAL_DELAY_MS` / `OCTOCON_DB_RETRY_MAX_DELAY_MS` / `OCTOCON_HYDRATION_MAX_CONCURRENCY` — DB-retry strategy + per-request hydration fan-out cap. Sourced from `BootstrapConfig.persistence.*`; all four have non-null defaults that match the API's compile-time fallbacks.
+- `OCTOCON_DB_RETRY_ATTEMPTS` / `OCTOCON_DB_RETRY_INITIAL_DELAY_MS` / `OCTOCON_DB_RETRY_MAX_DELAY_MS` / `OCTOCON_HYDRATION_MAX_CONCURRENCY` — DB-retry strategy + per-request hydration fan-out cap. Sourced from `BootstrapConfig.api.resilience.*`; all four have non-null defaults that match the API's compile-time fallbacks.
 
 The encryption pepper, JWT signing keys, deep-link HMAC secret, and leaf PFX password
 have no env-var representation at all — they live in `internal.secrets` exclusively and
-are read directly by `SecretsBootstrapService` (or `Program.LoadLeafPfxPasswordFromStoreIfNeeded`
+are read directly by `SecretsBootstrapService` (or `SecretsPreBuildLoader`
 for the PFX password) at startup.

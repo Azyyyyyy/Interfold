@@ -1,22 +1,23 @@
-using Interfold.Shared.Contracts.Ids;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Settings.Contracts.Ids;
 using Interfold.Settings.Contracts.Models.ImportOperations;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
 // FIFO delivery, cancellation, back-pressure for InProcessImportJobQueue. Per-(system,
-// kind) dedupe lives on IImportOperationRepository, not here.
+// format) dedupe lives on IImportOperationRepository, not here.
 public sealed class InProcessImportJobQueueTests
 {
     [Test]
     public async Task ReadAll_DeliversItemsInFifoOrder()
     {
         await using var queue = new InProcessImportJobQueue();
-        var first = NewItem("nam:sys-a");
-        var second = NewItem("nam:sys-b");
-        var third = NewItem("nam:sys-c");
+        var first = NewItem("sys-a");
+        var second = NewItem("sys-b");
+        var third = NewItem("sys-c");
 
         await queue.EnqueueAsync(first);
         await queue.EnqueueAsync(second);
@@ -32,7 +33,7 @@ public sealed class InProcessImportJobQueueTests
         using (Assert.Multiple())
         {
             await Assert.That(observed).HasCount(3)
-                .Because("All three enqueued items must be observed by the reader; lost items would orphan an operation row in Cassandra.");
+                .Because("All three enqueued items must be observed by the reader; lost items would orphan an operation row in the database.");
             await Assert.That(observed[0]).IsEqualTo(first);
             await Assert.That(observed[1]).IsEqualTo(second);
             await Assert.That(observed[2]).IsEqualTo(third)
@@ -61,8 +62,8 @@ public sealed class InProcessImportJobQueueTests
             catch (OperationCanceledException) { }
         });
 
-        var first = NewItem("nam:sys-a");
-        var second = NewItem("nam:sys-b");
+        var first = NewItem("sys-a");
+        var second = NewItem("sys-b");
         await queue.EnqueueAsync(first);
         await queue.EnqueueAsync(second);
 
@@ -109,7 +110,7 @@ public sealed class InProcessImportJobQueueTests
     public async Task Dispose_CompletesReaderSequence()
     {
         var queue = new InProcessImportJobQueue();
-        await queue.EnqueueAsync(NewItem("nam:sys-a"));
+        await queue.EnqueueAsync(NewItem("sys-a"));
 
         await queue.DisposeAsync();
 
@@ -125,8 +126,7 @@ public sealed class InProcessImportJobQueueTests
 
     private static ImportJobItem NewItem(string systemId) => new(
         new ImportOperationId(Guid.NewGuid()),
-        ScopedSystemId.ParseScoped(systemId),
-        ImportOperationKind.SimplyPlural,
-        Token: new ImportToken("synthetic-token"),
-        RecoveryCode: null);
+        new SystemId(systemId),
+        ImportFormat.SimplyPlural,
+        RawPayload: "{ token: \"synthetic-token\"  }");
 }

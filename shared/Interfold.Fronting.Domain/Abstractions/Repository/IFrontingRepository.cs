@@ -1,4 +1,5 @@
 using Interfold.Fronting.Contracts.Ids;
+using Interfold.Fronting.Contracts.Models.Commands;
 using Interfold.Fronting.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Ids;
 
@@ -9,6 +10,8 @@ public interface IFrontingRepository
     Task<bool> IsFrontingAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default);
 
     Task<FrontId?> StartAsync(SystemId systemId, AlterId alterId, string? comment, DateTimeOffset startedAt, CancellationToken cancellationToken = default);
+
+    Task ImportManyAsync(SystemId systemId, IReadOnlyList<ImportFrontWrite> fronts, CancellationToken cancellationToken = default);
 
     Task<bool> EndAsync(SystemId systemId, AlterId alterId, DateTimeOffset endedAt, CancellationToken cancellationToken = default);
 

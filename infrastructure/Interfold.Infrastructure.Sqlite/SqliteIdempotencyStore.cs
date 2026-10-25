@@ -33,7 +33,7 @@ public sealed class SqliteIdempotencyStore : IIdempotencyStore
             """,
             new
             {
-                principal_id = principalId.Value,
+                principal_id = principalId,
                 operation_id = operationId.Value,
                 idempotency_key = idempotencyKey.Value,
             });
@@ -67,7 +67,7 @@ public sealed class SqliteIdempotencyStore : IIdempotencyStore
             """,
             new
             {
-                principal_id = principalId.Value,
+                principal_id = principalId,
                 operation_id = operationId.Value,
                 idempotency_key = idempotencyKey.Value,
                 payload_hash = payloadHash,

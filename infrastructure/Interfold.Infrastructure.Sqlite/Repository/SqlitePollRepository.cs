@@ -28,7 +28,6 @@ public sealed class SqlitePollRepository : IPollRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<PollRow>(
@@ -38,7 +37,7 @@ public sealed class SqlitePollRepository : IPollRepository
             FROM polls
             WHERE user_id = @user_id
             """,
-            new { user_id = userId });
+            new { user_id = systemId });
 
         return rows
             .Select(r => MapPoll(r, systemId))
@@ -52,7 +51,6 @@ public sealed class SqlitePollRepository : IPollRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<PollRow>(
@@ -63,7 +61,7 @@ public sealed class SqlitePollRepository : IPollRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = userId, id = pollId.Value.ToString("N") });
+            new { user_id = systemId, id = pollId.Value.ToString("N") });
 
         return row is null ? null : MapPoll(row, systemId);
     }
@@ -74,13 +72,12 @@ public sealed class SqlitePollRepository : IPollRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.Persist(systemId);
         var pollGuid = Guid.NewGuid();
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         var insertedMs = ToUnixMs(command.InsertedAtUtc);
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await connection.ExecuteAsync(
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        await work.Connection.ExecuteAsync(
             """
             INSERT INTO polls
                 (user_id, id, title, description, type, data, time_end, inserted_at, updated_at)
@@ -89,7 +86,7 @@ public sealed class SqlitePollRepository : IPollRepository
             """,
             new
             {
-                user_id = userId,
+                user_id = systemId,
                 id = pollGuid.ToString("N"),
                 title = command.Title,
                 description = command.Description,
@@ -97,9 +94,56 @@ public sealed class SqlitePollRepository : IPollRepository
                 time_end = command.TimeEnd is { } end ? ToUnixMs(end) : (long?)null,
                 inserted_at = insertedMs,
                 updated_at = nowMs,
-            });
-
+            },
+            work.Transaction);
+        await work.CommitAsync(cancellationToken);
         return new PollId(pollGuid);
+    }
+
+    public async Task<IReadOnlyList<PollId>> CreateManyAsync(
+        SystemId systemId,
+        IReadOnlyList<ImportPollWrite> polls,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (polls.Count == 0)
+            return [];
+
+        var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
+        var ids = new PollId[polls.Count];
+        for (var i = 0; i < polls.Count; i++)
+        {
+            var poll = polls[i];
+            var pollGuid = Guid.NewGuid();
+            var data = poll.Data.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+                ? "{}"
+                : poll.Data.GetRawText();
+            await work.Connection.ExecuteAsync(
+                """
+                INSERT INTO polls
+                    (user_id, id, title, description, type, data, time_end, inserted_at, updated_at)
+                VALUES
+                    (@user_id, @id, @title, @description, @type, @data, @time_end, @inserted_at, @updated_at)
+                """,
+                new
+                {
+                    user_id = systemId,
+                    id = pollGuid.ToString("N"),
+                    title = poll.Title,
+                    description = poll.Description,
+                    type = (short)poll.Type,
+                    data,
+                    time_end = poll.TimeEnd is { } end ? ToUnixMs(end) : (long?)null,
+                    inserted_at = ToUnixMs(poll.InsertedAtUtc),
+                    updated_at = nowMs,
+                },
+                work.Transaction);
+            ids[i] = new PollId(pollGuid);
+        }
+
+        await work.CommitAsync(cancellationToken);
+        return ids;
     }
 
     public async Task<bool> ExistsAsync(
@@ -108,7 +152,6 @@ public sealed class SqlitePollRepository : IPollRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.Persist(systemId);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var found = await connection.ExecuteScalarAsync<long?>(
@@ -117,7 +160,7 @@ public sealed class SqlitePollRepository : IPollRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = userId, id = pollId.Value.ToString("N") });
+            new { user_id = systemId, id = pollId.Value.ToString("N") });
         return found is not null;
     }
 
@@ -127,11 +170,10 @@ public sealed class SqlitePollRepository : IPollRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.Persist(systemId);
         var pollIdText = command.Id.Value.ToString("N");
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
-        if (!await ExistsOnConnectionAsync(work.Connection, work.Transaction, userId, pollIdText))
+        if (!await ExistsOnConnectionAsync(work.Connection, work.Transaction, systemId, pollIdText))
             return false;
 
         if (command.Title is null
@@ -165,7 +207,7 @@ public sealed class SqlitePollRepository : IPollRepository
                     : null,
                 data = command.Data?.GetRawText(),
                 updated_at = nowMs,
-                user_id = userId,
+                user_id = systemId,
                 id = pollIdText,
             },
             work.Transaction);
@@ -179,12 +221,11 @@ public sealed class SqlitePollRepository : IPollRepository
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var userId = SqliteStorageKeys.Persist(systemId);
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
         var affected = await work.Connection.ExecuteAsync(
             "DELETE FROM polls WHERE user_id = @user_id AND id = @id",
-            new { user_id = userId, id = pollId.Value.ToString("N") },
+            new { user_id = systemId, id = pollId.Value.ToString("N") },
             work.Transaction);
         await work.CommitAsync(cancellationToken);
         return affected > 0;
@@ -217,7 +258,7 @@ public sealed class SqlitePollRepository : IPollRepository
     private static async Task<bool> ExistsOnConnectionAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
-        string userId,
+        SystemId systemId,
         string pollId)
     {
         var found = await connection.ExecuteScalarAsync<long?>(
@@ -226,7 +267,7 @@ public sealed class SqlitePollRepository : IPollRepository
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
-            new { user_id = userId, id = pollId },
+            new { user_id = systemId, id = pollId },
             transaction);
         return found is not null;
     }

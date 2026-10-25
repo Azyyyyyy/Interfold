@@ -114,7 +114,7 @@ public sealed class HexColorTests
     public async Task FromNullable_Malformed_Throws(string input)
     {
         await Assert.That(() => HexColor.FromNullable(input)).ThrowsExactly<FormatException>()
-            .Because("FromNullable is the Scylla read path: null when unset, throw when corrupt.");
+            .Because("FromNullable is the database read path: null when unset, throw when corrupt.");
     }
 
     [Test]

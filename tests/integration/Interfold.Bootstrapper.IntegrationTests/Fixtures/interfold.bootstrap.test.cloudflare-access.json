@@ -5,17 +5,25 @@
     "includeWeb": false
   },
   "edge": {
-    "hosts": ["api.example.com"],
+    "hosts": [
+      "api.example.com"
+    ],
     "tlsMode": "none",
-    "routing": { "mode": "path" },
+    "routing": {
+      "mode": "path"
+    },
     "cloudflare": {
       "enabled": true,
       "apiToken": "test-cf-api-token",
       "tunnelName": "interfold-test",
       "access": {
         "enabled": true,
-        "allowedEmails": ["ops@example.com"],
-        "allowedEmailDomains": ["example.com"]
+        "allowedEmails": [
+          "ops@example.com"
+        ],
+        "allowedEmailDomains": [
+          "example.com"
+        ]
       }
     },
     "certificates": {
@@ -25,8 +33,7 @@
     }
   },
   "datastores": {
-    "persistence": "scylla-postgres",
-    "cql": { "backend": "scylla-single" }
+    "persistence": "sqlite"
   },
   "api": {
     "image": "interfold-api:test",

@@ -130,6 +130,7 @@ public static class EntityRefs
     public static readonly EntityRef SettingsFieldNameRequired = new("settings:field_name_required");
     public static readonly EntityRef SettingsImportPkInvalid = new("settings:import_pk_invalid");
     public static readonly EntityRef SettingsImportSpInvalid = new("settings:import_sp_invalid");
+    public static readonly EntityRef SettingsImportOctoconInvalid = new("settings:import_octocon_invalid");
     public static readonly EntityRef SettingsInvalidRecoveryCode = new("settings:invalid_recovery_code");
     public static readonly EntityRef SettingsPushTokenAdd = new("settings:push_token:add");
     public static readonly EntityRef SettingsPushTokenRemove = new("settings:push_token:remove");

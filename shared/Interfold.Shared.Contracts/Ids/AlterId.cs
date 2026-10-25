@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 namespace Interfold.Shared.Contracts.Ids;
 
 /// <summary>Strongly-typed wrapper around the per-system alter id. Backed by <c>short</c>
-/// to match every smallint Scylla column that stores it; wire form is a JSON number, so
+/// to match every smallint database column that stores it; wire form is a JSON number, so
 /// emission is byte-identical to the pre-narrowing shape. Range is enforced at the JSON
 /// reader (<c>GetInt16</c> throws → 400) so no downstream code sees an out-of-range value.</summary>
 [JsonConverter(typeof(AlterIdJsonConverter))]

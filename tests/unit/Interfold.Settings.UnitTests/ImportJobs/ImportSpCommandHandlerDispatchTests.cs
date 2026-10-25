@@ -1,4 +1,5 @@
 using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
@@ -23,7 +24,7 @@ public sealed class ImportSpCommandHandlerDispatchTests
                 .Because("A fresh claim must surface as 'queued' so the client (and operator logs) can distinguish it from a collapsed dispatch.");
             await Assert.That(scenario.Capture.Enqueued).HasCount(1)
                 .Because("Exactly one job must reach the queue per successful claim — more than one would reintroduce the duplicate-import bug class.");
-            await Assert.That(scenario.Capture.Enqueued[0].Kind).IsEqualTo(ImportOperationKind.SimplyPlural);
+            await Assert.That(scenario.Capture.Enqueued[0].Format).IsEqualTo(ImportFormat.SimplyPlural);
             await Assert.That(scenario.Capture.Enqueued[0].OperationId).IsEqualTo(result.Result!.OperationId)
                 .Because("The handler's returned operation_id must match the queued item's id, so the worker writes the row the controller advertised.");
         }

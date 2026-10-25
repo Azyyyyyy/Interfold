@@ -89,8 +89,7 @@ public sealed class LocalAvatarStorage : IAvatarStorage
     // targetId is "self" for system avatars, alterId.ToString() for alter avatars — no wrapper covers both.
     private async Task<AvatarUrl> SaveAsync(SystemId systemId, string targetId, Stream stream, CancellationToken cancellationToken)
     {
-        var rawSystemId = ScopedSystemId.StripRegionPrefix(systemId);
-        var safeSystemId = SafeSegmentPattern.Replace(rawSystemId, "_");
+        var safeSystemId = SafeSegmentPattern.Replace(systemId, "_");
         var safeTargetId = SafeSegmentPattern.Replace(targetId, "_");
 
         if (stream.CanSeek)

@@ -12,12 +12,12 @@ namespace Interfold.Shared.Contracts.Events;
 /// subscriber regardless of scoping, which preserves correctness for any future non-targeted signals.
 /// </para>
 /// <para>
-/// <see cref="TargetSystemId"/> is a <see cref="ScopedSystemId"/> so
+/// <see cref="TargetSystemId"/> is a <see cref="SystemId"/> so
 /// the event bus's equality filter compares two wire-canonical strings by construction
 /// rather than relying on every publisher hand-formatting a scoped prefix correctly.
 /// </para>
 /// </summary>
 public interface ITargetedClusterEvent
 {
-    ScopedSystemId TargetSystemId { get; }
+    SystemId TargetSystemId { get; }
 }

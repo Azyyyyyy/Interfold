@@ -139,39 +139,12 @@ public sealed class DatastoresSection
 {
     [JsonPropertyName("persistence")]
     public PersistenceMode Persistence { get; set; } = PersistenceMode.Sqlite;
-
-    [JsonPropertyName("postgres")]
-    public PostgresDatastoreSection Postgres { get; set; } = new();
-
-    [JsonPropertyName("cql")]
-    public CqlDatastoreSection Cql { get; set; } = new();
-}
-
-public sealed class PostgresDatastoreSection
-{
-    [JsonPropertyName("database")]
-    public string Database { get; set; } = "interfold";
-}
-
-public sealed class CqlDatastoreSection
-{
-    [JsonPropertyName("backend")]
-    public CqlBackend Backend { get; set; } = CqlBackend.ScyllaSingle;
-
-    [JsonPropertyName("clusterName")]
-    public string ClusterName { get; set; } = "InterfoldCluster";
-
-    [JsonPropertyName("keyspace")]
-    public ScyllaKeyspace Keyspace { get; set; } = ScyllaKeyspace.Nam;
 }
 
 public sealed class ApiSection
 {
     [JsonPropertyName("image")]
     public string Image { get; set; } = BootstrapperApiImage.Default;
-
-    [JsonPropertyName("nodeGroup")]
-    public NodeGroup NodeGroup { get; set; } = NodeGroup.Auxiliary;
 
     [JsonPropertyName("oauth")]
     public ApiOAuthSection OAuth { get; set; } = new();

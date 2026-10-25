@@ -49,20 +49,21 @@ public sealed class InterfoldPrincipalMiddleware(RequestDelegate next)
 
     /// <summary>
     /// The JWT <c>sub</c> claim is the one place a scoped-system-id string crosses the
-    /// trust boundary into the process. TryParseScoped enforces the wire invariant here —
-    /// a legacy or hand-crafted token that omits the region prefix (or names an unknown
-    /// region) surfaces as a 401 rather than propagating an ambiguous <c>SystemId</c>
-    /// deeper into the command pipeline. Every downstream site reads a
-    /// <see cref="ScopedSystemId"/> from
-    /// <c>HttpContext.Items[PrincipalIdItemKey]</c> and can rely on the type to prove it.
+    /// trust boundary into the process. We tolerate legacy region-scoped prefixes
+    /// (e.g. "nam:abcdefg") by stripping them before storing the principal ID so all downstream
+    /// services see clean raw system IDs.
     /// </summary>
-    private static ScopedSystemId? ResolvePrincipalId(ClaimsPrincipal user)
+    private static SystemId? ResolvePrincipalId(ClaimsPrincipal user)
     {
         var sub = user.FindFirst(JwtClaimNames.Sub)?.Value
                   ?? user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-        return ScopedSystemId.TryParseScoped(sub, out var scoped)
-            ? scoped
-            : null;
+        if (string.IsNullOrWhiteSpace(sub))
+        {
+            return null;
+        }
+
+        var rawSub = SystemId.StripRegionPrefix(sub);
+        return string.IsNullOrWhiteSpace(rawSub) ? null : new SystemId(rawSub);
     }
 }

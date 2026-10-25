@@ -11,6 +11,6 @@ public enum ExportFormat : short
     [JsonStringEnumMemberName("pk")]
     Pk = 0,
 
-    [JsonStringEnumMemberName("full")]
-    Full = 1,
+    [JsonStringEnumMemberName("octocon")]
+    Octocon = 1,
 }

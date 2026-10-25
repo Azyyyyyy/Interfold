@@ -17,7 +17,7 @@ public static class EnumWire<TEnum> where TEnum : struct, Enum
     {
         var fields = typeof(TEnum).GetFields(BindingFlags.Public | BindingFlags.Static);
         ToWireMap = new Dictionary<TEnum, string>(fields.Length);
-        FromWireMap = new Dictionary<string, TEnum>(fields.Length, StringComparer.OrdinalIgnoreCase);
+        FromWireMap = new Dictionary<string, TEnum>(fields.Length * 2, StringComparer.OrdinalIgnoreCase);
 
         foreach (var field in fields)
         {
@@ -26,6 +26,7 @@ public static class EnumWire<TEnum> where TEnum : struct, Enum
 
             ToWireMap[value] = wire;
             FromWireMap[wire] = value;
+            FromWireMap[field.Name] = value;
         }
     }
 

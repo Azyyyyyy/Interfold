@@ -23,18 +23,9 @@ namespace Interfold.Alters.IntegrationTests.Controllers;
 /// </para>
 ///
 /// <para>
-/// Deliberately isolated to <see cref="InMemoryWebFactoryFixture"/> only (unlike the other
-/// controller test classes in this folder that fan out across Scylla + Cassandra +
-/// InMemory). The behaviour under test is a framework-level model-binding short-circuit —
-/// the request never reaches the persistence layer, so parameterising across backends
-/// would be pure duplicated wire cost. Restricting to InMemory also lets these tests run
-/// on a workstation without Docker: <c>RequiredFixtures.Discover</c> walks the
-/// <c>ClassDataSource</c> attributes on the scheduled class set, so with only the InMemory
-/// attribute here neither <see cref="ScyllaWebFactoryFixture"/> nor
-/// <see cref="CassandraWebFactoryFixture"/> gets discovered — and per
-/// <see cref="SharedDbFixture"/>'s docstring, when neither is required that Aspire host is
-/// not even instantiated (no Postgres container either). This is the same trick
-/// MultiNodeScyllaTests uses to keep its docker footprint minimal.
+/// Deliberately isolated to <see cref="InMemoryWebFactoryFixture"/> only. The behaviour under test is a framework-level
+/// model-binding short-circuit — the request never reaches the persistence layer, so parameterising across backends
+/// would be pure duplicated wire cost.
 /// </para>
 /// </summary>
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]

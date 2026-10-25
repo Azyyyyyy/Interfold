@@ -2,13 +2,11 @@ namespace Interfold.Bootstrapper.Phases;
 
 /// <summary>
 /// The database component targeted by <c>backup</c>/<c>restore</c>. CLI wire values
-/// (<c>postgres</c> / <c>scylla</c> / <c>sqlite</c> / <c>all</c>) are frozen — operators and the
-/// systemd backup timer pass them verbatim.
+/// (<c>sqlite</c> / <c>all</c>) are frozen — operators and the systemd backup timer pass them
+/// verbatim.
 /// </summary>
 internal enum BackupDatabaseComponent
 {
-    Postgres,
-    Scylla,
     Sqlite,
     All,
 }
@@ -17,8 +15,6 @@ internal static class BackupDatabaseComponentExtensions
 {
     public static string ToWireValue(this BackupDatabaseComponent component) => component switch
     {
-        BackupDatabaseComponent.Postgres => "postgres",
-        BackupDatabaseComponent.Scylla => "scylla",
         BackupDatabaseComponent.Sqlite => "sqlite",
         BackupDatabaseComponent.All => "all",
         _ => throw new ArgumentOutOfRangeException(nameof(component), component, "Unhandled BackupDatabaseComponent."),
@@ -35,8 +31,6 @@ internal static class BackupDatabaseComponentExtensions
 
         return raw.Trim().ToLowerInvariant() switch
         {
-            "postgres" => BackupDatabaseComponent.Postgres,
-            "scylla" => BackupDatabaseComponent.Scylla,
             "sqlite" => BackupDatabaseComponent.Sqlite,
             "all" => BackupDatabaseComponent.All,
             _ => null,
@@ -50,11 +44,7 @@ internal static class BackupDatabaseComponentExtensions
 /// </summary>
 internal static class BackupStoragePaths
 {
-    public const string PostgresDir = "postgres";
-    public const string ScyllaDir = "scylla";
     public const string SqliteDir = "sqlite";
-    public const string PostgresArchivePattern = "*.dump";
-    public const string ScyllaArchivePattern = "*.tar.gz";
     public const string SqliteArchivePattern = "*.db";
 
     /// <summary>

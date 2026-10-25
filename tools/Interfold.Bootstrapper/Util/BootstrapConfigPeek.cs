@@ -6,8 +6,7 @@ using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Util;
 
-/// <summary>Tolerant pre-validation reads of <c>interfold.bootstrap.json</c>
-/// for AIO sizing — missing/unreadable files fall back to safe defaults.</summary>
+/// <summary>Tolerant pre-validation reads of <c>interfold.bootstrap.json</c> — missing/unreadable files fall back to safe defaults.</summary>
 internal static class BootstrapConfigPeek
 {
     public static async Task<PersistenceMode> PeekPersistenceModeAsync(
@@ -20,33 +19,7 @@ internal static class BootstrapConfigPeek
             return datastores.Persistence;
         }
 
-        if (peek?.DatabaseMode is { } wire
-            && wire.TryParseWire<DatabaseMode>(out var mode)
-            && mode == DatabaseMode.Sqlite)
-        {
-            return PersistenceMode.Sqlite;
-        }
-
         return PersistenceMode.Sqlite;
-    }
-
-    public static async Task<DatabaseMode> PeekCqlDatabaseModeAsync(
-        string? configPath,
-        CancellationToken cancellationToken = default)
-    {
-        var peek = await TryReadAsync(configPath, cancellationToken).ConfigureAwait(false);
-        if (peek?.Datastores?.Cql is { } cql)
-        {
-            return CqlBackendMapping.ToDatabaseMode(cql.Backend);
-        }
-
-        if (peek?.DatabaseMode is { } wire
-            && wire.TryParseWire<DatabaseMode>(out var mode))
-        {
-            return mode;
-        }
-
-        return DatabaseMode.Single;
     }
 
     private static async Task<BootstrapDatastoresPeek?> TryReadAsync(
@@ -79,7 +52,4 @@ public sealed class BootstrapDatastoresPeek
 {
     [JsonPropertyName("datastores")]
     public DatastoresSection? Datastores { get; set; }
-
-    [JsonPropertyName("databaseMode")]
-    public string? DatabaseMode { get; set; }
 }

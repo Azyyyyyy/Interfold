@@ -69,18 +69,16 @@ public class UbuntuPrereqsPhaseTests(UbuntuBarePrereqsDinDFixture dinD)
 
     [Test]
     [NotInParallel("ubuntu-bare-prereqs")]
-    public async Task PersistsAioSysctlDropIn()
+    public async Task SkipsAioSysctlDropInUnderSqlite()
     {
-        // No-config peek defaults to sqlite and skips Seastar AIO. This fixture pins
-        // scylla-postgres so the drop-in is still written.
-        var scratch = await dinD.CreateScratchAsync(nameof(PersistsAioSysctlDropIn), TestConfigPaths.DefaultConfig);
-        var result = await dinD.RunBootstrapperAsync(nameof(PersistsAioSysctlDropIn),
+        var scratch = await dinD.CreateScratchAsync(nameof(SkipsAioSysctlDropInUnderSqlite), TestConfigPaths.DefaultConfig);
+        var result = await dinD.RunBootstrapperAsync(nameof(SkipsAioSysctlDropInUnderSqlite),
             ["bootstrap", "--config", scratch.ConfigPath, "--non-interactive", "--fault-inject=after-prereqs"]);
         await Assert.That(result.ExitCode).IsEqualTo(0L).Because(result.Stderr);
 
         var content = await dinD.ExecAsync(["sh", "-c", "cat /etc/sysctl.d/99-interfold.conf || true"]);
-        await Assert.That(content.Stdout).Contains("fs.aio-max-nr")
-            .Because($"sysctl drop-in should contain fs.aio-max-nr; got: {content.Stdout}");
+        await Assert.That(content.Stdout).DoesNotContain("fs.aio-max-nr")
+            .Because("sqlite persistence does not require Seastar AIO sysctl tuning");
     }
 
     [Test]
@@ -135,5 +133,3 @@ public class FedoraPrereqsPhaseTests(FedoraBarePrereqsDinDFixture dinD)
             .Because($"docker must be on PATH after PrerequisitesPhase on Fedora; stdout={postPath.Stdout}, stderr={postPath.Stderr}");
     }
 }
-
-

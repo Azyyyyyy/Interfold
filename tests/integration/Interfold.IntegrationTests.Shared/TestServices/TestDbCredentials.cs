@@ -3,8 +3,7 @@ using System.Security.Cryptography;
 namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
-/// Deterministic credentials shared by the consolidated <see cref="SharedDbFixture"/> and
-/// the multi-DC topology fixture (<see cref="MultiNodeScyllaFixture"/>). Hard-coded so the
+/// Deterministic credentials shared by integration fixtures. Hard-coded so the
 /// AppHost <c>Args</c>, the in-process seeder, and any assertions further downstream agree
 /// on the exact values without having to read the auto-generated parameter defaults back
 /// out of the service provider.
@@ -15,9 +14,7 @@ namespace Interfold.IntegrationTests.Shared.TestServices;
 /// real secrets; they exist purely to keep the in-test cluster authenticatable.
 ///
 /// The JWT keypair PEMs below are DETERMINISTIC — baked in as constants rather than
-/// generated at process start — because under the centralised test-bench every leaf
-/// integration project shares one Postgres, and <see cref="Interfold.DatabaseBootstrap.PostgresSeeder.BootstrapAsync"/>
-/// short-circuits step 4 (<c>internal.secrets</c> upsert) once the app role is provisioned.
+/// generated at process start — because integration fixtures share deterministic test secrets across processes.
 /// A per-process <c>Lazy&lt;ECDsa.Create&gt;</c> would leave the first cold-booter's public
 /// key authoritative in the DB — every subsequent test-host would sign tokens with a
 /// different key and the API would reject them with <c>Invalid JWT signature: tested 1
@@ -34,15 +31,6 @@ namespace Interfold.IntegrationTests.Shared.TestServices;
 /// </remarks>
 public static class TestDbCredentials
 {
-    public const string PostgresInitPassword  = "test_init_pw_789!Bootstrap";
-    public const string PostgresAppUser       = "test_pg_user";
-    public const string PostgresAppPassword   = "test_pg_pw_789!Secure";
-    public const string PostgresAdminUser     = "test_pg_user_admin";
-    public const string PostgresAdminPassword = "test_pg_admin_pw_456!Strong";
-    public const string ScyllaAppUser         = "test_app_user";
-    public const string ScyllaAppPassword     = "test_secure_pw_123!Safe";
-    public const string ScyllaAdminUser       = "test_app_user_admin";
-    public const string ScyllaAdminPassword   = "test_admin_pw_456!Strong";
 
     public const string DeepLinkSecret  = "test_deep_link_secret_0123456789abcdefghijklmnopqrstuv";
     public const string LeafPfxPassword = "test_leaf_pfx_pw_0123!Strong";

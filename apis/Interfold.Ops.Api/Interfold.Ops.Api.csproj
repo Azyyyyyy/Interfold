@@ -8,8 +8,8 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <!-- Mirror the implicit usings Microsoft.NET.Sdk.Web adds. Interfold.Ops.Api is a plain
-       Microsoft.NET.Sdk library (no Kestrel), but the moved NodeRoleController + TrustController
-       assume the Web-SDK implicits are present. Same shape as the other feature.Api projects
+       Microsoft.NET.Sdk library (no Kestrel), but TrustController assumes the Web-SDK
+       implicits are present. Same shape as the other feature.Api projects
        (Alters / Friendships / Fronting / Journals / Polls / Settings / Systems / Tags). -->
   <ItemGroup>
     <Using Include="Microsoft.AspNetCore.Builder" />
@@ -24,14 +24,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Shared.Api\Interfold.Shared.Api.csproj" />
-    <!-- Facade-shape exception: direct ref to the spine Interfold.Shared.Domain because
-         NodeRoleController binds INodeRoleContext, which lives on the spine at
-         shared/Interfold.Shared.Domain/Abstractions/INodeRoleContext.cs (registered by
-         AddInterfoldCluster). Systems (#7) has the same exception for a different reason
-         (repository-interface access after slice #8 relocations); Ops is the second and,
-         per current planning, last facade to invoke this exception. TrustOptions +
-         NodeGroup live on Interfold.Shared.Contracts, reachable transitively via Interfold.Shared.Domain
-         and Interfold.Shared.Api, so no other feature refs are needed. -->
-    <ProjectReference Include="..\..\shared\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
   </ItemGroup>
 </Project>
+

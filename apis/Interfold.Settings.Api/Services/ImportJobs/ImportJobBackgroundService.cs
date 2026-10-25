@@ -2,6 +2,7 @@ using Interfold.Settings.Contracts.Events;
 using Interfold.Settings.Contracts.Models.ImportOperations;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
 using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Domain.Abstractions;
 
@@ -22,7 +23,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
     private readonly IImportJobQueue _queue;
     private readonly IImportOperationRepository _operations;
     private readonly IClusterEventBus _eventBus;
-    private readonly IReadOnlyDictionary<ImportOperationKind, IImportJobRunner> _runners;
+    private readonly IReadOnlyDictionary<ImportFormat, IImportJobRunner> _runners;
     private readonly ILogger<ImportJobBackgroundService> _logger;
 
     public ImportJobBackgroundService(
@@ -35,14 +36,14 @@ public sealed class ImportJobBackgroundService : BackgroundService
         _queue = queue;
         _operations = operations;
         _eventBus = eventBus;
-        // Duplicate kinds throw here rather than racing at dispatch time.
-        _runners = runners.ToDictionary(r => r.Kind);
+        // Duplicate formats throw here rather than racing at dispatch time.
+        _runners = runners.ToDictionary(r => r.Format);
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("[import-worker] Starting. Registered kinds: {Kinds}",
+        _logger.LogInformation("[import-worker] Starting. Registered formats: {Formats}",
             string.Join(", ", _runners.Keys));
 
         await SweepStaleRunningAsync(stoppingToken).ConfigureAwait(false);
@@ -79,22 +80,12 @@ public sealed class ImportJobBackgroundService : BackgroundService
                 await _operations.MarkFailedAsync(
                     row.SystemId,
                     row.OperationId,
-                    row.Kind,
+                    row.Format,
                     errorCode: ImportErrorCode.HostRestart,
                     errorMessage: "Operation was running when the previous host shut down.",
                     cancellationToken).ConfigureAwait(false);
 
-                // Skip the client event on a legacy unscoped row (the slot still frees).
-                if (ScopedSystemId.TryParseScoped(row.SystemId, out var scopedSweepId))
-                {
-                    await PublishFailureAsync(scopedSweepId, row.Kind, cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    _logger.LogWarning(
-                        "[import-worker] Skipping sweep failure event for operation {OperationId} — stored system id {SystemId} is not region-scoped.",
-                        row.OperationId, row.SystemId);
-                }
+                await PublishFailureAsync(row.SystemId, row.Format, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -106,18 +97,18 @@ public sealed class ImportJobBackgroundService : BackgroundService
 
     private async Task ProcessOneAsync(ImportJobItem item, CancellationToken cancellationToken)
     {
-        if (!_runners.TryGetValue(item.Kind, out var runner))
+        if (!_runners.TryGetValue(item.Format, out var runner))
         {
             // Guard against a misregistered DI graph so the row terminates instead of
             // stranding in "running".
-            _logger.LogError("[import-worker] No runner registered for kind={Kind} (operation={OperationId}).",
-                item.Kind, item.OperationId);
+            _logger.LogError("[import-worker] No runner registered for format={Format} (operation={OperationId}).",
+                item.Format, item.OperationId);
             await _operations.MarkFailedAsync(
-                item.SystemId, item.OperationId, item.Kind,
+                item.SystemId, item.OperationId, item.Format,
                 errorCode: ImportErrorCode.NoRunner,
-                errorMessage: $"No IImportJobRunner is registered for kind '{item.Kind}'.",
+                errorMessage: $"No IImportJobRunner is registered for format '{item.Format}'.",
                 cancellationToken).ConfigureAwait(false);
-            await PublishFailureAsync(item.SystemId, item.Kind, cancellationToken).ConfigureAwait(false);
+            await PublishFailureAsync(item.SystemId, item.Format, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -129,32 +120,32 @@ public sealed class ImportJobBackgroundService : BackgroundService
             if (outcome.Success)
             {
                 await _operations.MarkSucceededAsync(
-                    item.SystemId, item.OperationId, item.Kind, outcome.AlterCount, cancellationToken)
+                    item.SystemId, item.OperationId, item.Format, outcome.AlterCount, cancellationToken)
                     .ConfigureAwait(false);
 
                 // Pin the legacy settings-profile-updated signal so encryption-status views refresh.
-                if (item.Kind == ImportOperationKind.SimplyPlural)
+                if (item.Format == ImportFormat.SimplyPlural)
                 {
                     await _eventBus.PublishAsync(
                         new SettingsProfileUpdatedEvent(item.SystemId, EmitUsernameUpdated: false),
                         cancellationToken).ConfigureAwait(false);
                 }
 
-                await PublishSuccessAsync(item.SystemId, item.Kind, outcome.AlterCount, cancellationToken).ConfigureAwait(false);
-                _logger.LogInformation("[import-worker] Operation {OperationId} succeeded ({AlterCount} alters, kind={Kind}).",
-                    item.OperationId, outcome.AlterCount, item.Kind);
+                await PublishSuccessAsync(item.SystemId, item.Format, outcome.AlterCount, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("[import-worker] Operation {OperationId} succeeded ({AlterCount} alters, format={Format}).",
+                    item.OperationId, outcome.AlterCount, item.Format);
             }
             else
             {
                 await _operations.MarkFailedAsync(
-                    item.SystemId, item.OperationId, item.Kind,
+                    item.SystemId, item.OperationId, item.Format,
                     outcome.ErrorCode ?? ImportErrorCode.ImportFailed,
                     outcome.ErrorMessage,
                     cancellationToken).ConfigureAwait(false);
 
-                await PublishFailureAsync(item.SystemId, item.Kind, cancellationToken).ConfigureAwait(false);
-                _logger.LogWarning("[import-worker] Operation {OperationId} failed (kind={Kind}, code={ErrorCode}).",
-                    item.OperationId, item.Kind, outcome.ErrorCode);
+                await PublishFailureAsync(item.SystemId, item.Format, cancellationToken).ConfigureAwait(false);
+                _logger.LogWarning("[import-worker] Operation {OperationId} failed (format={Format}, code={ErrorCode}).",
+                    item.OperationId, item.Format, outcome.ErrorCode);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -165,7 +156,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[import-worker] Operation {OperationId} threw (kind={Kind}).", item.OperationId, item.Kind);
+            _logger.LogError(ex, "[import-worker] Operation {OperationId} threw (format={Format}).", item.OperationId, item.Format);
             await TryMarkFailedSafelyAsync(item, ImportErrorCode.Exception, ex.Message).ConfigureAwait(false);
         }
     }
@@ -176,9 +167,9 @@ public sealed class ImportJobBackgroundService : BackgroundService
         try
         {
             await _operations.MarkFailedAsync(
-                item.SystemId, item.OperationId, item.Kind, errorCode, errorMessage, CancellationToken.None)
+                item.SystemId, item.OperationId, item.Format, errorCode, errorMessage, CancellationToken.None)
                 .ConfigureAwait(false);
-            await PublishFailureAsync(item.SystemId, item.Kind, CancellationToken.None).ConfigureAwait(false);
+            await PublishFailureAsync(item.SystemId, item.Format, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -188,26 +179,30 @@ public sealed class ImportJobBackgroundService : BackgroundService
         }
     }
 
-    private ValueTask PublishSuccessAsync(ScopedSystemId systemId, ImportOperationKind kind, int alterCount, CancellationToken cancellationToken)
+    private ValueTask PublishSuccessAsync(SystemId systemId, ImportFormat format, int alterCount, CancellationToken cancellationToken)
     {
-        return kind switch
+        return format switch
         {
-            ImportOperationKind.SimplyPlural =>
+            ImportFormat.SimplyPlural =>
                 _eventBus.PublishAsync(new SimplyPluralImportCompletedEvent(systemId, alterCount), cancellationToken),
-            ImportOperationKind.PluralKit =>
+            ImportFormat.PluralKit =>
                 _eventBus.PublishAsync(new PluralKitImportCompletedEvent(systemId, alterCount), cancellationToken),
+            ImportFormat.Octocon =>
+                _eventBus.PublishAsync(new OctoconImportCompletedEvent(systemId, alterCount), cancellationToken),
             _ => ValueTask.CompletedTask,
         };
     }
 
-    private ValueTask PublishFailureAsync(ScopedSystemId systemId, ImportOperationKind kind, CancellationToken cancellationToken)
+    private ValueTask PublishFailureAsync(SystemId systemId, ImportFormat format, CancellationToken cancellationToken)
     {
-        return kind switch
+        return format switch
         {
-            ImportOperationKind.SimplyPlural =>
+            ImportFormat.SimplyPlural =>
                 _eventBus.PublishAsync(new SimplyPluralImportFailedEvent(systemId), cancellationToken),
-            ImportOperationKind.PluralKit =>
+            ImportFormat.PluralKit =>
                 _eventBus.PublishAsync(new PluralKitImportFailedEvent(systemId), cancellationToken),
+            ImportFormat.Octocon =>
+                _eventBus.PublishAsync(new OctoconImportFailedEvent(systemId), cancellationToken),
             _ => ValueTask.CompletedTask,
         };
     }

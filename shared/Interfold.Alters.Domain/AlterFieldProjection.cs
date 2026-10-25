@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Interfold.Alters.Domain;
 
-// Backend-agnostic helpers for guarded alter-field projection so InMemory + Scylla repos
+// Backend-agnostic helpers for guarded alter-field projection so InMemory + Sqlite repos
 // share the visibility rules and can't drift.
 public static class AlterFieldProjection
 {

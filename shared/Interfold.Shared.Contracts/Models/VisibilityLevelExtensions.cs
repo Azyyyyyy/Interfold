@@ -7,7 +7,7 @@ namespace Interfold.Shared.Contracts.Models;
 // Unknown maps to Private — fail closed for non-owners.
 public static class VisibilityLevelExtensions
 {
-    /// <summary>Scylla rehydration. Null or unknown → <see cref="VisibilityLevel.Private"/>.</summary>
+    /// <summary>Database rehydration. Null or unknown → <see cref="VisibilityLevel.Private"/>.</summary>
     public static VisibilityLevel FromStorage(this short? code)
         => code.FromCode(VisibilityLevel.Private);
 

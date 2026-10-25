@@ -87,7 +87,7 @@ strict style above.
 /// scoped — any endpoint reaching this getter has already passed the JWT-sub
 /// validation. <see cref="ScopedSystemId"/> widens implicitly to
 /// <see cref="SystemId"/> at every persistence / repository call site, so this
-/// getter's byte value flows unchanged to Postgres idempotency and Scylla PKs.
+/// getter's byte value flows unchanged to persistence and idempotency stores.
 /// </summary>
 protected ScopedSystemId PrincipalId
 ```
@@ -124,11 +124,10 @@ archaeology.
 `[JsonConstructor]` overload:
 
 ```csharp
-// The 14-arg ctor above takes `bool?` for the flag trio so the CQL projections in
-// ScyllaAlterRepository can bind `row.GetValue<bool?>(...)` directly. STJ's
-// deserialiser refuses that ctor because `bool? untracked` doesn't type-match the
-// `bool Untracked` property — this second ctor takes plain `bool`, is marked
-// [JsonConstructor], and forwards.
+// The 14-arg ctor above takes `bool?` for the flag trio so database driver projections
+// can bind nullable columns directly. STJ's deserialiser refuses that ctor because
+// `bool? untracked` doesn't type-match the `bool Untracked` property — this second
+// ctor takes plain `bool`, is marked [JsonConstructor], and forwards.
 [JsonConstructor]
 public AlterReadModel(...)
 ```

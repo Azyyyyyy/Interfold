@@ -15,9 +15,6 @@ internal enum BootstrapPhase
     Firebase,
     DbInit,
     Launch,
-
-    /// <summary>Sub-phase hook inside db-init: halts after Postgres init, before Scylla init.</summary>
-    DbPostgres,
 }
 
 internal static class BootstrapPhaseExtensions
@@ -32,7 +29,6 @@ internal static class BootstrapPhaseExtensions
         BootstrapPhase.Firebase => "firebase",
         BootstrapPhase.DbInit => "db-init",
         BootstrapPhase.Launch => "launch",
-        BootstrapPhase.DbPostgres => "db-postgres",
         _ => throw new ArgumentOutOfRangeException(nameof(phase), phase, "Unhandled BootstrapPhase."),
     };
 

@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 namespace Interfold.Bootstrapper.Phases;
 
 /// <summary>
-/// Sqlite substitute for <see cref="DatabaseInitPhase"/>: creates the host data dir, runs
+/// Sqlite database initialization: creates the host data dir, runs
 /// embedded schema migrations, and upserts secrets the API's preload requires. No compose
 /// services are started — the API container bind-mounts this directory at publish time.
 /// </summary>

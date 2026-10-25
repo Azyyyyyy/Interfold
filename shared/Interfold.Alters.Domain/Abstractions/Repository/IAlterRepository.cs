@@ -8,6 +8,11 @@ public interface IAlterRepository
 {
     Task<AlterId?> CreateAsync(SystemId systemId, CreateAlterCommand command, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<AlterId>> ImportManyAsync(
+        SystemId systemId,
+        IReadOnlyList<ImportAlterWrite> alters,
+        CancellationToken cancellationToken = default);
+
     Task<bool> ExistsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default);
 
     Task<bool> UpdateAsync(SystemId systemId, UpdateAlterCommand command, CancellationToken cancellationToken = default);

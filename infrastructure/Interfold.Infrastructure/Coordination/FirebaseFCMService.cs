@@ -31,6 +31,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
     private readonly INotificationTokenRepository _tokens;
     private readonly IAccountRepository _accounts;
     private readonly IAlterRepository _alters;
+    private readonly IFcmSendRecorder _recorder;
     private readonly ILogger<FirebaseFCMService> _logger;
     private readonly ResiliencePipeline _resilience;
     private readonly SemaphoreSlim _initGate = new(1, 1);
@@ -42,12 +43,14 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
         INotificationTokenRepository tokens,
         IAccountRepository accounts,
         IAlterRepository alters,
+        IFcmSendRecorder recorder,
         ILogger<FirebaseFCMService> logger)
     {
         _options = options;
         _tokens = tokens;
         _accounts = accounts;
         _alters = alters;
+        _recorder = recorder;
         _logger = logger;
         _resilience = BuildResiliencePipeline(logger);
     }
@@ -63,20 +66,26 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
         var friendGroups = await _tokens.ListTokensForFriendsOfAsync(systemId, cancellationToken).ConfigureAwait(false);
         if (friendGroups.Count == 0)
         {
-            _logger.LogDebug("[fcm] system={SystemId} has no friend tokens to notify.", systemId);
+            _logger.LogInformation("[fcm] system={SystemId} has no friend tokens to notify.", systemId);
+            _recorder.Record(Attempt(systemId, skip: FcmSendSkipReasons.NoFriendTokens, alterIds: currentAlterIds));
             return;
         }
 
         var messaging = await EnsureMessagingAsync(cancellationToken).ConfigureAwait(false);
         if (messaging is null)
+        {
+            _logger.LogInformation("[fcm] system={SystemId} skipped: Firebase Messaging unavailable.", systemId);
+            _recorder.Record(Attempt(systemId, skip: FcmSendSkipReasons.MessagingUnavailable, alterIds: currentAlterIds));
             return;
+        }
 
         var profile = await _accounts.GetPublicProfileAsync(systemId, cancellationToken).ConfigureAwait(false);
         var frontingDisplayName = profile?.Username is { } username && !string.IsNullOrWhiteSpace(username.Value)
             ? username.Value
             : "A friend";
 
-        // Relative path — each client resolves against its own origin.
+        // FCM webpush Link must be an https URL. A relative path is dropped (not sent)
+        // so the multicast is not rejected for web tokens.
         var deepLink = $"/system/{Uri.EscapeDataString(systemId.Value)}";
         var frontEnded = currentAlterIds.Count == 0;
         var currentAlterSet = frontEnded ? null : new HashSet<AlterId>(currentAlterIds);
@@ -102,9 +111,15 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
                 if (visibleAlters.Length == 0)
                 {
                     // Skip rather than leak "something changed" via an empty payload.
-                    _logger.LogDebug(
+                    _logger.LogInformation(
                         "[fcm] Skipping friend={FriendSystemId} for system={SystemId}: no visible fronting alters.",
                         friendGroup.FriendSystemId, systemId);
+                    _recorder.Record(Attempt(
+                        systemId,
+                        friendGroup.FriendSystemId,
+                        skip: FcmSendSkipReasons.NoVisibleFronts,
+                        alterIds: currentAlterIds,
+                        tokenCount: friendGroup.Tokens.Count));
                     continue;
                 }
 
@@ -121,6 +136,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
                 [FcmPayloadKeys.DeepLink] = deepLink,
             };
 
+            var title = $"Front update: {frontingDisplayName}";
             foreach (var chunk in friendGroup.Tokens.Chunk(FcmMulticastMax))
             {
                 var message = new MulticastMessage
@@ -128,14 +144,11 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
                     Tokens = chunk.Select(t => t.Value).ToArray(),
                     Notification = new Notification
                     {
-                        Title = $"Front update: {frontingDisplayName}",
+                        Title = title,
                         Body = body,
                     },
                     Data = data,
-                    Webpush = new WebpushConfig
-                    {
-                        FcmOptions = new WebpushFcmOptions { Link = deepLink },
-                    },
+                    Webpush = TryWebpush(deepLink),
                 };
 
                 BatchResponse? response;
@@ -154,8 +167,28 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
                     _logger.LogWarning(ex,
                         "[fcm] Multicast send failed for system={SystemId} friend={FriendSystemId} tokens={TokenCount}",
                         systemId, friendGroup.FriendSystemId, chunk.Length);
+                    _recorder.Record(Attempt(
+                        systemId,
+                        friendGroup.FriendSystemId,
+                        skip: FcmSendSkipReasons.MulticastFailed,
+                        title: title,
+                        body: body,
+                        alterIds: visibleIds,
+                        tokenCount: chunk.Length,
+                        errorCodes: [ex.GetType().Name]));
                     continue;
                 }
+
+                _recorder.Record(Attempt(
+                    systemId,
+                    friendGroup.FriendSystemId,
+                    title: title,
+                    body: body,
+                    alterIds: visibleIds,
+                    tokenCount: chunk.Length,
+                    successCount: response.SuccessCount,
+                    failureCount: response.FailureCount,
+                    errorCodes: CollectErrorCodes(response)));
 
                 await PruneInvalidTokensAsync(chunk, response, cancellationToken).ConfigureAwait(false);
             }
@@ -300,4 +333,52 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             // Double-dispose race — harmless at shutdown.
         }
     }
+
+    private static WebpushConfig? TryWebpush(string deepLink)
+    {
+        if (Uri.TryCreate(deepLink, UriKind.Absolute, out var uri) &&
+            string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            return new WebpushConfig { FcmOptions = new WebpushFcmOptions { Link = deepLink } };
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<string> CollectErrorCodes(BatchResponse response)
+    {
+        if (response.FailureCount == 0)
+            return [];
+
+        return response.Responses
+            .Where(r => !r.IsSuccess)
+            .Select(r => (r.Exception as FirebaseMessagingException)?.MessagingErrorCode?.ToString()
+                         ?? r.Exception?.GetType().Name
+                         ?? "unknown")
+            .ToArray();
+    }
+
+    private static FcmSendAttempt Attempt(
+        SystemId systemId,
+        SystemId? friendSystemId = null,
+        string? skip = null,
+        string? title = null,
+        string? body = null,
+        IReadOnlyList<AlterId>? alterIds = null,
+        int tokenCount = 0,
+        int successCount = 0,
+        int failureCount = 0,
+        IReadOnlyList<string>? errorCodes = null)
+        => new(
+            SystemId: systemId.Value,
+            FriendSystemId: friendSystemId?.Value,
+            SkipReason: skip,
+            Title: title,
+            Body: body,
+            AlterIds: alterIds?.Select(id => id.Value.ToString()).ToArray() ?? [],
+            TokenCount: tokenCount,
+            SuccessCount: successCount,
+            FailureCount: failureCount,
+            ErrorCodes: errorCodes ?? [],
+            At: DateTimeOffset.UtcNow);
 }

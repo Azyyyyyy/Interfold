@@ -33,7 +33,7 @@ public static class SocketEventPumpRunner
         IJournalRepository journalRepository,
         IEncryptionStateRepository encryptionStateRepository)
     {
-        // All subscriptions filter on context.JoinedScopedSystemId (ITargetedClusterEvent
+        // All subscriptions filter on context.JoinedSystemId (ITargetedClusterEvent
         // → only this user's publishes fire).
         return Task.WhenAll(
             SubscribeAsync<FrontingStartedEvent>(eventBus, context, evt => FrontingSocketEventHandlers.HandleAsync(evt, context, frontingRepository)),
@@ -81,7 +81,9 @@ public static class SocketEventPumpRunner
             SubscribeAsync<SimplyPluralImportCompletedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)),
             SubscribeAsync<SimplyPluralImportFailedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)),
             SubscribeAsync<PluralKitImportCompletedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)),
-            SubscribeAsync<PluralKitImportFailedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)));
+            SubscribeAsync<PluralKitImportFailedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)),
+            SubscribeAsync<OctoconImportCompletedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)),
+            SubscribeAsync<OctoconImportFailedEvent>(eventBus, context, evt => ImportSocketEventHandlers.HandleAsync(evt, context)));
     }
 
     private static async Task SubscribeAsync<TEvent>(
@@ -93,7 +95,7 @@ public static class SocketEventPumpRunner
         // Wrap the per-event dispatch so a single handler exception can't kill the
         // subscription (transient cancel from a retry Task.Delay, socket write during
         // teardown, etc.). Cancellation still exits cleanly via MoveNextAsync.
-        await foreach (var evt in eventBus.SubscribeAsync<TEvent>(context.JoinedScopedSystemId, context.CancellationToken).ConfigureAwait(false))
+        await foreach (var evt in eventBus.SubscribeAsync<TEvent>(context.JoinedSystemId, context.CancellationToken).ConfigureAwait(false))
         {
             try
             {

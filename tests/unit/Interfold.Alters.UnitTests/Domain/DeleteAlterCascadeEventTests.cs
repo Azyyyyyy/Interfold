@@ -9,7 +9,6 @@ using Interfold.Journals.Contracts.Events;
 using Interfold.Journals.Contracts.Ids;
 using Interfold.Polls.Contracts.Events;
 using Interfold.Polls.Contracts.Ids;
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
@@ -23,8 +22,7 @@ namespace Interfold.Api.UnitTests.Domain;
 
 public sealed class DeleteAlterCascadeEventTests
 {
-    private static readonly ScopedSystemId Principal =
-        ScopedSystemId.Compose(ScyllaKeyspace.Nam, "altdel");
+    private static readonly SystemId Principal = new SystemId("altdel");
 
     [Test]
     public async Task DeleteAlter_PublishesEventsForCascadedRows()
