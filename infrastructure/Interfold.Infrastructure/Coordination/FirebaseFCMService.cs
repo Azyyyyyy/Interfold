@@ -1,10 +1,13 @@
-using FirebaseAdmin;
-using FirebaseAdmin.Messaging;
-using Google.Apis.Auth.OAuth2;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Settings.Contracts.Configuration;
 using Interfold.Settings.Contracts.Ids;
 using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Secrets;
 using Interfold.Shared.Domain.Abstractions;
@@ -12,7 +15,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Retry;
-using Interfold.Shared.Contracts;
 
 namespace Interfold.Infrastructure.Coordination;
 
@@ -21,11 +23,10 @@ namespace Interfold.Infrastructure.Coordination;
 /// otherwise <see cref="NullFCMService"/> takes over.</summary>
 public sealed class FirebaseFCMService : IFCMService, IDisposable
 {
-    // Process-local registry key for FirebaseApp.Create/GetInstance.
-    private const string FirebaseAppName = "interfold-fcm";
-
     // FCM v1 multicast cap: https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages/send
     private const int FcmMulticastMax = 500;
+
+    private const string FcmSendUrlFormat = "https://fcm.googleapis.com/v1/projects/{0}/messages:send";
 
     private readonly IOptions<FcmConfiguration> _options;
     private readonly INotificationTokenRepository _tokens;
@@ -35,8 +36,9 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
     private readonly ILogger<FirebaseFCMService> _logger;
     private readonly ResiliencePipeline _resilience;
     private readonly SemaphoreSlim _initGate = new(1, 1);
-    private FirebaseMessaging? _messaging;
-    private FirebaseApp? _app;
+    private readonly HttpClient _http;
+    private readonly GoogleServiceAccountOAuth _oauth;
+    private GoogleServiceAccountCredential? _credential;
 
     public FirebaseFCMService(
         IOptions<FcmConfiguration> options,
@@ -44,6 +46,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
         IAccountRepository accounts,
         IAlterRepository alters,
         IFcmSendRecorder recorder,
+        IHttpClientFactory httpClientFactory,
         ILogger<FirebaseFCMService> logger)
     {
         _options = options;
@@ -52,6 +55,8 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
         _alters = alters;
         _recorder = recorder;
         _logger = logger;
+        _http = httpClientFactory.CreateClient(HttpClientNames.Fcm);
+        _oauth = new GoogleServiceAccountOAuth(_http);
         _resilience = BuildResiliencePipeline(logger);
     }
 
@@ -71,8 +76,8 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             return;
         }
 
-        var messaging = await EnsureMessagingAsync(cancellationToken).ConfigureAwait(false);
-        if (messaging is null)
+        var credential = await EnsureCredentialAsync(cancellationToken).ConfigureAwait(false);
+        if (credential is null)
         {
             _logger.LogInformation("[fcm] system={SystemId} skipped: Firebase Messaging unavailable.", systemId);
             _recorder.Record(Attempt(systemId, skip: FcmSendSkipReasons.MessagingUnavailable, alterIds: currentAlterIds));
@@ -137,26 +142,23 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             };
 
             var title = $"Front update: {frontingDisplayName}";
+            var notification = new FcmNotification { Title = title, Body = body };
+            var webpush = TryWebpush(deepLink);
+            var sendUrl = string.Format(
+                FcmSendUrlFormat,
+                Uri.EscapeDataString(credential.ProjectId!));
+
             foreach (var chunk in friendGroup.Tokens.Chunk(FcmMulticastMax))
             {
-                var message = new MulticastMessage
-                {
-                    Tokens = chunk.Select(t => t.Value).ToArray(),
-                    Notification = new Notification
-                    {
-                        Title = title,
-                        Body = body,
-                    },
-                    Data = data,
-                    Webpush = TryWebpush(deepLink),
-                };
-
-                BatchResponse? response;
+                IReadOnlyList<TokenSendResult> results;
                 try
                 {
-                    response = await _resilience.ExecuteAsync(
-                        async ct => await messaging.SendEachForMulticastAsync(message, ct).ConfigureAwait(false),
+                    await _resilience.ExecuteAsync(
+                        async ct => await _oauth.GetAccessTokenAsync(credential, ct).ConfigureAwait(false),
                         cancellationToken).ConfigureAwait(false);
+
+                    results = await Task.WhenAll(chunk.Select(token =>
+                        SendOneAsync(sendUrl, token, notification, data, webpush, cancellationToken))).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -179,6 +181,21 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
                     continue;
                 }
 
+                var successCount = 0;
+                var failureCount = 0;
+                List<string>? errorCodes = null;
+                foreach (var result in results)
+                {
+                    if (result.Success)
+                    {
+                        successCount++;
+                        continue;
+                    }
+
+                    failureCount++;
+                    (errorCodes ??= []).Add(result.ErrorCode ?? "unknown");
+                }
+
                 _recorder.Record(Attempt(
                     systemId,
                     friendGroup.FriendSystemId,
@@ -186,42 +203,97 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
                     body: body,
                     alterIds: visibleIds,
                     tokenCount: chunk.Length,
-                    successCount: response.SuccessCount,
-                    failureCount: response.FailureCount,
-                    errorCodes: CollectErrorCodes(response)));
+                    successCount: successCount,
+                    failureCount: failureCount,
+                    errorCodes: errorCodes));
 
-                await PruneInvalidTokensAsync(chunk, response, cancellationToken).ConfigureAwait(false);
+                await PruneInvalidTokensAsync(chunk, results, cancellationToken).ConfigureAwait(false);
             }
         }
     }
 
-    // Prune tokens flagged as permanently invalid (Unregistered / InvalidArgument); other
+    private async Task<TokenSendResult> SendOneAsync(
+        string sendUrl,
+        PushToken token,
+        FcmNotification notification,
+        Dictionary<string, string> data,
+        FcmWebpushConfig? webpush,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _resilience.ExecuteAsync(
+                async ct =>
+                {
+                    var accessToken = await _oauth.GetAccessTokenAsync(_credential!, ct).ConfigureAwait(false);
+                    var request = new FcmSendRequest
+                    {
+                        Message = new FcmMessage
+                        {
+                            Token = token.Value,
+                            Notification = notification,
+                            Data = data,
+                            Webpush = webpush,
+                        },
+                    };
+
+                    using var httpRequest = new HttpRequestMessage(HttpMethod.Post, sendUrl);
+                    httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                    httpRequest.Content = JsonContent.Create(request, FcmJsonContext.Default.FcmSendRequest);
+
+                    using var response = await _http.SendAsync(httpRequest, ct).ConfigureAwait(false);
+                    if (response.IsSuccessStatusCode)
+                        return new TokenSendResult(true, null, false);
+
+                    var error = await ReadFcmErrorAsync(response, ct).ConfigureAwait(false);
+                    if (error.Unauthorized)
+                    {
+                        _oauth.Invalidate();
+                        throw new FcmHttpException(FcmHttpErrorCodes.Unauthenticated);
+                    }
+
+                    if (error.Transient)
+                        throw new FcmHttpException(error.Code);
+
+                    return new TokenSendResult(false, error.Code, error.Prune);
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (FcmHttpException ex)
+        {
+            return new TokenSendResult(false, ex.ErrorCode, false);
+        }
+        catch (Exception ex)
+        {
+            return new TokenSendResult(false, ex.GetType().Name, false);
+        }
+    }
+
+    // Prune tokens flagged as permanently invalid (UNREGISTERED / INVALID_ARGUMENT); other
     // failures are logged and left in place so the next flush retries.
     private async Task PruneInvalidTokensAsync(
         IReadOnlyList<PushToken> tokens,
-        BatchResponse response,
+        IReadOnlyList<TokenSendResult> results,
         CancellationToken cancellationToken)
     {
-        if (response.FailureCount == 0)
-            return;
-
-        for (var i = 0; i < response.Responses.Count; i++)
+        for (var i = 0; i < results.Count; i++)
         {
-            var single = response.Responses[i];
-            if (single.IsSuccess) continue;
+            var result = results[i];
+            if (result.Success) continue;
 
             var token = tokens[i];
-
-            if (single.Exception is FirebaseMessagingException fmEx &&
-                (fmEx.MessagingErrorCode == MessagingErrorCode.Unregistered ||
-                 fmEx.MessagingErrorCode == MessagingErrorCode.InvalidArgument))
+            if (result.Prune)
             {
                 try
                 {
                     await _tokens.RemoveAsync(token, cancellationToken).ConfigureAwait(false);
                     _logger.LogInformation(
                         "[fcm] Pruned invalid token ({Code}). token_prefix={TokenPrefix}",
-                        fmEx.MessagingErrorCode, TokenPrefix(token.Value));
+                        result.ErrorCode, TokenPrefix(token.Value));
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -232,10 +304,10 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             }
             else
             {
-                _logger.LogWarning(single.Exception,
+                _logger.LogWarning(
                     "[fcm] Per-token delivery failure. token_prefix={TokenPrefix} code={Code}",
                     TokenPrefix(token.Value),
-                    (single.Exception as FirebaseMessagingException)?.MessagingErrorCode);
+                    result.ErrorCode);
             }
         }
     }
@@ -245,17 +317,15 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             : token.Length <= 6 ? "***"
             : token[..6];
 
-    // FirebaseApp.Create throws on duplicate name — gate first-use and treat
-    // "already exists" as a race we lost.
-    private async Task<FirebaseMessaging?> EnsureMessagingAsync(CancellationToken ct)
+    private async Task<GoogleServiceAccountCredential?> EnsureCredentialAsync(CancellationToken ct)
     {
-        var existing = Volatile.Read(ref _messaging);
+        var existing = Volatile.Read(ref _credential);
         if (existing is not null) return existing;
 
         await _initGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_messaging is not null) return _messaging;
+            if (_credential is not null) return _credential;
 
             var serviceAccountJson = _options.Value.ServiceAccountJson;
             if (string.IsNullOrWhiteSpace(serviceAccountJson))
@@ -268,25 +338,41 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
                 return null;
             }
 
-            var options = new AppOptions
+            GoogleServiceAccountCredential? parsed;
+            try
             {
-                Credential = CredentialFactory
-                    .FromJson<ServiceAccountCredential>(serviceAccountJson)
-                    .ToGoogleCredential(),
-            };
+                parsed = JsonSerializer.Deserialize(
+                    serviceAccountJson,
+                    FcmJsonContext.Default.GoogleServiceAccountCredential);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "[fcm] {Key} is not valid service-account JSON.", SecretsStoreKeys.FcmServiceAccountJson);
+                return null;
+            }
+
+            if (parsed is not { IsUsable: true })
+            {
+                _logger.LogError(
+                    "[fcm] {Key} is missing project_id, client_email, or private_key.",
+                    SecretsStoreKeys.FcmServiceAccountJson);
+                return null;
+            }
 
             try
             {
-                _app = FirebaseApp.Create(options, FirebaseAppName);
+                using var rsa = RSA.Create();
+                rsa.ImportFromPem(GoogleServiceAccountOAuth.NormalizePem(parsed.PrivateKey!).AsSpan());
             }
-            catch (ArgumentException)
+            catch (CryptographicException ex)
             {
-                _app = FirebaseApp.GetInstance(FirebaseAppName);
+                _logger.LogError(ex, "[fcm] {Key} private_key is not a usable RSA PEM.", SecretsStoreKeys.FcmServiceAccountJson);
+                return null;
             }
 
-            _messaging = FirebaseMessaging.GetMessaging(_app);
-            _logger.LogInformation("[fcm] Firebase Admin initialised for FCM v1 send (app={AppName}).", FirebaseAppName);
-            return _messaging;
+            _credential = parsed;
+            _logger.LogInformation("[fcm] FCM HTTP v1 sender ready (project={ProjectId}).", parsed.ProjectId);
+            return _credential;
         }
         finally
         {
@@ -294,16 +380,14 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
         }
     }
 
-    // Hand-rolled — FirebaseAdmin owns its HttpClient so Microsoft.Extensions.Http.Resilience
-    // can't wrap it. Retries only the two transient FCM codes + transport failures.
+    // Retries the two transient FCM codes + 401-after-invalidate + transport failures.
+    // Per-token so one bad device does not replay the whole 500-token chunk.
     private static ResiliencePipeline BuildResiliencePipeline(ILogger logger) =>
         new ResiliencePipelineBuilder()
             .AddRetry(new RetryStrategyOptions
             {
                 ShouldHandle = new PredicateBuilder()
-                    .Handle<FirebaseMessagingException>(ex =>
-                        ex.MessagingErrorCode == MessagingErrorCode.Unavailable ||
-                        ex.MessagingErrorCode == MessagingErrorCode.Internal)
+                    .Handle<FcmHttpException>(ex => ex.IsTransient)
                     .Handle<HttpRequestException>()
                     .Handle<TaskCanceledException>(),
                 BackoffType = DelayBackoffType.Exponential,
@@ -324,39 +408,58 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
     public void Dispose()
     {
         _initGate.Dispose();
-        try
-        {
-            _app?.Delete();
-        }
-        catch
-        {
-            // Double-dispose race — harmless at shutdown.
-        }
+        _oauth.Dispose();
     }
 
-    private static WebpushConfig? TryWebpush(string deepLink)
+    private static FcmWebpushConfig? TryWebpush(string deepLink)
     {
         if (Uri.TryCreate(deepLink, UriKind.Absolute, out var uri) &&
             string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
-            return new WebpushConfig { FcmOptions = new WebpushFcmOptions { Link = deepLink } };
+            return new FcmWebpushConfig { FcmOptions = new FcmWebpushFcmOptions { Link = deepLink } };
         }
 
         return null;
     }
 
-    private static IReadOnlyList<string> CollectErrorCodes(BatchResponse response)
+    private static async Task<FcmErrorRead> ReadFcmErrorAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
     {
-        if (response.FailureCount == 0)
-            return [];
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+            return new FcmErrorRead(FcmHttpErrorCodes.Unauthenticated, Transient: true, Prune: false, Unauthorized: true);
 
-        return response.Responses
-            .Where(r => !r.IsSuccess)
-            .Select(r => (r.Exception as FirebaseMessagingException)?.MessagingErrorCode?.ToString()
-                         ?? r.Exception?.GetType().Name
-                         ?? "unknown")
-            .ToArray();
+        var fallback = FallbackCode(response.StatusCode);
+        try
+        {
+            var parsed = await response.Content
+                .ReadFromJsonAsync(FcmJsonContext.Default.GoogleErrorResponse, cancellationToken)
+                .ConfigureAwait(false);
+            var code = parsed?.Error?.Details?.Select(d => d.ErrorCode).FirstOrDefault(static c => !string.IsNullOrEmpty(c))
+                       ?? parsed?.Error?.Status
+                       ?? fallback;
+            return new FcmErrorRead(
+                code,
+                FcmHttpErrorCodes.IsTransient(code),
+                FcmHttpErrorCodes.IsInvalidToken(code),
+                code == FcmHttpErrorCodes.Unauthenticated);
+        }
+        catch (JsonException)
+        {
+            return new FcmErrorRead(
+                fallback,
+                FcmHttpErrorCodes.IsTransient(fallback),
+                Prune: false,
+                Unauthorized: false);
+        }
     }
+
+    private static string FallbackCode(HttpStatusCode status) => status switch
+    {
+        HttpStatusCode.InternalServerError => FcmHttpErrorCodes.Internal,
+        HttpStatusCode.ServiceUnavailable => FcmHttpErrorCodes.Unavailable,
+        _ => status.ToString(),
+    };
 
     private static FcmSendAttempt Attempt(
         SystemId systemId,
@@ -381,4 +484,8 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             FailureCount: failureCount,
             ErrorCodes: errorCodes ?? [],
             At: DateTimeOffset.UtcNow);
+
+    private readonly record struct TokenSendResult(bool Success, string? ErrorCode, bool Prune);
+
+    private readonly record struct FcmErrorRead(string Code, bool Transient, bool Prune, bool Unauthorized);
 }

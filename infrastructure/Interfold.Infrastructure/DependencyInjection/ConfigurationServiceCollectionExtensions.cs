@@ -1,5 +1,6 @@
 using Interfold.Settings.Contracts.Configuration;
 using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration.Validation;
 using Interfold.Shared.Contracts.Enums;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,52 +17,49 @@ public static class ConfigurationServiceCollectionExtensions
     {
         // Cross-field IValidatableObject fires at ValidateOnStart so malformed retry
         // knobs / missing SQLite connection strings fail at boot, not first query.
+        services.AddSingleton<IValidateOptions<PersistenceConfiguration>, PersistenceConfigurationValidator>();
         services.AddOptions<PersistenceConfiguration>()
             .Configure<IConfiguration>(ApplyPersistence)
-            .ValidateDataAnnotations()
             .ValidateOnStart();
 
         // Platform variants land via FirebaseClientSecretsPostConfigure; a malformed
         // internal.secrets row surfaces at boot as an InvalidOperationException.
         services.AddOptions<FirebaseClientConfiguration>()
             .Configure<IConfiguration>(ApplyFirebaseClient)
-            .ValidateDataAnnotations()
             .ValidateOnStart();
 
         // No [Required] — absent internal.secrets row is a supported state (→ NullFCMService).
         // ValidateOnStart still runs so FcmSecretsPostConfigure fires at boot.
         services.AddOptions<FcmConfiguration>()
-            .Configure<IConfiguration>((opts, config) => config.GetSection(FcmConfiguration.SectionName).Bind(opts))
+            .Configure<IConfiguration>(ApplyFcm)
             .ValidateOnStart();
 
+        services.AddSingleton<IValidateOptions<ObservabilityConfiguration>, ObservabilityConfigurationValidator>();
         services.AddOptions<ObservabilityConfiguration>()
             .Configure<IConfiguration>(ApplyObservability)
-            .ValidateDataAnnotations()
             .ValidateOnStart();
 
         services.AddOptions<TrustOptions>()
             .Configure<IConfiguration>(ApplyTrust)
-            .ValidateDataAnnotations()
             .ValidateOnStart();
 
+        services.AddSingleton<IValidateOptions<StorageConfiguration>, StorageConfigurationValidator>();
         AddLiveReloadable<StorageConfiguration>(services, ApplyStorage)
-            .ValidateDataAnnotations()
             .ValidateOnStart();
 
+        services.AddSingleton<IValidateOptions<SocketConfiguration>, SocketConfigurationValidator>();
         AddLiveReloadable<SocketConfiguration>(services, ApplySocket)
-            .ValidateDataAnnotations()
             .ValidateOnStart();
 
         // Startup-only — the ASP.NET Core default CorsPolicyProvider does not rebuild
         // policies on reload. Per-entry [AbsoluteHttpUri] validation runs at boot.
+        services.AddSingleton<IValidateOptions<CorsOptions>, CorsOptionsValidator>();
         services.AddOptions<CorsOptions>()
             .Configure<IConfiguration>(ApplyCors)
-            .ValidateDataAnnotations()
             .ValidateOnStart();
 
         services.AddOptions<InMemorySecretsSeedOptions>()
             .Configure<IConfiguration>(ApplyInMemorySecretsSeed)
-            .ValidateDataAnnotations()
             .ValidateOnStart();
 
         services.AddOptions<FrontNotifierConfiguration>()
@@ -103,6 +101,12 @@ public static class ConfigurationServiceCollectionExtensions
 
     // Every platform variant is populated by FirebaseClientSecretsPostConfigure; nothing to
     // bind from env.
+    private static void ApplyFcm(FcmConfiguration opts, IConfiguration config)
+    {
+        var section = config.GetSection(FcmConfiguration.SectionName);
+        opts.ServiceAccountJson = NullIfEmpty(section[nameof(FcmConfiguration.ServiceAccountJson)]);
+    }
+
     private static void ApplyFirebaseClient(FirebaseClientConfiguration opts, IConfiguration config)
     {
         opts.Android = null;

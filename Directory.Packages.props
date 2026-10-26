@@ -20,10 +20,10 @@
          pin is deliberately exact too: bumping the SDK in global.json then
          forces the reader to bump this line together, and vice-versa —
          drift becomes a compile-time surprise rather than a runtime one. -->
-    <PackageVersion Include="Aspire.Hosting.Docker" Version="13.4.6" />
+    <PackageVersion Include="Aspire.Hosting.Docker" Version="13.6.4" />
 
     <!-- ASP.NET Core -->
-    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.*" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.*" />
     <!-- Preview-only; `-*` needed to include prereleases. -->
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.*-*" />
 
@@ -32,13 +32,11 @@
     <PackageVersion Include="Dapper.AOT" Version="1.*" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.*" />
 
-    <!-- Firebase -->
-    <PackageVersion Include="FirebaseAdmin" Version="3.*" />
-
     <!-- Microsoft.Extensions.* — the whole family floats together on major 10. -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.*" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="10.*" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.*" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.*" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.*" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.*" />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="10.*" />
@@ -58,10 +56,9 @@
     <PackageVersion Include="Polly.Core" Version="8.*" />
 
     <!-- Serialization / typing -->
-    <PackageVersion Include="Newtonsoft.Json" Version="13.*" />
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.*" />
     <PackageVersion Include="OneOf" Version="3.*" />
     <PackageVersion Include="OneOf.SourceGenerator" Version="3.*" />
-    <PackageVersion Include="Swashbuckle.AspNetCore" Version="6.*" />
 
     <!-- Cryptography -->
     <PackageVersion Include="Isopoh.Cryptography.Argon2" Version="2.*" />

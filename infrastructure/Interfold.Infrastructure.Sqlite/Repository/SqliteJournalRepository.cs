@@ -465,26 +465,28 @@ public sealed class SqliteJournalRepository : IJournalRepository
             return false;
         }
 
-        var sql = column == "pinned"
-            ? """
-              UPDATE global_journals
-              SET pinned = @flag, updated_at = @updated_at
-              WHERE user_id = @user_id AND id = @id
-              """
-            : """
-              UPDATE global_journals
-              SET locked = @flag, updated_at = @updated_at
-              WHERE user_id = @user_id AND id = @id
-              """;
-        var rows = await connection.ExecuteAsync(
-            sql,
-            new
-            {
-                flag = value ? 1 : 0,
-                updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
-                user_id = systemId,
-                id = FormatEntryId(entryId.Value),
-            });
+        var args = new
+        {
+            flag = value ? 1 : 0,
+            updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
+            user_id = systemId,
+            id = FormatEntryId(entryId.Value),
+        };
+        var rows = column == "pinned"
+            ? await connection.ExecuteAsync(
+                """
+                UPDATE global_journals
+                SET pinned = @flag, updated_at = @updated_at
+                WHERE user_id = @user_id AND id = @id
+                """,
+                args)
+            : await connection.ExecuteAsync(
+                """
+                UPDATE global_journals
+                SET locked = @flag, updated_at = @updated_at
+                WHERE user_id = @user_id AND id = @id
+                """,
+                args);
         return rows > 0;
     }
 
@@ -496,26 +498,28 @@ public sealed class SqliteJournalRepository : IJournalRepository
         CancellationToken cancellationToken)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var sql = column == "pinned"
-            ? """
-              UPDATE alter_journals
-              SET pinned = @flag, updated_at = @updated_at
-              WHERE user_id = @user_id AND id = @id
-              """
-            : """
-              UPDATE alter_journals
-              SET locked = @flag, updated_at = @updated_at
-              WHERE user_id = @user_id AND id = @id
-              """;
-        var updated = await connection.ExecuteAsync(
-            sql,
-            new
-            {
-                flag = value ? 1 : 0,
-                updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
-                user_id = systemId,
-                id = FormatEntryId(entryId.Value),
-            });
+        var args = new
+        {
+            flag = value ? 1 : 0,
+            updated_at = _clock.GetUtcNow().ToUnixTimeMilliseconds(),
+            user_id = systemId,
+            id = FormatEntryId(entryId.Value),
+        };
+        var updated = column == "pinned"
+            ? await connection.ExecuteAsync(
+                """
+                UPDATE alter_journals
+                SET pinned = @flag, updated_at = @updated_at
+                WHERE user_id = @user_id AND id = @id
+                """,
+                args)
+            : await connection.ExecuteAsync(
+                """
+                UPDATE alter_journals
+                SET locked = @flag, updated_at = @updated_at
+                WHERE user_id = @user_id AND id = @id
+                """,
+                args);
         return updated > 0;
     }
 
@@ -526,7 +530,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
         CancellationToken cancellationToken,
         SqliteTransaction? transaction = null)
     {
-        var hit = await connection.ExecuteScalarAsync(
+        var hit = await connection.ExecuteScalarAsync<long?>(
             """
             SELECT 1 FROM global_journals
             WHERE user_id = @user_id AND id = @id
@@ -538,7 +542,7 @@ public sealed class SqliteJournalRepository : IJournalRepository
                 id = FormatEntryId(entryId.Value),
             },
             transaction);
-        return hit is not null and not DBNull;
+        return hit is not null;
     }
 
     private static async Task<bool> ExistsAlterAsync(
@@ -547,14 +551,14 @@ public sealed class SqliteJournalRepository : IJournalRepository
         EntryId entryId,
         CancellationToken cancellationToken)
     {
-        var hit = await connection.ExecuteScalarAsync(
+        var hit = await connection.ExecuteScalarAsync<long?>(
             """
             SELECT 1 FROM alter_journals
             WHERE user_id = @user_id AND id = @id
             LIMIT 1
             """,
             new { user_id = systemId, id = FormatEntryId(entryId.Value) });
-        return hit is not null and not DBNull;
+        return hit is not null;
     }
 
     private static async Task<IReadOnlyList<AlterId>> LoadAlterIdsAsync(
@@ -606,28 +610,4 @@ public sealed class SqliteJournalRepository : IJournalRepository
     private static DateTime FromUnixMs(long ms)
         => DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;
 
-    private sealed record AlterJournalRefRow(string Id, long AlterId);
-
-    private sealed record GlobalJournalRow(
-        string Id,
-        SystemId UserId,
-        string Title,
-        string? Content,
-        string? Color,
-        long Pinned,
-        long Locked,
-        long InsertedAt,
-        long UpdatedAt);
-
-    private sealed record AlterJournalRow(
-        string Id,
-        SystemId UserId,
-        long AlterId,
-        string Title,
-        string? Content,
-        string? Color,
-        long Pinned,
-        long Locked,
-        long InsertedAt,
-        long UpdatedAt);
 }

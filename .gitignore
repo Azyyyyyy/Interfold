@@ -53,7 +53,9 @@ scripts/keys/**
 
 # Launch settings (contains OAuth secrets, credentials)
 **/Properties/launchSettings.json
-artifacts/lifecycle-probe.ndjson
+
+# Local dumps (AOT test publishes, lifecycle probe, leftover container builds).
+artifacts/
 
 # Internal docs (roadmap, active/archive workstreams) — not for public git yet.
 # Tracked exceptions: operator reference + the Sqlite mode design doc (scaffolding slice).

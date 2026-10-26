@@ -37,7 +37,8 @@ env:
   DOTNET_VERSION: '10.0.x'
 
 jobs:
-  # prepare: emit tests/integration/*/ as a JSON array for test-int's matrix,
+  # prepare: emit tests/unit/*/ and tests/integration/*/ as JSON arrays for the
+  # AOT test matrices,
   # and path gates for expensive optional work:
   #   - bootstrapper: AppHost / ServiceDefaults / Bootstrapper tool + packaging/tests
   #     (API-only diffs stay off — AppHost references Api.Host but the bootstrapper
@@ -46,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
+      unit-matrix: ${{ steps.set-matrix.outputs.unit-matrix }}
       bootstrapper: ${{ steps.bootstrapper.outputs.changed }}
     steps:
       - name: Checkout code
@@ -106,7 +108,7 @@ jobs:
             echo "Bootstrapper gate: OFF (no AppHost / ServiceDefaults / Bootstrapper changes)"
           fi
 
-      - name: Enumerate integration test projects
+      - name: Enumerate test projects
         id: set-matrix
         env:
           BOOTSTRAPPER: ${{ steps.bootstrapper.outputs.changed }}
@@ -115,17 +117,23 @@ jobs:
           projects=$(ls -d tests/integration/*/ \
             | sed 's:tests/integration/::;s:/$::' \
             | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          unit=$(ls -d tests/unit/*/ \
+            | sed 's:tests/unit/::;s:/$::' \
+            | jq -R -s -c 'split("\n") | map(select(length > 0))')
           if [ "$BOOTSTRAPPER" != "true" ]; then
             projects=$(jq -c 'map(select(. != "Interfold.Bootstrapper.IntegrationTests"))' <<<"$projects")
+            unit=$(jq -c 'map(select(. != "Interfold.Bootstrapper.UnitTests"))' <<<"$unit")
           fi
           echo "matrix=$projects" >> "$GITHUB_OUTPUT"
+          echo "unit-matrix=$unit" >> "$GITHUB_OUTPUT"
           echo "Discovered integration test projects: $projects"
+          echo "Discovered unit test projects: $unit"
           echo "bootstrapper=$BOOTSTRAPPER"
 
   # build: whole-solution compile + bootstrapper buildx (matrix size gated by
   # `FULL_BOOTSTRAPPER_BUILD` below). Uploads per-RID `interfold-bootstrap-<rid>`
-  # tar.gz artefacts + a `dotnet-build-<sha>` artefact carrying the test-project
-  # bins for downstream direct-DLL launch.
+  # tar.gz artefacts + a `dotnet-build-<sha>` artefact carrying JIT test-project
+  # bins (cobertura collection; Native AOT hosts cannot emit it) and `tools/*/bin`.
   build:
     runs-on: ubuntu-latest
     needs: prepare
@@ -215,12 +223,69 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # test-unit: single job, loops over every `tests/unit/*/` project. Includes
-  # `BinarySizeGuardrailTests`, which reads the staged linux-x64 binary from the
-  # build artefact - see `BinarySizeGuardrailTests.LocatePublishedBinary`.
+  # publish-aot-smoke: linux-x64 Native AOT publish of Interfold.Api.Host plus a
+  # /health/live boot. Runs on the matching ubuntu runner (not QEMU). First-party
+  # IL warnings fail the job; Dapper's assembly-level IL2104/IL3053 are printed
+  # as known third-party leftovers. AppHost / tools stay JIT; test hosts AOT
+  # in test-unit / test-int.
+  publish-aot-smoke:
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            global.json
+
+      - name: Install Native AOT toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang llvm zlib1g-dev
+
+      - name: Publish API host (linux-x64 Native AOT)
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/aot-publish.log"
+          dotnet publish hosts/Interfold.Api.Host/Interfold.Api.Host.csproj \
+            --configuration Release \
+            --runtime linux-x64 \
+            --self-contained true \
+            --output "$RUNNER_TEMP/interfold-aot-linux-x64" \
+            2>&1 | tee "$log"
+          echo "::group::IL warnings"
+          grep -E 'warning IL[0-9]{4}' "$log" || echo "(none)"
+          echo "::endgroup::"
+          first_party="$(grep -E 'warning IL[0-9]{4}' "$log" | grep -v 'Dapper.dll' || true)"
+          if [ -n "$first_party" ]; then
+            echo "First-party IL warnings:" >&2
+            echo "$first_party" >&2
+            exit 1
+          fi
+
+      - name: Boot /health/live
+        run: bash .github/scripts/smoke-aot-api-host.sh "$RUNNER_TEMP/interfold-aot-linux-x64/Interfold.Api.Host"
+
+  # test-unit: one matrix leg per `tests/unit/*/` project. Each leg Native-AOT
+  # publishes the test host (the gate — JIT-only breakage is what we miss
+  # otherwise) then re-runs the JIT DLL from the build artefact for cobertura
+  # (native AOT hosts cannot emit it). `BinarySizeGuardrailTests` still reads
+  # the staged linux-x64 bootstrapper ELF from that artefact.
   test-unit:
     runs-on: ubuntu-latest
     needs: [ prepare, build ]
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.prepare.outputs.unit-matrix) }}
+    name: test-unit (${{ matrix.project }})
+    timeout-minutes: 90
+    env:
+      AOT_TEST_RID: linux-x64
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -231,48 +296,36 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           build-artifact-name: dotnet-build-${{ github.sha }}
 
-      # Directly launch each test project's MTP host DLL instead of going through
-      # `dotnet test <csproj> --no-build --no-restore` - the new .NET 10 `dotnet
-      # test` command regressed test-project discovery on our tarball-extracted
-      # trees between 10.0.301 and 10.0.302 ("No test projects were found."), and
-      # TUnit test hosts are self-contained MTP executables that accept the same
-      # `--coverage` / `--coverage-output-format` flags directly.
-      - name: Test (unit)
+      - name: Test AOT (unit - ${{ matrix.project }})
+        run: |
+          bash .github/scripts/run-aot-test.sh \
+            "tests/unit/${{ matrix.project }}/${{ matrix.project }}.csproj"
+
+      # IL cobertura from the JIT host. AOT already passed; this step is report-only
+      # but still fails the job if the JIT run itself fails.
+      - name: Coverage JIT (unit - ${{ matrix.project }})
         env:
-          BOOTSTRAPPER: ${{ needs.prepare.outputs.bootstrapper }}
+          TUNIT_AGGREGATE_REPORTS: defer
         run: |
           set -euo pipefail
-          for dir in tests/unit/*/; do
-            name=$(basename "$dir")
-            if [ "$name" = "Interfold.Bootstrapper.UnitTests" ] && [ "$BOOTSTRAPPER" != "true" ]; then
-              echo "Skipping $name (no bootstrapper-core path changes)"
-              continue
-            fi
-            echo "::group::$name"
-            dotnet "$dir"bin/Release/net10.0/"$name".dll \
-              --coverage --coverage-output-format cobertura
-            echo "::endgroup::"
-          done
+          dotnet "tests/unit/${{ matrix.project }}/bin/Release/net10.0/${{ matrix.project }}.dll" \
+            --coverage --coverage-output-format cobertura
 
-      - name: Upload coverage (unit)
+      - name: Upload coverage (unit - ${{ matrix.project }})
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-unit-${{ github.sha }}
+          name: coverage-unit-${{ matrix.project }}-${{ github.sha }}
           path: '**/TestResults/**/*.cobertura.xml'
           retention-days: 1
           if-no-files-found: error
 
-      # TUnit's cooperative mode (default on GHA) merges every DLL launched
-      # inside the `Test (unit)` loop into one HTML report under
-      # `$RUNNER_TEMP/tunit-aggregate/<scope>/merged-report.html`. Uploaded here
-      # so the merged report is downloadable alongside the coverage bundle.
-      - name: Upload merged TUnit report (unit)
+      - name: Upload TUnit report sidecar (unit - ${{ matrix.project }})
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tunit-merged-unit-${{ github.sha }}
-          path: ${{ runner.temp }}/tunit-aggregate/**/merged-report.html
-          retention-days: 7
+          name: tunit-unit-sidecar-${{ matrix.project }}-${{ github.sha }}
+          path: 'tests/unit/${{ matrix.project }}/**/*.tunit-report.json'
+          retention-days: 1
           if-no-files-found: warn
 
   # test-int: one matrix leg per project under tests/integration/. In-DinD
@@ -287,6 +340,7 @@ jobs:
       matrix:
         project: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     name: test-int (${{ matrix.project }})
+    timeout-minutes: 120
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -297,13 +351,10 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           build-artifact-name: dotnet-build-${{ github.sha }}
 
-      # Direct MTP-host launch (same reasoning as `test-unit`). `defer` tells
-      # TUnit's aggregation reporter to persist its per-suite JSON sidecar
-      # (`{asm}-{os}-{tfm}.tunit-report.json`) alongside the HTML report but
-      # skip writing its markdown block to $GITHUB_STEP_SUMMARY. `test-int-
-      # summary` downloads every leg's sidecar and calls `tunit-report merge`
-      # on them, splicing one native TUnit summary into that job's summary tab
-      # instead of one block per matrix leg. See TUnit PR #6415.
+      # Native AOT host first (the gate). `defer` tells TUnit's aggregation
+      # reporter to persist its per-suite JSON sidecar
+      # (`{asm}-{os}-{tfm}.tunit-report.json`) and skip $GITHUB_STEP_SUMMARY;
+      # `test-int-summary` merges every sidecar. See TUnit PR #6415.
       #
       # One leg carries [Explicit] tests and needs a bespoke invocation:
       #   - Bootstrapper.IntegrationTests: every test class is [Explicit] (see the
@@ -311,7 +362,23 @@ jobs:
       #     tests, all explicit, so TUnit runs the full suite. Default (unfiltered)
       #     invocation would skip everything. Native Windows tests ([RequiresWindows])
       #     skip here; `test-int-bootstrapper-windows` runs them.
-      - name: Test (integration - ${{ matrix.project }})
+      - name: Test AOT (integration - ${{ matrix.project }})
+        env:
+          AOT_TEST_RID: linux-x64
+        run: |
+          set -euo pipefail
+          csproj="tests/integration/${{ matrix.project }}/${{ matrix.project }}.csproj"
+          case "${{ matrix.project }}" in
+            Interfold.Bootstrapper.IntegrationTests)
+              bash .github/scripts/run-aot-test.sh "$csproj" \
+                --treenode-filter '/*/*/*/*'
+              ;;
+            *)
+              bash .github/scripts/run-aot-test.sh "$csproj"
+              ;;
+          esac
+
+      - name: Coverage JIT (integration - ${{ matrix.project }})
         env:
           TUNIT_AGGREGATE_REPORTS: defer
         run: |
@@ -358,6 +425,7 @@ jobs:
     needs: [ prepare, build ]
     if: needs.prepare.outputs.bootstrapper == 'true'
     name: test-int (Bootstrapper Windows multi-RID)
+    timeout-minutes: 90
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -450,7 +518,16 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      - name: Test (Windows install-service + publish smoke)
+      - name: Test AOT (Windows install-service + publish smoke)
+        shell: bash
+        env:
+          AOT_TEST_RID: win-x64
+        run: |
+          bash .github/scripts/run-aot-test.sh \
+            tests/integration/Interfold.Bootstrapper.IntegrationTests/Interfold.Bootstrapper.IntegrationTests.csproj \
+            --treenode-filter '/*/*/*Windows*/*'
+
+      - name: Coverage JIT (Windows install-service + publish smoke)
         shell: pwsh
         env:
           TUNIT_AGGREGATE_REPORTS: defer
@@ -595,7 +672,7 @@ jobs:
   # listing it here skip-propagated API publishes whenever the bootstrapper path was off.
   publish:
     runs-on: ubuntu-latest
-    needs: [ test-unit, test-int ]
+    needs: [ test-unit, test-int, publish-aot-smoke ]
     if: >-
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||

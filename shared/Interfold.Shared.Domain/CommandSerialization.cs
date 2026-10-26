@@ -1,17 +1,34 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 namespace Interfold.Shared.Domain;
 
-internal static class CommandSerialization
+public static class CommandSerialization
 {
+    private static readonly Lock Gate = new();
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase   
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, JsonOptions);
+    /// <summary>Registers a source-gen context for idempotency payload/result types.
+    /// CamelCase must stay — stored payload hashes are of that shape.</summary>
+    public static void AddTypeInfoResolver(IJsonTypeInfoResolver resolver)
+    {
+        ArgumentNullException.ThrowIfNull(resolver);
+        lock (Gate)
+        {
+            if (JsonOptions.TypeInfoResolverChain.Contains(resolver) || JsonOptions.IsReadOnly)
+                return;
+
+            JsonOptions.TypeInfoResolverChain.Add(resolver);
+        }
+    }
+
+    public static string Serialize<T>(T value)
+        => JsonSerializer.Serialize(value, (JsonTypeInfo<T>)JsonOptions.GetTypeInfo(typeof(T)));
 
     public static T? Deserialize<T>(string? value)
     {
@@ -20,7 +37,7 @@ internal static class CommandSerialization
             return default;
         }
 
-        return JsonSerializer.Deserialize<T>(value, JsonOptions);
+        return JsonSerializer.Deserialize(value, (JsonTypeInfo<T>)JsonOptions.GetTypeInfo(typeof(T)));
     }
 
     public static string Hash(string value)

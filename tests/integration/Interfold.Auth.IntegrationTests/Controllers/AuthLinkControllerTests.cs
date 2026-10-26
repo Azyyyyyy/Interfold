@@ -78,7 +78,7 @@ public class AuthLinkControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         var accountRepo = factory.Services.GetRequiredService<IAccountRepository>();
         var linkedSystemId = await accountRepo.TryFindSystemIdByDiscordIdAsync(new DiscordId(discordIdStr));
         await Assert.That(linkedSystemId).IsNotNull();
-        await Assert.That(linkedSystemId!.Value).IsEqualTo(user);
+        await Assert.That(linkedSystemId!.Value.Value).IsEqualTo(user);
     }
 
     [Test]

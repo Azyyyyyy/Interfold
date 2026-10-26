@@ -33,9 +33,11 @@ public sealed class ImportSpCommandHandler : ICommandHandler<ImportSpCommand, Im
         if (CommandHandler.RejectIfBlank<ImportDispatchCommandResult>(command.OperationId, command.Payload.Token.Value, EntityRefs.SettingsImportSpInvalid) is { } blankReject)
             return blankReject;
 
-        var rawPayload = JsonSerializer.Serialize(new SpImportPayload(
-            command.Payload.Token.Value,
-            command.Payload.RecoveryCode?.Value));
+        var rawPayload = JsonSerializer.Serialize(
+            new SpImportPayload(
+                command.Payload.Token.Value,
+                command.Payload.RecoveryCode?.Value),
+            SettingsContractsJsonContext.Default.SpImportPayload);
 
         // Sensitive credentials (tokens/recovery codes) are carried in-memory only and NOT persisted to the database.
         var claim = await _operations.TryClaimAsync(

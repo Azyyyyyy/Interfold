@@ -110,47 +110,50 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        if (!await FieldExistsAsync(connection, tx: null, systemId, fieldHex))
+        var row = await connection.QueryFirstOrDefaultAsync<FieldRow>(
+            """
+            SELECT id AS IdHex, name AS Name, type AS Type, security_level AS SecurityLevel,
+                   locked AS Locked, idx AS Idx, inserted_at AS InsertedAtMs, updated_at AS UpdatedAtMs
+            FROM settings_fields
+            WHERE system_id = @system_id AND id = @id
+            """,
+            new { system_id = systemId, id = fieldHex });
+        if (row is null)
         {
             return false;
         }
 
-        var sets = new List<string> { "updated_at = @updated_at" };
-        var parameters = new DynamicParameters();
-        parameters.Add("updated_at", nowMs);
-        parameters.Add("system_id", systemId);
-        parameters.Add("id", fieldHex);
-
-        if (name is not null)
-        {
-            sets.Add("name = @name");
-            parameters.Add("name", name);
-        }
-
-        if (securityLevel is not null)
-        {
-            sets.Add("security_level = @security_level");
-            parameters.Add("security_level", (short)securityLevel.Value);
-        }
-
-        if (locked is not null)
-        {
-            sets.Add("locked = @locked");
-            parameters.Add("locked", locked.Value ? 1 : 0);
-        }
-
-        if (sets.Count == 1)
+        if (name is null && securityLevel is null && locked is null)
         {
             return true;
         }
 
+        if (name is not null)
+            row.Name = name;
+        if (securityLevel is not null)
+            row.SecurityLevel = (short)securityLevel.Value;
+        if (locked is not null)
+            row.Locked = locked.Value ? 1 : 0;
+        row.UpdatedAtMs = nowMs;
+
         var updated = await connection.ExecuteAsync(
-            $"""
+            """
             UPDATE settings_fields
-            SET {string.Join(", ", sets)}
+            SET name = @name, type = @type, security_level = @security_level,
+                locked = @locked, idx = @idx, updated_at = @updated_at
             WHERE system_id = @system_id AND id = @id
             """,
-            parameters);
+            new
+            {
+                system_id = systemId,
+                id = fieldHex,
+                name = row.Name,
+                type = row.Type,
+                security_level = row.SecurityLevel,
+                locked = row.Locked,
+                idx = row.Idx,
+                updated_at = row.UpdatedAtMs,
+            });
         return updated > 0;
     }
 
@@ -201,7 +204,8 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         var field = rows[currentIndex];
         rows.RemoveAt(currentIndex);
         var boundedIndex = Math.Max(0, Math.Min(index, rows.Count));
-        rows.Insert(boundedIndex, field with { UpdatedAtMs = nowMs });
+        field.UpdatedAtMs = nowMs;
+        rows.Insert(boundedIndex, field);
 
         for (var i = 0; i < rows.Count; i++)
         {
@@ -290,13 +294,4 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             (int)row.Idx,
             DateTimeOffset.FromUnixTimeMilliseconds(row.InsertedAtMs).UtcDateTime);
 
-    private sealed record FieldRow(
-        string IdHex,
-        string Name,
-        long Type,
-        long SecurityLevel,
-        long Locked,
-        long Idx,
-        long InsertedAtMs,
-        long UpdatedAtMs);
 }

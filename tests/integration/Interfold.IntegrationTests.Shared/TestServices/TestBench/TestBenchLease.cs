@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace Interfold.IntegrationTests.Shared.TestServices.TestBench;
 
@@ -26,14 +25,6 @@ public static class TestBenchLease
     private const string LeaseDirectoryName = "interfold-test-bench";
     private const string LockFileName = "bench.lock";
     private const string StateFileName = "bench.state.json";
-
-    private static readonly JsonSerializerOptions StateJsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        Converters = { new JsonStringEnumConverter() },
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
 
     /// <summary>Test-only override of the lease's base directory. The unit tests
     /// link-compile <c>TestBenchLease.cs</c> into their own assembly so they get their
@@ -100,7 +91,7 @@ public static class TestBenchLease
             if (!File.Exists(path)) return new TestBenchLeaseState();
             var text = File.ReadAllText(path);
             if (string.IsNullOrWhiteSpace(text)) return new TestBenchLeaseState();
-            return JsonSerializer.Deserialize<TestBenchLeaseState>(text, StateJsonOptions)
+            return JsonSerializer.Deserialize(text, TestBenchJsonContext.Default.TestBenchLeaseState)
                    ?? new TestBenchLeaseState();
         }
         catch (JsonException)
@@ -116,7 +107,7 @@ public static class TestBenchLease
     {
         var path = GetStateFilePath();
         var tmp = path + ".tmp";
-        var json = JsonSerializer.Serialize(state, StateJsonOptions);
+        var json = JsonSerializer.Serialize(state, TestBenchJsonContext.Default.TestBenchLeaseState);
         File.WriteAllText(tmp, json);
         // File.Move overwrite is atomic within the same filesystem on both Linux and Windows.
         File.Move(tmp, path, overwrite: true);

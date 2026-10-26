@@ -4,6 +4,7 @@ using System.Text.Json;
 using Interfold.Alters.Contracts.Events;
 using Interfold.Auth.Contracts.Configuration;
 using Interfold.Auth.Domain;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Settings.Contracts.Ids;
@@ -101,8 +102,8 @@ public sealed class WireByteFreezeTests
     {
         var scoped = new SystemId(CanonicalRaw);
 
-        var json = JsonSerializer.Serialize(scoped);
-        var roundTripped = JsonSerializer.Deserialize<SystemId>(json);
+        var json = JsonSerializer.Serialize(scoped, SharedContractsJsonContext.Default.SystemId);
+        var roundTripped = JsonSerializer.Deserialize(json, SharedContractsJsonContext.Default.SystemId);
 
         await Assert.That(json).IsEqualTo($"\"{CanonicalRaw}\"")
             .Because("The converter must emit Value verbatim so the wire bytes match the plain SystemId serialisation.");

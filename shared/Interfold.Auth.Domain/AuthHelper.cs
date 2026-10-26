@@ -10,22 +10,20 @@ public class AuthHelper
 {
     public static string CreateToken(AuthenticationConfiguration authConfig, DateTimeOffset expiresAt, DateTimeOffset now, Jti jti, SystemId systemId)
     {
-        var headerJson = JsonSerializer.Serialize(new Dictionary<string, string>
-        {
-            ["alg"] = "ES256",
-            ["typ"] = "JWT"
-        });
+        var headerJson = JsonSerializer.Serialize(
+            new DeeplinkJwtHeader("ES256", "JWT"),
+            AuthJwtJsonContext.Default.DeeplinkJwtHeader);
 
-        var payloadJson = JsonSerializer.Serialize(new Dictionary<string, object>
-        {
-            ["iss"] = authConfig.JwtAuthority,
-            ["sub"] = systemId.Value,
-            ["iat"] = now.ToUnixTimeSeconds(),
-            ["nbf"] = now.ToUnixTimeSeconds(),
-            ["exp"] = expiresAt.ToUnixTimeSeconds(),
-            ["jti"] = jti.Value,
-            ["scope"] = "octocon:deeplink"
-        });
+        var payloadJson = JsonSerializer.Serialize(
+            new DeeplinkJwtPayload(
+                authConfig.JwtAuthority,
+                systemId.Value,
+                now.ToUnixTimeSeconds(),
+                now.ToUnixTimeSeconds(),
+                expiresAt.ToUnixTimeSeconds(),
+                jti.Value,
+                "octocon:deeplink"),
+            AuthJwtJsonContext.Default.DeeplinkJwtPayload);
 
         var encodedHeader = Base64UrlEncode(Encoding.UTF8.GetBytes(headerJson));
         var encodedPayload = Base64UrlEncode(Encoding.UTF8.GetBytes(payloadJson));

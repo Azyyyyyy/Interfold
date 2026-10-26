@@ -3,150 +3,128 @@ using Interfold.Fronting.Contracts.Models.Commands;
 using Interfold.Fronting.Contracts.Models.Read;
 using Interfold.Fronting.Domain;
 using Interfold.Fronting.Domain.Abstractions.Repository;
-using Interfold.Shared.Api.Controllers.Base;
-using Interfold.Shared.Api.ModelBinding;
+using Interfold.Shared.Api.Http;
 using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Operations;
-using Microsoft.AspNetCore.Mvc;
 
-namespace Interfold.Fronting.Api.Controllers;
+namespace Interfold.Fronting.Api.DependencyInjection;
 
-[Route("api/systems/me/front")]
-public sealed class FrontingController : InterfoldControllerBase
+public static partial class FrontingModuleServiceCollectionExtensions
 {
-    private readonly IFrontingRepository _repository;
-    private readonly StartFrontCommandHandler _startHandler;
-    private readonly EndFrontCommandHandler _endHandler;
-    private readonly BulkUpdateFrontCommandHandler _bulkUpdateHandler;
-    private readonly SetFrontCommandHandler _setHandler;
-    private readonly SetPrimaryFrontCommandHandler _primaryHandler;
-    private readonly DeleteFrontByIdCommandHandler _deleteByIdHandler;
-    private readonly UpdateFrontCommentCommandHandler _updateCommentHandler;
+    private const string EndAnchor = "end_anchor";
+    private const string Start = "start";
+    private const string End = "end";
 
-    public FrontingController(
-        IFrontingRepository repository,
-        StartFrontCommandHandler startHandler,
-        EndFrontCommandHandler endHandler,
-        BulkUpdateFrontCommandHandler bulkUpdateHandler,
-        SetFrontCommandHandler setHandler,
-        SetPrimaryFrontCommandHandler primaryHandler,
-        DeleteFrontByIdCommandHandler deleteByIdHandler,
-        UpdateFrontCommentCommandHandler updateCommentHandler)
+    public static IEndpointRouteBuilder MapFrontingModule(this IEndpointRouteBuilder endpoints)
     {
-        _repository = repository;
-        _startHandler = startHandler;
-        _endHandler = endHandler;
-        _bulkUpdateHandler = bulkUpdateHandler;
-        _setHandler = setHandler;
-        _primaryHandler = primaryHandler;
-        _deleteByIdHandler = deleteByIdHandler;
-        _updateCommentHandler = updateCommentHandler;
+        var group = endpoints.MapInterfoldGroup("/api/systems/me/front");
+        group.MapPost("/", Update);
+        group.MapPost("/start", StartFront);
+        group.MapPost("/end", EndFront);
+        group.MapPost("/set", SetFront);
+        group.MapPost("/primary", Primary);
+        group.MapGet("/month", Month);
+        group.MapGet("/between", Between);
+        group.MapGet("/{id}", Show);
+        group.MapDelete("/{id}", Delete);
+        group.MapPost("/{id}/comment", UpdateComment);
+        return endpoints;
     }
 
-    [HttpPost]
-    public async Task<Response> Update([FromBody] FrontBulkUpdateRequest req, CancellationToken ct)
+    private static Task<Response> Update(
+        HttpContext http, FrontBulkUpdateRequest req, BulkUpdateFrontCommandHandler bulkUpdateHandler, CancellationToken ct)
     {
         var payload = new BulkUpdateFrontCommand(
             req.Start.Select(x => new FrontStartItem(x.AlterId, x.Comment)).ToArray(),
             req.End.ToArray());
-
-        return await DispatchNoContentAsync(_bulkUpdateHandler, OperationIds.FrontBulkUpdate, payload, ct);
+        return http.DispatchNoContentAsync(bulkUpdateHandler, OperationIds.FrontBulkUpdate, payload, ct);
     }
 
-    [HttpPost("start")]
-    public async Task<Response<FrontStartedResponse>> Start([FromBody] FrontStartRequest req, CancellationToken ct)
+    private static async Task<Response<FrontStartedResponse>> StartFront(
+        HttpContext http, FrontStartRequest req, StartFrontCommandHandler startHandler, CancellationToken ct)
     {
-        var envelope = BuildEnvelope(OperationIds.FrontStart, new StartFrontCommand(req.Id, req.Comment)
-        );
+        if (InterfoldHttp.InvalidAlterId(req.Id) is { } invalid)
+            return invalid;
 
-        var execution = await _startHandler.HandleAsync(envelope, ct);
-        var response = CommandCreated(execution, r => new FrontStartedResponse(r.FrontId!.Value));
+        var envelope = http.BuildEnvelope(OperationIds.FrontStart, new StartFrontCommand(req.Id, req.Comment));
+        var execution = await startHandler.HandleAsync(envelope, ct);
+        var response = http.CommandCreated(execution, r => new FrontStartedResponse(r.FrontId!.Value));
 
         if (response.IsSuccess && response.AsSuccess.Data.FrontId != FrontId.Empty)
-        {
-            Response.Headers.Location = $"/api/systems/me/front/{response.AsSuccess.Data.FrontId}";
-        }
+            http.Response.Headers.Location = $"/api/systems/me/front/{response.AsSuccess.Data.FrontId}";
 
         return response;
     }
 
-    [HttpPost("end")]
-    public async Task<Response> End([FromBody] FrontEndRequest req, CancellationToken ct)
-    {
-        return await DispatchNoContentAsync(_endHandler, OperationIds.FrontEnd, new EndFrontCommand(req.Id)
-        , ct);
-    }
+    private static Task<Response> EndFront(
+        HttpContext http, FrontEndRequest req, EndFrontCommandHandler endHandler, CancellationToken ct)
+        => InterfoldHttp.InvalidAlterId(req.Id) is { } invalid
+            ? Task.FromResult<Response>(invalid)
+            : http.DispatchNoContentAsync(endHandler, OperationIds.FrontEnd, new EndFrontCommand(req.Id), ct);
 
-    [HttpPost("set")]
-    public async Task<Response> Set([FromBody] FrontSetRequest req, CancellationToken ct)
-    {
-        return await DispatchNoContentAsync(_setHandler, OperationIds.FrontSet, new SetFrontCommand(req.Id, req.Comment)
-        , ct);
-    }
+    private static Task<Response> SetFront(
+        HttpContext http, FrontSetRequest req, SetFrontCommandHandler setHandler, CancellationToken ct)
+        => InterfoldHttp.InvalidAlterId(req.Id) is { } invalid
+            ? Task.FromResult<Response>(invalid)
+            : http.DispatchNoContentAsync(setHandler, OperationIds.FrontSet, new SetFrontCommand(req.Id, req.Comment), ct);
 
-    [HttpPost("primary")]
-    public async Task<Response> Primary([FromBody] FrontPrimaryRequest req, CancellationToken ct)
-    {
-        return await DispatchNoContentAsync(_primaryHandler, OperationIds.FrontPrimary, new SetPrimaryFrontCommand(req.Id)
-        , ct);
-    }
+    private static Task<Response> Primary(
+        HttpContext http, FrontPrimaryRequest req, SetPrimaryFrontCommandHandler primaryHandler, CancellationToken ct)
+        => InterfoldHttp.InvalidAlterId(req.Id, allowNull: true) is { } invalid
+            ? Task.FromResult<Response>(invalid)
+            : http.DispatchNoContentAsync(primaryHandler, OperationIds.FrontPrimary, new SetPrimaryFrontCommand(req.Id), ct);
 
-    [HttpGet("month")]
-    public async Task<Response<IReadOnlyList<FrontHistoryReadModel>>> Month(
-        [FromQuery(Name = FrontingQueryKeys.EndAnchor)]
-        [UnixSecondsBinding(
-            ErrorCode = "invalid_end_anchor",
-            ErrorMessage = "Invalid end anchor. Please pass a valid Unix timestamp.")]
-        UnixSeconds endAnchor,
-        CancellationToken ct)
+    private static async Task<Response<IReadOnlyList<FrontHistoryReadModel>>> Month(
+        HttpContext http, IFrontingRepository repository, CancellationToken ct)
     {
-        var end = endAnchor.ToDateTimeOffset();
+        var endAnchor = UnixSecondsQuery.Bind(
+            http, EndAnchor, "invalid_end_anchor",
+            "Invalid end anchor. Please pass a valid Unix timestamp.");
+        if (endAnchor.Error is { } error)
+            return error;
+
+        var end = endAnchor.Value.ToDateTimeOffset();
         var start = end.AddDays(-30);
-        var fronts = await _repository.ListHistoryBetweenAsync(PrincipalId, start, end, ct);
+        var fronts = await repository.ListHistoryBetweenAsync(http.PrincipalId(), start, end, ct);
         return new SuccessResponse<IReadOnlyList<FrontHistoryReadModel>>(fronts);
     }
 
-    [HttpGet("between")]
-    public async Task<Response<IReadOnlyList<FrontHistoryReadModel>>> Between(
-        [FromQuery(Name = FrontingQueryKeys.Start)]
-        [UnixSecondsBinding(
-            ErrorCode = "invalid_anchor",
-            ErrorMessage = "Invalid start anchor. Please pass a valid Unix timestamp.")]
-        UnixSeconds startAnchor,
-        [FromQuery(Name = FrontingQueryKeys.End)]
-        [UnixSecondsBinding(
-            ErrorCode = "invalid_anchor",
-            ErrorMessage = "Invalid end anchor. Please pass a valid Unix timestamp.")]
-        UnixSeconds endAnchor,
-        CancellationToken ct)
+    private static async Task<Response<IReadOnlyList<FrontHistoryReadModel>>> Between(
+        HttpContext http, IFrontingRepository repository, CancellationToken ct)
     {
-        var fronts = await _repository.ListHistoryBetweenAsync(
-            PrincipalId,
-            startAnchor.ToDateTimeOffset(),
-            endAnchor.ToDateTimeOffset(),
+        var startAnchor = UnixSecondsQuery.Bind(
+            http, Start, "invalid_anchor",
+            "Invalid start anchor. Please pass a valid Unix timestamp.");
+        if (startAnchor.Error is { } startError)
+            return startError;
+
+        var endAnchor = UnixSecondsQuery.Bind(
+            http, End, "invalid_anchor",
+            "Invalid end anchor. Please pass a valid Unix timestamp.");
+        if (endAnchor.Error is { } endError)
+            return endError;
+
+        var fronts = await repository.ListHistoryBetweenAsync(
+            http.PrincipalId(),
+            startAnchor.Value.ToDateTimeOffset(),
+            endAnchor.Value.ToDateTimeOffset(),
             ct);
         return new SuccessResponse<IReadOnlyList<FrontHistoryReadModel>>(fronts);
     }
 
-    [HttpGet("{id}")]
-    public async Task<Response<FrontActiveReadModel>> Show(FrontId id, CancellationToken ct)
+    private static async Task<Response<FrontActiveReadModel>> Show(
+        HttpContext http, FrontId id, IFrontingRepository repository, CancellationToken ct)
     {
-        var front = await _repository.GetActiveByFrontIdAsync(PrincipalId, id, ct);
-        return OkOrNotFound(front, "Front not found.", ErrorCodes.FrontNotFound);
+        var front = await repository.GetActiveByFrontIdAsync(http.PrincipalId(), id, ct);
+        return InterfoldHttp.OkOrNotFound(front, "Front not found.", ErrorCodes.FrontNotFound);
     }
 
-    [HttpDelete("{id}")]
-    public async Task<Response> Delete(FrontId id, CancellationToken ct)
-    {
-        return await DispatchNoContentAsync(_deleteByIdHandler, OperationIds.FrontDelete, new DeleteFrontByIdCommand(id)
-        , ct);
-    }
+    private static Task<Response> Delete(
+        HttpContext http, FrontId id, DeleteFrontByIdCommandHandler deleteByIdHandler, CancellationToken ct)
+        => http.DispatchNoContentAsync(deleteByIdHandler, OperationIds.FrontDelete, new DeleteFrontByIdCommand(id), ct);
 
-    [HttpPost("{id}/comment")]
-    public async Task<Response> UpdateComment(FrontId id, [FromBody] FrontCommentRequest req, CancellationToken ct)
-    {
-        return await DispatchNoContentAsync(_updateCommentHandler, OperationIds.FrontCommentUpdate, new UpdateFrontCommentCommand(id, req.Comment)
-        , ct);
-    }
+    private static Task<Response> UpdateComment(
+        HttpContext http, FrontId id, FrontCommentRequest req, UpdateFrontCommentCommandHandler updateCommentHandler, CancellationToken ct)
+        => http.DispatchNoContentAsync(updateCommentHandler, OperationIds.FrontCommentUpdate, new UpdateFrontCommentCommand(id, req.Comment), ct);
 }

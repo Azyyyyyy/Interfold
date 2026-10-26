@@ -1,4 +1,6 @@
 using Interfold.Alters.Contracts.Abstractions;
+using Interfold.Settings.Api.Json;
+using Interfold.Settings.Contracts;
 using Interfold.Settings.Api.Services.Export;
 using Interfold.Settings.Api.Services.Octocon;
 using Interfold.Settings.Api.Services.Http;
@@ -11,7 +13,11 @@ using Interfold.Settings.Domain.Abstractions;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
 using Interfold.Settings.Domain.Accounts;
 using Interfold.Settings.Domain.Settings;
+using Interfold.Shared.Api.Json;
 using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Domain;
+using Interfold.Socket.Contracts;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Settings.Api.DependencyInjection;
@@ -23,7 +29,7 @@ namespace Interfold.Settings.Api.DependencyInjection;
 /// two Firebase <c>IPostConfigureOptions</c> bindings that were sitting inline in
 /// <c>Interfold.Api.Host/Program.cs</c>. Consumed once from
 /// <c>Interfold.Api.Host/Program.cs</c> alongside the other module extensions.</summary>
-public static class SettingsModuleServiceCollectionExtensions
+public static partial class SettingsModuleServiceCollectionExtensions
 {
     /// <summary>Registers everything the Settings feature owns: twenty-two command-handler
     /// singletons (account / encryption / avatar / import-dispatch / unlink / delete-account /
@@ -39,6 +45,11 @@ public static class SettingsModuleServiceCollectionExtensions
     /// <c>AddInterfoldCluster</c> (infrastructure-owned single-channel implementation).</summary>
     public static IServiceCollection AddSettingsModule(this IServiceCollection services)
     {
+        services
+            .AddInterfoldJsonContext(SettingsContractsJsonContext.Default)
+            .AddInterfoldJsonContext(SettingsApiJsonContext.Default);
+        CommandSerialization.AddTypeInfoResolver(SettingsCommandJsonContext.Default);
+        SocketJson.AddTypeInfoResolver(SettingsContractsJsonContext.Default);
         services
             .AddSingleton<UpdateUsernameCommandHandler>()
             .AddSingleton<CreateLinkTokenCommandHandler>()

@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Interfold.Settings.Contracts;
 using Interfold.Settings.Contracts.Configuration;
 using Interfold.Settings.Contracts.Models.Wire;
 using Interfold.Shared.Api.Models;
@@ -16,14 +17,6 @@ namespace Interfold.Settings.Api.Helpers;
 /// TestServer.</summary>
 public static class FirebaseConfigResolver
 {
-    // Mirrors the controller's snake-case options so the ETag hashes the same bytes the
-    // client actually receives.
-    internal static readonly JsonSerializerOptions EtagJsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        WriteIndented = false,
-    };
-
     /// <summary>Returns either a populated payload OR a shaped <see cref="ErrorResponse"/>
     /// (never both, never both null). Errors: <c>invalid_platform</c>/400,
     /// <c>firebase_config_unavailable</c>/503.</summary>
@@ -75,7 +68,9 @@ public static class FirebaseConfigResolver
     {
         response.Headers["Cache-Control"] = "public, max-age=300, must-revalidate";
 
-        var canonical = JsonSerializer.Serialize<FirebaseClientConfigResponse>(payload, EtagJsonOptions);
+        var canonical = JsonSerializer.Serialize(
+            payload,
+            SettingsContractsJsonContext.Default.FirebaseClientConfigResponse);
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical));
         var hex = Convert.ToHexString(hash);
         response.Headers.ETag = $"\"{hex}\"";

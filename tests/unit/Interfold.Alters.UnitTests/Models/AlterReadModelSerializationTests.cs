@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Interfold.Alters.Contracts;
 using Interfold.Alters.Contracts.Models;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
@@ -34,8 +35,8 @@ public sealed class AlterReadModelSerializationTests
             insertedAt: new System.DateTime(2024, 1, 2, 3, 4, 5, System.DateTimeKind.Utc),
             updatedAt: new System.DateTime(2024, 6, 7, 8, 9, 10, System.DateTimeKind.Utc));
 
-        var json = JsonSerializer.Serialize(original);
-        var deserialised = JsonSerializer.Deserialize<AlterReadModel>(json)
+        var json = JsonSerializer.Serialize(original, AltersContractsJsonContext.Default.AlterReadModel);
+        var deserialised = JsonSerializer.Deserialize(json, AltersContractsJsonContext.Default.AlterReadModel)
             ?? throw new System.InvalidOperationException("AlterReadModel deserialised to null.");
 
         using (Assert.Multiple())

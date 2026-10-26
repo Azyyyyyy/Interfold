@@ -18,7 +18,7 @@ using Interfold.Shared.Api.Helpers;
 using Interfold.Shared.Api.Middleware;
 using Interfold.Shared.Api.Services;
 using Interfold.Shared.Api.Services.Secrets;
-using Interfold.Shared.Api.Swagger;
+using Interfold.Shared.Api.OpenApi;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Socket.Api.DependencyInjection;
@@ -27,7 +27,6 @@ using Interfold.Tags.Api.DependencyInjection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
-using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -201,81 +200,9 @@ builder.Services
         metrics.AddMeter(InterfoldMetrics.MeterName);
     });
 
-// AddSharedApi configures JsonOptions (snake_case + UTC), inserts UnixSecondsModelBinderProvider,
-// wires the ErrorResponse InvalidModelStateResponseFactory, and registers the ExceptionHandler.
+// AddSharedApi configures HTTP JSON (snake_case + UTC) and the ExceptionHandler.
 builder.Services.AddSharedApi();
-builder.Services.AddControllers();
-
-// --- Swagger/OpenAPI ---
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(options =>
-{
-    options.SwaggerDoc("v1", new OpenApiInfo
-    {
-        Title = "Interfold API",
-        Version = "v1",
-        Description =
-            $"Interfold API - Contract: {InterfoldContractVersions.Current}; " +
-            $"Api-Version: {InterfoldApiVersion.InformationalVersion}"
-    });
-
-    options.ResolveConflictingActions(apiDescriptions =>
-    {
-        var first = apiDescriptions.First();
-        var route = first.RelativePath?.ToLowerInvariant();
-
-        // Sentinelise route params so renaming (e.g. {id}→{alterId}) doesn't silently drop
-        // routes off the allow-list and crash Swagger doc generation.
-        var normalisedRoute = route is null
-            ? null
-            : System.Text.RegularExpressions.Regex.Replace(route, @"\{[^/{}]+\}", "{*}");
-
-        // Only allow conflicts for avatar upload endpoints (multipart vs JSON siblings).
-        var allowedConflicts = new[]
-        {
-            "api/settings/avatar",
-            "api/systems/me/alters/{*}/avatar"
-        };
-
-        if (allowedConflicts.All(allowed => normalisedRoute?.Contains(allowed) != true))
-        {
-            var actionNames = string.Join(", ", apiDescriptions.Select(d => $"{d.ActionDescriptor.DisplayName}"));
-            throw new NotSupportedException(
-                $"Conflicting actions detected for route '{route}': {actionNames}. " +
-                "If this is intentional, add the route to the allowedConflicts list in Program.cs.");
-        }
-
-        return first;
-    });
-
-    options.DocumentFilter<MultipleContentTypeOperationFilter>();
-    options.DocumentFilter<HealthCheckDocumentFilter>();
-
-    // Add JWT Bearer authentication to Swagger UI
-    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Description = "JWT Authorization header using the Bearer scheme. Enter 'Bearer' [space] and then your token in the text input below.",
-        Name = "Authorization",
-        In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
-    });
-
-    options.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
-});
+builder.Services.AddInterfoldOpenApi();
 
 var app = builder.Build();
 
@@ -305,14 +232,6 @@ app.UseMiddleware<AuthTokenRevocationMiddleware>();
 
 // Phase N: correlation ID propagation and structured request logging.
 app.UseMiddleware<RequestCorrelationMiddleware>();
-
-// --- Swagger UI ---
-app.UseSwagger();
-app.UseSwaggerUI(options =>
-{
-    options.SwaggerEndpoint("/swagger/v1/swagger.json", "Interfold API v1");
-    options.RoutePrefix = "swagger";
-});
 
 app.Use(async (ctx, next) =>
 {
@@ -406,9 +325,19 @@ app.UseWebSockets(new WebSocketOptions
 app.UseAuthorization();
 
 app.MapDefaultEndpoints();
+app.MapOpenApi().AllowAnonymous();
 
+app.MapAuthModule();
+app.MapAltersModule();
+app.MapFriendshipsModule();
+app.MapFrontingModule();
+app.MapJournalsModule();
+app.MapTagsModule();
+app.MapPollsModule();
+app.MapSettingsModule();
+app.MapSystemsModule();
+app.MapOpsModule();
 app.MapSocketModule();
-app.MapControllers();
 
 app.Run();
 return 0;

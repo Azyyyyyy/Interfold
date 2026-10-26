@@ -39,7 +39,7 @@ public readonly record struct IdempotencyKey : IParsable<IdempotencyKey>
     }
 }
 
-internal sealed class IdempotencyKeyJsonConverter : StringBackedJsonConverter<IdempotencyKey>
+public sealed class IdempotencyKeyJsonConverter : StringBackedJsonConverter<IdempotencyKey>
 {
     protected override IdempotencyKey Create(string value) => new(value);
     protected override string GetValue(IdempotencyKey value) => value.Value;

@@ -71,3 +71,10 @@ public sealed record DiscordUserResponse
     [JsonPropertyName("avatar")]
     public string? Avatar { get; init; }
 }
+
+/// <summary>Apple identity-token payload — only <c>sub</c> is consumed.</summary>
+public sealed record AppleIdTokenPayload
+{
+    [JsonPropertyName("sub")]
+    public string? Sub { get; init; }
+}

@@ -1,10 +1,9 @@
 using System.Net;
-using System.Net.Http.Json;
 using Interfold.IntegrationTests.Shared;
 using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Settings.Domain.Abstractions.Repository;
-using Microsoft.Extensions.DependencyInjection;
 using Interfold.Shared.Contracts;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Interfold.Ops.IntegrationTests.Controllers;
 
@@ -50,13 +49,10 @@ public class InMemorySecretsSeedTests : BaseEndpointTest
         //       which in turn proves OCTOCON_INMEMORY_SECRETS_SEED__AUTH_JWT_ES256_PRIVATE_PEM
         //       was seeded into the store and patched onto AuthenticationConfiguration by
         //       SecretsBootstrapService at startup.
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/settings/username")
-        {
-            Content = JsonContent.Create(new { username = principalId })
-        };
-        AttachPrincipalAuth(request, client, principalId);
-
-        var response = await client.SendAsync(request);
+        using var response = await client.SendRawJsonAsync(
+            HttpMethod.Post, "/api/settings/username",
+            $"{{\"username\":\"{principalId}\"}}",
+            principalId);
 
         await Assert.That(response.StatusCode)
             .IsEqualTo(HttpStatusCode.NoContent)
@@ -115,13 +111,10 @@ public class InMemorySecretsSeedTests : BaseEndpointTest
 
             var principalId = TestIds.NewSystemId("sys-secrets-env", maxLen: 24);
             await factory.Services.GetRequiredService<IAccountRepository>().EnsureExistsAsync(new(principalId));
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/settings/username")
-            {
-                Content = JsonContent.Create(new { username = principalId })
-            };
-            AttachPrincipalAuth(request, client, principalId);
-
-            var response = await client.SendAsync(request);
+            using var response = await client.SendRawJsonAsync(
+                HttpMethod.Post, "/api/settings/username",
+                $"{{\"username\":\"{principalId}\"}}",
+                principalId);
 
             await Assert.That(response.StatusCode)
                 .IsEqualTo(HttpStatusCode.NoContent)

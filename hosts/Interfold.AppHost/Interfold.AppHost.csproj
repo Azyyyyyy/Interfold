@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UserSecretsId>9f2459e8-120e-4c06-8ae5-392685a34c40</UserSecretsId>
+    <!-- Aspire.AppHost.Sdk forces PublishAot=false; keep analyzers off. -->
+    <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>
 
   <ItemGroup>

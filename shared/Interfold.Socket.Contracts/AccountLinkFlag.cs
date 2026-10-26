@@ -23,7 +23,7 @@ public readonly record struct AccountLinkFlag(bool IsLinked)
         => new(!string.IsNullOrWhiteSpace(identityValue));
 }
 
-internal sealed class AccountLinkFlagJsonConverter : JsonConverter<AccountLinkFlag>
+public sealed class AccountLinkFlagJsonConverter : JsonConverter<AccountLinkFlag>
 {
     public override bool HandleNull => true;
 

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Ids;
@@ -18,8 +19,8 @@ public sealed class AlterIdJsonTests
     public async Task Json_InRangeSmallint_RoundTrips(short value)
     {
         var original = new AlterId(value);
-        var json = JsonSerializer.Serialize(original);
-        var deserialised = JsonSerializer.Deserialize<AlterId>(json);
+        var json = JsonSerializer.Serialize(original, SharedContractsJsonContext.Default.AlterId);
+        var deserialised = JsonSerializer.Deserialize(json, SharedContractsJsonContext.Default.AlterId);
 
         using (Assert.Multiple())
         {
@@ -37,7 +38,7 @@ public sealed class AlterIdJsonTests
     [Arguments("9999999999999")]
     public async Task Json_OutOfShortRange_ThrowsJsonException(string numberLiteral)
     {
-        await Assert.That(() => JsonSerializer.Deserialize<AlterId>(numberLiteral))
+        await Assert.That(() => JsonSerializer.Deserialize(numberLiteral, SharedContractsJsonContext.Default.AlterId))
             .ThrowsExactly<JsonException>()
             .Because("The JSON reader must reject anything outside short range at the byte boundary — ASP.NET Core maps this to a 400 before the model-binding validator ever runs.");
     }
@@ -49,7 +50,7 @@ public sealed class AlterIdJsonTests
     [Arguments("[1]")]
     public async Task Json_NonNumeric_ThrowsJsonException(string malformedJson)
     {
-        await Assert.That(() => JsonSerializer.Deserialize<AlterId>(malformedJson))
+        await Assert.That(() => JsonSerializer.Deserialize(malformedJson, SharedContractsJsonContext.Default.AlterId))
             .ThrowsExactly<JsonException>();
     }
 

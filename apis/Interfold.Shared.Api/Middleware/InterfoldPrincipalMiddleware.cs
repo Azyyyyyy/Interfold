@@ -1,18 +1,16 @@
 using System.Security.Claims;
-using Interfold.Shared.Api.Controllers.Base;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc.Controllers;
 
 namespace Interfold.Shared.Api.Middleware;
 
 /// <summary>
-/// Resolves and validates principal IDs for Interfold API controllers.
+/// Resolves and validates principal IDs for authenticated Interfold API endpoints.
 /// </summary>
 public sealed class InterfoldPrincipalMiddleware(RequestDelegate next)
 {
-    internal const string PrincipalIdItemKey = "Interfold.PrincipalId";
+    internal const string PrincipalIdItemKey = InterfoldHttpContextKeys.PrincipalId;
 
     public async Task InvokeAsync(HttpContext context)
     {
@@ -39,12 +37,7 @@ public sealed class InterfoldPrincipalMiddleware(RequestDelegate next)
         if (endpoint is null)
             return false;
 
-        if (endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null)
-            return false;
-
-        var actionDescriptor = endpoint.Metadata.GetMetadata<ControllerActionDescriptor>();
-        return actionDescriptor is not null
-               && typeof(InterfoldControllerBase).IsAssignableFrom(actionDescriptor.ControllerTypeInfo.AsType());
+        return endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null;
     }
 
     /// <summary>

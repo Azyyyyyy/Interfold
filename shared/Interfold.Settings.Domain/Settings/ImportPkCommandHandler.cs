@@ -32,7 +32,9 @@ public sealed class ImportPkCommandHandler : ICommandHandler<ImportPkCommand, Im
         if (CommandHandler.RejectIfBlank<ImportDispatchCommandResult>(command.OperationId, command.Payload.Token.Value, EntityRefs.SettingsImportPkInvalid) is { } blankReject)
             return blankReject;
 
-        var rawPayload = JsonSerializer.Serialize(new PkImportPayload(command.Payload.Token.Value));
+        var rawPayload = JsonSerializer.Serialize(
+            new PkImportPayload(command.Payload.Token.Value),
+            SettingsContractsJsonContext.Default.PkImportPayload);
 
         // Sensitive credentials (token) are carried in-memory only and NOT persisted to the database.
         var claim = await _operations.TryClaimAsync(

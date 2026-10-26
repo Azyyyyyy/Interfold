@@ -1,69 +1,19 @@
-using System.Net;
-using System.Text.Json;
-using Interfold.Shared.Api.ModelBinding;
-using Interfold.Shared.Api.Models;
+using Interfold.Shared.Api.Json;
 using Interfold.Shared.Api.Services;
-using Interfold.Shared.Contracts;
-using Microsoft.AspNetCore.Mvc;
-using JsonOptions = Microsoft.AspNetCore.Mvc.JsonOptions;
 
 namespace Interfold.Shared.Api.DependencyInjection;
 
-/// <summary>Shared-spine DI wiring consumed by <c>Program.cs</c> today and by every
-/// future <c>Interfold.&lt;Feature&gt;.Api</c> module tomorrow. Order-invariant with
-/// <c>AddControllers()</c>: the caller is free to invoke either first.</summary>
+/// <summary>Shared-spine DI wiring consumed by <c>Program.cs</c> and every
+/// <c>Interfold.&lt;Feature&gt;.Api</c> module.</summary>
 public static class SharedApiServiceCollectionExtensions
 {
-    /// <summary>Registers the shared-spine services: MVC binder / JSON / behaviour option
-    /// configurators, and the <see cref="ExceptionHandler"/>. Does <b>not</b> call
-    /// <c>AddControllers()</c> — the composition host owns that.</summary>
+    /// <summary>Registers the shared-spine services: HTTP JSON options and the
+    /// <see cref="ExceptionHandler"/>. Does <b>not</b> map routes — each feature
+    /// module owns <c>MapXxxModule</c>.</summary>
     public static IServiceCollection AddSharedApi(this IServiceCollection services)
     {
-        // Custom ModelBinderProviders take precedence over MVC's SimpleType /
-        // ComplexObject / TryParse fallbacks.
-        services.Configure<MvcOptions>(mvcOptions =>
-        {
-            mvcOptions.ModelBinderProviders.Insert(0, new SystemIdModelBinderProvider());
-            mvcOptions.ModelBinderProviders.Insert(0, new UnixSecondsModelBinderProvider());
-            mvcOptions.ModelBinderProviders.Insert(0, new EnumWireModelBinderProvider());
-        });
-
-        services.Configure<JsonOptions>(options =>
-        {
-            options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
-            options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
-            options.JsonSerializerOptions.Converters.Add(new UtcDateTimeOffsetConverter());
-        });
-
-        // Route DataAnnotations 400s through ErrorResponse so the Kotlin client can decode them
-        // (the default ValidationProblemDetails isn't supported). PostConfigure so we win
-        // against MvcCoreServiceCollectionExtensions.AddApiExplorer's ApiBehaviorOptionsSetup,
-        // which unconditionally assigns InvalidModelStateResponseFactory in its Configure and
-        // would otherwise clobber whichever ordering AddControllers is called with.
-        services.PostConfigure<ApiBehaviorOptions>(options =>
-        {
-            options.InvalidModelStateResponseFactory = context =>
-            {
-                var firstBadField = context.ModelState
-                    .FirstOrDefault(kv => kv.Value?.Errors.Count > 0
-                        && !string.IsNullOrWhiteSpace(kv.Value.Errors[0].ErrorMessage));
-
-                var firstError = firstBadField.Value?.Errors[0].ErrorMessage
-                    ?? "The request payload was invalid.";
-
-                // Prefer the binder's stashed ErrorCode so invalid_end_anchor / invalid_anchor
-                // survive verbatim without needing globally unique messages.
-                var stashedCode = context.HttpContext.Items[
-                    UnixSecondsBindingAttribute.ItemsKey(firstBadField.Key ?? string.Empty)] as string;
-
-                var code = stashedCode is not null
-                    ? new ErrorCode(stashedCode)
-                    : ValidationErrorCodeRegistry.LookupOrDefault(firstError);
-
-                var body = new ErrorResponse(firstError, code, HttpStatusCode.BadRequest);
-                return new BadRequestObjectResult(body);
-            };
-        });
+        services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(
+            options => InterfoldJson.ApplyShared(options.SerializerOptions));
 
         services.AddExceptionHandler<ExceptionHandler>();
 

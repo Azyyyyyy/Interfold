@@ -40,7 +40,7 @@ public readonly record struct OperationId : IParsable<OperationId>
     }
 }
 
-internal sealed class OperationIdJsonConverter : StringBackedJsonConverter<OperationId>
+public sealed class OperationIdJsonConverter : StringBackedJsonConverter<OperationId>
 {
     protected override OperationId Create(string value) => new(value);
     protected override string GetValue(OperationId value) => value.Value;

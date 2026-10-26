@@ -22,7 +22,7 @@ public readonly record struct SocketToken
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class SocketTokenJsonConverter : StringBackedJsonConverter<SocketToken>
+public sealed class SocketTokenJsonConverter : StringBackedJsonConverter<SocketToken>
 {
     protected override SocketToken Create(string value) => new(value);
     protected override string GetValue(SocketToken value) => value.Value;

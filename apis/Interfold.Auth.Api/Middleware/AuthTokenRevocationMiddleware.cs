@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Interfold.Shared.Api.Json;
 using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
@@ -26,7 +27,7 @@ public sealed class AuthTokenRevocationMiddleware(RequestDelegate next)
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     context.Response.ContentType = "application/json";
                     var error = new ErrorResponse("Token has been revoked.", ErrorCodes.TokenRevoked);
-                    var json = JsonSerializer.Serialize(error, JsonSerializerOptions.Web);
+                    var json = JsonSerializer.Serialize(error, SharedApiJsonContext.Default.ErrorResponse);
                     await context.Response.WriteAsync(json, context.RequestAborted);
                     return;
                 }

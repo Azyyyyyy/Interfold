@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Ids;
@@ -143,14 +144,14 @@ public sealed class HexColorTests
     public async Task Json_WellFormed_Roundtrips()
     {
         var original = new HexColor("#FF00AA");
-        var json = JsonSerializer.Serialize(original);
+        var json = JsonSerializer.Serialize(original, SharedContractsJsonContext.Default.HexColor);
 
         using (Assert.Multiple())
         {
             await Assert.That(json).IsEqualTo("\"#FF00AA\"")
                 .Because("The JSON emission is byte-identical to the raw string — persistence-adapter reads and idempotency-hashed replays depend on this.");
 
-            var deserialised = JsonSerializer.Deserialize<HexColor>(json);
+            var deserialised = JsonSerializer.Deserialize(json, SharedContractsJsonContext.Default.HexColor);
             await Assert.That(deserialised.Value).IsEqualTo(original.Value);
         }
     }
@@ -162,7 +163,7 @@ public sealed class HexColorTests
     [Arguments("\"#GG0000\"")]
     public async Task Json_Malformed_ThrowsJsonException(string malformedJson)
     {
-        await Assert.That(() => JsonSerializer.Deserialize<HexColor>(malformedJson))
+        await Assert.That(() => JsonSerializer.Deserialize(malformedJson, SharedContractsJsonContext.Default.HexColor))
             .ThrowsExactly<JsonException>()
             .Because("Malformed JSON must surface as JsonException so ASP.NET Core model binding maps to a 400, matching the StringBackedIds house style.");
     }

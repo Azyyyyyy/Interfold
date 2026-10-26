@@ -1,4 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Security.Claims;
@@ -12,6 +11,7 @@ using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Journals.Domain.Abstractions.Repository;
 using Interfold.Polls.Domain.Abstractions.Repository;
 using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Api.Json;
 using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
@@ -26,6 +26,7 @@ using Interfold.Tags.Domain.Abstractions.Repository;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Interfold.Socket.Api.Socket;
@@ -48,7 +49,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
         logger.LogWarning("Request is not a WebSocket upgrade request");
         context.Response.StatusCode = StatusCodes.Status400BadRequest;
         await context.Response.WriteAsJsonAsync(
-            new ErrorResponse("WebSocket upgrade required.", ErrorCodes.WebSocketUpgradeRequired));
+            new ErrorResponse("WebSocket upgrade required.", ErrorCodes.WebSocketUpgradeRequired),
+            SharedApiJsonContext.Default.ErrorResponse);
         return;
     }
 
@@ -62,7 +64,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
         logger.LogWarning("Missing or empty token in query string");
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         await context.Response.WriteAsJsonAsync(
-            new ErrorResponse("Missing socket token.", ErrorCodes.MissingSocketToken));
+            new ErrorResponse("Missing socket token.", ErrorCodes.MissingSocketToken),
+            SharedApiJsonContext.Default.ErrorResponse);
         return;
     }
 
@@ -156,7 +159,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             {
                 try
                 {
-                    joinPayload = payload.Value.Deserialize<PhxJoinPayload>(SocketJson.Options) ?? new PhxJoinPayload();
+                    joinPayload = payload.Value.Deserialize(SocketJsonContext.Default.PhxJoinPayload) ?? new PhxJoinPayload();
                 }
                 catch (JsonException)
                 {
@@ -277,30 +280,32 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                             && protocolVersion >= new Version(2, 0, 0));
                 }
 
-                // Deliberately `object`, not ISocketPayload: System.Text.Json serializes
-                // interface-declared values by the interface's (empty) member set, while
-                // `object` triggers runtime-type serialization — which is what puts the
-                // payload's real properties on the wire.
-                object joinResponse;
                 if (isReconnect || useBatchedInit)
                 {
-                    joinResponse = new SocketJoinBatchedPayload(initPayload.System);
+                    await SendPhoenixReplyAsync(
+                        socket,
+                        topic,
+                        reference,
+                        joinReference,
+                        status: PhoenixReplyStatus.Ok,
+                        response: new SocketJoinBatchedPayload(initPayload.System),
+                        replyAsArrayFrame,
+                        context.RequestAborted,
+                        sendGate);
                 }
                 else
                 {
-                    joinResponse = initPayload;
+                    await SendPhoenixReplyAsync(
+                        socket,
+                        topic,
+                        reference,
+                        joinReference,
+                        status: PhoenixReplyStatus.Ok,
+                        response: initPayload,
+                        replyAsArrayFrame,
+                        context.RequestAborted,
+                        sendGate);
                 }
-
-                await SendPhoenixReplyAsync(
-                    socket,
-                    topic,
-                    reference,
-                    joinReference,
-                    status: PhoenixReplyStatus.Ok,
-                    response: joinResponse,
-                    replyAsArrayFrame,
-                    context.RequestAborted,
-                    sendGate);
 
                 if (useBatchedInit)
                 {
@@ -418,7 +423,7 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     SocketEndpointProxyRequest? proxyRequest;
     try
     {
-        proxyRequest = payload.Value.Deserialize<SocketEndpointProxyRequest>(SocketJson.Options);
+        proxyRequest = payload.Value.Deserialize(SocketJsonContext.Default.SocketEndpointProxyRequest);
     }
     catch (JsonException)
     {
@@ -564,8 +569,8 @@ internal static IDisposable? TryActivateW3CContext(string? traceparent, string? 
     return new RestoreAmbientActivity(activity, prior);
 }
 
-static string ToJsonString<T>(T value)
-    => JsonSerializer.Serialize(value, SocketJson.Options);
+static string ToJsonString(ErrorResponse value)
+    => JsonSerializer.Serialize(value, SharedApiJsonContext.Default.ErrorResponse);
 
 /// <summary>Loopback-safe base URL for the socket relay's self-call. Prefers https to skip
 /// UseHttpsRedirection; wildcard hosts (0.0.0.0/[::]/+/*) → 127.0.0.1; empty addresses →
@@ -630,7 +635,7 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, SystemId? TokenS
 
     // .Value unwraps are the JWT framework survival points; everything else uses the
     // redacted-by-default wrapper.
-    var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+    var handler = new JsonWebTokenHandler { MapInboundClaims = false };
     if (!handler.CanReadToken(token.Value))
     {
         logger.LogWarning("Handler cannot read token");
@@ -659,7 +664,11 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, SystemId? TokenS
     try
     {
         logger.LogInformation("Starting token validation");
-        var principal = handler.ValidateToken(token.Value, parameters, out _);
+        var validated = await handler.ValidateTokenAsync(token.Value, parameters).ConfigureAwait(false);
+        if (!validated.IsValid)
+            throw validated.Exception ?? new SecurityTokenException("Token validation failed.");
+
+        var principal = new ClaimsPrincipal(validated.ClaimsIdentity);
         var rawSub = principal.FindFirstValue(JwtClaimNames.Sub);
         var tokenSub = string.IsNullOrWhiteSpace(rawSub)
             ? default
@@ -766,7 +775,7 @@ static SecurityToken ValidateJwtTokenSignatureForSocket(
     TokenValidationParameters validationParameters,
     AuthenticationConfiguration config)
 {
-    return JwtEs256Validator.ValidateSignature(token, config.JwtEs256VerificationKeyPems ?? [], useJsonWebToken: false);
+    return JwtEs256Validator.ValidateSignature(token, config.JwtEs256VerificationKeyPems ?? [], useJsonWebToken: true);
 }
 
  static async Task SendPhoenixReplyAsync<TResponse>(

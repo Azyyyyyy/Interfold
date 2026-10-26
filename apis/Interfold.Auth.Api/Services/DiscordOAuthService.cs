@@ -1,4 +1,5 @@
 using Interfold.Auth.Api.Auth;
+using Interfold.Auth.Api.Json;
 using Interfold.Auth.Api.Services.OAuth;
 using Interfold.Auth.Contracts.Configuration;
 using Interfold.Shared.Contracts.Ids;
@@ -66,7 +67,8 @@ public sealed class DiscordOAuthService
                 return null;
             }
 
-            var tokenPayload = await tokenResponse.Content.ReadFromJsonAsync<OAuthTokenResponse>(cancellationToken);
+            var tokenPayload = await tokenResponse.Content.ReadFromJsonAsync(
+                AuthApiJsonContext.Default.OAuthTokenResponse, cancellationToken);
             if (string.IsNullOrWhiteSpace(tokenPayload?.AccessToken))
             {
                 return null;
@@ -84,7 +86,8 @@ public sealed class DiscordOAuthService
                 return null;
             }
 
-            var user = await userInfoResponse.Content.ReadFromJsonAsync<DiscordUserResponse>(cancellationToken);
+            var user = await userInfoResponse.Content.ReadFromJsonAsync(
+                AuthApiJsonContext.Default.DiscordUserResponse, cancellationToken);
             return string.IsNullOrWhiteSpace(user?.Id) ? null : new DiscordId(user.Id);
         }
         catch

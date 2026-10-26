@@ -90,7 +90,7 @@ public readonly record struct FriendLookup : IParsable<FriendLookup>
     }
 }
 
-internal sealed class FriendLookupJsonConverter : JsonConverter<FriendLookup>
+public sealed class FriendLookupJsonConverter : JsonConverter<FriendLookup>
 {
     public override FriendLookup Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {

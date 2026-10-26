@@ -1,6 +1,8 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Infrastructure;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using Interfold.Shared.Api.Json;
+using Microsoft.Extensions.Options;
 using OneOf;
 
 namespace Interfold.Shared.Api.Models;
@@ -26,11 +28,13 @@ public class Response : Response<NoContent>
 }
 
 [GenerateOneOf]
-public class Response<TValue> : OneOfBase<SuccessResponse<TValue>, ErrorResponse>, IConvertToActionResult
+public class Response<TValue> : OneOfBase<SuccessResponse<TValue>, ErrorResponse>, IResult, IStatusCodeHttpResult
 {
     public Response(OneOf<SuccessResponse<TValue>, ErrorResponse> input) : base(input)
     {
     }
+
+    public int? StatusCode => IsSuccess ? (int)AsSuccess.StatusCode : (int)AsError.StatusCode;
 
     /// <summary>
     /// Implicitly converts the specified <paramref name="value"/> to an <see cref="Response{TValue}"/>.
@@ -64,25 +68,39 @@ public class Response<TValue> : OneOfBase<SuccessResponse<TValue>, ErrorResponse
     public bool IsError => IsT1;
     public ErrorResponse AsError => AsT1;
 
-    public IActionResult Convert()
+    public async Task ExecuteAsync(HttpContext httpContext)
     {
         if (IsSuccess)
         {
             var statusCode = (int)AsSuccess.StatusCode;
-            if (statusCode == 204)
-                return new StatusCodeResult(204);
+            httpContext.Response.StatusCode = statusCode;
+            if (statusCode == StatusCodes.Status204NoContent)
+                return;
 
-            return new ObjectResult(AsSuccess)
-            {
-                DeclaredType = typeof(SuccessResponse<TValue>),
-                StatusCode = statusCode
-            };
+            httpContext.Response.ContentType = "application/json";
+            var typeInfo = ResolveTypeInfo<SuccessResponse<TValue>>(httpContext);
+            await JsonSerializer.SerializeAsync(httpContext.Response.Body, AsSuccess, typeInfo, httpContext.RequestAborted);
+            return;
         }
 
-        return new ObjectResult(AsError)
-        {
-            DeclaredType = typeof(ErrorResponse),
-            StatusCode = (int)AsError.StatusCode
-        };
+        httpContext.Response.StatusCode = (int)AsError.StatusCode;
+        httpContext.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(
+            httpContext.Response.Body,
+            AsError,
+            SharedApiJsonContext.Default.ErrorResponse,
+            httpContext.RequestAborted);
+    }
+
+    private static JsonTypeInfo<T> ResolveTypeInfo<T>(HttpContext httpContext)
+    {
+        var options = httpContext.RequestServices
+            .GetRequiredService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
+            .Value.SerializerOptions;
+        var resolver = options.TypeInfoResolver
+            ?? throw new InvalidOperationException("HTTP JSON TypeInfoResolver is not configured.");
+        var info = resolver.GetTypeInfo(typeof(T), options)
+            ?? throw new InvalidOperationException($"Missing JsonTypeInfo for {typeof(T)}.");
+        return (JsonTypeInfo<T>)info;
     }
 }

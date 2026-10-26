@@ -1,3 +1,6 @@
+using Interfold.Ops.Api.Json;
+using Interfold.Shared.Api.Json;
+
 namespace Interfold.Ops.Api.DependencyInjection;
 
 /// <summary>Ops feature module — the facade shape has no owned handlers or
@@ -7,10 +10,11 @@ namespace Interfold.Ops.Api.DependencyInjection;
 /// feature modules so <c>Interfold.Api.Host/Program.cs</c> reads uniformly. Consumed
 /// once from the module-registration block alongside the other
 /// <c>Add&lt;Feature&gt;Module</c> extensions.</summary>
-public static class OpsModuleServiceCollectionExtensions
+public static partial class OpsModuleServiceCollectionExtensions
 {
     /// <summary>No-op today. <c>TrustController</c> binds
     /// <c>IOptions&lt;TrustOptions&gt;</c> (registered by <c>AddInterfoldOptions</c>);
     /// nothing here to register.</summary>
-    public static IServiceCollection AddOpsModule(this IServiceCollection services) => services;
+    public static IServiceCollection AddOpsModule(this IServiceCollection services)
+        => services.AddInterfoldJsonContext(OpsApiJsonContext.Default);
 }

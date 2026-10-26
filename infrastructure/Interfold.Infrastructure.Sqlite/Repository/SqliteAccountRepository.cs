@@ -181,7 +181,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             return null;
         }
 
-        if (row.ExpiresAt > nowMs)
+        if (row.ExpiresAt is { } expiresAt && expiresAt > nowMs)
         {
             return new LinkToken(row.LinkToken);
         }
@@ -212,7 +212,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             return null;
         }
 
-        if (row.ExpiresAt > nowMs)
+        if (row.ExpiresAt is { } expiresAt && expiresAt > nowMs)
         {
             return row.SystemId;
         }
@@ -238,26 +238,32 @@ public sealed class SqliteAccountRepository : IAccountRepository
         => identity.MatchOrThrow(
             discordId => FindOrCreateByProviderAsync(
                 TryFindByDiscordAsync,
-                """
-                INSERT INTO accounts (system_id, discord_id, created_at, updated_at)
-                VALUES (@system_id, @value, @now, @now)
-                """,
+                (conn, systemId, value, now) => conn.ExecuteAsync(
+                    """
+                    INSERT INTO accounts (system_id, discord_id, created_at, updated_at)
+                    VALUES (@system_id, @value, @now, @now)
+                    """,
+                    new { system_id = systemId, value, now }),
                 discordId.Value,
                 cancellationToken),
             email => FindOrCreateByProviderAsync(
                 TryFindByEmailAsync,
-                """
-                INSERT INTO accounts (system_id, email, created_at, updated_at)
-                VALUES (@system_id, @value, @now, @now)
-                """,
+                (conn, systemId, value, now) => conn.ExecuteAsync(
+                    """
+                    INSERT INTO accounts (system_id, email, created_at, updated_at)
+                    VALUES (@system_id, @value, @now, @now)
+                    """,
+                    new { system_id = systemId, value, now }),
                 email.Value,
                 cancellationToken),
             appleId => FindOrCreateByProviderAsync(
                 TryFindByAppleAsync,
-                """
-                INSERT INTO accounts (system_id, apple_id, created_at, updated_at)
-                VALUES (@system_id, @value, @now, @now)
-                """,
+                (conn, systemId, value, now) => conn.ExecuteAsync(
+                    """
+                    INSERT INTO accounts (system_id, apple_id, created_at, updated_at)
+                    VALUES (@system_id, @value, @now, @now)
+                    """,
+                    new { system_id = systemId, value, now }),
                 appleId.Value,
                 cancellationToken));
 
@@ -271,51 +277,63 @@ public sealed class SqliteAccountRepository : IAccountRepository
                 discordId.Value,
                 row => row.DiscordId,
                 TryFindByDiscordAsync,
-                """
-                UPDATE accounts SET discord_id = @value, updated_at = @now WHERE system_id = @system_id
-                """,
+                (conn, value, now, id) => conn.ExecuteAsync(
+                    """
+                    UPDATE accounts SET discord_id = @value, updated_at = @now WHERE system_id = @system_id
+                    """,
+                    new { value, now, system_id = id }),
                 cancellationToken),
             email => LinkProviderAsync(
                 systemId,
                 email.Value,
                 row => row.Email,
                 TryFindByEmailAsync,
-                """
-                UPDATE accounts SET email = @value, updated_at = @now WHERE system_id = @system_id
-                """,
+                (conn, value, now, id) => conn.ExecuteAsync(
+                    """
+                    UPDATE accounts SET email = @value, updated_at = @now WHERE system_id = @system_id
+                    """,
+                    new { value, now, system_id = id }),
                 cancellationToken),
             appleId => LinkProviderAsync(
                 systemId,
                 appleId.Value,
                 row => row.AppleId,
                 TryFindByAppleAsync,
-                """
-                UPDATE accounts SET apple_id = @value, updated_at = @now WHERE system_id = @system_id
-                """,
+                (conn, value, now, id) => conn.ExecuteAsync(
+                    """
+                    UPDATE accounts SET apple_id = @value, updated_at = @now WHERE system_id = @system_id
+                    """,
+                    new { value, now, system_id = id }),
                 cancellationToken));
 
     public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
         => UnlinkColumnAsync(
             systemId,
-            """
-            UPDATE accounts SET discord_id = NULL, updated_at = @now WHERE system_id = @system_id
-            """,
+            (conn, now, id) => conn.ExecuteAsync(
+                """
+                UPDATE accounts SET discord_id = NULL, updated_at = @now WHERE system_id = @system_id
+                """,
+                new { now, system_id = id }),
             cancellationToken);
 
     public Task<bool> UnlinkEmailAsync(SystemId systemId, CancellationToken cancellationToken = default)
         => UnlinkColumnAsync(
             systemId,
-            """
-            UPDATE accounts SET email = NULL, updated_at = @now WHERE system_id = @system_id
-            """,
+            (conn, now, id) => conn.ExecuteAsync(
+                """
+                UPDATE accounts SET email = NULL, updated_at = @now WHERE system_id = @system_id
+                """,
+                new { now, system_id = id }),
             cancellationToken);
 
     public Task<bool> UnlinkAppleAsync(SystemId systemId, CancellationToken cancellationToken = default)
         => UnlinkColumnAsync(
             systemId,
-            """
-            UPDATE accounts SET apple_id = NULL, updated_at = @now WHERE system_id = @system_id
-            """,
+            (conn, now, id) => conn.ExecuteAsync(
+                """
+                UPDATE accounts SET apple_id = NULL, updated_at = @now WHERE system_id = @system_id
+                """,
+                new { now, system_id = id }),
             cancellationToken);
 
     public async Task<bool> DeleteAsync(SystemId systemId, CancellationToken cancellationToken = default)
@@ -334,7 +352,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
         CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var persisted = await connection.QueryFirstOrDefaultAsync<string>(
+        return await connection.QueryFirstOrDefaultAsync<SystemId?>(
             """
             SELECT system_id
             FROM accounts
@@ -342,7 +360,6 @@ public sealed class SqliteAccountRepository : IAccountRepository
             LIMIT 1
             """,
             new { username = username.Value });
-        return persisted is null ? null : new SystemId(persisted);
     }
 
     public async Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(
@@ -408,29 +425,38 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
     private Task<SystemId?> TryFindByDiscordAsync(string value, CancellationToken cancellationToken)
         => TryFindByProviderAsync(
-            """
-            SELECT system_id FROM accounts WHERE discord_id = @value COLLATE NOCASE LIMIT 1
-            """,
+            (conn, candidate) => conn.QueryFirstOrDefaultAsync<SystemId?>(
+                """
+                SELECT system_id FROM accounts WHERE discord_id = @value COLLATE NOCASE LIMIT 1
+                """,
+                new { value = candidate }),
             value,
             cancellationToken);
 
     private Task<SystemId?> TryFindByEmailAsync(string value, CancellationToken cancellationToken)
         => TryFindByProviderAsync(
-            """
-            SELECT system_id FROM accounts WHERE email = @value COLLATE NOCASE LIMIT 1
-            """,
+            (conn, candidate) => conn.QueryFirstOrDefaultAsync<SystemId?>(
+                """
+                SELECT system_id FROM accounts WHERE email = @value COLLATE NOCASE LIMIT 1
+                """,
+                new { value = candidate }),
             value,
             cancellationToken);
 
     private Task<SystemId?> TryFindByAppleAsync(string value, CancellationToken cancellationToken)
         => TryFindByProviderAsync(
-            """
-            SELECT system_id FROM accounts WHERE apple_id = @value COLLATE NOCASE LIMIT 1
-            """,
+            (conn, candidate) => conn.QueryFirstOrDefaultAsync<SystemId?>(
+                """
+                SELECT system_id FROM accounts WHERE apple_id = @value COLLATE NOCASE LIMIT 1
+                """,
+                new { value = candidate }),
             value,
             cancellationToken);
 
-    private async Task<SystemId?> TryFindByProviderAsync(string sql, string value, CancellationToken cancellationToken)
+    private async Task<SystemId?> TryFindByProviderAsync(
+        Func<SqliteConnection, string, Task<SystemId?>> query,
+        string value,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -438,13 +464,12 @@ public sealed class SqliteAccountRepository : IAccountRepository
         }
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var persisted = await connection.QueryFirstOrDefaultAsync<string>(sql, new { value });
-        return persisted is null ? null : new SystemId(persisted);
+        return await query(connection, value);
     }
 
     private async Task<SystemId?> FindOrCreateByProviderAsync(
         Func<string, CancellationToken, Task<SystemId?>> tryFind,
-        string insertSql,
+        Func<SqliteConnection, string, string, long, Task<int>> insert,
         string value,
         CancellationToken cancellationToken)
     {
@@ -464,7 +489,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
         try
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-            await connection.ExecuteAsync(insertSql, new { system_id = rawId, value, now = nowMs });
+            await insert(connection, rawId, value, nowMs);
         }
         catch (SqliteException)
         {
@@ -481,7 +506,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
         string value,
         Func<AccountRow, string?> existingSelector,
         Func<string, CancellationToken, Task<SystemId?>> tryFind,
-        string updateSql,
+        Func<SqliteConnection, string, long, SystemId, Task<int>> update,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -510,15 +535,18 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await connection.ExecuteAsync(updateSql, new { value, now = nowMs, system_id = systemId });
+        await update(connection, value, nowMs, systemId);
         return AccountLinkResult.Success;
     }
 
-    private async Task<bool> UnlinkColumnAsync(SystemId systemId, string sql, CancellationToken cancellationToken)
+    private async Task<bool> UnlinkColumnAsync(
+        SystemId systemId,
+        Func<SqliteConnection, long, SystemId, Task<int>> update,
+        CancellationToken cancellationToken)
     {
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var rows = await connection.ExecuteAsync(sql, new { now = nowMs, system_id = systemId });
+        var rows = await update(connection, nowMs, systemId);
         return rows > 0;
     }
 
@@ -569,16 +597,4 @@ public sealed class SqliteAccountRepository : IAccountRepository
             new { system_id = systemId });
     }
 
-    private sealed record AccountRow(
-        string? Username,
-        string? Description,
-        string? AvatarUrl,
-        long? AvatarSource,
-        string? DiscordId,
-        string? Email,
-        string? AppleId);
-
-    private sealed record LinkTokenRow(string? LinkToken, long ExpiresAt);
-
-    private sealed record LinkTokenOwnerRow(SystemId SystemId, long ExpiresAt);
 }

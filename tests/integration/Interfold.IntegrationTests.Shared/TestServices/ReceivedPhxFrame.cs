@@ -22,7 +22,7 @@ public sealed record ReceivedPhxFrame(
     public TPayload Payload<TPayload>() =>
         RawPayload is null
             ? throw new InvalidOperationException("Frame has no payload.")
-            : JsonSerializer.Deserialize<TPayload>(RawPayload.Value.GetRawText(), SocketJson.Options)
+            : JsonSerializer.Deserialize<TPayload>(RawPayload.Value.GetRawText(), TestJson.Options)
               ?? throw new InvalidOperationException($"Failed to deserialize payload as {typeof(TPayload).Name}.");
 
     /// <summary>
@@ -45,7 +45,7 @@ public sealed record ReceivedPhxFrame(
         if (string.IsNullOrWhiteSpace(reply.Response.Body))
             throw new InvalidOperationException("Endpoint proxy response body is empty.");
 
-        return JsonSerializer.Deserialize<TBody>(reply.Response.Body, SocketJson.Options)
+        return JsonSerializer.Deserialize<TBody>(reply.Response.Body, TestJson.Options)
                ?? throw new InvalidOperationException($"Failed to deserialize endpoint body as {typeof(TBody).Name}.");
     }
 

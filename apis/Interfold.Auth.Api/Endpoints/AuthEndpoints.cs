@@ -1,64 +1,58 @@
 using Interfold.Auth.Api.Auth;
-using Interfold.Auth.Api.Controllers.Base;
+using Interfold.Auth.Api.Http;
 using Interfold.Auth.Api.Models;
 using Interfold.Auth.Api.Services;
 using Interfold.Auth.Contracts.Configuration;
-using Interfold.Auth.Contracts.Ids;
 using Interfold.Auth.Contracts.Enums;
+using Interfold.Auth.Contracts.Ids;
 using Interfold.Auth.Contracts.Models.Commands;
 using Interfold.Auth.Domain;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Shared.Api.Http;
 using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
+using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Operations;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
-namespace Interfold.Auth.Api.Controllers;
+namespace Interfold.Auth.Api.DependencyInjection;
 
-[Route("auth")]
-public sealed class AuthController : OAuthControllerBase
+public static partial class AuthModuleServiceCollectionExtensions
 {
-    private readonly AuthenticateOAuthCommandHandler _authHandler;
-    private readonly RecordAuthTokenCommandHandler _recordTokenHandler;
-    private readonly RevokeAuthTokenCommandHandler _revokeTokenHandler;
-    private readonly CloudflareAccessJwtValidator _accessJwt;
-
-    public AuthController(
-        AuthenticateOAuthCommandHandler authHandler,
-        IOptionsMonitor<AuthenticationConfiguration> authOptions,
-        IAuthenticationSchemeProvider schemeProvider,
-        GoogleOAuthService googleOAuth,
-        DiscordOAuthService discordOAuth,
-        AppleOAuthService appleOAuth,
-        RecordAuthTokenCommandHandler recordTokenHandler,
-        RevokeAuthTokenCommandHandler revokeTokenHandler,
-        CloudflareAccessJwtValidator accessJwt)
-        : base(authOptions, schemeProvider, googleOAuth, discordOAuth, appleOAuth)
+    public static IEndpointRouteBuilder MapAuthModule(this IEndpointRouteBuilder endpoints)
     {
-        _authHandler = authHandler;
-        _recordTokenHandler = recordTokenHandler;
-        _revokeTokenHandler = revokeTokenHandler;
-        _accessJwt = accessJwt;
-    }
+        var auth = endpoints.MapGroup("/auth");
+        auth.MapGet("/login-methods", LoginMethods).AllowAnonymous();
+        auth.MapGet("/cloudflare", CloudflareBegin).AllowAnonymous();
+        auth.MapPost("/cloudflare/session", CloudflareSession).AllowAnonymous();
+        auth.MapGet("/{provider}", BeginAuth).AllowAnonymous();
+        auth.MapGet("/{provider}/callback", CallbackAuthGet).AllowAnonymous();
+        auth.MapPost("/{provider}/callback", CallbackAuthPost).AllowAnonymous();
+        auth.MapPost("/revoke", RevokeToken);
 
-    protected override string CallbackRoutePrefix => "auth";
+        var link = endpoints.MapGroup("/auth/link").AllowAnonymous();
+        link.MapGet("/{provider}", BeginLink);
+        link.MapGet("/{provider}/callback", CallbackLinkGet);
+        link.MapPost("/{provider}/callback", CallbackLinkPost);
+        return endpoints;
+    }
 
     /// <summary>Anonymous discovery of login buttons. When <c>cloudflare</c> is true,
     /// clients should hide Discord/Apple/Google Interfold buttons.</summary>
-    [AllowAnonymous]
-    [HttpGet("login-methods")]
-    public IActionResult LoginMethods()
+    private static IResult LoginMethods(
+        HttpContext http,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions,
+        CloudflareAccessJwtValidator accessJwt)
     {
-        var auth = AuthOptions.CurrentValue;
-        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.QueryAuthLoginMethods.Value;
-        return Ok(new LoginMethodsResponse
+        var auth = authOptions.CurrentValue;
+        http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.QueryAuthLoginMethods.Value;
+        return TypedResults.Ok(new LoginMethodsResponse
         {
-            Cloudflare = _accessJwt.IsEnabled,
+            Cloudflare = accessJwt.IsEnabled,
             Google = !string.IsNullOrWhiteSpace(auth.GoogleOAuthClientId),
             Discord = !string.IsNullOrWhiteSpace(auth.DiscordOAuthClientId),
             Apple = !string.IsNullOrWhiteSpace(auth.AppleOAuthClientId),
@@ -67,143 +61,143 @@ public sealed class AuthController : OAuthControllerBase
 
     /// <summary>
     /// Exchanges a Cloudflare Access JWT for an Interfold session and redirects to
-    /// <c>redirect_uri?token=&amp;id=</c>. Same query shape as Google/Discord/Apple callbacks.
+    /// <c>redirect_uri?token=&amp;id=</c>.
     /// </summary>
-    [AllowAnonymous]
-    [HttpGet("cloudflare")]
-    public async Task<IActionResult> CloudflareBegin([FromQuery(Name = OAuthQueryKeys.RedirectUri)] string? redirectUri)
+    private static async Task<IResult> CloudflareBegin(
+        HttpContext http,
+        string? redirect_uri,
+        AuthenticateOAuthCommandHandler authHandler,
+        RecordAuthTokenCommandHandler recordTokenHandler,
+        CloudflareAccessJwtValidator accessJwt,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions)
     {
-        if (string.IsNullOrWhiteSpace(redirectUri))
+        if (string.IsNullOrWhiteSpace(redirect_uri))
         {
-            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
-            return BadRequest(new ErrorResponse(
+            http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+            return TypedResults.BadRequest(new ErrorResponse(
                 "Missing client-supplied redirect_uri.",
                 ErrorCodes.MissingRedirectUri,
                 detail: "Pass redirect_uri on GET /auth/cloudflare so the callback knows where to send the token."));
         }
 
-        var exchange = await ExchangeAccessJwtAsync();
+        var exchange = await ExchangeAccessJwtAsync(http, authHandler, recordTokenHandler, accessJwt, authOptions);
         if (exchange.Error is { } error)
             return error;
 
-        var separator = redirectUri.Contains('?') ? '&' : '?';
+        var separator = redirect_uri.Contains('?') ? '&' : '?';
         var redirectUrl =
-            $"{redirectUri}{separator}{OAuthQueryKeys.CallbackToken}={Uri.EscapeDataString(exchange.Token!)}&{OAuthQueryKeys.CallbackId}={Uri.EscapeDataString(exchange.SystemId!)}";
-        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
-        return Redirect(redirectUrl);
+            $"{redirect_uri}{separator}{OAuthQueryKeys.CallbackToken}={Uri.EscapeDataString(exchange.Token!)}&{OAuthQueryKeys.CallbackId}={Uri.EscapeDataString(exchange.SystemId!)}";
+        http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+        return TypedResults.Redirect(redirectUrl);
     }
 
     /// <summary>Same Access JWT exchange as GET /auth/cloudflare, returning JSON for native/SPA clients.</summary>
-    [AllowAnonymous]
-    [HttpPost("cloudflare/session")]
-    public async Task<IActionResult> CloudflareSession()
+    private static async Task<IResult> CloudflareSession(
+        HttpContext http,
+        AuthenticateOAuthCommandHandler authHandler,
+        RecordAuthTokenCommandHandler recordTokenHandler,
+        CloudflareAccessJwtValidator accessJwt,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions)
     {
-        var exchange = await ExchangeAccessJwtAsync();
+        var exchange = await ExchangeAccessJwtAsync(http, authHandler, recordTokenHandler, accessJwt, authOptions);
         if (exchange.Error is { } error)
             return error;
 
-        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
-        return Ok(new CloudflareSessionResponse { Token = exchange.Token!, Id = exchange.SystemId! });
+        http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+        return TypedResults.Ok(new CloudflareSessionResponse { Token = exchange.Token!, Id = exchange.SystemId! });
     }
 
-    [AllowAnonymous]
-    [HttpGet("{provider}")]
-    public async Task<IActionResult> Begin([FromRoute] string provider)
+    private static async Task<IResult> BeginAuth(
+        HttpContext http,
+        string provider,
+        IAuthenticationSchemeProvider schemeProvider,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions)
     {
         if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
-            return UnsupportedProviderResponse(provider);
+            return OAuthHttp.UnsupportedProviderResponse(provider);
 
-        StoreRedirectUriCookie(InterfoldCookieNames.AuthRedirectUri);
+        OAuthHttp.StoreRedirectUriCookie(http, InterfoldCookieNames.AuthRedirectUri);
 
-        var challenge = await IssueChallengeIfRegisteredAsync(
-            oauthProvider, OperationIds.QueryAuthOAuthRequest);
+        var challenge = await OAuthHttp.IssueChallengeIfRegisteredAsync(
+            http, oauthProvider, schemeProvider, authOptions, "auth", OperationIds.QueryAuthOAuthRequest);
 
         if (challenge is not null)
             return challenge;
 
-        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.QueryAuthOAuthRequest.Value;
-        return StatusCode(StatusCodes.Status403Forbidden, string.Empty);
+        http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.QueryAuthOAuthRequest.Value;
+        return OAuthHttp.JsonMessage(string.Empty, StatusCodes.Status403Forbidden);
     }
 
-    [AllowAnonymous]
-    [HttpGet("{provider}/callback")]
-    public Task<IActionResult> CallbackGet([FromRoute] string provider)
-        => Callback(provider);
+    private static Task<IResult> CallbackAuthGet(
+        HttpContext http,
+        string provider,
+        AuthenticateOAuthCommandHandler authHandler,
+        RecordAuthTokenCommandHandler recordTokenHandler,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions,
+        DiscordOAuthService discordOAuth,
+        GoogleOAuthService googleOAuth,
+        AppleOAuthService appleOAuth)
+        => CallbackAuth(http, provider, authHandler, recordTokenHandler, authOptions, discordOAuth, googleOAuth, appleOAuth);
 
-    [AllowAnonymous]
-    [HttpPost("{provider}/callback")]
-    public Task<IActionResult> CallbackPost([FromRoute] string provider)
-        => Callback(provider);
+    private static Task<IResult> CallbackAuthPost(
+        HttpContext http,
+        string provider,
+        AuthenticateOAuthCommandHandler authHandler,
+        RecordAuthTokenCommandHandler recordTokenHandler,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions,
+        DiscordOAuthService discordOAuth,
+        GoogleOAuthService googleOAuth,
+        AppleOAuthService appleOAuth)
+        => CallbackAuth(http, provider, authHandler, recordTokenHandler, authOptions, discordOAuth, googleOAuth, appleOAuth);
 
-    /// <summary>
-    /// Revokes the current authenticated token (logout).
-    /// Requires authentication. The JTI claim from the current token is extracted and marked as revoked.
-    /// After revocation, the token cannot be used for subsequent requests.
-    /// </summary>
-    [Authorize]
-    [HttpPost("revoke")]
-    public async Task<IActionResult> RevokeToken()
+    /// <summary>Revokes the current authenticated token (logout).</summary>
+    private static async Task<IResult> RevokeToken(
+        HttpContext http,
+        RevokeAuthTokenCommandHandler revokeTokenHandler)
     {
-        // Jti.From wraps the possibly-null JWT claim in one call so the null check operates
-        // on the typed Jti?, not on a bare string local. A bare string local would stay
-        // alive across the null-check / error-return boundary and any incidental log
-        // statement in that window would leak the token id verbatim through raw-string
-        // interpolation.
-        var jti = Jti.From(User.FindFirst(JwtClaimNames.Jti)?.Value);
+        var jti = Jti.From(http.User.FindFirst(JwtClaimNames.Jti)?.Value);
         if (jti is null)
-        {
-            return BadRequest(new ErrorResponse("Token is missing JTI claim.", ErrorCodes.InvalidToken));
-        }
+            return TypedResults.BadRequest(new ErrorResponse("Token is missing JTI claim.", ErrorCodes.InvalidToken));
 
-        await _revokeTokenHandler.HandleAsync(BuildEnvelope(OperationIds.AuthRevokeToken, new RevokeAuthTokenCommand(jti.Value)), HttpContext.RequestAborted);
+        await revokeTokenHandler.HandleAsync(http.BuildEnvelope(OperationIds.AuthRevokeToken, new RevokeAuthTokenCommand(jti.Value)), http.RequestAborted);
 
-        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthRevokeToken.Value;
-        return NoContent();
+        http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthRevokeToken.Value;
+        return TypedResults.NoContent();
     }
 
-    private async Task<IActionResult> Callback(string provider)
+    private static async Task<IResult> CallbackAuth(
+        HttpContext http,
+        string provider,
+        AuthenticateOAuthCommandHandler authHandler,
+        RecordAuthTokenCommandHandler recordTokenHandler,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions,
+        DiscordOAuthService discordOAuth,
+        GoogleOAuthService googleOAuth,
+        AppleOAuthService appleOAuth)
     {
         if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
-            return UnsupportedProviderResponse(provider);
+            return OAuthHttp.UnsupportedProviderResponse(provider);
 
-        // ExtractProviderIdentityAsync returns a ProviderIdentity? that the account repo
-        // dispatches on directly — no rewrap of a raw string that was just unwrapped
-        // inside the OAuth service.
-        var identity = await ExtractProviderIdentityAsync(oauthProvider);
+        var identity = await OAuthHttp.ExtractProviderIdentityAsync(
+            http, oauthProvider, discordOAuth, googleOAuth, appleOAuth, authOptions, "auth");
         if (identity is not { } typedIdentity)
-        {
-            return OAuthIdentityFailureResponse();
-        }
+            return OAuthHttp.OAuthIdentityFailureContent();
 
-        // [AllowAnonymous] endpoint: the middleware doesn't populate the principal, but
-        // BuildEnvelope stamps the synthetic AnonymousPrincipalId in that case (the OAuth
-        // handler resolves the real system id off the identity itself and never reads
-        // command.PrincipalId), so we can share the standard envelope shape.
-        var envelope = BuildEnvelope(OperationIds.AuthOAuthCallback, new AuthenticateOAuthCommand(typedIdentity));
-
-        var result = await _authHandler.HandleAsync(envelope, HttpContext.RequestAborted);
+        var envelope = http.BuildEnvelope(OperationIds.AuthOAuthCallback, new AuthenticateOAuthCommand(typedIdentity));
+        var result = await authHandler.HandleAsync(envelope, http.RequestAborted);
         if (!result.Accepted)
-        {
-            return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you use the same account to sign in before?");
-        }
+            return OAuthHttp.JsonMessage("Failed to authenticate. Did you use the same account to sign in before?", StatusCodes.Status403Forbidden);
 
         var systemId = result.Result;
+        var token = await IssueDeepLinkTokenAsync(http, systemId, recordTokenHandler, authOptions);
 
-        var token = await IssueDeepLinkTokenAsync(systemId);
+        var clientRedirectUri = http.Request.Cookies[InterfoldCookieNames.AuthRedirectUri];
+        http.Response.Cookies.Delete(InterfoldCookieNames.AuthRedirectUri);
 
-        var clientRedirectUri = Request.Cookies[InterfoldCookieNames.AuthRedirectUri];
-        Response.Cookies.Delete(InterfoldCookieNames.AuthRedirectUri);
-
-        // The client (web/desktop/mobile) is responsible for supplying its own redirect_uri
-        // on the initial GET /auth/{provider}?redirect_uri=... call; we store that in the
-        // octocon_auth_redirect_uri cookie there and read it back here after the provider
-        // round-trip. A missing cookie means the client either never set it or the cookie
-        // was dropped — that's a client bug, surface it loudly rather than papering over it
-        // with a server-configured fallback.
         if (string.IsNullOrWhiteSpace(clientRedirectUri))
         {
-            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthOAuthCallback.Value;
-            return BadRequest(new ErrorResponse(
+            http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthOAuthCallback.Value;
+            return TypedResults.BadRequest(new ErrorResponse(
                 "Missing client-supplied redirect_uri.",
                 ErrorCodes.MissingRedirectUri,
                 detail: "Pass redirect_uri on GET /auth/{provider} so the callback knows where to send the token."));
@@ -212,77 +206,200 @@ public sealed class AuthController : OAuthControllerBase
         var separator = clientRedirectUri.Contains('?') ? '&' : '?';
         var redirectUrl = $"{clientRedirectUri}{separator}{OAuthQueryKeys.CallbackToken}={Uri.EscapeDataString(token)}&{OAuthQueryKeys.CallbackId}={Uri.EscapeDataString(systemId)}";
 
-        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthOAuthCallback.Value;
-        return Redirect(redirectUrl);
+        http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthOAuthCallback.Value;
+        return TypedResults.Redirect(redirectUrl);
     }
 
-    private async Task<(string? Token, string? SystemId, IActionResult? Error)> ExchangeAccessJwtAsync()
+    private static async Task<(string? Token, string? SystemId, IResult? Error)> ExchangeAccessJwtAsync(
+        HttpContext http,
+        AuthenticateOAuthCommandHandler authHandler,
+        RecordAuthTokenCommandHandler recordTokenHandler,
+        CloudflareAccessJwtValidator accessJwt,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions)
     {
-        var assertion = Request.Headers[InterfoldHeaders.CfAccessJwtAssertion].ToString();
-        var validated = await _accessJwt.ValidateAsync(assertion, HttpContext.RequestAborted);
+        var assertion = http.Request.Headers[InterfoldHeaders.CfAccessJwtAssertion].ToString();
+        var validated = await accessJwt.ValidateAsync(assertion, http.RequestAborted);
         if (!validated.Succeeded)
         {
-            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+            http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
             var status = validated.Error == ErrorCodes.CloudflareAccessUnavailable
                 ? StatusCodes.Status503ServiceUnavailable
                 : StatusCodes.Status401Unauthorized;
-            return (null, null, StatusCode(status, new ErrorResponse(
+            return (null, null, OAuthHttp.JsonError(new ErrorResponse(
                 validated.Message ?? "Cloudflare Access JWT rejected.",
-                validated.Error ?? ErrorCodes.InvalidToken)));
+                validated.Error ?? ErrorCodes.InvalidToken), status));
         }
 
         if (!validated.TryToProviderIdentity(out var identity))
         {
-            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
-            return (null, null, StatusCode(StatusCodes.Status403Forbidden, new ErrorResponse(
+            http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+            return (null, null, OAuthHttp.JsonError(new ErrorResponse(
                 $"Cloudflare Access identity provider '{validated.IdentityProvider}' is not supported.",
                 ErrorCodes.UnsupportedAccessIdentityProvider,
-                detail: "Interfold maps Access logins from Google or Discord (OIDC).")));
+                detail: "Interfold maps Access logins from Google or Discord (OIDC)."), StatusCodes.Status403Forbidden));
         }
 
-        var envelope = BuildEnvelope(OperationIds.AuthCloudflareExchange, new AuthenticateOAuthCommand(identity));
-        var result = await _authHandler.HandleAsync(envelope, HttpContext.RequestAborted);
+        var envelope = http.BuildEnvelope(OperationIds.AuthCloudflareExchange, new AuthenticateOAuthCommand(identity));
+        var result = await authHandler.HandleAsync(envelope, http.RequestAborted);
         if (!result.Accepted)
         {
-            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
-            return (null, null, StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you use the same account to sign in before?"));
+            http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthCloudflareExchange.Value;
+            return (null, null, OAuthHttp.JsonMessage("Failed to authenticate. Did you use the same account to sign in before?", StatusCodes.Status403Forbidden));
         }
 
         var systemId = result.Result;
-        var token = await IssueDeepLinkTokenAsync(systemId);
+        var token = await IssueDeepLinkTokenAsync(http, systemId, recordTokenHandler, authOptions);
         return (token, systemId.Value, null);
     }
 
-    private async Task<string> IssueDeepLinkTokenAsync(SystemId systemId)
+    private static async Task<string> IssueDeepLinkTokenAsync(
+        HttpContext http,
+        SystemId systemId,
+        RecordAuthTokenCommandHandler recordTokenHandler,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions)
     {
-        var authConfig = AuthOptions.CurrentValue;
-        // Jti.NewJti() mints + wraps in one call so the raw JTI string doesn't live as a
-        // bare local across the CreateToken and RecordTokenAsync sites. Any incidental
-        // log or exception-with-locals between mint and wrap would emit the unredacted
-        // JTI; the wrapper's ToString redacts.
+        var authConfig = authOptions.CurrentValue;
         var jti = Jti.NewJti();
-
-        // Set expiry to 100 years in the future. This is practically permanent
-        // but avoids DateTimeOffset.MaxValue which can cause int64 overflow on validation.
-        // If a token is compromised, it can be revoked explicitly via POST /auth/revoke.
-        var now = TimeProvider.GetUtcNow();
+        var now = http.Time().GetUtcNow();
         var expiresAt = now.AddYears(100);
-
         var token = AuthHelper.CreateToken(authConfig, expiresAt, now, jti, systemId);
 
-        // Record the issued token for revocation tracking
         var envelope = new CommandEnvelope<RecordAuthTokenCommand>(
             OperationIds.AuthOAuthCallback,
             Guid.NewGuid(),
             systemId,
-            GetIdempotencyKey(),
-            TimeProvider.GetUtcNow(),
-            new RecordAuthTokenCommand(jti, systemId, expiresAt)
-        );
+            http.GetIdempotencyKey(),
+            http.Time().GetUtcNow(),
+            new RecordAuthTokenCommand(jti, systemId, expiresAt));
 
-        await _recordTokenHandler.HandleAsync(envelope, HttpContext.RequestAborted);
-
-        // JWS Compact Serialization: base64url(header).base64url(payload).base64url(signature)
+        await recordTokenHandler.HandleAsync(envelope, http.RequestAborted);
         return token;
+    }
+
+    private static async Task<IResult> BeginLink(
+        HttpContext http,
+        string provider,
+        IAuthenticationSchemeProvider schemeProvider,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions)
+    {
+        if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
+            return OAuthHttp.UnsupportedProviderResponse(provider);
+
+        var redirectUri = http.Request.Query[OAuthQueryKeys.RedirectUri].ToString();
+        if (string.IsNullOrWhiteSpace(redirectUri))
+        {
+            http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.QueryAuthLinkRequest.Value;
+            return TypedResults.BadRequest(new ErrorResponse(
+                "Missing client-supplied redirect_uri.",
+                ErrorCodes.MissingRedirectUri,
+                detail: "Pass redirect_uri on GET /auth/link/{provider} so the link callback knows where to send the result."));
+        }
+
+        OAuthHttp.StoreQueryCookie(http, InterfoldCookieNames.LinkToken, OAuthQueryKeys.LinkToken);
+        OAuthHttp.StoreRedirectUriCookie(http, InterfoldCookieNames.LinkRedirectUri);
+
+        var challenge = await OAuthHttp.IssueChallengeIfRegisteredAsync(
+            http, oauthProvider, schemeProvider, authOptions, "auth/link", OperationIds.QueryAuthLinkRequest);
+
+        if (challenge is not null)
+            return challenge;
+
+        http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.QueryAuthLinkRequest.Value;
+        return OAuthHttp.JsonMessage(string.Empty, StatusCodes.Status403Forbidden);
+    }
+
+    private static Task<IResult> CallbackLinkGet(
+        HttpContext http,
+        string provider,
+        LinkOAuthIdentityCommandHandler linkHandler,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions,
+        DiscordOAuthService discordOAuth,
+        GoogleOAuthService googleOAuth,
+        AppleOAuthService appleOAuth)
+        => CallbackLink(http, provider, linkHandler, authOptions, discordOAuth, googleOAuth, appleOAuth);
+
+    private static Task<IResult> CallbackLinkPost(
+        HttpContext http,
+        string provider,
+        LinkOAuthIdentityCommandHandler linkHandler,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions,
+        DiscordOAuthService discordOAuth,
+        GoogleOAuthService googleOAuth,
+        AppleOAuthService appleOAuth)
+        => CallbackLink(http, provider, linkHandler, authOptions, discordOAuth, googleOAuth, appleOAuth);
+
+    private static async Task<IResult> CallbackLink(
+        HttpContext http,
+        string provider,
+        LinkOAuthIdentityCommandHandler linkHandler,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions,
+        DiscordOAuthService discordOAuth,
+        GoogleOAuthService googleOAuth,
+        AppleOAuthService appleOAuth)
+    {
+        if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
+            return OAuthHttp.UnsupportedProviderResponse(provider);
+
+        var linkToken = LinkToken.From(await OAuthHttp.GetValueAsync(http, OAuthQueryKeys.LinkToken) ?? http.Request.Cookies[InterfoldCookieNames.LinkToken]);
+        if (linkToken is null)
+            return OAuthHttp.JsonMessage("This link token is invalid or has expired.", StatusCodes.Status403Forbidden);
+
+        var identity = await OAuthHttp.ExtractProviderIdentityAsync(
+            http, oauthProvider, discordOAuth, googleOAuth, appleOAuth, authOptions, "auth/link");
+        if (identity is not { } typedIdentity)
+            return OAuthHttp.OAuthIdentityFailureContent();
+
+        var envelope = http.BuildEnvelope(OperationIds.AuthLinkCallback, new LinkOAuthIdentityCommand(linkToken.Value, typedIdentity));
+        var commandResult = await linkHandler.HandleAsync(envelope, http.RequestAborted);
+        if (!commandResult.Accepted || commandResult.Result is null)
+        {
+            http.Response.Cookies.Delete(InterfoldCookieNames.LinkToken);
+            return OAuthHttp.JsonMessage("This link token is invalid or has expired.", StatusCodes.Status403Forbidden);
+        }
+
+        var result = commandResult.Result.Result;
+        var systemId = commandResult.Result.SystemId;
+
+        http.Response.Cookies.Delete(InterfoldCookieNames.LinkToken);
+
+        var redirectUri = http.Request.Cookies[InterfoldCookieNames.LinkRedirectUri];
+        http.Response.Cookies.Delete(InterfoldCookieNames.LinkRedirectUri);
+
+        http.Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthLinkCallback.Value;
+
+        return result switch
+        {
+            AccountLinkResult.Success when systemId != null => RedirectToClient(redirectUri),
+            AccountLinkResult.AlreadyLinked => OAuthHttp.JsonErrorMessage(new ErrorMessageResponse(
+                oauthProvider switch
+                {
+                    OAuthProvider.Discord => "A Discord account is already linked to this account; please unlink it first.",
+                    OAuthProvider.Google => "A Google account is already linked to this account; please unlink it first.",
+                    OAuthProvider.Apple => "An Apple account is already linked to this account; please unlink it first.",
+                    _ => "An account is already linked to this account; please unlink it first."
+                }), StatusCodes.Status403Forbidden),
+            AccountLinkResult.UserExists => OAuthHttp.JsonErrorMessage(new ErrorMessageResponse(
+                oauthProvider switch
+                {
+                    OAuthProvider.Discord => "This Discord account is already linked to another account.",
+                    OAuthProvider.Google => "This email address is already linked to another account.",
+                    OAuthProvider.Apple => "This Apple account is already linked to another account.",
+                    _ => "This account is already linked to another account."
+                }), StatusCodes.Status500InternalServerError),
+            _ => OAuthHttp.JsonErrorMessage(new ErrorMessageResponse("System not found"), StatusCodes.Status403Forbidden)
+        };
+    }
+
+    private static IResult RedirectToClient(string? redirectUri)
+    {
+        if (string.IsNullOrWhiteSpace(redirectUri))
+        {
+            return TypedResults.BadRequest(new ErrorResponse(
+                "Missing client-supplied redirect_uri.",
+                ErrorCodes.MissingRedirectUri,
+                detail: "Pass redirect_uri on GET /auth/link/{provider} so the link callback knows where to send the result."));
+        }
+
+        return TypedResults.Redirect(redirectUri);
     }
 }

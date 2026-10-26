@@ -1,67 +1,56 @@
 using Interfold.Shared.Contracts.Configuration;
-using Microsoft.OpenApi.Models;
-using Swashbuckle.AspNetCore.SwaggerGen;
+using Microsoft.AspNetCore.OpenApi;
+using Microsoft.OpenApi;
 
-namespace Interfold.Shared.Api.Swagger;
+namespace Interfold.Shared.Api.OpenApi;
 
-public class HealthCheckDocumentFilter : IDocumentFilter
+/// <summary>Adds the liveness / readiness / startup probes that live outside
+/// feature-module route groups.</summary>
+public sealed class HealthCheckDocumentTransformer : IOpenApiDocumentTransformer
 {
-    public void Apply(OpenApiDocument swaggerDoc, DocumentFilterContext context)
+    public Task TransformAsync(OpenApiDocument document, OpenApiDocumentTransformerContext context, CancellationToken cancellationToken)
     {
-        var healthyResponse = new OpenApiResponse { Description = "Healthy" };
-        var unhealthyResponse = new OpenApiResponse { Description = "Unhealthy" };
+        document.Paths ??= [];
 
-        swaggerDoc.Paths[HealthEndpoints.Live] = new OpenApiPathItem
+        var healthy = new OpenApiResponse { Description = "Healthy" };
+        var unhealthy = new OpenApiResponse { Description = "Unhealthy" };
+
+        document.Paths[HealthEndpoints.Live] = PathItem("Liveness probe",
+            "Returns 200 if the process is running. No dependency checks.",
+            ("200", healthy));
+
+        document.Paths[HealthEndpoints.Ready] = PathItem("Readiness probe",
+            "Returns 200 if all dependencies (SQLite) are reachable.",
+            ("200", healthy),
+            ("503", unhealthy));
+
+        document.Paths[HealthEndpoints.Startup] = PathItem("Startup probe",
+            "Returns 200 once all dependencies are initialized. Uses longer timeouts than readiness.",
+            ("200", healthy),
+            ("503", unhealthy));
+
+        return Task.CompletedTask;
+    }
+
+    private static OpenApiPathItem PathItem(string summary, string description, params (string Status, OpenApiResponse Response)[] responses)
+    {
+        var operation = new OpenApiOperation
         {
-            Operations =
-            {
-                [OperationType.Get] = new OpenApiOperation
-                {
-                    Tags = [new OpenApiTag { Name = "Health" }],
-                    Summary = "Liveness probe",
-                    Description = "Returns 200 if the process is running. No dependency checks.",
-                    Responses = new OpenApiResponses
-                    {
-                        ["200"] = healthyResponse
-                    }
-                }
-            }
+            Tags = new HashSet<OpenApiTagReference> { new("Health") },
+            Summary = summary,
+            Description = description,
+            Responses = new OpenApiResponses(),
         };
 
-        swaggerDoc.Paths[HealthEndpoints.Ready] = new OpenApiPathItem
-        {
-            Operations =
-            {
-                [OperationType.Get] = new OpenApiOperation
-                {
-                    Tags = [new OpenApiTag { Name = "Health" }],
-                    Summary = "Readiness probe",
-                    Description = "Returns 200 if all dependencies (SQLite) are reachable.",
-                    Responses = new OpenApiResponses
-                    {
-                        ["200"] = healthyResponse,
-                        ["503"] = unhealthyResponse
-                    }
-                }
-            }
-        };
+        foreach (var (status, response) in responses)
+            operation.Responses[status] = response;
 
-        swaggerDoc.Paths[HealthEndpoints.Startup] = new OpenApiPathItem
+        return new OpenApiPathItem
         {
-            Operations =
+            Operations = new Dictionary<HttpMethod, OpenApiOperation>
             {
-                [OperationType.Get] = new OpenApiOperation
-                {
-                    Tags = [new OpenApiTag { Name = "Health" }],
-                    Summary = "Startup probe",
-                    Description = "Returns 200 once all dependencies are initialized. Uses longer timeouts than readiness.",
-                    Responses = new OpenApiResponses
-                    {
-                        ["200"] = healthyResponse,
-                        ["503"] = unhealthyResponse
-                    }
-                }
-            }
+                [HttpMethod.Get] = operation,
+            },
         };
     }
 }

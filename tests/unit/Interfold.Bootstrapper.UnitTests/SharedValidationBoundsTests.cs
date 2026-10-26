@@ -5,6 +5,7 @@ using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Configuration.Validation;
 using Interfold.Shared.Contracts.Enums;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
@@ -222,11 +223,11 @@ public sealed class SharedValidationBoundsTests
         var bootstrapperEx = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
         await Assert.That(bootstrapperEx.Message).Contains(bootstrapMessageContains);
 
-        var apiResults = ValidateOptions(apiOpts);
-        await Assert.That(apiResults.Count).IsGreaterThan(0);
+        var apiFailures = ValidateOptions(apiOpts);
+        await Assert.That(apiFailures.Count).IsGreaterThan(0);
         if (apiMemberName is not null)
         {
-            await Assert.That(string.Join(";", apiResults.Select(r => r.MemberNames.FirstOrDefault()))).Contains(apiMemberName);
+            await Assert.That(string.Join(";", apiFailures)).Contains(apiMemberName);
         }
     }
 
@@ -273,20 +274,24 @@ public sealed class SharedValidationBoundsTests
     };
 
     /// <summary>
-    /// Runs both the property-level DataAnnotations attributes and the
-    /// <see cref="IValidatableObject.Validate"/> hook — matches the strictness the
-    /// <c>Microsoft.Extensions.Options</c> pipeline applies when
-    /// <c>.ValidateDataAnnotations().ValidateOnStart()</c> fires at container boot.
+    /// Runs the same source-generated <see cref="IValidateOptions{TOptions}"/> the API
+    /// registers at boot. Reflection <c>Validator.TryValidateObject</c> is empty under Native AOT.
     /// </summary>
-    private static List<ValidationResult> ValidateOptions(object opts)
+    private static List<string> ValidateOptions(object opts)
     {
-        var ctx = new ValidationContext(opts);
-        var results = new List<ValidationResult>();
-        Validator.TryValidateObject(opts, ctx, results, validateAllProperties: true);
-        if (opts is IValidatableObject vo)
+        var result = opts switch
         {
-            results.AddRange(vo.Validate(ctx));
-        }
-        return results;
+            PersistenceConfiguration persistence => new PersistenceConfigurationValidator().Validate(Options.DefaultName, persistence),
+            SocketConfiguration socket => new SocketConfigurationValidator().Validate(Options.DefaultName, socket),
+            StorageConfiguration storage => new StorageConfigurationValidator().Validate(Options.DefaultName, storage),
+            ObservabilityConfiguration observability => new ObservabilityConfigurationValidator().Validate(Options.DefaultName, observability),
+            _ => throw new ArgumentOutOfRangeException(nameof(opts), opts.GetType(), "No source-generated options validator."),
+        };
+
+        if (result.Succeeded)
+            return [];
+
+        return result.Failures?.ToList()
+               ?? (string.IsNullOrEmpty(result.FailureMessage) ? ["validation failed"] : [result.FailureMessage]);
     }
 }

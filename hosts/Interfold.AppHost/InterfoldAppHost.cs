@@ -545,7 +545,7 @@ public static class InterfoldAppHost
             service.Networks = [ComposeNetworks.EdgeApi];
             service.Healthcheck = ComposeHealthcheck.Cmd(
                 interval: "15s", timeout: "5s", retries: 10, startPeriod: "20s",
-                command: ["curl", "-f", $"http://localhost:{apiContainerHttpPort}{HealthEndpoints.Ready}"]);
+                command: ["/app/http-ready-probe", $"http://127.0.0.1:{apiContainerHttpPort}{HealthEndpoints.Ready}"]);
         };
     }
 }

@@ -26,7 +26,7 @@ public readonly record struct EntityRef
     public override string ToString() => Value;
 }
 
-internal sealed class EntityRefJsonConverter : StringBackedJsonConverter<EntityRef>
+public sealed class EntityRefJsonConverter : StringBackedJsonConverter<EntityRef>
 {
     protected override EntityRef Create(string value) => new(value);
     protected override string GetValue(EntityRef value) => value.Value;

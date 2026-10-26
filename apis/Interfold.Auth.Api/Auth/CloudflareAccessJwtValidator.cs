@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Interfold.Auth.Contracts.Configuration;
@@ -7,6 +6,7 @@ using Interfold.Auth.Contracts.Ids;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Interfold.Auth.Api.Auth;
@@ -77,9 +77,9 @@ public sealed class CloudflareAccessJwtValidator
 
         try
         {
-            var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
-            _ = handler.ValidateToken(assertion, parameters, out var validated);
-            if (validated is not JwtSecurityToken jwt)
+            var handler = new JsonWebTokenHandler { MapInboundClaims = false };
+            var validated = await handler.ValidateTokenAsync(assertion, parameters).ConfigureAwait(false);
+            if (!validated.IsValid || validated.SecurityToken is not JsonWebToken jwt)
                 return CloudflareAccessJwtResult.Fail(ErrorCodes.InvalidToken, "Access token is not a JWT.");
 
             var email = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
@@ -185,7 +185,7 @@ public sealed class CloudflareAccessJwtValidator
         }
     }
 
-    private static AccessIdentityHints ReadIdentityHintsFromJwt(JwtSecurityToken jwt)
+    private static AccessIdentityHints ReadIdentityHintsFromJwt(JsonWebToken jwt)
     {
         var hints = default(AccessIdentityHints);
         var idpRaw = jwt.Claims.FirstOrDefault(c => c.Type is "idp" or "identity_provider")?.Value;
@@ -233,7 +233,7 @@ public sealed class CloudflareAccessJwtValidator
             string.IsNullOrWhiteSpace(primary.IdpName) ? fallback.IdpName : primary.IdpName,
             string.IsNullOrWhiteSpace(primary.DiscordId) ? fallback.DiscordId : primary.DiscordId);
 
-    private static string? ReadDiscordSnowflakeFromCustomClaim(JwtSecurityToken jwt)
+    private static string? ReadDiscordSnowflakeFromCustomClaim(JsonWebToken jwt)
     {
         var custom = jwt.Claims.FirstOrDefault(c => c.Type == "custom")?.Value;
         if (string.IsNullOrWhiteSpace(custom) || !custom.TrimStart().StartsWith('{'))

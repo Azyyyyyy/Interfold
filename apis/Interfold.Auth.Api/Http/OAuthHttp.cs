@@ -1,70 +1,49 @@
 using Interfold.Auth.Api.Auth;
+using Interfold.Auth.Api.Json;
 using Interfold.Auth.Api.Models;
 using Interfold.Auth.Api.Services;
+using Interfold.Shared.Api.Models;
 using Interfold.Auth.Contracts.Configuration;
 using Interfold.Auth.Contracts.Enums;
 using Interfold.Auth.Contracts.Ids;
-using Interfold.Shared.Api.Controllers.Base;
+using Interfold.Shared.Api.Http;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Operations;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
-namespace Interfold.Auth.Api.Controllers.Base;
+namespace Interfold.Auth.Api.Http;
 
-public abstract class OAuthControllerBase : InterfoldControllerBase
+internal static class OAuthHttp
 {
     private const string OAuthIdentityFailureMessage = "Failed to authenticate. Did you reload the page or copy-paste the URL?";
 
-    protected readonly IOptionsMonitor<AuthenticationConfiguration> AuthOptions;
-    protected readonly IAuthenticationSchemeProvider SchemeProvider;
-    protected readonly GoogleOAuthService GoogleOAuth;
-    protected readonly DiscordOAuthService DiscordOAuth;
-    protected readonly AppleOAuthService AppleOAuth;
-
-    protected OAuthControllerBase(
-        IOptionsMonitor<AuthenticationConfiguration> authOptions,
-        IAuthenticationSchemeProvider schemeProvider,
-        GoogleOAuthService googleOAuth,
+    public static async Task<ProviderIdentity?> ExtractProviderIdentityAsync(
+        HttpContext http,
+        OAuthProvider provider,
         DiscordOAuthService discordOAuth,
-        AppleOAuthService appleOAuth)
-    {
-        AuthOptions = authOptions;
-        SchemeProvider = schemeProvider;
-        GoogleOAuth = googleOAuth;
-        DiscordOAuth = discordOAuth;
-        AppleOAuth = appleOAuth;
-    }
-
-    protected abstract string CallbackRoutePrefix { get; }
-
-    /// <summary>
-    /// Resolves the provider identity for the current callback request as a
-    /// <see cref="ProviderIdentity"/> union whose populated field carries the typed
-    /// identity (Discord snowflake / email / Apple sub). Returns <c>null</c> when no
-    /// identity could be extracted (missing code, missing fallback, or failed exchange).
-    /// The union carries the typed identity end-to-end so callers never have to switch on
-    /// the provider enum and rewrap a raw string.
-    /// </summary>
-    protected async Task<ProviderIdentity?> ExtractProviderIdentityAsync(OAuthProvider provider)
+        GoogleOAuthService googleOAuth,
+        AppleOAuthService appleOAuth,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions,
+        string callbackRoutePrefix)
     {
         switch (provider)
         {
             case OAuthProvider.Discord:
             {
-                var code = await GetValueAsync(OAuthQueryKeys.Code);
+                var code = await GetValueAsync(http, OAuthQueryKeys.Code);
                 if (!string.IsNullOrWhiteSpace(code))
                 {
-                    var redirectUri = BuildCallbackBaseUri(provider);
-                    var discordId = await DiscordOAuth.ExchangeCodeForDiscordIdAsync(code, redirectUri, HttpContext.RequestAborted);
+                    var redirectUri = BuildCallbackBaseUri(http, provider, authOptions, callbackRoutePrefix);
+                    var discordId = await discordOAuth.ExchangeCodeForDiscordIdAsync(code, redirectUri, http.RequestAborted);
                     return discordId is { } id && !string.IsNullOrWhiteSpace(id.Value)
                         ? ProviderIdentity.FromDiscord(id)
                         : null;
                 }
 
-                var fallback = await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.DiscordIdFallback, OAuthQueryKeys.Id);
+                var fallback = await GetValueAsync(http, OAuthQueryKeys.Uid, OAuthQueryKeys.DiscordIdFallback, OAuthQueryKeys.Id);
                 return string.IsNullOrWhiteSpace(fallback)
                     ? null
                     : ProviderIdentity.FromDiscord(new(fallback));
@@ -72,23 +51,21 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
 
             case OAuthProvider.Google:
             {
-                var code = await GetValueAsync(OAuthQueryKeys.Code);
+                var code = await GetValueAsync(http, OAuthQueryKeys.Code);
                 if (string.IsNullOrWhiteSpace(code))
                 {
-                    var directEmail = await GetValueAsync(OAuthQueryKeys.Email);
+                    var directEmail = await GetValueAsync(http, OAuthQueryKeys.Email);
                     return string.IsNullOrWhiteSpace(directEmail)
                         ? null
                         : ProviderIdentity.FromGoogle(new(directEmail));
                 }
 
-                var redirectUri = BuildCallbackBaseUri(provider);
-                var email = await GoogleOAuth.ExchangeCodeForEmailAsync(code, redirectUri, HttpContext.RequestAborted);
+                var redirectUri = BuildCallbackBaseUri(http, provider, authOptions, callbackRoutePrefix);
+                var email = await googleOAuth.ExchangeCodeForEmailAsync(code, redirectUri, http.RequestAborted);
                 if (email is { } exchangedEmail && !string.IsNullOrWhiteSpace(exchangedEmail.Value))
-                {
                     return ProviderIdentity.FromGoogle(exchangedEmail);
-                }
 
-                var fallbackEmail = await GetValueAsync(OAuthQueryKeys.Email);
+                var fallbackEmail = await GetValueAsync(http, OAuthQueryKeys.Email);
                 return string.IsNullOrWhiteSpace(fallbackEmail)
                     ? null
                     : ProviderIdentity.FromGoogle(new(fallbackEmail));
@@ -96,25 +73,21 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
 
             case OAuthProvider.Apple:
             {
-                var code = await GetValueAsync(OAuthQueryKeys.Code);
+                var code = await GetValueAsync(http, OAuthQueryKeys.Code);
                 if (!string.IsNullOrWhiteSpace(code))
                 {
-                    var redirectUri = BuildCallbackBaseUri(provider);
-                    var appleId = await AppleOAuth.ExchangeCodeForAppleIdAsync(code, redirectUri, HttpContext.RequestAborted);
+                    var redirectUri = BuildCallbackBaseUri(http, provider, authOptions, callbackRoutePrefix);
+                    var appleId = await appleOAuth.ExchangeCodeForAppleIdAsync(code, redirectUri, http.RequestAborted);
                     if (appleId is { } exchangedAppleId && !string.IsNullOrWhiteSpace(exchangedAppleId.Value))
-                    {
                         return ProviderIdentity.FromApple(exchangedAppleId);
-                    }
                 }
 
-                var idToken = await GetValueAsync(OAuthQueryKeys.IdToken);
-                var sub = AppleOAuth.ExtractSubFromJwt(idToken);
+                var idToken = await GetValueAsync(http, OAuthQueryKeys.IdToken);
+                var sub = appleOAuth.ExtractSubFromJwt(idToken);
                 if (sub is { } tokenSub && !string.IsNullOrWhiteSpace(tokenSub.Value))
-                {
                     return ProviderIdentity.FromApple(tokenSub);
-                }
 
-                var fallback = await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.AppleIdFallback, OAuthQueryKeys.Id, OAuthQueryKeys.Sub);
+                var fallback = await GetValueAsync(http, OAuthQueryKeys.Uid, OAuthQueryKeys.AppleIdFallback, OAuthQueryKeys.Id, OAuthQueryKeys.Sub);
                 return string.IsNullOrWhiteSpace(fallback)
                     ? null
                     : ProviderIdentity.FromApple(new(fallback));
@@ -125,119 +98,115 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
         }
     }
 
-    protected string BuildCallbackBaseUri(OAuthProvider provider)
+    public static string BuildCallbackBaseUri(
+        HttpContext http,
+        OAuthProvider provider,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions,
+        string callbackRoutePrefix)
     {
         var providerKey = provider.ToWire();
-        var authConfig = AuthOptions.CurrentValue;
-        var baseUrl = authConfig.CallbackBaseUrl ?? $"{Request.Scheme}://{Request.Host}";
-        return $"{baseUrl}/{CallbackRoutePrefix}/{providerKey}/callback";
+        var authConfig = authOptions.CurrentValue;
+        var baseUrl = authConfig.CallbackBaseUrl ?? $"{http.Request.Scheme}://{http.Request.Host}";
+        return $"{baseUrl}/{callbackRoutePrefix}/{providerKey}/callback";
     }
 
-    protected async Task<string?> GetValueAsync(params string[] keys)
+    public static async Task<string?> GetValueAsync(HttpContext http, params string[] keys)
     {
         foreach (var key in keys)
         {
-            var query = Request.Query[key].ToString();
+            var query = http.Request.Query[key].ToString();
             if (!string.IsNullOrWhiteSpace(query))
-            {
                 return query;
-            }
         }
 
-        if (Request.HasFormContentType)
+        if (http.Request.HasFormContentType)
         {
-            var form = await Request.ReadFormAsync(HttpContext.RequestAborted);
+            var form = await http.Request.ReadFormAsync(http.RequestAborted);
             foreach (var key in keys)
             {
                 var value = form[key].ToString();
                 if (!string.IsNullOrWhiteSpace(value))
-                {
                     return value;
-                }
             }
         }
 
         return null;
     }
 
-    protected static string GetChallengeScheme(OAuthProvider provider)
-    {
-        return provider switch
+    public static string GetChallengeScheme(OAuthProvider provider)
+        => provider switch
         {
             OAuthProvider.Discord => OAuthChallengeServiceCollectionExtensions.DiscordSchemeName,
             OAuthProvider.Google => OAuthChallengeServiceCollectionExtensions.GoogleSchemeName,
             OAuthProvider.Apple => OAuthChallengeServiceCollectionExtensions.AppleSchemeName,
             _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, "Unhandled OAuthProvider."),
         };
-    }
 
-    protected void StoreRedirectUriCookie(string cookieName)
+    public static void StoreRedirectUriCookie(HttpContext http, string cookieName)
     {
-        var redirectUri = Request.Query[OAuthQueryKeys.RedirectUri].ToString();
+        var redirectUri = http.Request.Query[OAuthQueryKeys.RedirectUri].ToString();
         if (!string.IsNullOrWhiteSpace(redirectUri))
         {
-            Response.Cookies.Append(cookieName, redirectUri, new CookieOptions
-            {
-                HttpOnly = true,
-                IsEssential = true,
-                Secure = Request.IsHttps,
-                SameSite = SameSiteMode.Lax,
-                MaxAge = TimeSpan.FromMinutes(10)
-            });
+            http.Response.Cookies.Append(cookieName, redirectUri, CookieOptionsFor(http));
         }
     }
 
-    protected void StoreQueryCookie(string cookieName, string queryKey)
+    public static void StoreQueryCookie(HttpContext http, string cookieName, string queryKey)
     {
-        var value = Request.Query[queryKey].ToString();
+        var value = http.Request.Query[queryKey].ToString();
         if (!string.IsNullOrWhiteSpace(value))
-        {
-            Response.Cookies.Append(cookieName, value, new CookieOptions
-            {
-                HttpOnly = true,
-                IsEssential = true,
-                Secure = Request.IsHttps,
-                SameSite = SameSiteMode.Lax,
-                MaxAge = TimeSpan.FromMinutes(10)
-            });
-        }
+            http.Response.Cookies.Append(cookieName, value, CookieOptionsFor(http));
     }
 
-    protected IActionResult UnsupportedProviderResponse(string provider)
-    {
-        return BadRequest(new UnsupportedOAuthProviderResponse(
+    public static IResult UnsupportedProviderResponse(string provider)
+        => TypedResults.BadRequest(new UnsupportedOAuthProviderResponse(
             "Unsupported OAuth provider.",
             ErrorCodes.InvalidOAuthProvider,
             provider));
-    }
 
-    protected IActionResult OAuthIdentityFailureResponse()
-        => StatusCode(StatusCodes.Status403Forbidden, OAuthIdentityFailureMessage);
+    public static IResult OAuthIdentityFailureResponse()
+        => TypedResults.StatusCode(StatusCodes.Status403Forbidden);
 
-    /// <summary>
-    /// Looks up the registered challenge scheme for the supplied provider key and returns a
-    /// <see cref="ChallengeResult"/> against it, or <c>null</c> when the scheme isn't
-    /// registered (typically because the operator hasn't supplied the matching
-    /// <c>OCTOCON_*_OAUTH_CLIENT_ID</c>). The static challenge query parameters and the
-    /// authorization endpoint URL both come from <see cref="OAuthChallengeServiceCollectionExtensions"/>
-    /// — see that type for why they're baked in rather than threaded through here.
-    /// </summary>
-    protected async Task<IActionResult?> IssueChallengeIfRegisteredAsync(
+    public static IResult OAuthIdentityFailureContent()
+        => JsonMessage(OAuthIdentityFailureMessage, StatusCodes.Status403Forbidden);
+
+    public static IResult JsonMessage(string message, int statusCode)
+        => TypedResults.Json(message, AuthApiJsonContext.Default.String, statusCode: statusCode);
+
+    public static IResult JsonError(ErrorResponse error, int statusCode)
+        => TypedResults.Json(error, AuthApiJsonContext.Default.ErrorResponse, statusCode: statusCode);
+
+    public static IResult JsonErrorMessage(ErrorMessageResponse error, int statusCode)
+        => TypedResults.Json(error, AuthApiJsonContext.Default.ErrorMessageResponse, statusCode: statusCode);
+
+    public static async Task<IResult?> IssueChallengeIfRegisteredAsync(
+        HttpContext http,
         OAuthProvider provider,
+        IAuthenticationSchemeProvider schemeProvider,
+        IOptionsMonitor<AuthenticationConfiguration> authOptions,
+        string callbackRoutePrefix,
         OperationId operationId)
     {
         var challengeScheme = GetChallengeScheme(provider);
-
-        var registeredScheme = await SchemeProvider.GetSchemeAsync(challengeScheme);
+        var registeredScheme = await schemeProvider.GetSchemeAsync(challengeScheme);
         if (registeredScheme is null)
             return null;
 
         var props = new AuthenticationProperties
         {
-            RedirectUri = BuildCallbackBaseUri(provider)
+            RedirectUri = BuildCallbackBaseUri(http, provider, authOptions, callbackRoutePrefix),
         };
 
-        Response.Headers[InterfoldHeaders.OperationId] = operationId.Value;
-        return Challenge(props, challengeScheme);
+        http.Response.Headers[InterfoldHeaders.OperationId] = operationId.Value;
+        return TypedResults.Challenge(props, [challengeScheme]);
     }
+
+    private static CookieOptions CookieOptionsFor(HttpContext http) => new()
+    {
+        HttpOnly = true,
+        IsEssential = true,
+        Secure = http.Request.IsHttps,
+        SameSite = SameSiteMode.Lax,
+        MaxAge = TimeSpan.FromMinutes(10),
+    };
 }

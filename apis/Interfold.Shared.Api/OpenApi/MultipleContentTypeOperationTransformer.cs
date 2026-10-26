@@ -1,72 +1,71 @@
-using Microsoft.OpenApi.Models;
-using Swashbuckle.AspNetCore.SwaggerGen;
+using Microsoft.AspNetCore.OpenApi;
+using Microsoft.OpenApi;
 
-namespace Interfold.Shared.Api.Swagger;
+namespace Interfold.Shared.Api.OpenApi;
 
-public class MultipleContentTypeOperationFilter : IDocumentFilter
+/// <summary>Documents both JSON and multipart bodies on the avatar PUT routes.</summary>
+public sealed class MultipleContentTypeOperationTransformer : IOpenApiOperationTransformer
 {
-    public void Apply(OpenApiDocument swaggerDoc, DocumentFilterContext context)
+    private static readonly string[] AllowedConflicts =
+    [
+        "api/settings/avatar",
+        "api/systems/me/alters/{*}/avatar",
+    ];
+
+    public Task TransformAsync(OpenApiOperation operation, OpenApiOperationTransformerContext context, CancellationToken cancellationToken)
     {
-        // Only allow conflicts for avatar upload endpoints
-        var allowedConflicts = new[]
-        {
-            "api/settings/avatar",
-            "api/systems/me/alters/{id}/avatar"
-        };
+        var route = context.Description.RelativePath;
+        var normalised = route is null
+            ? null
+            : System.Text.RegularExpressions.Regex.Replace(route.ToLowerInvariant(), @"\{[^/{}]+\}", "{*}");
 
-        // Find avatar upload operations and ensure they support both JSON and multipart
-        foreach (var path in swaggerDoc.Paths)
-        {
-            var routeLower = path.Key.ToLowerInvariant();
-            if (!allowedConflicts.Any(routeLower.Contains))
-                continue;
+        if (AllowedConflicts.All(allowed => normalised?.Contains(allowed) != true))
+            return Task.CompletedTask;
 
-            foreach (var operation in path.Value.Operations.Values)
+        if (!string.Equals(context.Description.HttpMethod, "PUT", StringComparison.OrdinalIgnoreCase))
+            return Task.CompletedTask;
+
+        var content = new Dictionary<string, OpenApiMediaType>(
+            operation.RequestBody?.Content ?? new Dictionary<string, OpenApiMediaType>());
+
+        if (!content.ContainsKey("application/json"))
+        {
+            content["application/json"] = new OpenApiMediaType
             {
-                if (operation.RequestBody?.Content == null)
-                    continue;
-
-                // If this operation has JSON content, add multipart support
-                var jsonContent = operation.RequestBody.Content
-                    .FirstOrDefault(c => c.Key.StartsWith("application/json"));
-
-                if (jsonContent.Value == null || operation.RequestBody.Content.ContainsKey("multipart/form-data"))
-                {
-                    continue;
-                }
-
-                operation.RequestBody.Content["multipart/form-data"] = new OpenApiMediaType
-                {
-                    Schema = new OpenApiSchema
-                    {
-                        Type = "object",
-                        Properties = new Dictionary<string, OpenApiSchema>
-                        {
-                            ["file"] = new OpenApiSchema
-                            {
-                                Type = "string",
-                                Format = "binary",
-                                Description = "The avatar file to upload"
-                            },
-                            ["idempotencyKey"] = new OpenApiSchema
-                            {
-                                Type = "string",
-                                Nullable = true
-                            }
-                        }
-                    }
-                };
-
-                // Update operation description
-                if (!string.IsNullOrEmpty(operation.Description))
-                {
-                    operation.Description += "\n\nThis endpoint accepts both JSON (with avatarUrl) and multipart/form-data (with file upload).";
-                }
-                else
-                {
-                    operation.Description = "Accepts both JSON (with avatarUrl) and multipart/form-data (with file upload).";
-                }
-            }
+                Schema = new OpenApiSchema { Type = JsonSchemaType.Object },
+            };
         }
+
+        if (!content.ContainsKey("multipart/form-data"))
+        {
+            content["multipart/form-data"] = new OpenApiMediaType
+            {
+                Schema = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.Object,
+                    Properties = new Dictionary<string, IOpenApiSchema>
+                    {
+                        ["file"] = new OpenApiSchema
+                        {
+                            Type = JsonSchemaType.String,
+                            Format = "binary",
+                            Description = "The avatar file to upload",
+                        },
+                        ["idempotencyKey"] = new OpenApiSchema
+                        {
+                            Type = JsonSchemaType.String,
+                        },
+                    },
+                },
+            };
+        }
+
+        operation.RequestBody = new OpenApiRequestBody { Content = content };
+
+        operation.Description = string.IsNullOrEmpty(operation.Description)
+            ? "Accepts both JSON (with avatarUrl) and multipart/form-data (with file upload)."
+            : operation.Description + "\n\nThis endpoint accepts both JSON (with avatarUrl) and multipart/form-data (with file upload).";
+
+        return Task.CompletedTask;
     }
 }

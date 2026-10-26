@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text.Json.Serialization;
 
@@ -8,7 +9,8 @@ namespace Interfold.Shared.Contracts.Enums;
 /// per member comes from <see cref="JsonStringEnumMemberNameAttribute"/> (fallback: member
 /// name), cached at type init. TryParse is case-insensitive, trims whitespace, and treats
 /// null/empty/blank as unknown.</summary>
-public static class EnumWire<TEnum> where TEnum : struct, Enum
+public static class EnumWire<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)] TEnum>
+    where TEnum : struct, Enum
 {
     private static readonly Dictionary<TEnum, string> ToWireMap;
     private static readonly Dictionary<string, TEnum> FromWireMap;

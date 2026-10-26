@@ -1,8 +1,10 @@
 using Interfold.Auth.Api.Auth;
+using Interfold.Auth.Api.Json;
 using Interfold.Auth.Api.Services;
 using Interfold.Auth.Api.Services.Secrets;
 using Interfold.Auth.Contracts.Configuration;
 using Interfold.Auth.Domain;
+using Interfold.Shared.Api.Json;
 using Interfold.Shared.Contracts.Configuration;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
@@ -14,7 +16,7 @@ namespace Interfold.Auth.Api.DependencyInjection;
 /// <c>Program.cs</c> <c>--- Auth ---</c> band. Consumed once from
 /// <c>Interfold.Api.Host/Program.cs</c>; ordering constraints in doc §Phase 2 apply
 /// (call after <c>AddInterfoldOptions</c>, before <c>AddInterfoldPersistence</c>).</summary>
-public static class AuthModuleServiceCollectionExtensions
+public static partial class AuthModuleServiceCollectionExtensions
 {
     /// <summary>Registers everything the Auth feature owns: env-bound
     /// <see cref="AuthenticationConfiguration"/> + secrets-patcher, the four command
@@ -24,11 +26,13 @@ public static class AuthModuleServiceCollectionExtensions
     /// composition host because it applies to every module's controllers.</summary>
     public static IServiceCollection AddAuthModule(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddInterfoldJsonContext(AuthApiJsonContext.Default);
+
         // Env-bound public fields; [Required] secret fields land via
         // AuthenticationSecretsPostConfigure before ValidateOnStart fires.
+        services.AddSingleton<IValidateOptions<AuthenticationConfiguration>, AuthenticationConfigurationValidator>();
         services.AddOptions<AuthenticationConfiguration>()
             .Configure<IConfiguration>(ApplyAuthentication)
-            .ValidateDataAnnotations()
             .ValidateOnStart();
 
         services.AddSingleton<IPostConfigureOptions<AuthenticationConfiguration>, AuthenticationSecretsPostConfigure>();

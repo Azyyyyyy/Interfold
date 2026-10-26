@@ -8,6 +8,7 @@ using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Polls.Contracts.Models;
 using Interfold.Polls.Contracts.Models.Read;
 using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Settings.Api.Json;
 using Interfold.Settings.Api.Services.Export;
 using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
@@ -193,7 +194,7 @@ public sealed class ExportServiceTests
             BuildFields());
 
         var payload = await service.BuildPkAsync(ExportFixtures.OwnerId, CancellationToken.None);
-        var actual = JsonNode.Parse(JsonSerializer.SerializeToUtf8Bytes(payload, ExportJsonOptions.Default))
+        var actual = JsonNode.Parse(JsonSerializer.SerializeToUtf8Bytes(payload, ExportJsonContext.Default.PkExportPayload))
             ?? throw new InvalidOperationException("pk payload serialised to null root.");
         var expected = JsonNode.Parse(ExportFixtures.ExpectedPkJson())
             ?? throw new InvalidOperationException("pk fixture parsed to null root.");
@@ -214,7 +215,7 @@ public sealed class ExportServiceTests
             BuildFields());
 
         var payload = await service.BuildOctoconAsync(ExportFixtures.OwnerId, CancellationToken.None);
-        var actual = JsonNode.Parse(JsonSerializer.SerializeToUtf8Bytes(payload, ExportJsonOptions.Default))
+        var actual = JsonNode.Parse(JsonSerializer.SerializeToUtf8Bytes(payload, ExportJsonContext.Default.OctoconExportPayload))
             ?? throw new InvalidOperationException("full payload serialised to null root.");
         var expected = JsonNode.Parse(ExportFixtures.ExpectedFullJson())
             ?? throw new InvalidOperationException("full fixture parsed to null root.");

@@ -206,53 +206,48 @@ public sealed class SqliteTagRepository : ITagRepository
         var tagHex = command.TagId.Value.ToString("N");
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
-        if (!await TagExistsAsync(work.Connection, work.Transaction, systemId, tagHex))
+        var existing = await LoadTagRowsAsync(work.Connection, systemId, tagHex, work.Transaction);
+        if (existing.Count == 0)
         {
             return false;
         }
 
-        var sets = new List<string> { "updated_at = @updated_at" };
-        var parameters = new DynamicParameters();
-        parameters.Add("updated_at", nowMs);
-        parameters.Add("system_id", systemId);
-        parameters.Add("id", tagHex);
-
-        if (command.Name is not null)
-        {
-            sets.Add("name = @name");
-            parameters.Add("name", command.Name);
-        }
-
-        if (command.Color is { } color)
-        {
-            sets.Add("color = @color");
-            parameters.Add("color", color.Value);
-        }
-
-        if (command.Description is not null)
-        {
-            sets.Add("description = @description");
-            parameters.Add("description", command.Description);
-        }
-
-        if (command.SecurityLevel is not null)
-        {
-            sets.Add("security_level = @security_level");
-            parameters.Add("security_level", (short)command.SecurityLevel.Value);
-        }
-
-        if (sets.Count == 1)
+        if (command.Name is null
+            && command.Color is null
+            && command.Description is null
+            && command.SecurityLevel is null)
         {
             return true;
         }
 
+        var row = existing[0];
+        if (command.Name is not null)
+            row = row with { Name = command.Name };
+        if (command.Color is { } color)
+            row = row with { Color = color };
+        if (command.Description is not null)
+            row = row with { Description = command.Description };
+        if (command.SecurityLevel is not null)
+            row = row with { SecurityLevel = command.SecurityLevel.Value };
+
         var updated = await work.Connection.ExecuteAsync(
-            $"""
+            """
             UPDATE tags
-            SET {string.Join(", ", sets)}
+            SET name = @name, color = @color, description = @description,
+                parent_tag_id = @parent_tag_id, security_level = @security_level, updated_at = @updated_at
             WHERE system_id = @system_id AND id = @id
             """,
-            parameters,
+            new
+            {
+                system_id = systemId,
+                id = tagHex,
+                name = row.Name,
+                color = row.Color?.Value,
+                description = row.Description,
+                parent_tag_id = row.ParentTagId?.Value.ToString("N"),
+                security_level = (short)row.SecurityLevel,
+                updated_at = nowMs,
+            },
             work.Transaction);
         await work.CommitAsync(cancellationToken);
         return updated > 0;
@@ -595,29 +590,36 @@ public sealed class SqliteTagRepository : ITagRepository
     private static async Task<List<TagRow>> LoadTagRowsAsync(
         SqliteConnection connection,
         SystemId systemId,
-        string? tagIdHex)
+        string? tagIdHex,
+        IDbTransaction? tx = null)
     {
-        var sql = tagIdHex is null
-            ? """
+        IEnumerable<TagRowDto> dtos;
+        if (tagIdHex is null)
+        {
+            dtos = await connection.QueryAsync<TagRowDto>(
+                """
                 SELECT id AS IdHex, name AS Name, color AS Color, description AS Description,
                        parent_tag_id AS ParentTagIdHex, security_level AS SecurityLevel,
                        inserted_at AS InsertedAt, updated_at AS UpdatedAt
                 FROM tags
                 WHERE system_id = @system_id
+                """,
+                new { system_id = systemId },
+                tx);
+        }
+        else
+        {
+            dtos = await connection.QueryAsync<TagRowDto>(
                 """
-            : """
                 SELECT id AS IdHex, name AS Name, color AS Color, description AS Description,
                        parent_tag_id AS ParentTagIdHex, security_level AS SecurityLevel,
                        inserted_at AS InsertedAt, updated_at AS UpdatedAt
                 FROM tags
                 WHERE system_id = @system_id AND id = @id
-                """;
-
-        var dtos = await connection.QueryAsync<TagRowDto>(
-            sql,
-            tagIdHex is null
-                ? new { system_id = systemId }
-                : new { system_id = systemId, id = tagIdHex });
+                """,
+                new { system_id = systemId, id = tagIdHex },
+                tx);
+        }
 
         return dtos.Select(MapTagRow).ToList();
     }
@@ -702,18 +704,6 @@ public sealed class SqliteTagRepository : ITagRepository
             row.UpdatedAt,
             row.SecurityLevel,
             systemId);
-
-    private sealed record TagRowDto(
-        string IdHex,
-        string Name,
-        string? Color,
-        string? Description,
-        string? ParentTagIdHex,
-        long SecurityLevel,
-        long InsertedAt,
-        long UpdatedAt);
-
-    private sealed record AlterTagRow(string TagIdHex, long AlterId);
 
     private sealed record TagRow(
         string IdHex,

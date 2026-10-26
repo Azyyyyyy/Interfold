@@ -94,8 +94,7 @@ public static class SettingsSocketEventHandlers
     public static Task HandleAsync(SettingsAppleAccountLinkedEvent evt, SocketPushContext context)
         => SendLinkedAsync(evt.TargetSystemId, SocketEventNames.Settings.AppleAccountLinked, new AppleAccountLinkedPayload(evt.AppleId), context);
 
-    private static async Task SendLinkedAsync(SystemId systemId, string eventName, ISocketPayload payload, SocketPushContext context)
-    {
-        await context.SendIfJoinedAsync(systemId, eventName, payload);
-    }
+    private static Task SendLinkedAsync<TPayload>(SystemId systemId, string eventName, TPayload payload, SocketPushContext context)
+        where TPayload : ISocketPayload
+        => context.SendIfJoinedAsync(systemId, eventName, payload);
 }

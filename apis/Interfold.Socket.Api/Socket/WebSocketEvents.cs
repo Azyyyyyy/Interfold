@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Interfold.Socket.Contracts;
 
 namespace Interfold.Socket.Api.Socket;
@@ -46,6 +47,7 @@ public static async Task SendPhoenixPushAsync<TPayload>(
     }
 }
 
-public static string SerializeSocketJson<T>(this T value) => JsonSerializer.Serialize(value, SocketJson.Options);
+public static string SerializeSocketJson<T>(this T value)
+    => JsonSerializer.Serialize(value, (JsonTypeInfo<T>)SocketJson.Options.GetTypeInfo(typeof(T)));
 
 }

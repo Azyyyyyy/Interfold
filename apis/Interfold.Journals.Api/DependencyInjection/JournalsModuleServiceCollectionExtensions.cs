@@ -1,5 +1,10 @@
+using Interfold.Journals.Api.Json;
+using Interfold.Journals.Contracts;
 using Interfold.Journals.Domain;
+using Interfold.Shared.Api.Json;
+using Interfold.Shared.Domain;
 using Interfold.Shared.Domain.Abstractions;
+using Interfold.Socket.Contracts;
 
 namespace Interfold.Journals.Api.DependencyInjection;
 
@@ -7,7 +12,7 @@ namespace Interfold.Journals.Api.DependencyInjection;
 /// <c>AddSingleton</c> calls previously living in <see cref="Interfold.Infrastructure.DependencyInjection.ServiceCollectionExtensions.AddInterfoldDomainHandlers"/>.
 /// Consumed once from <c>Interfold.Api.Host/Program.cs</c> alongside the other
 /// module extensions.</summary>
-public static class JournalsModuleServiceCollectionExtensions
+public static partial class JournalsModuleServiceCollectionExtensions
 {
     /// <summary>Registers everything the Journals feature owns: the twelve journal
     /// command-handler singletons (seven global + five alter) plus the
@@ -17,8 +22,14 @@ public static class JournalsModuleServiceCollectionExtensions
     /// itself is registered by the active persistence adapter (Sqlite /
     /// InMemory) via <c>AddInterfoldPersistence</c>, so no repository registration
     /// lives here.</summary>
-    public static IServiceCollection AddJournalsModule(this IServiceCollection services) =>
+    public static IServiceCollection AddJournalsModule(this IServiceCollection services)
+    {
         services
+            .AddInterfoldJsonContext(JournalsContractsJsonContext.Default)
+            .AddInterfoldJsonContext(JournalsApiJsonContext.Default);
+        CommandSerialization.AddTypeInfoResolver(JournalsCommandJsonContext.Default);
+        SocketJson.AddTypeInfoResolver(JournalsContractsJsonContext.Default);
+        return services
             .AddSingleton<CreateGlobalJournalEntryCommandHandler>()
             .AddSingleton<UpdateGlobalJournalEntryCommandHandler>()
             .AddSingleton<DeleteGlobalJournalEntryCommandHandler>()
@@ -32,4 +43,5 @@ public static class JournalsModuleServiceCollectionExtensions
             .AddSingleton<SetAlterJournalLockedCommandHandler>()
             .AddSingleton<SetAlterJournalPinnedCommandHandler>()
             .AddSingleton<IJournalAlterCascade, JournalAlterCascadeAdapter>();
+    }
 }

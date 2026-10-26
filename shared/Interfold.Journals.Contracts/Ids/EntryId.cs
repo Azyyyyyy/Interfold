@@ -28,7 +28,7 @@ public readonly record struct EntryId(Guid Value) : IParsable<EntryId>
     }
 }
 
-internal sealed class EntryIdJsonConverter : GuidIdJsonConverter<EntryId>
+public sealed class EntryIdJsonConverter : GuidIdJsonConverter<EntryId>
 {
     protected override EntryId Create(Guid value) => new(value);
     protected override Guid GetValue(EntryId value) => value.Value;

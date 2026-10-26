@@ -3,7 +3,7 @@ using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Contracts.Models.Read;
 using Interfold.Alters.Domain;
 using Interfold.Alters.Domain.Abstractions.Repository;
-using Interfold.Shared.Api.Controllers.Base;
+using Interfold.Shared.Api.Http;
 using Interfold.Shared.Api.Models;
 using Interfold.Shared.Api.Services;
 using Interfold.Shared.Contracts;
@@ -11,70 +11,60 @@ using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Shared.Contracts.Validation;
-using Microsoft.AspNetCore.Mvc;
 
-namespace Interfold.Alters.Api.Controllers;
+namespace Interfold.Alters.Api.DependencyInjection;
 
-[Route("api/systems/me/alters")]
-public sealed class AltersController : InterfoldControllerBase
+public static partial class AltersModuleServiceCollectionExtensions
 {
-    private readonly IAlterRepository _alterRepository;
-    private readonly CreateAlterCommandHandler _createHandler;
-    private readonly UpdateAlterCommandHandler _updateHandler;
-    private readonly DeleteAlterCommandHandler _deleteHandler;
-    private readonly IAvatarStorage _avatarStorage;
-
-    public AltersController(
-        IAlterRepository alterRepository,
-        CreateAlterCommandHandler createHandler,
-        UpdateAlterCommandHandler updateHandler,
-        DeleteAlterCommandHandler deleteHandler,
-        IAvatarStorage avatarStorage)
+    public static IEndpointRouteBuilder MapAltersModule(this IEndpointRouteBuilder endpoints)
     {
-        _alterRepository = alterRepository;
-        _createHandler = createHandler;
-        _updateHandler = updateHandler;
-        _deleteHandler = deleteHandler;
-        _avatarStorage = avatarStorage;
+        var group = endpoints.MapInterfoldGroup("/api/systems/me/alters");
+        group.MapGet("/", List);
+        group.MapGet("/{alterId}", Show);
+        group.MapPost("/", Create);
+        group.MapPatch("/{alterId}", Update);
+        group.MapDelete("/{alterId}", Delete);
+        group.MapPut("/{alterId}/avatar", UploadAvatar);
+        group.MapDelete("/{alterId}/avatar", DeleteAvatar);
+        return endpoints;
     }
 
-    [HttpGet]
-    public async Task<Response<IReadOnlyList<AlterReadModel>>> List(CancellationToken ct)
+    private static async Task<Response<IReadOnlyList<AlterReadModel>>> List(
+        HttpContext http, IAlterRepository alterRepository, CancellationToken ct)
     {
-        var alters = await _alterRepository.ListAsync(PrincipalId, ct);
+        var alters = await alterRepository.ListAsync(http.PrincipalId(), ct);
         return new SuccessResponse<IReadOnlyList<AlterReadModel>>(alters);
     }
 
-    [HttpGet("{alterId:int}")]
-    public async Task<Response<AlterReadModel>> Show([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
+    private static async Task<Response<AlterReadModel>> Show(
+        HttpContext http, AlterId alterId, IAlterRepository alterRepository, CancellationToken ct)
     {
-        var alter = await _alterRepository.GetAsync(PrincipalId, alterId, ct);
+        var alter = await alterRepository.GetAsync(http.PrincipalId(), alterId, ct);
         if (alter is not null)
-        {
-            alter.AvatarUrl = QualifyAvatar(alter);
-        }
-        return OkOrNotFound(alter, "Alter not found.", ErrorCodes.AlterNotFound);
+            alter.AvatarUrl = http.QualifyAvatar(alter);
+        return InterfoldHttp.OkOrNotFound(alter, "Alter not found.", ErrorCodes.AlterNotFound);
     }
 
-    [HttpPost]
-    public async Task<Response<AlterReadModel>> Create([FromBody] CreateAlterRequest req, CancellationToken ct)
+    private static async Task<Response<AlterReadModel>> Create(
+        HttpContext http,
+        CreateAlterRequest req,
+        IAlterRepository alterRepository,
+        CreateAlterCommandHandler createHandler,
+        CancellationToken ct)
     {
-        var principal = PrincipalId;
-        var envelope = BuildEnvelope(OperationIds.AlterCreate, new CreateAlterCommand(req.Name, TimeProvider.GetUtcNow()));
+        var principal = http.PrincipalId();
+        var envelope = http.BuildEnvelope(OperationIds.AlterCreate, new CreateAlterCommand(req.Name, http.Time().GetUtcNow()));
 
-        return await CommandCreatedAsync(
-            await _createHandler.HandleAsync(envelope, ct),
-            async (res) => await _alterRepository.GetAsync(principal, res.AlterId, ct),
-            locationSelector: res => $"/api/systems/me/alters/{res.AlterId}"
-        );
+        return await http.CommandCreatedAsync(
+            await createHandler.HandleAsync(envelope, ct),
+            async res => await alterRepository.GetAsync(principal, res.AlterId, ct),
+            locationSelector: res => $"/api/systems/me/alters/{res.AlterId}");
     }
 
-    [HttpPatch("{alterId:int}")]
-    public async Task<Response> Update([FromRoute][ValidAlterId] AlterId alterId, [FromBody] UpdateAlterRequest req, CancellationToken ct)
+    private static Task<Response> Update(
+        HttpContext http, AlterId alterId, UpdateAlterRequest req, UpdateAlterCommandHandler updateHandler, CancellationToken ct)
     {
         var fields = req.Fields?.Select(f => new AlterFieldCommand(f.Id, f.Value)).ToList();
-
         var payload = new UpdateAlterCommand
         {
             AlterId = alterId,
@@ -89,74 +79,82 @@ public sealed class AltersController : InterfoldControllerBase
             Untracked = req.Untracked,
             Archived = req.Archived,
             Pinned = req.Pinned,
-            UpdatedAt = TimeProvider.GetUtcNow(),
+            UpdatedAt = http.Time().GetUtcNow(),
         };
 
-        return await DispatchNoContentAsync(_updateHandler, OperationIds.AlterUpdate, payload, ct);
+        return http.DispatchNoContentAsync(updateHandler, OperationIds.AlterUpdate, payload, ct);
     }
 
-    [HttpDelete("{alterId:int}")]
-    public async Task<Response> Delete([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
-    {
-        return await DispatchNoContentAsync(_deleteHandler, OperationIds.AlterDelete, new DeleteAlterCommand(alterId)
-        , ct);
-    }
+    private static Task<Response> Delete(
+        HttpContext http, AlterId alterId, DeleteAlterCommandHandler deleteHandler, CancellationToken ct)
+        => http.DispatchNoContentAsync(deleteHandler, OperationIds.AlterDelete, new DeleteAlterCommand(alterId), ct);
 
-    [HttpPut("{alterId:int}/avatar")]
-    [Consumes("multipart/form-data")]
-    public async Task<Response> UploadAvatarMultipart([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
+    private static Task<Response> UploadAvatar(
+        HttpContext http,
+        AlterId alterId,
+        IAlterRepository alterRepository,
+        UpdateAlterCommandHandler updateHandler,
+        IAvatarStorage avatarStorage,
+        CancellationToken ct)
     {
-        return await HandleAvatarUploadAsync(
-            async (c) => await _alterRepository.GetAsync(PrincipalId, alterId, c),
-            async (principal, stream, c) => await _avatarStorage.SaveAlterAvatarAsync(principal, alterId, stream, c),
-            async (url, c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarUpload, new UpdateAlterCommand
+        if (http.Request.HasJsonContentType())
+            return UploadAvatarByUrl(http, alterId, alterRepository, updateHandler, avatarStorage, ct);
+
+        return http.HandleAvatarUploadAsync(
+            async c => await alterRepository.GetAsync(http.PrincipalId(), alterId, c),
+            (principal, stream, c) => avatarStorage.SaveAlterAvatarAsync(principal, alterId, stream, c),
+            async (url, c) => http.CommandNoContent(await updateHandler.HandleAsync(http.BuildEnvelope(OperationIds.AlterAvatarUpload, new UpdateAlterCommand
             {
                 AlterId = alterId,
                 AvatarUrl = url,
                 AvatarSource = AvatarSource.Local,
-                UpdatedAt = TimeProvider.GetUtcNow(),
+                UpdatedAt = http.Time().GetUtcNow(),
             }), c)),
-            _avatarStorage,
+            avatarStorage,
             ct);
     }
 
-    /// <summary>
-    /// JSON sibling of <see cref="UploadAvatarMultipart"/>: stores the supplied URL on
-    /// <c>avatar_url</c> with <c>avatar_source = External</c> without fetching the bytes.
-    /// </summary>
-    [HttpPut("{alterId:int}/avatar")]
-    [Consumes("application/json")]
-    public async Task<Response> UploadAvatarByUrl([FromRoute][ValidAlterId] AlterId alterId, [FromBody] AvatarUrlUploadRequest req, CancellationToken ct)
+    private static async Task<Response> UploadAvatarByUrl(
+        HttpContext http,
+        AlterId alterId,
+        IAlterRepository alterRepository,
+        UpdateAlterCommandHandler updateHandler,
+        IAvatarStorage avatarStorage,
+        CancellationToken ct)
     {
+        var req = await http.Request.ReadFromJsonAsync(SharedContractsJsonContext.Default.AvatarUrlUploadRequest, ct);
         if (req is null)
             return new ErrorResponse("Avatar URL payload required.", ErrorCodes.AvatarUrlInvalid, System.Net.HttpStatusCode.BadRequest);
 
-        return await HandleAvatarUrlUploadAsync(
+        return await http.HandleAvatarUrlUploadAsync(
             req.Url.Value,
-            async (c) => await _alterRepository.GetAsync(PrincipalId, alterId, c),
-            async (url, c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarUpload, new UpdateAlterCommand
+            async c => await alterRepository.GetAsync(http.PrincipalId(), alterId, c),
+            async (url, c) => http.CommandNoContent(await updateHandler.HandleAsync(http.BuildEnvelope(OperationIds.AlterAvatarUpload, new UpdateAlterCommand
             {
                 AlterId = alterId,
                 AvatarUrl = url,
                 AvatarSource = AvatarSource.External,
-                UpdatedAt = TimeProvider.GetUtcNow(),
+                UpdatedAt = http.Time().GetUtcNow(),
             }), c)),
-            _avatarStorage,
+            avatarStorage,
             ct);
     }
 
-    [HttpDelete("{alterId:int}/avatar")]
-    public async Task<Response> DeleteAvatar([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
-    {
-        return await HandleAvatarDeleteAsync(
-            async (c) => await _alterRepository.GetAsync(PrincipalId, alterId, c),
-            async (c) => CommandNoContent(await _updateHandler.HandleAsync(BuildEnvelope(OperationIds.AlterAvatarDelete, new UpdateAlterCommand
+    private static Task<Response> DeleteAvatar(
+        HttpContext http,
+        AlterId alterId,
+        IAlterRepository alterRepository,
+        UpdateAlterCommandHandler updateHandler,
+        IAvatarStorage avatarStorage,
+        CancellationToken ct)
+        => http.HandleAvatarDeleteAsync(
+            async c => await alterRepository.GetAsync(http.PrincipalId(), alterId, c),
+            async c => http.CommandNoContent(await updateHandler.HandleAsync(http.BuildEnvelope(OperationIds.AlterAvatarDelete, new UpdateAlterCommand
             {
                 AlterId = alterId,
-                UpdatedAt = TimeProvider.GetUtcNow(),
+                UpdatedAt = http.Time().GetUtcNow(),
                 ClearAvatar = true,
             }), c)),
-            _avatarStorage,
+            avatarStorage,
             ct);
-    }
 }

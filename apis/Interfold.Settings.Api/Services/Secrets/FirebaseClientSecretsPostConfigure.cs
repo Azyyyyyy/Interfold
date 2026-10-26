@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using Interfold.Settings.Contracts;
 using Interfold.Settings.Contracts.Configuration;
 using Interfold.Shared.Api.Services.Secrets;
 using Interfold.Shared.Contracts.Secrets;
@@ -12,13 +14,6 @@ namespace Interfold.Settings.Api.Services.Secrets;
 internal sealed class FirebaseClientSecretsPostConfigure(ISecretsSnapshot snapshot)
     : IPostConfigureOptions<FirebaseClientConfiguration>
 {
-    // snake_case_lower matches the bootstrapper's normalised JSON shape.
-    private static readonly JsonSerializerOptions FirebaseClientJsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        PropertyNameCaseInsensitive = true,
-    };
-
     private static readonly (SecretsStoreKey Key, Action<FirebaseClientConfiguration, string> Patch)[] FirebaseClientMappings =
     [
         (SecretsStoreKeys.FirebaseClientAndroid, (opts, v) =>
@@ -51,7 +46,9 @@ internal sealed class FirebaseClientSecretsPostConfigure(ISecretsSnapshot snapsh
     {
         try
         {
-            var parsed = JsonSerializer.Deserialize<T>(json, FirebaseClientJsonOptions);
+            var parsed = JsonSerializer.Deserialize(
+                json,
+                (JsonTypeInfo<T>)SettingsContractsJsonContext.Default.GetTypeInfo(typeof(T))!);
             if (parsed is null)
             {
                 throw new InvalidOperationException(

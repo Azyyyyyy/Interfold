@@ -59,4 +59,11 @@ public static class JwtClaimNames
 public static class HttpClientNames
 {
     public const string SimplyPlural = "SimplyPlural";
+    public const string Fcm = "Fcm";
+}
+
+/// <summary>HttpContext.Items keys shared by principal middleware and SystemId.BindAsync.</summary>
+public static class InterfoldHttpContextKeys
+{
+    public const string PrincipalId = "Interfold.PrincipalId";
 }

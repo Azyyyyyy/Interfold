@@ -23,7 +23,7 @@ public readonly record struct EncryptionKeyMaterial
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class EncryptionKeyMaterialJsonConverter : StringBackedJsonConverter<EncryptionKeyMaterial>
+public sealed class EncryptionKeyMaterialJsonConverter : StringBackedJsonConverter<EncryptionKeyMaterial>
 {
     protected override EncryptionKeyMaterial Create(string value) => new(value);
     protected override string GetValue(EncryptionKeyMaterial value) => value.Value;

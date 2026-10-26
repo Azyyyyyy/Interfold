@@ -1,3 +1,6 @@
+using System.Net;
+using System.Text.Json;
+using Interfold.Shared.Api.Json;
 using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 using Microsoft.AspNetCore.Diagnostics;
@@ -10,7 +13,11 @@ public class ExceptionHandler : IExceptionHandler
     {
         // Log the exception and return a generic error response.
         httpContext.Response.ContentType = "application/json";
-        await httpContext.Response.WriteAsJsonAsync(CreateError(httpContext, exception), cancellationToken);
+        await JsonSerializer.SerializeAsync(
+            httpContext.Response.Body,
+            CreateError(httpContext, exception),
+            SharedApiJsonContext.Default.ErrorResponse,
+            cancellationToken);
         return true;
     }
 
@@ -21,12 +28,20 @@ public class ExceptionHandler : IExceptionHandler
             httpContext.Response.StatusCode = (int?)interfoldException.HttpStatusCode ?? StatusCodes.Status500InternalServerError;
             return new ErrorResponse(interfoldException.Message, interfoldException.Code);
         }
-        
-        httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        return exception switch
+
+        if (exception is BadHttpRequestException badRequest)
         {
-            BadHttpRequestException badRequestException => new ErrorResponse(badRequestException.Message, ErrorCodes.BadRequest),
-            _ => new ErrorResponse($"Unhandled exception: {exception}", ErrorCodes.UnknownError)
-        };
+            httpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return new ErrorResponse(badRequest.Message, ErrorCodes.BadRequest, HttpStatusCode.BadRequest);
+        }
+
+        if (exception is JsonException jsonException)
+        {
+            httpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return new ErrorResponse(jsonException.Message, ErrorCodes.BadRequest, HttpStatusCode.BadRequest);
+        }
+
+        httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        return new ErrorResponse($"Unhandled exception: {exception}", ErrorCodes.UnknownError);
     }
 }

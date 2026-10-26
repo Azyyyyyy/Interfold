@@ -76,12 +76,4 @@ public sealed class SqliteSecretsStore : ISecretsStore
             });
     }
 
-    private sealed record SecretRow(
-        string Key,
-        string Value,
-        string CreatedBy,
-        long CreatedAt,
-        long UpdatedAt,
-        long? ExpiresAt,
-        string? RotatedFrom);
 }

@@ -41,7 +41,7 @@ public readonly record struct AlterId : IParsable<AlterId>
     }
 }
 
-internal sealed class AlterIdJsonConverter : JsonConverter<AlterId>
+public sealed class AlterIdJsonConverter : JsonConverter<AlterId>
 {
     public override AlterId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         => new(reader.GetInt16());

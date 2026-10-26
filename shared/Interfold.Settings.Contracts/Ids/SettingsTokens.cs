@@ -24,7 +24,7 @@ public readonly record struct PushToken
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class PushTokenJsonConverter : StringBackedJsonConverter<PushToken>
+public sealed class PushTokenJsonConverter : StringBackedJsonConverter<PushToken>
 {
     protected override PushToken Create(string value) => new(value);
     protected override string GetValue(PushToken value) => value.Value;
@@ -50,7 +50,7 @@ public readonly record struct ImportToken
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class ImportTokenJsonConverter : StringBackedJsonConverter<ImportToken>
+public sealed class ImportTokenJsonConverter : StringBackedJsonConverter<ImportToken>
 {
     protected override ImportToken Create(string value) => new(value);
     protected override string GetValue(ImportToken value) => value.Value;
@@ -76,7 +76,7 @@ public readonly record struct RecoveryCode
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class RecoveryCodeJsonConverter : StringBackedJsonConverter<RecoveryCode>
+public sealed class RecoveryCodeJsonConverter : StringBackedJsonConverter<RecoveryCode>
 {
     protected override RecoveryCode Create(string value) => new(value);
     protected override string GetValue(RecoveryCode value) => value.Value;

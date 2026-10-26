@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Interfold.Settings.Contracts;
 using Interfold.Settings.Contracts.Ids;
 using Interfold.Settings.Contracts.Models.Commands;
 using Interfold.Settings.Contracts.Models.ImportOperations;
@@ -27,7 +28,7 @@ public sealed class SpImportJobRunner : IImportJobRunner
 
     public Task<ImportJobOutcome> RunAsync(ImportJobItem item, CancellationToken cancellationToken = default)
     {
-        var payload = JsonSerializer.Deserialize<SpImportPayload>(item.RawPayload);
+        var payload = JsonSerializer.Deserialize(item.RawPayload, SettingsContractsJsonContext.Default.SpImportPayload);
         if (payload is null)
         {
             return Task.FromResult(new ImportJobOutcome(false, 0, ImportErrorCode.SpImportFailed, "Failed to deserialize Simply Plural payload."));
