@@ -21,8 +21,11 @@
   <PropertyGroup>
     <IsInterfoldIntegrationTest>false</IsInterfoldIntegrationTest>
     <IsInterfoldIntegrationTest Condition="$(MSBuildProjectFullPath.Contains('$([System.IO.Path]::DirectorySeparatorChar)tests$([System.IO.Path]::DirectorySeparatorChar)integration$([System.IO.Path]::DirectorySeparatorChar)'))">true</IsInterfoldIntegrationTest>
-    <!-- Native publish is the AOT gate. `dotnet test` stays JIT; run the published exe. -->
-    <PublishAot>true</PublishAot>
+    <!--
+      AOT gate is `dotnet publish -p:PublishAot=true` (run-aot-test.sh). A standing
+      PublishAot writes IsDynamicCodeSupported=false into the JIT testhost
+      runtimeconfig, and CodeCoverage then emits empty cobertura.
+    -->
     <IsAotCompatible>true</IsAotCompatible>
     <StackTraceSupport>true</StackTraceSupport>
   </PropertyGroup>

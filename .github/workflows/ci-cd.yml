@@ -302,12 +302,16 @@ jobs:
             "tests/unit/${{ matrix.project }}/${{ matrix.project }}.csproj"
 
       # IL cobertura from the JIT host. AOT already passed; this step is report-only
-      # but still fails the job if the JIT run itself fails.
+      # but still fails the job if the JIT run itself fails. Rebuild first:
+      # `dotnet publish -p:PublishAot=true` rewrites this testhost's runtimeconfig
+      # with IsDynamicCodeSupported=false, which makes CodeCoverage emit empty XML.
       - name: Coverage JIT (unit - ${{ matrix.project }})
         env:
           TUNIT_AGGREGATE_REPORTS: defer
         run: |
           set -euo pipefail
+          csproj="tests/unit/${{ matrix.project }}/${{ matrix.project }}.csproj"
+          dotnet build "$csproj" -c Release --no-restore --nologo
           dotnet "tests/unit/${{ matrix.project }}/bin/Release/net10.0/${{ matrix.project }}.dll" \
             --coverage --coverage-output-format cobertura
 
@@ -383,7 +387,10 @@ jobs:
           TUNIT_AGGREGATE_REPORTS: defer
         run: |
           set -euo pipefail
+          csproj="tests/integration/${{ matrix.project }}/${{ matrix.project }}.csproj"
           dll="tests/integration/${{ matrix.project }}/bin/Release/net10.0/${{ matrix.project }}.dll"
+          # see Coverage JIT (unit) — AOT publish poisons the testhost runtimeconfig
+          dotnet build "$csproj" -c Release --no-restore --nologo
           case "${{ matrix.project }}" in
             Interfold.Bootstrapper.IntegrationTests)
               dotnet "$dll" \
@@ -532,7 +539,11 @@ jobs:
         env:
           TUNIT_AGGREGATE_REPORTS: defer
         run: |
+          $csproj = "tests/integration/Interfold.Bootstrapper.IntegrationTests/Interfold.Bootstrapper.IntegrationTests.csproj"
           $dll = "tests/integration/Interfold.Bootstrapper.IntegrationTests/bin/Release/net10.0/Interfold.Bootstrapper.IntegrationTests.dll"
+          # see Coverage JIT (unit) — AOT publish poisons the testhost runtimeconfig
+          dotnet build $csproj -c Release --no-restore --nologo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet $dll `
             --treenode-filter '/*/*/*Windows*/*' `
             --coverage --coverage-output-format cobertura

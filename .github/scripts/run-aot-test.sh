@@ -34,7 +34,8 @@ dotnet publish "$csproj" \
   --configuration Release \
   --runtime "$rid" \
   --self-contained true \
-  --output "$out"
+  --output "$out" \
+  -p:PublishAot=true
 
 exe="$out/$name"
 if [[ -f "${exe}.exe" ]]; then
