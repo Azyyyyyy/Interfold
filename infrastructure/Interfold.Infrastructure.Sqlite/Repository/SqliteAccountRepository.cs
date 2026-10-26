@@ -352,14 +352,15 @@ public sealed class SqliteAccountRepository : IAccountRepository
         CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        return await connection.QueryFirstOrDefaultAsync<SystemId?>(
+        var row = await connection.QueryFirstOrDefaultAsync<SystemIdRow>(
             """
-            SELECT system_id
+            SELECT system_id AS SystemId
             FROM accounts
             WHERE username = @username COLLATE NOCASE
             LIMIT 1
             """,
             new { username = username.Value });
+        return row?.OrNull();
     }
 
     public async Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(
@@ -425,31 +426,31 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
     private Task<SystemId?> TryFindByDiscordAsync(string value, CancellationToken cancellationToken)
         => TryFindByProviderAsync(
-            (conn, candidate) => conn.QueryFirstOrDefaultAsync<SystemId?>(
+            (conn, candidate) => FirstSystemIdAsync(conn.QueryFirstOrDefaultAsync<SystemIdRow>(
                 """
-                SELECT system_id FROM accounts WHERE discord_id = @value COLLATE NOCASE LIMIT 1
+                SELECT system_id AS SystemId FROM accounts WHERE discord_id = @value COLLATE NOCASE LIMIT 1
                 """,
-                new { value = candidate }),
+                new { value = candidate })),
             value,
             cancellationToken);
 
     private Task<SystemId?> TryFindByEmailAsync(string value, CancellationToken cancellationToken)
         => TryFindByProviderAsync(
-            (conn, candidate) => conn.QueryFirstOrDefaultAsync<SystemId?>(
+            (conn, candidate) => FirstSystemIdAsync(conn.QueryFirstOrDefaultAsync<SystemIdRow>(
                 """
-                SELECT system_id FROM accounts WHERE email = @value COLLATE NOCASE LIMIT 1
+                SELECT system_id AS SystemId FROM accounts WHERE email = @value COLLATE NOCASE LIMIT 1
                 """,
-                new { value = candidate }),
+                new { value = candidate })),
             value,
             cancellationToken);
 
     private Task<SystemId?> TryFindByAppleAsync(string value, CancellationToken cancellationToken)
         => TryFindByProviderAsync(
-            (conn, candidate) => conn.QueryFirstOrDefaultAsync<SystemId?>(
+            (conn, candidate) => FirstSystemIdAsync(conn.QueryFirstOrDefaultAsync<SystemIdRow>(
                 """
-                SELECT system_id FROM accounts WHERE apple_id = @value COLLATE NOCASE LIMIT 1
+                SELECT system_id AS SystemId FROM accounts WHERE apple_id = @value COLLATE NOCASE LIMIT 1
                 """,
-                new { value = candidate }),
+                new { value = candidate })),
             value,
             cancellationToken);
 
@@ -465,6 +466,12 @@ public sealed class SqliteAccountRepository : IAccountRepository
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         return await query(connection, value);
+    }
+
+    private static async Task<SystemId?> FirstSystemIdAsync(Task<SystemIdRow?> query)
+    {
+        var row = await query;
+        return row?.OrNull();
     }
 
     private async Task<SystemId?> FindOrCreateByProviderAsync(

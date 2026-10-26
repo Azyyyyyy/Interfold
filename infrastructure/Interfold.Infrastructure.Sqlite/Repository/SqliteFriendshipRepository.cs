@@ -361,10 +361,10 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         cancellationToken.ThrowIfCancellationRequested();
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
-        var friendKeys = (await work.Connection.QueryAsync<SystemId>(
-            "SELECT friend_id FROM friendships WHERE user_id = @user_id",
+        var friendKeys = (await work.Connection.QueryAsync<SystemIdRow>(
+            "SELECT friend_id AS SystemId FROM friendships WHERE user_id = @user_id",
             new { user_id = systemId },
-            work.Transaction)).ToArray();
+            work.Transaction)).Select(r => r.SystemId).ToArray();
 
         await work.Connection.ExecuteAsync(
             """

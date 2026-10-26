@@ -4,7 +4,9 @@ namespace Interfold.Infrastructure.Sqlite;
 
 // Dapper.AOT row factories emit `new T()` plus property sets. Positional records
 // have no parameterless ctor, so Query<T> falls through to Reflection.Emit.
-// SystemId columns stay SystemId — SystemIdTypeHandler is the AOT mapping.
+// SystemId columns stay SystemId via SystemIdTypeHandler. Scalar
+// QueryFirstOrDefaultAsync<SystemId?> is not intercepted — use SystemIdRow,
+// and keep SQL a compile-time constant at the Query call.
 internal sealed class AccountRow
 {
     public string? Username { get; set; }
@@ -26,6 +28,14 @@ internal sealed class LinkTokenOwnerRow
 {
     public SystemId SystemId { get; set; }
     public long? ExpiresAt { get; set; }
+}
+
+internal sealed class SystemIdRow
+{
+    public SystemId SystemId { get; set; }
+
+    public SystemId? OrNull()
+        => string.IsNullOrWhiteSpace(SystemId.Value) ? null : SystemId;
 }
 
 internal sealed class EncryptionStateRow
