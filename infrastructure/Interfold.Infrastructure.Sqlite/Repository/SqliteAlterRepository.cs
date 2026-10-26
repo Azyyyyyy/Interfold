@@ -171,71 +171,50 @@ public sealed class SqliteAlterRepository : IAlterRepository
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
 
-        var existing = await LoadAlterRowsAsync(
-            work.Connection,
-            systemId,
-            command.AlterId.Value,
-            work.Transaction);
-        if (existing.Count == 0)
+        if (!await RowExistsAsync(work.Connection, work.Transaction, systemId, command.AlterId.Value))
         {
             return false;
         }
 
-        var row = existing[0];
-        if (!string.IsNullOrWhiteSpace(command.Name))
-            row = row with { Name = command.Name };
-        if (command.Description is not null)
-            row = row with { Description = command.Description };
-        if (command.Color is not null)
-            row = row with { Color = command.Color };
-        if (command.Pronouns is not null)
-            row = row with { Pronouns = command.Pronouns };
-        if (command.ProxyName is not null)
-            row = row with { ProxyName = command.ProxyName };
-        if (command.SecurityLevel is not null)
-            row = row with { SecurityLevel = command.SecurityLevel.Value };
-        if (command.Untracked is not null)
-            row = row with { Untracked = command.Untracked.Value };
-        if (command.Archived is not null)
-            row = row with { Archived = command.Archived.Value };
-        if (command.Pinned is not null)
-            row = row with { Pinned = command.Pinned.Value };
-        if (command.ClearAvatar)
-            row = row with { AvatarUrl = null, AvatarSource = null };
-        else if (command.AvatarUrl is not null)
-            row = row with
-            {
-                AvatarUrl = command.AvatarUrl,
-                AvatarSource = command.AvatarSource ?? AvatarSource.Local,
-            };
-        if (!string.IsNullOrWhiteSpace(command.Alias))
-            row = row with { Alias = command.Alias };
-
+        // Dapper.AOT requires a compile-time SQL constant; null parameters leave the stored column.
         var updated = await work.Connection.ExecuteAsync(
             """
             UPDATE alters
-            SET name = @name, alias = @alias, description = @description,
-                avatar_url = @avatar_url, avatar_source = @avatar_source, color = @color,
-                pronouns = @pronouns, security_level = @security_level, proxy_name = @proxy_name,
-                untracked = @untracked, archived = @archived, pinned = @pinned, updated_at = @updated_at
+            SET name = COALESCE(@name, name),
+                alias = COALESCE(@alias, alias),
+                description = COALESCE(@description, description),
+                avatar_url = CASE WHEN @clear_avatar = 1 THEN NULL WHEN @has_avatar = 1 THEN @avatar_url ELSE avatar_url END,
+                avatar_source = CASE WHEN @clear_avatar = 1 THEN NULL WHEN @has_avatar = 1 THEN @avatar_source ELSE avatar_source END,
+                color = COALESCE(@color, color),
+                pronouns = COALESCE(@pronouns, pronouns),
+                security_level = COALESCE(@security_level, security_level),
+                proxy_name = COALESCE(@proxy_name, proxy_name),
+                untracked = COALESCE(@untracked, untracked),
+                archived = COALESCE(@archived, archived),
+                pinned = COALESCE(@pinned, pinned),
+                updated_at = @updated_at
             WHERE system_id = @system_id AND id = @id
             """,
             new
             {
                 system_id = systemId,
-                id = row.Id,
-                name = row.Name,
-                alias = row.Alias,
-                description = row.Description,
-                avatar_url = row.AvatarUrl?.Value,
-                avatar_source = row.AvatarSource is { } src ? (short)src : (short?)null,
-                color = row.Color?.Value,
-                pronouns = row.Pronouns,
-                security_level = (short)row.SecurityLevel,
-                proxy_name = row.ProxyName,
-                untracked = row.Untracked ? 1 : 0,
-                archived = row.Archived ? 1 : 0,
-                pinned = row.Pinned ? 1 : 0,
+                id = command.AlterId.Value,
+                name = string.IsNullOrWhiteSpace(command.Name) ? null : command.Name,
+                alias = string.IsNullOrWhiteSpace(command.Alias) ? null : command.Alias,
+                description = command.Description,
+                clear_avatar = command.ClearAvatar ? 1 : 0,
+                has_avatar = command.AvatarUrl is not null ? 1 : 0,
+                avatar_url = command.AvatarUrl?.Value,
+                avatar_source = command.AvatarUrl is not null
+                    ? (short)(command.AvatarSource ?? AvatarSource.Local)
+                    : (short?)null,
+                color = command.Color?.Value,
+                pronouns = command.Pronouns,
+                security_level = command.SecurityLevel is { } level ? (short)level : (short?)null,
+                proxy_name = command.ProxyName,
+                untracked = command.Untracked is { } untracked ? (untracked ? 1 : 0) : (int?)null,
+                archived = command.Archived is { } archived ? (archived ? 1 : 0) : (int?)null,
+                pinned = command.Pinned is { } pinned ? (pinned ? 1 : 0) : (int?)null,
                 updated_at = updatedAtMs,
             },
             work.Transaction);

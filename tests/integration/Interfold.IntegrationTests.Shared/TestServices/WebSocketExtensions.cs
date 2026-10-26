@@ -71,7 +71,7 @@ public static class WebSocketExtensions
 
         await ws.SendTextFrameAsync(joinFrame.ToBytes(), timeoutToken);
         var frame = await ReceivedPhxFrame.ReceiveAsync(ws, timeoutToken);
-        var reply = frame.Reply<object>();
+        var reply = frame.Reply(TestJson.TypeInfo<PhoenixReplyPayload<object>>());
         if (reply.Status != PhoenixReplyStatus.Ok)
             throw new InvalidOperationException($"JoinTopicAsync failed for topic '{topic}'. Status: {reply.Status}");
     }

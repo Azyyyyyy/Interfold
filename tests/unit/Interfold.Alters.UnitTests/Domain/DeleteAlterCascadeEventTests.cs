@@ -1,3 +1,4 @@
+using Interfold.Alters.Contracts;
 using Interfold.Alters.Contracts.Events;
 using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain;
@@ -12,6 +13,7 @@ using Interfold.Polls.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
+using Interfold.Shared.Domain;
 using Interfold.Shared.Domain.Abstractions;
 using Interfold.Tags.Contracts.Events;
 using Interfold.Tags.Contracts.Ids;
@@ -22,6 +24,10 @@ namespace Interfold.Api.UnitTests.Domain;
 
 public sealed class DeleteAlterCascadeEventTests
 {
+    [Before(HookType.Class)]
+    public static void RegisterCommandJson()
+        => CommandSerialization.AddTypeInfoResolver(AltersCommandJsonContext.Default);
+
     private static readonly SystemId Principal = new SystemId("altdel");
 
     [Test]

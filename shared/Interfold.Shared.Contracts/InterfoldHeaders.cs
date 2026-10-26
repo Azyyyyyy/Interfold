@@ -62,7 +62,7 @@ public static class HttpClientNames
     public const string Fcm = "Fcm";
 }
 
-/// <summary>HttpContext.Items keys shared by principal middleware and SystemId.BindAsync.</summary>
+/// <summary>HttpContext.Items keys shared by principal middleware and <c>me</c> route rewrite.</summary>
 public static class InterfoldHttpContextKeys
 {
     public const string PrincipalId = "Interfold.PrincipalId";

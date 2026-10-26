@@ -1,5 +1,5 @@
 using System.Net;
-using System.Text.Json;
+using System.Net.Http.Json;
 using Interfold.Alters.Contracts.Models;
 using Interfold.Alters.Contracts.Models.Read;
 using Interfold.Auth.Api.Json;
@@ -37,7 +37,7 @@ public sealed class AuthControllerTests(IWebFactoryFixture fixture) : BaseEndpoi
         using var client = fixture.Factory.CreateClient();
         var response = await client.GetAsync("/auth/login-methods");
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        var methods = JsonSerializer.Deserialize(await response.Content.ReadAsStringAsync(), AuthApiJsonContext.Default.LoginMethodsResponse);
+        var methods = await response.Content.ReadFromJsonAsync(AuthApiJsonContext.Default.LoginMethodsResponse);
         await Assert.That(methods).IsNotNull();
         await Assert.That(methods!.Cloudflare).IsFalse();
         await Assert.That(methods.Google).IsFalse();

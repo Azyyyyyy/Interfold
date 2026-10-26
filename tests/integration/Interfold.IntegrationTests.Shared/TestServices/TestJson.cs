@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Interfold.Alters.Api.Json;
 using Interfold.Alters.Contracts;
 using Interfold.Auth.Api.Json;
@@ -53,6 +54,9 @@ public static class TestJson
 {
     /// <summary>Mirrors the API's SnakeCaseLower JsonSerializerOptions.</summary>
     public static readonly JsonSerializerOptions Options = CreateOptions();
+
+    public static JsonTypeInfo<T> TypeInfo<T>()
+        => (JsonTypeInfo<T>)Options.GetTypeInfo(typeof(T));
 
     private static JsonSerializerOptions CreateOptions()
     {

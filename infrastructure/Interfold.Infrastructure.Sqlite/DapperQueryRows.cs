@@ -21,13 +21,13 @@ internal sealed class AccountRow
 internal sealed class LinkTokenRow
 {
     public string? LinkToken { get; set; }
-    public long? ExpiresAt { get; set; }
+    public long ExpiresAt { get; set; }
 }
 
 internal sealed class LinkTokenOwnerRow
 {
     public SystemId SystemId { get; set; }
-    public long? ExpiresAt { get; set; }
+    public long ExpiresAt { get; set; }
 }
 
 internal sealed class SystemIdRow

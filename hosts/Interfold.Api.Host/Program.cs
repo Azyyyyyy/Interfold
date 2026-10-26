@@ -15,6 +15,7 @@ using Interfold.ServiceDefaults;
 using Interfold.Settings.Api.DependencyInjection;
 using Interfold.Shared.Api.DependencyInjection;
 using Interfold.Shared.Api.Helpers;
+using Interfold.Shared.Api.Http;
 using Interfold.Shared.Api.Middleware;
 using Interfold.Shared.Api.Services;
 using Interfold.Shared.Api.Services.Secrets;
@@ -255,6 +256,7 @@ if (!app.Environment.IsDevelopment())
 app.UseCors();
 app.UseAuthentication();
 app.UseMiddleware<InterfoldPrincipalMiddleware>();
+app.UseMiddleware<SystemIdMeMiddleware>();
 app.UseStaticFiles();
 
 // Serve avatars per AvatarServingPolicy. Hand-rolled (not a second UseStaticFiles) so the

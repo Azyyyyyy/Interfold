@@ -1,3 +1,4 @@
+using Interfold.Polls.Contracts;
 using Interfold.Polls.Contracts.Ids;
 using Interfold.Polls.Contracts.Models.Commands;
 using Interfold.Polls.Domain;
@@ -5,6 +6,7 @@ using Interfold.Polls.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
+using Interfold.Shared.Domain;
 using Interfold.Shared.Domain.Abstractions;
 using TUnit.Mocks;
 using TUnit.Mocks.Arguments;
@@ -18,6 +20,10 @@ namespace Interfold.Api.UnitTests.Domain;
 // Func<CT, ...>; these tests count calls to catch a re-regression at the seam.
 public sealed class PollCommandFlowExecutionTests
 {
+    [Before(HookType.Class)]
+    public static void RegisterCommandJson()
+        => CommandSerialization.AddTypeInfoResolver(PollsCommandJsonContext.Default);
+
     private static readonly SystemId Principal =
         new SystemId("poll-flow-tests");
 

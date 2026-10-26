@@ -1,6 +1,7 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Interfold.Socket.Contracts;
 
 namespace Interfold.IntegrationTests.Shared.TestServices;
@@ -19,33 +20,33 @@ public sealed record ReceivedPhxFrame(
     /// <summary>
     /// Deserialize the raw payload into a strongly-typed payload object.
     /// </summary>
-    public TPayload Payload<TPayload>() =>
+    public TPayload Payload<TPayload>(JsonTypeInfo<TPayload> typeInfo) =>
         RawPayload is null
             ? throw new InvalidOperationException("Frame has no payload.")
-            : JsonSerializer.Deserialize<TPayload>(RawPayload.Value.GetRawText(), TestJson.Options)
+            : JsonSerializer.Deserialize(RawPayload.Value.GetRawText(), typeInfo)
               ?? throw new InvalidOperationException($"Failed to deserialize payload as {typeof(TPayload).Name}.");
 
     /// <summary>
     /// For phx_reply frames: deserialize the payload as PhoenixReplyPayload&lt;TResponse&gt;.
     /// </summary>
-    public PhoenixReplyPayload<TResponse> Reply<TResponse>()
+    public PhoenixReplyPayload<TResponse> Reply<TResponse>(JsonTypeInfo<PhoenixReplyPayload<TResponse>> typeInfo)
     {
         if (!string.Equals(Event, "phx_reply", StringComparison.Ordinal))
             throw new InvalidOperationException($"Expected phx_reply event but got '{Event}'.");
 
-        return Payload<PhoenixReplyPayload<TResponse>>();
+        return Payload(typeInfo);
     }
 
     /// <summary>
     /// For endpoint proxy replies: deserialize the response body (which is a JSON string) into a typed object.
     /// </summary>
-    public TBody EndpointBody<TBody>()
+    public TBody EndpointBody<TBody>(JsonTypeInfo<TBody> typeInfo)
     {
-        var reply = Reply<SocketEndpointProxyResponse>();
+        var reply = Reply(TestJson.TypeInfo<PhoenixReplyPayload<SocketEndpointProxyResponse>>());
         if (string.IsNullOrWhiteSpace(reply.Response.Body))
             throw new InvalidOperationException("Endpoint proxy response body is empty.");
 
-        return JsonSerializer.Deserialize<TBody>(reply.Response.Body, TestJson.Options)
+        return JsonSerializer.Deserialize(reply.Response.Body, typeInfo)
                ?? throw new InvalidOperationException($"Failed to deserialize endpoint body as {typeof(TBody).Name}.");
     }
 
@@ -109,10 +110,14 @@ public sealed record ReceivedPhxFrame(
     /// <summary>
     /// Receive a phx_reply frame and return the typed reply payload.
     /// </summary>
-    public static async Task<PhoenixReplyPayload<TResponse>> ReceiveReplyAsync<TResponse>(WebSocket ws, CancellationToken token, int timeoutSeconds = 30)
+    public static async Task<PhoenixReplyPayload<TResponse>> ReceiveReplyAsync<TResponse>(
+        WebSocket ws,
+        JsonTypeInfo<PhoenixReplyPayload<TResponse>> typeInfo,
+        CancellationToken token,
+        int timeoutSeconds = 30)
     {
         var frame = await ReceiveAsync(ws, token, timeoutSeconds);
-        return frame.Reply<TResponse>();
+        return frame.Reply(typeInfo);
     }
 
     /// <summary>
@@ -123,6 +128,7 @@ public sealed record ReceivedPhxFrame(
         WebSocket ws,
         CancellationToken token,
         string expectedEvent,
+        JsonTypeInfo<TPayload> typeInfo,
         int maxFrames = 6,
         int perFrameTimeoutSeconds = 30) where TPayload : class
     {
@@ -142,7 +148,7 @@ public sealed record ReceivedPhxFrame(
             }
 
             if (string.Equals(frame.Event, expectedEvent, StringComparison.Ordinal))
-                return frame.Payload<TPayload>();
+                return frame.Payload(typeInfo);
         }
 
         return null;

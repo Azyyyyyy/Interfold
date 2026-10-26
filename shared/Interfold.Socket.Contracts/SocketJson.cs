@@ -8,15 +8,23 @@ public static class SocketJson
 {
     private static readonly Lock Gate = new();
 
-    public static JsonSerializerOptions Options { get; } = new()
+    public static JsonSerializerOptions Options { get; } = CreateOptions();
+
+    private static JsonSerializerOptions CreateOptions()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        Converters =
+        var options = new JsonSerializerOptions
         {
-            new UtcDateTimeConverter(),
-            new UtcDateTimeOffsetConverter()
-        }
-    };
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            Converters =
+            {
+                new UtcDateTimeConverter(),
+                new UtcDateTimeOffsetConverter()
+            }
+        };
+        options.TypeInfoResolverChain.Add(SharedContractsJsonContext.Default);
+        options.TypeInfoResolverChain.Add(SocketJsonContext.Default);
+        return options;
+    }
 
     public static void AddTypeInfoResolver(IJsonTypeInfoResolver resolver)
     {

@@ -206,8 +206,7 @@ public sealed class SqliteTagRepository : ITagRepository
         var tagHex = command.TagId.Value.ToString("N");
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
-        var existing = await LoadTagRowsAsync(work.Connection, systemId, tagHex, work.Transaction);
-        if (existing.Count == 0)
+        if (!await TagExistsAsync(work.Connection, work.Transaction, systemId, tagHex))
         {
             return false;
         }
@@ -220,32 +219,24 @@ public sealed class SqliteTagRepository : ITagRepository
             return true;
         }
 
-        var row = existing[0];
-        if (command.Name is not null)
-            row = row with { Name = command.Name };
-        if (command.Color is { } color)
-            row = row with { Color = color };
-        if (command.Description is not null)
-            row = row with { Description = command.Description };
-        if (command.SecurityLevel is not null)
-            row = row with { SecurityLevel = command.SecurityLevel.Value };
-
         var updated = await work.Connection.ExecuteAsync(
             """
             UPDATE tags
-            SET name = @name, color = @color, description = @description,
-                parent_tag_id = @parent_tag_id, security_level = @security_level, updated_at = @updated_at
+            SET name = COALESCE(@name, name),
+                color = COALESCE(@color, color),
+                description = COALESCE(@description, description),
+                security_level = COALESCE(@security_level, security_level),
+                updated_at = @updated_at
             WHERE system_id = @system_id AND id = @id
             """,
             new
             {
                 system_id = systemId,
                 id = tagHex,
-                name = row.Name,
-                color = row.Color?.Value,
-                description = row.Description,
-                parent_tag_id = row.ParentTagId?.Value.ToString("N"),
-                security_level = (short)row.SecurityLevel,
+                name = command.Name,
+                color = command.Color?.Value,
+                description = command.Description,
+                security_level = command.SecurityLevel is { } level ? (short)level : (short?)null,
                 updated_at = nowMs,
             },
             work.Transaction);

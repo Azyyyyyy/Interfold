@@ -110,15 +110,7 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         var nowMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var row = await connection.QueryFirstOrDefaultAsync<FieldRow>(
-            """
-            SELECT id AS IdHex, name AS Name, type AS Type, security_level AS SecurityLevel,
-                   locked AS Locked, idx AS Idx, inserted_at AS InsertedAtMs, updated_at AS UpdatedAtMs
-            FROM settings_fields
-            WHERE system_id = @system_id AND id = @id
-            """,
-            new { system_id = systemId, id = fieldHex });
-        if (row is null)
+        if (!await FieldExistsAsync(connection, tx: null, systemId, fieldHex))
         {
             return false;
         }
@@ -128,31 +120,23 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             return true;
         }
 
-        if (name is not null)
-            row.Name = name;
-        if (securityLevel is not null)
-            row.SecurityLevel = (short)securityLevel.Value;
-        if (locked is not null)
-            row.Locked = locked.Value ? 1 : 0;
-        row.UpdatedAtMs = nowMs;
-
         var updated = await connection.ExecuteAsync(
             """
             UPDATE settings_fields
-            SET name = @name, type = @type, security_level = @security_level,
-                locked = @locked, idx = @idx, updated_at = @updated_at
+            SET name = COALESCE(@name, name),
+                security_level = COALESCE(@security_level, security_level),
+                locked = COALESCE(@locked, locked),
+                updated_at = @updated_at
             WHERE system_id = @system_id AND id = @id
             """,
             new
             {
                 system_id = systemId,
                 id = fieldHex,
-                name = row.Name,
-                type = row.Type,
-                security_level = row.SecurityLevel,
-                locked = row.Locked,
-                idx = row.Idx,
-                updated_at = row.UpdatedAtMs,
+                name,
+                security_level = securityLevel is { } level ? (short)level : (short?)null,
+                locked = locked is { } lockedFlag ? (lockedFlag ? 1 : 0) : (int?)null,
+                updated_at = nowMs,
             });
         return updated > 0;
     }

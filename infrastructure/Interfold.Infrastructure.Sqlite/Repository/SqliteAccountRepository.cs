@@ -181,7 +181,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             return null;
         }
 
-        if (row.ExpiresAt is { } expiresAt && expiresAt > nowMs)
+        if (row.ExpiresAt > nowMs)
         {
             return new LinkToken(row.LinkToken);
         }
@@ -212,7 +212,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
             return null;
         }
 
-        if (row.ExpiresAt is { } expiresAt && expiresAt > nowMs)
+        if (row.ExpiresAt > nowMs)
         {
             return row.SystemId;
         }

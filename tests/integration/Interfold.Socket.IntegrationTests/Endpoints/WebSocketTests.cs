@@ -65,7 +65,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             await Assert.That(frame.Ref).IsEqualTo("51").Because("Expected ref=51 in array reply.");
             await Assert.That(frame.Topic).IsEqualTo($"system:{systemId}").Because("Expected topic to match array join topic.");
             await Assert.That(frame.Event).IsEqualTo("phx_reply").Because("Expected array reply event phx_reply.");
-            var reply = frame.Reply<SocketJoinReconnectPayload>();
+            var reply = frame.Reply(TestJson.TypeInfo<PhoenixReplyPayload<SocketJoinReconnectPayload>>());
             await Assert.That(reply.Status).IsEqualTo(PhoenixReplyStatus.Ok).Because("Expected status=ok for reconnect join.");
             await Assert.That(reply.Response.System.Id).IsEqualTo(new SystemId(systemId)).Because("Expected system ID in reconnect payload.");
         }
@@ -90,7 +90,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         }.ToBytes();
 
         await ws.SendTextFrameAsync(joinFrame, token);
-        var reply = await ReceivedPhxFrame.ReceiveReplyAsync<SocketReasonResponse>(ws, token);
+        var reply = await ReceivedPhxFrame.ReceiveReplyAsync(ws, TestJson.TypeInfo<PhoenixReplyPayload<SocketReasonResponse>>(), token);
 
         using (Assert.Multiple())
         {
@@ -120,7 +120,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         }.ToBytes();
 
         await ws.SendTextFrameAsync(joinFrame, token);
-        var reply = await ReceivedPhxFrame.ReceiveReplyAsync<SocketJoinBatchedPayload>(ws, token);
+        var reply = await ReceivedPhxFrame.ReceiveReplyAsync(ws, TestJson.TypeInfo<PhoenixReplyPayload<SocketJoinBatchedPayload>>(), token);
 
         using (Assert.Multiple())
         {
@@ -669,7 +669,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             var (replyFrame, _) = await ws.SendEndpointAndCaptureAsync(endpointFrame, SocketEventNames.Alters.Created, token);
             await Assert.That(replyFrame).IsNotNull()
                 .Because("Expected a phx_reply for the endpoint proxy call.");
-            var reply = replyFrame!.Reply<SocketEndpointProxyResponse>();
+            var reply = replyFrame!.Reply(TestJson.TypeInfo<PhoenixReplyPayload<SocketEndpointProxyResponse>>());
 
             using (Assert.Multiple())
             {
@@ -772,12 +772,12 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         await ws.SendTextFrameAsync(joinFrame.ToBytes(), token);
         var frame = await ReceivedPhxFrame.ReceiveAsync(ws, token);
-        return frame.Reply<object>();
+        return frame.Reply(TestJson.TypeInfo<PhoenixReplyPayload<object>>());
     }
 
     static int ExtractAlterIdFromEndpointReply(ReceivedPhxFrame replyFrame)
     {
-        var reply = replyFrame.Reply<SocketEndpointProxyResponse>();
+        var reply = replyFrame.Reply(TestJson.TypeInfo<PhoenixReplyPayload<SocketEndpointProxyResponse>>());
         if (string.IsNullOrWhiteSpace(reply.Response.Body))
             throw new InvalidOperationException("Endpoint proxy response body is empty — cannot extract alter ID.");
 
