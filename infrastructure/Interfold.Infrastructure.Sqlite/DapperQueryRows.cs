@@ -21,6 +21,7 @@ internal sealed class AccountRow
 internal sealed class LinkTokenRow
 {
     public string? LinkToken { get; set; }
+    // see SqliteAccountRepository COALESCE; Dapper.AOT GetInt64 refuses NULL after scrub
     public long ExpiresAt { get; set; }
 }
 

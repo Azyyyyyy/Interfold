@@ -170,7 +170,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<LinkTokenRow>(
             """
-            SELECT link_token AS LinkToken, link_token_expires_at AS ExpiresAt
+            SELECT link_token AS LinkToken, COALESCE(link_token_expires_at, 0) AS ExpiresAt
             FROM accounts
             WHERE system_id = @system_id
             LIMIT 1
@@ -201,7 +201,7 @@ public sealed class SqliteAccountRepository : IAccountRepository
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QueryFirstOrDefaultAsync<LinkTokenOwnerRow>(
             """
-            SELECT system_id AS SystemId, link_token_expires_at AS ExpiresAt
+            SELECT system_id AS SystemId, COALESCE(link_token_expires_at, 0) AS ExpiresAt
             FROM accounts
             WHERE link_token = @link_token
             LIMIT 1
