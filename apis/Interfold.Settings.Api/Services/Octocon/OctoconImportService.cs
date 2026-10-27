@@ -7,6 +7,7 @@ using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Polls.Contracts.Models;
 using Interfold.Polls.Contracts.Models.Commands;
 using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Settings.Api.Json;
 using Interfold.Settings.Api.Services.Export;
 using Interfold.Settings.Contracts.Models.ImportOperations;
 using Interfold.Settings.Domain.Abstractions;
@@ -73,7 +74,7 @@ public sealed class OctoconImportService : IOctoconImportService
         OctoconExportPayload? payload;
         try
         {
-            payload = JsonSerializer.Deserialize<OctoconExportPayload>(rawPayload, ExportJsonOptions.Default);
+            payload = JsonSerializer.Deserialize(rawPayload, ExportJsonContext.Default.OctoconExportPayload);
             if (payload is null)
             {
                 return new ImportJobOutcome(false, 0, ImportErrorCode.ImportFailed, "Failed to deserialize Octocon payload.");

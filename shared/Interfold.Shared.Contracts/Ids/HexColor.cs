@@ -116,7 +116,7 @@ public readonly record struct HexColor : IParsable<HexColor>
     }
 }
 
-internal sealed class HexColorJsonConverter : JsonConverter<HexColor>
+public sealed class HexColorJsonConverter : JsonConverter<HexColor>
 {
     public override HexColor Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {

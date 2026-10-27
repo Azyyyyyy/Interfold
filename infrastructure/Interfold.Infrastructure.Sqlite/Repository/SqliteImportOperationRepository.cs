@@ -5,7 +5,7 @@ using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Microsoft.Data.Sqlite;
-using System.Data.Common;
+using System.Data;
 
 namespace Interfold.Infrastructure.Sqlite.Repository;
 
@@ -160,7 +160,7 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
                 },
                 tx);
 
-            await ReleaseSlotAsync(connection, tx, systemId, format.ToWire(), operationId.Value, cancellationToken);
+            await ReleaseSlotAsync(connection, tx, systemId, format.ToWire(), operationId.Value);
             await tx.CommitAsync(cancellationToken);
         }
         catch
@@ -205,7 +205,7 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
                 },
                 tx);
 
-            await ReleaseSlotAsync(connection, tx, systemId, format.ToWire(), operationId.Value, cancellationToken);
+            await ReleaseSlotAsync(connection, tx, systemId, format.ToWire(), operationId.Value);
             await tx.CommitAsync(cancellationToken);
         }
         catch
@@ -283,11 +283,10 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
 
     private static Task ReleaseSlotAsync(
         SqliteConnection connection,
-        DbTransaction tx,
+        IDbTransaction tx,
         SystemId systemId,
         string kindWire,
-        Guid operationId,
-        CancellationToken cancellationToken)
+        Guid operationId)
         => connection.ExecuteAsync(
             """
             DELETE FROM active_import_by_system
@@ -345,15 +344,4 @@ public sealed class SqliteImportOperationRepository : IImportOperationRepository
 
     private static Guid ParseOperationId(string hex) => Guid.ParseExact(hex, "N");
 
-    private sealed record ImportOperationRow(
-        SystemId SystemId,
-        string OperationId,
-        string Kind,
-        string Status,
-        long StartedAt,
-        long? FinishedAt,
-        long? AlterCount,
-        string? ErrorCode,
-        string? ErrorMessage,
-        string IdempotencyKey);
 }

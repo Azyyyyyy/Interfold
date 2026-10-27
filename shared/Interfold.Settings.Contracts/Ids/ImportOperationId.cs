@@ -19,7 +19,7 @@ public readonly record struct ImportOperationId(Guid Value)
     public override string ToString() => Value.ToString("D");
 }
 
-internal sealed class ImportOperationIdJsonConverter : JsonConverter<ImportOperationId>
+public sealed class ImportOperationIdJsonConverter : JsonConverter<ImportOperationId>
 {
     public override ImportOperationId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         => new(reader.GetGuid());

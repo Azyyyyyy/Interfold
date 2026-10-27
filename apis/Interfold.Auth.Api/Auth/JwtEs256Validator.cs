@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Interfold.Auth.Api.Helpers;
+using Interfold.Auth.Api.Json;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Interfold.Auth.Api.Auth;
@@ -55,7 +56,7 @@ public static class JwtEs256Validator
                 return Task.FromResult(ValidationResult.Failure($"Failed to decode header: {ex.Message}"));
             }
 
-            var header = JsonSerializer.Deserialize<JwsHeader>(headerJson);
+            var header = JsonSerializer.Deserialize(headerJson, AuthApiJsonContext.Default.JwsHeader);
             if (header is null || string.IsNullOrWhiteSpace(header.Alg))
             {
                 return Task.FromResult(ValidationResult.Failure("Missing JWT algorithm."));
@@ -181,7 +182,7 @@ public static class JwtEs256Validator
             throw new SecurityTokenInvalidSignatureException($"Failed to decode header: {ex.Message}");
         }
 
-        var header = JsonSerializer.Deserialize<JwsHeader>(headerJson);
+        var header = JsonSerializer.Deserialize(headerJson, AuthApiJsonContext.Default.JwsHeader);
         if (header is null || string.IsNullOrWhiteSpace(header.Alg))
         {
             throw new SecurityTokenInvalidSignatureException("Missing JWT algorithm.");

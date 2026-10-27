@@ -14,9 +14,9 @@ public class HttpLoggingHandler : DelegatingHandler
     {
         _logger = logger;
         _basePath = configuration["HttpMessageLog:BasePath"] ?? "http-messages";
-        _replayEnabled = configuration.GetValue("HttpMessageLog:Replay:Enabled", false);
-        _replayStrict = configuration.GetValue("HttpMessageLog:Replay:Strict", false);
-        _enabled = configuration.GetValue("HttpMessageLog:Enabled", false);
+        _replayEnabled = IsEnabledFlag(configuration["HttpMessageLog:Replay:Enabled"]);
+        _replayStrict = IsEnabledFlag(configuration["HttpMessageLog:Replay:Strict"]);
+        _enabled = IsEnabledFlag(configuration["HttpMessageLog:Enabled"]);
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -217,6 +217,9 @@ public class HttpLoggingHandler : DelegatingHandler
             _ => ".bin"
         };
     }
+
+    private static bool IsEnabledFlag(string? value) =>
+        bool.TryParse(value, out var parsed) && parsed;
 
     private static string SanitizeFileName(string name)
     {

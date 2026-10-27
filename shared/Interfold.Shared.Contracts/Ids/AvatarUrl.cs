@@ -28,7 +28,7 @@ public readonly record struct AvatarUrl
     public static AvatarUrl? FromNullable(string? value) => value is null ? null : new AvatarUrl(value);
 }
 
-internal sealed class AvatarUrlJsonConverter : StringBackedJsonConverter<AvatarUrl>
+public sealed class AvatarUrlJsonConverter : StringBackedJsonConverter<AvatarUrl>
 {
     protected override AvatarUrl Create(string value) => new(value);
     protected override string GetValue(AvatarUrl value) => value.Value;

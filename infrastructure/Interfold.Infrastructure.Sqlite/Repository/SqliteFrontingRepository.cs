@@ -44,14 +44,14 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
     {
         cancellationToken.ThrowIfCancellationRequested();
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var hit = await connection.ExecuteScalarAsync(
+        var hit = await connection.ExecuteScalarAsync<long?>(
             """
             SELECT 1 FROM current_fronts
             WHERE user_id = @user_id AND alter_id = @alter_id
             LIMIT 1
             """,
             new { user_id = systemId, alter_id = alterId.Value });
-        return hit is not null and not DBNull;
+        return hit is not null;
     }
 
     public async Task<FrontId?> StartAsync(
@@ -67,7 +67,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         var startedMs = startedAt.ToUnixTimeMilliseconds();
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
-        var already = await work.Connection.ExecuteScalarAsync(
+        var already = await work.Connection.ExecuteScalarAsync<long?>(
             """
             SELECT 1 FROM current_fronts
             WHERE user_id = @user_id AND alter_id = @alter_id
@@ -75,7 +75,7 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
             """,
             new { user_id = systemId, alter_id = alterId.Value },
             work.Transaction);
-        if (already is not null and not DBNull)
+        if (already is not null)
             return null;
 
         await work.Connection.ExecuteAsync(
@@ -253,14 +253,14 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
 
         if (alterId is { } value)
         {
-            var hit = await connection.ExecuteScalarAsync(
+            var hit = await connection.ExecuteScalarAsync<long?>(
                 """
                 SELECT 1 FROM current_fronts
                 WHERE user_id = @user_id AND alter_id = @alter_id
                 LIMIT 1
                 """,
                 new { user_id = systemId, alter_id = value.Value });
-            if (hit is null or DBNull)
+            if (hit is null)
             {
                 return false;
             }
@@ -664,14 +664,4 @@ public sealed class SqliteFrontingRepository : IFrontingRepository
         return new FrontHistoryReadModel(frontId, alterId, row.Comment, startedAt, endedAt, systemId);
     }
 
-    private sealed record CurrentFrontRow(string Id, long AlterId, string? Comment, long TimeStart);
-
-    private sealed record ActiveFrontByIdRow(long AlterId, string? Comment, long TimeStart);
-
-    private sealed record FrontHistoryRow(
-        string Id,
-        long AlterId,
-        string? Comment,
-        long TimeStart,
-        long? TimeEnd);
 }

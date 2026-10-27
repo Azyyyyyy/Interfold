@@ -29,7 +29,7 @@ public readonly record struct LinkToken
         => string.IsNullOrWhiteSpace(value) ? null : new LinkToken(value);
 }
 
-internal sealed class LinkTokenJsonConverter : StringBackedJsonConverter<LinkToken>
+public sealed class LinkTokenJsonConverter : StringBackedJsonConverter<LinkToken>
 {
     protected override LinkToken Create(string value) => new(value);
     protected override string GetValue(LinkToken value) => value.Value;

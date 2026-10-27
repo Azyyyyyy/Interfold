@@ -1,12 +1,9 @@
-﻿using System.Reflection;
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Text.Json;
-using Interfold.Shared.Api.Controllers.Base;
 using Interfold.Shared.Api.Middleware;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc.Controllers;
 
 namespace Interfold.Api.UnitTests.Ids;
 
@@ -15,8 +12,6 @@ public sealed class SystemIdRegionPrefixTests
     private const string RawId = "sys-0123456789abcdef";
     private const string ScopedId = "nam:sys-0123456789abcdef";
     private const string OtherRegionScopedId = "eur:sys-0123456789abcdef";
-
-    private sealed class DummyInterfoldController : InterfoldControllerBase;
 
     private static HttpContext CreateTestContext(string? sub)
     {
@@ -27,11 +22,7 @@ public sealed class SystemIdRegionPrefixTests
             context.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
         }
 
-        var actionDescriptor = new ControllerActionDescriptor
-        {
-            ControllerTypeInfo = typeof(DummyInterfoldController).GetTypeInfo()
-        };
-        var endpoint = new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(actionDescriptor), "Test");
+        var endpoint = new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(), "Test");
         context.SetEndpoint(endpoint);
         return context;
     }
@@ -98,7 +89,7 @@ public sealed class SystemIdRegionPrefixTests
     public async Task JsonDeserialization_WithScopedId_StripsPrefix()
     {
         var json = $"\"{ScopedId}\"";
-        var deserialized = JsonSerializer.Deserialize<SystemId>(json);
+        var deserialized = JsonSerializer.Deserialize(json, SharedContractsJsonContext.Default.SystemId);
         await Assert.That(deserialized.Value).IsEqualTo(RawId);
     }
 
@@ -106,7 +97,7 @@ public sealed class SystemIdRegionPrefixTests
     public async Task JsonDeserialization_WithRawId_PreservesRawId()
     {
         var json = $"\"{RawId}\"";
-        var deserialized = JsonSerializer.Deserialize<SystemId>(json);
+        var deserialized = JsonSerializer.Deserialize(json, SharedContractsJsonContext.Default.SystemId);
         await Assert.That(deserialized.Value).IsEqualTo(RawId);
     }
 

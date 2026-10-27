@@ -298,13 +298,4 @@ public sealed class SqlitePollRepository : IPollRepository
     private static DateTime FromUnixMs(long ms)
         => DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;
 
-    private sealed record PollRow(
-        string Id,
-        string Title,
-        string? Description,
-        long Type,
-        string? Data,
-        long? TimeEnd,
-        long InsertedAt,
-        long UpdatedAt);
 }

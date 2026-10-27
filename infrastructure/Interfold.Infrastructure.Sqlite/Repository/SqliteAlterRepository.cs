@@ -176,58 +176,47 @@ public sealed class SqliteAlterRepository : IAlterRepository
             return false;
         }
 
-        var sets = new List<string> { "updated_at = @updated_at" };
-        var parameters = new DynamicParameters();
-        parameters.Add("updated_at", updatedAtMs);
-        parameters.Add("system_id", systemId);
-        parameters.Add("id", command.AlterId.Value);
-
-        void Set(string column, string param, object? value)
-        {
-            sets.Add($"{column} = @{param}");
-            parameters.Add(param, value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(command.Name))
-            Set("name", "name", command.Name);
-        if (command.Description is not null)
-            Set("description", "description", command.Description);
-        if (command.Color is not null)
-            Set("color", "color", command.Color.Value.Value);
-        if (command.Pronouns is not null)
-            Set("pronouns", "pronouns", command.Pronouns);
-        if (command.ProxyName is not null)
-            Set("proxy_name", "proxy_name", command.ProxyName);
-        if (command.SecurityLevel is not null)
-            Set("security_level", "security_level", (short)command.SecurityLevel.Value);
-        if (command.Untracked is not null)
-            Set("untracked", "untracked", command.Untracked.Value ? 1 : 0);
-        if (command.Archived is not null)
-            Set("archived", "archived", command.Archived.Value ? 1 : 0);
-        if (command.Pinned is not null)
-            Set("pinned", "pinned", command.Pinned.Value ? 1 : 0);
-
-        if (command.ClearAvatar)
-        {
-            Set("avatar_url", "avatar_url", null);
-            Set("avatar_source", "avatar_source", null);
-        }
-        else if (command.AvatarUrl is not null)
-        {
-            Set("avatar_url", "avatar_url", command.AvatarUrl.Value.Value);
-            Set("avatar_source", "avatar_source", (short)(command.AvatarSource ?? AvatarSource.Local));
-        }
-
-        if (!string.IsNullOrWhiteSpace(command.Alias))
-            Set("alias", "alias", command.Alias);
-
+        // Dapper.AOT requires a compile-time SQL constant; null parameters leave the stored column.
         var updated = await work.Connection.ExecuteAsync(
-            $"""
+            """
             UPDATE alters
-            SET {string.Join(", ", sets)}
+            SET name = COALESCE(@name, name),
+                alias = COALESCE(@alias, alias),
+                description = COALESCE(@description, description),
+                avatar_url = CASE WHEN @clear_avatar = 1 THEN NULL WHEN @has_avatar = 1 THEN @avatar_url ELSE avatar_url END,
+                avatar_source = CASE WHEN @clear_avatar = 1 THEN NULL WHEN @has_avatar = 1 THEN @avatar_source ELSE avatar_source END,
+                color = COALESCE(@color, color),
+                pronouns = COALESCE(@pronouns, pronouns),
+                security_level = COALESCE(@security_level, security_level),
+                proxy_name = COALESCE(@proxy_name, proxy_name),
+                untracked = COALESCE(@untracked, untracked),
+                archived = COALESCE(@archived, archived),
+                pinned = COALESCE(@pinned, pinned),
+                updated_at = @updated_at
             WHERE system_id = @system_id AND id = @id
             """,
-            parameters,
+            new
+            {
+                system_id = systemId,
+                id = command.AlterId.Value,
+                name = string.IsNullOrWhiteSpace(command.Name) ? null : command.Name,
+                alias = string.IsNullOrWhiteSpace(command.Alias) ? null : command.Alias,
+                description = command.Description,
+                clear_avatar = command.ClearAvatar ? 1 : 0,
+                has_avatar = command.AvatarUrl is not null ? 1 : 0,
+                avatar_url = command.AvatarUrl?.Value,
+                avatar_source = command.AvatarUrl is not null
+                    ? (short)(command.AvatarSource ?? AvatarSource.Local)
+                    : (short?)null,
+                color = command.Color?.Value,
+                pronouns = command.Pronouns,
+                security_level = command.SecurityLevel is { } level ? (short)level : (short?)null,
+                proxy_name = command.ProxyName,
+                untracked = command.Untracked is { } untracked ? (untracked ? 1 : 0) : (int?)null,
+                archived = command.Archived is { } archived ? (archived ? 1 : 0) : (int?)null,
+                pinned = command.Pinned is { } pinned ? (pinned ? 1 : 0) : (int?)null,
+                updated_at = updatedAtMs,
+            },
             work.Transaction);
 
         if (command.Fields is not null)
@@ -441,32 +430,38 @@ public sealed class SqliteAlterRepository : IAlterRepository
     private static async Task<List<AlterRow>> LoadAlterRowsAsync(
         SqliteConnection connection,
         SystemId systemId,
-        short? alterId)
+        short? alterId,
+        IDbTransaction? tx = null)
     {
-        const string columns = """
-            id AS Id, name AS Name, alias AS Alias, description AS Description,
-            avatar_url AS AvatarUrl, avatar_source AS AvatarSource, color AS Color, pronouns AS Pronouns,
-            security_level AS SecurityLevel, proxy_name AS ProxyName, untracked AS Untracked,
-            archived AS Archived, pinned AS Pinned, inserted_at AS InsertedAt, updated_at AS UpdatedAt
-            """;
-
-        var sql = alterId is null
-            ? $"""
-                SELECT {columns}
+        IEnumerable<AlterRowDto> dtos;
+        if (alterId is null)
+        {
+            dtos = await connection.QueryAsync<AlterRowDto>(
+                """
+                SELECT id AS Id, name AS Name, alias AS Alias, description AS Description,
+                       avatar_url AS AvatarUrl, avatar_source AS AvatarSource, color AS Color, pronouns AS Pronouns,
+                       security_level AS SecurityLevel, proxy_name AS ProxyName, untracked AS Untracked,
+                       archived AS Archived, pinned AS Pinned, inserted_at AS InsertedAt, updated_at AS UpdatedAt
                 FROM alters
                 WHERE system_id = @system_id
+                """,
+                new { system_id = systemId },
+                tx);
+        }
+        else
+        {
+            dtos = await connection.QueryAsync<AlterRowDto>(
                 """
-            : $"""
-                SELECT {columns}
+                SELECT id AS Id, name AS Name, alias AS Alias, description AS Description,
+                       avatar_url AS AvatarUrl, avatar_source AS AvatarSource, color AS Color, pronouns AS Pronouns,
+                       security_level AS SecurityLevel, proxy_name AS ProxyName, untracked AS Untracked,
+                       archived AS Archived, pinned AS Pinned, inserted_at AS InsertedAt, updated_at AS UpdatedAt
                 FROM alters
                 WHERE system_id = @system_id AND id = @id
-                """;
-
-        var dtos = await connection.QueryAsync<AlterRowDto>(
-            sql,
-            alterId is null
-                ? new { system_id = systemId }
-                : new { system_id = systemId, id = alterId.Value });
+                """,
+                new { system_id = systemId, id = alterId.Value },
+                tx);
+        }
 
         return dtos.Select(MapAlterRow).ToList();
     }
@@ -575,27 +570,6 @@ public sealed class SqliteAlterRepository : IAlterRepository
             row.Pronouns,
             row.Description,
             AlterFieldProjection.ResolveGuardedFields(fieldValues, definitions, _logger));
-
-    private sealed record AlterRowDto(
-        long Id,
-        string Name,
-        string? Alias,
-        string? Description,
-        string? AvatarUrl,
-        long? AvatarSource,
-        string? Color,
-        string? Pronouns,
-        long SecurityLevel,
-        string? ProxyName,
-        long Untracked,
-        long Archived,
-        long Pinned,
-        long InsertedAt,
-        long UpdatedAt);
-
-    private sealed record AlterFieldRow(long AlterId, string FieldId, string? Value);
-
-    private sealed record AlterFieldValueRow(string FieldId, string? Value);
 
     private sealed record AlterRow(
         short Id,

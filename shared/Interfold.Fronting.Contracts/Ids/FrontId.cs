@@ -32,7 +32,7 @@ public readonly record struct FrontId(Guid Value) : IParsable<FrontId>
     public static bool IsValidComment(string? comment) => (comment?.Length ?? 0) <= MaxCommentLength;
 }
 
-internal sealed class FrontIdJsonConverter : GuidIdJsonConverter<FrontId>
+public sealed class FrontIdJsonConverter : GuidIdJsonConverter<FrontId>
 {
     protected override FrontId Create(Guid value) => new(value);
     protected override Guid GetValue(FrontId value) => value.Value;

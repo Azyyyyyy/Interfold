@@ -34,7 +34,7 @@ public static class FriendRequestFlow
             "system:" + senderSystemId,
             "PUT",
             "/api/friend-requests/" + recipientSystemId,
-            new object(),
+            PhxEndpointFrame.EmptyBody,
             refId);
         var (ack, push) = await senderWs.SendEndpointAndCaptureAsync(frame, SocketEventNames.Friendships.RequestSent, token);
         var recipientEvent = await ReceivedPhxFrame.ReceiveEventFrameAsync(

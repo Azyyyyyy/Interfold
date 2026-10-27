@@ -115,42 +115,29 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             return false;
         }
 
-        var sets = new List<string> { "updated_at = @updated_at" };
-        var parameters = new DynamicParameters();
-        parameters.Add("updated_at", nowMs);
-        parameters.Add("system_id", systemId);
-        parameters.Add("id", fieldHex);
-
-        if (name is not null)
-        {
-            sets.Add("name = @name");
-            parameters.Add("name", name);
-        }
-
-        if (securityLevel is not null)
-        {
-            sets.Add("security_level = @security_level");
-            parameters.Add("security_level", (short)securityLevel.Value);
-        }
-
-        if (locked is not null)
-        {
-            sets.Add("locked = @locked");
-            parameters.Add("locked", locked.Value ? 1 : 0);
-        }
-
-        if (sets.Count == 1)
+        if (name is null && securityLevel is null && locked is null)
         {
             return true;
         }
 
         var updated = await connection.ExecuteAsync(
-            $"""
+            """
             UPDATE settings_fields
-            SET {string.Join(", ", sets)}
+            SET name = COALESCE(@name, name),
+                security_level = COALESCE(@security_level, security_level),
+                locked = COALESCE(@locked, locked),
+                updated_at = @updated_at
             WHERE system_id = @system_id AND id = @id
             """,
-            parameters);
+            new
+            {
+                system_id = systemId,
+                id = fieldHex,
+                name,
+                security_level = securityLevel is { } level ? (short)level : (short?)null,
+                locked = locked is { } lockedFlag ? (lockedFlag ? 1 : 0) : (int?)null,
+                updated_at = nowMs,
+            });
         return updated > 0;
     }
 
@@ -201,7 +188,8 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
         var field = rows[currentIndex];
         rows.RemoveAt(currentIndex);
         var boundedIndex = Math.Max(0, Math.Min(index, rows.Count));
-        rows.Insert(boundedIndex, field with { UpdatedAtMs = nowMs });
+        field.UpdatedAtMs = nowMs;
+        rows.Insert(boundedIndex, field);
 
         for (var i = 0; i < rows.Count; i++)
         {
@@ -290,13 +278,4 @@ public sealed class SqliteSettingsFieldRepository : ISettingsFieldRepository
             (int)row.Idx,
             DateTimeOffset.FromUnixTimeMilliseconds(row.InsertedAtMs).UtcDateTime);
 
-    private sealed record FieldRow(
-        string IdHex,
-        string Name,
-        long Type,
-        long SecurityLevel,
-        long Locked,
-        long Idx,
-        long InsertedAtMs,
-        long UpdatedAtMs);
 }

@@ -1,0 +1,9 @@
+<Project>
+  <!--
+    Shared contracts/domain flow into Interfold.Api.Host. tools/ is outside
+    this walk so bootstrapper stays JIT.
+  -->
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+</Project>

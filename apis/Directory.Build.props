@@ -1,0 +1,11 @@
+<Project>
+  <!--
+    Product APIs are linked into Interfold.Api.Host (the eventual PublishAot
+    binary). tools/ is outside this walk so bootstrapper stays JIT.
+  -->
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.AspNetCore.Http.Generated</InterceptorsNamespaces>
+  </PropertyGroup>
+</Project>

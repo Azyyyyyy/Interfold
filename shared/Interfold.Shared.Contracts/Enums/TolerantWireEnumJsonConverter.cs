@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -7,7 +8,7 @@ namespace Interfold.Shared.Contracts.Enums;
 /// return null instead of throwing. Opt-in per-property; write emits the canonical
 /// <see cref="EnumWire{TEnum}.ToWire"/> spelling. Used at boundary payloads where a stray
 /// value on one field must not poison sibling fields.</summary>
-public sealed class TolerantWireEnumJsonConverter<TEnum> : JsonConverter<TEnum?>
+public sealed class TolerantWireEnumJsonConverter<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)] TEnum> : JsonConverter<TEnum?>
     where TEnum : struct, Enum
 {
     public override TEnum? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)

@@ -4,8 +4,30 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+using Interfold.Alters.Api.Json;
+using Interfold.Alters.Contracts;
+using Interfold.Auth.Api.Json;
+using Interfold.Friendships.Api.Json;
+using Interfold.Friendships.Contracts;
+using Interfold.Fronting.Api.Json;
+using Interfold.Fronting.Contracts;
+using Interfold.Journals.Api.Json;
+using Interfold.Journals.Contracts;
+using Interfold.Ops.Api.Json;
+using Interfold.Polls.Api.Json;
+using Interfold.Polls.Contracts;
+using Interfold.Settings.Api.Json;
+using Interfold.Settings.Contracts;
+using Interfold.Shared.Api.Json;
 using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
+using Interfold.Socket.Api.Json;
+using Interfold.Socket.Contracts;
+using Interfold.Systems.Api.Json;
+using Interfold.Systems.Contracts;
+using Interfold.Tags.Api.Json;
+using Interfold.Tags.Contracts;
 
 namespace Interfold.IntegrationTests.Shared.TestServices;
 
@@ -31,11 +53,44 @@ public sealed record TestErrorResponse(
 public static class TestJson
 {
     /// <summary>Mirrors the API's SnakeCaseLower JsonSerializerOptions.</summary>
-    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
+    public static readonly JsonSerializerOptions Options = CreateOptions();
+
+    public static JsonTypeInfo<T> TypeInfo<T>()
+        => (JsonTypeInfo<T>)Options.GetTypeInfo(typeof(T));
+
+    private static JsonSerializerOptions CreateOptions()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower,
-    };
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower,
+        };
+
+        InterfoldJson.InsertResolver(options, TestJsonContext.Default);
+        InterfoldJson.InsertResolver(options, SharedApiJsonContext.Default);
+        InterfoldJson.InsertResolver(options, SharedContractsJsonContext.Default);
+        InterfoldJson.InsertResolver(options, AltersContractsJsonContext.Default);
+        InterfoldJson.InsertResolver(options, AltersApiJsonContext.Default);
+        InterfoldJson.InsertResolver(options, TagsContractsJsonContext.Default);
+        InterfoldJson.InsertResolver(options, TagsApiJsonContext.Default);
+        InterfoldJson.InsertResolver(options, FriendshipsContractsJsonContext.Default);
+        InterfoldJson.InsertResolver(options, FriendshipsApiJsonContext.Default);
+        InterfoldJson.InsertResolver(options, JournalsContractsJsonContext.Default);
+        InterfoldJson.InsertResolver(options, JournalsApiJsonContext.Default);
+        InterfoldJson.InsertResolver(options, PollsContractsJsonContext.Default);
+        InterfoldJson.InsertResolver(options, PollsApiJsonContext.Default);
+        InterfoldJson.InsertResolver(options, FrontingContractsJsonContext.Default);
+        InterfoldJson.InsertResolver(options, FrontingApiJsonContext.Default);
+        InterfoldJson.InsertResolver(options, SettingsContractsJsonContext.Default);
+        InterfoldJson.InsertResolver(options, SettingsApiJsonContext.Default);
+        InterfoldJson.InsertResolver(options, SystemsContractsJsonContext.Default);
+        InterfoldJson.InsertResolver(options, SystemsApiJsonContext.Default);
+        InterfoldJson.InsertResolver(options, SocketJsonContext.Default);
+        InterfoldJson.InsertResolver(options, SocketApiJsonContext.Default);
+        InterfoldJson.InsertResolver(options, AuthApiJsonContext.Default);
+        InterfoldJson.InsertResolver(options, OpsApiJsonContext.Default);
+        return options;
+    }
 
     /// <summary>Sends a JSON body under the specified principal's auth. Optionally sets
     /// the idempotency-key header.</summary>

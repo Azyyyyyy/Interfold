@@ -16,7 +16,7 @@ public readonly record struct EntityVersion(long Value)
     public override string ToString() => Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }
 
-internal sealed class EntityVersionJsonConverter : JsonConverter<EntityVersion>
+public sealed class EntityVersionJsonConverter : JsonConverter<EntityVersion>
 {
     public override EntityVersion Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         => new(reader.GetInt64());

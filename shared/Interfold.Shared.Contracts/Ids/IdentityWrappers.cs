@@ -26,7 +26,7 @@ public readonly record struct Username
     public override string ToString() => Value;
 }
 
-internal sealed class UsernameJsonConverter : JsonConverter<Username>
+public sealed class UsernameJsonConverter : JsonConverter<Username>
 {
     // JSON null → empty so the command handler's username_invalid path fires as it did
     // when the property was a nullable string.
@@ -62,7 +62,7 @@ public readonly record struct DiscordId
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class DiscordIdJsonConverter : StringBackedJsonConverter<DiscordId>
+public sealed class DiscordIdJsonConverter : StringBackedJsonConverter<DiscordId>
 {
     protected override DiscordId Create(string value) => new(value);
     protected override string GetValue(DiscordId value) => value.Value;
@@ -87,7 +87,7 @@ public readonly record struct Email
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class EmailJsonConverter : StringBackedJsonConverter<Email>
+public sealed class EmailJsonConverter : StringBackedJsonConverter<Email>
 {
     protected override Email Create(string value) => new(value);
     protected override string GetValue(Email value) => value.Value;
@@ -113,7 +113,7 @@ public readonly record struct AppleId
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class AppleIdJsonConverter : StringBackedJsonConverter<AppleId>
+public sealed class AppleIdJsonConverter : StringBackedJsonConverter<AppleId>
 {
     protected override AppleId Create(string value) => new(value);
     protected override string GetValue(AppleId value) => value.Value;

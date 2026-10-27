@@ -6,6 +6,7 @@ using Interfold.Shared.Domain.Abstractions;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Settings.Contracts.Configuration;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 
 namespace Interfold.Infrastructure.DependencyInjection;
@@ -27,6 +28,7 @@ public static partial class ServiceCollectionExtensions
         services.AddOptions<TestHooksConfiguration>();
 
         services.AddSingleton<NullFCMService>();
+        services.AddHttpClient(HttpClientNames.Fcm);
         services.AddSingleton<FirebaseFCMService>();
 
         // Seeded fcm:service_account_json → real sender; otherwise no-op.

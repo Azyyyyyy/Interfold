@@ -49,7 +49,7 @@ public static class FriendTrustUntrustFlow
             "system:" + recipientSystemId,
             "POST",
             "/api/friend-requests/" + senderSystemId + "/accept",
-            new object(),
+            PhxEndpointFrame.EmptyBody,
             "3");
 
         await recipientWs.SendTextFrameAsync(acceptFrame, token);
@@ -61,7 +61,7 @@ public static class FriendTrustUntrustFlow
             "system:" + senderSystemId,
             "POST",
             "/api/friends/" + recipientSystemId + "/trust",
-            new object(),
+            PhxEndpointFrame.EmptyBody,
             "4");
 
         var (trustAck, trustPush) = await senderWs.SendEndpointAndCaptureAsync(trustFrame, SocketEventNames.Friendships.Trusted, token);
@@ -84,7 +84,7 @@ public static class FriendTrustUntrustFlow
             "system:" + senderSystemId,
             "POST",
             "/api/friends/" + recipientSystemId + "/untrust",
-            new object(),
+            PhxEndpointFrame.EmptyBody,
             "5");
 
         var (untrustAck, untrustPush) = await senderWs.SendEndpointAndCaptureAsync(untrustFrame, SocketEventNames.Friendships.Untrusted, token);

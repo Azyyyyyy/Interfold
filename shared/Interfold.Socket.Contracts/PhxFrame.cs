@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Interfold.Shared.Contracts.Enums;
@@ -25,7 +24,41 @@ public sealed class PhxFrame<TPayload>
     [JsonPropertyName("join_ref")]
     public string? JoinRef { get; init; }
 
-    public byte[] ToBytes() => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(this, SocketJson.Options));
+    public byte[] ToBytes()
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("topic", Topic);
+            writer.WriteString("event", Event);
+            writer.WritePropertyName("payload");
+            if (Payload is null)
+            {
+                writer.WriteNullValue();
+            }
+            else
+            {
+                var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<TPayload>)
+                    SocketJson.Options.GetTypeInfo(typeof(TPayload));
+                JsonSerializer.Serialize(writer, Payload, typeInfo);
+            }
+
+            WriteNullableString(writer, "ref", Ref);
+            WriteNullableString(writer, "join_ref", JoinRef);
+            writer.WriteEndObject();
+        }
+
+        return stream.ToArray();
+    }
+
+    private static void WriteNullableString(Utf8JsonWriter writer, string name, string? value)
+    {
+        if (value is null)
+            writer.WriteNull(name);
+        else
+            writer.WriteString(name, value);
+    }
 }
 
 /// <summary>
@@ -69,19 +102,8 @@ public class PhxEndpointPayload<T> where T : new()
     [JsonPropertyName("path")]
     public string Path { get; init; } = string.Empty;
 
-    [JsonPropertyName("body"), JsonConverter(typeof(BodyJsonConverterFactory))]
+    [JsonPropertyName("body"), JsonConverter(typeof(BodyJson<object>))]
     public T Body { get; init; } = new T();
-}
-
-public class BodyJsonConverterFactory : JsonConverterFactory
-{
-    public override bool CanConvert(Type typeToConvert) => true;
-
-    public override JsonConverter? CreateConverter(Type typeToConvert, JsonSerializerOptions options)
-    {
-        var converterType = typeof(BodyJson<>).MakeGenericType(typeToConvert);
-        return (JsonConverter?)Activator.CreateInstance(converterType);
-    }
 }
 
 public class BodyJson<T> : JsonConverter<T>
@@ -100,17 +122,23 @@ public class BodyJson<T> : JsonConverter<T>
         }
 
         var rawContent = reader.GetString();
-        var content = string.IsNullOrWhiteSpace(rawContent)
-            ? new T()
-            : JsonSerializer.Deserialize<T>(rawContent, options);
+        if (string.IsNullOrWhiteSpace(rawContent))
+            return new T();
 
-        return content;
+        var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>)options.GetTypeInfo(typeof(T));
+        return JsonSerializer.Deserialize(rawContent, typeInfo);
     }
 
     public override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options)
     {
-        var format = value == null ? "" : JsonSerializer.Serialize(value, value.GetType(), options);
-        writer.WriteStringValue(format);
+        if (value == null)
+        {
+            writer.WriteStringValue("");
+            return;
+        }
+
+        var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>)options.GetTypeInfo(typeof(T));
+        writer.WriteStringValue(JsonSerializer.Serialize(value, typeInfo));
     }
 }
 
@@ -121,9 +149,32 @@ public class BodyJson<T> : JsonConverter<T>
 public static class PhxArrayFrame
 {
     public static byte[] CreateBytes<TPayload>(
-        string? joinRef, string? @ref, string topic, string @event, TPayload payload)
+        string? joinRef, string? @ref, string topic, string @event, TPayload payload,
+        JsonSerializerOptions? options = null)
     {
-        var array = new object?[] { joinRef, @ref, topic, @event, (object?)payload };
-        return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(array, SocketJson.Options));
+        options ??= SocketJson.Options;
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartArray();
+            WriteStringOrNull(writer, joinRef);
+            WriteStringOrNull(writer, @ref);
+            writer.WriteStringValue(topic);
+            writer.WriteStringValue(@event);
+            var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<TPayload>)
+                options.GetTypeInfo(typeof(TPayload));
+            JsonSerializer.Serialize(writer, payload, typeInfo);
+            writer.WriteEndArray();
+        }
+
+        return stream.ToArray();
+    }
+
+    private static void WriteStringOrNull(Utf8JsonWriter writer, string? value)
+    {
+        if (value is null)
+            writer.WriteNullValue();
+        else
+            writer.WriteStringValue(value);
     }
 }

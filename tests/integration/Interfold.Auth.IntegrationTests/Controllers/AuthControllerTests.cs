@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Interfold.Alters.Contracts.Models;
 using Interfold.Alters.Contracts.Models.Read;
+using Interfold.Auth.Api.Json;
 using Interfold.Auth.Api.Models;
 using Interfold.Auth.Contracts.Configuration;
 using Interfold.IntegrationTests.Shared;
@@ -37,7 +38,7 @@ public sealed class AuthControllerTests(IWebFactoryFixture fixture) : BaseEndpoi
         using var client = fixture.Factory.CreateClient();
         var response = await client.GetAsync("/auth/login-methods");
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        var methods = await response.Content.ReadFromJsonAsync<LoginMethodsResponse>();
+        var methods = await response.Content.ReadFromJsonAsync(AuthApiJsonContext.Default.LoginMethodsResponse);
         await Assert.That(methods).IsNotNull();
         await Assert.That(methods!.Cloudflare).IsFalse();
         await Assert.That(methods.Google).IsFalse();
@@ -72,7 +73,9 @@ public sealed class AuthControllerTests(IWebFactoryFixture fixture) : BaseEndpoi
         // The endpoint never sees the body (auth middleware blocks first), so a typed
         // CreateAlterRequest would only obscure that this is a stand-alone shape assertion:
         // that a valid-looking POST body without a principal still returns 401.
-        var unauthorized = await client.PostAsJsonAsync("/api/systems/me/alters", new { name = "NoPrincipal" });
+        var unauthorized = await client.SendAsJsonAnonymousAsync(
+            HttpMethod.Post, "/api/systems/me/alters",
+            new CreateAlterRequest("NoPrincipal"));
         await Assert.That(unauthorized.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
 
         // First creation

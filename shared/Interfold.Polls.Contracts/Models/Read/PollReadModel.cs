@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Interfold.Polls.Contracts.Ids;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
@@ -34,6 +35,7 @@ public sealed record CreatePollRequest(
 public sealed record UpdatePollRequest(
     string? Title = null,
     string? Description = null,
+    [property: JsonConverter(typeof(PatchValueJsonConverter<DateTime>))]
     PatchValue<DateTime> TimeEnd = default,
     JsonElement? Data = null
 );

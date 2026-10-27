@@ -2,6 +2,7 @@ using Interfold.Shared.Contracts;
 using System.Net;
 using System.Text.Json;
 using Interfold.Settings.Api.Helpers;
+using Interfold.Settings.Contracts;
 using Interfold.Settings.Contracts.Configuration;
 using Interfold.Settings.Contracts.Models.Wire;
 using Microsoft.AspNetCore.Http;
@@ -195,7 +196,9 @@ public sealed class FirebaseConfigResolverTests
     {
         var payload = (FirebaseClientConfigResponse)new FirebaseWebConfigResponse(
             "aaa", "bbb.example.com", "ccc", null, "ddd", "eee", "fff");
-        var json = JsonSerializer.Serialize(payload, FirebaseConfigResolver.EtagJsonOptions);
+        var json = JsonSerializer.Serialize(
+            payload,
+            SettingsContractsJsonContext.Default.FirebaseClientConfigResponse);
 
         await Assert.That(json).Contains("\"type\":\"web\"");
         await Assert.That(json).Contains("\"api_key\":\"aaa\"");

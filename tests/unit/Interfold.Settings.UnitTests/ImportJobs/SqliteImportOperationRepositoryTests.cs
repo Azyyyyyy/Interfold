@@ -1,4 +1,3 @@
-using Dapper;
 using Interfold.Infrastructure.InMemory;
 using Interfold.Infrastructure.Sqlite;
 using Interfold.Infrastructure.Sqlite.Repository;
@@ -185,9 +184,10 @@ public sealed class SqliteImportOperationRepositoryTests
         var claim = await repo.TryClaimAsync(new("sys-a"), ImportFormat.SimplyPlural, new("idem-1"), rawPayload: null);
 
         await using var connection = await factory.OpenConnectionAsync();
-        var rawInDb = await connection.QueryFirstOrDefaultAsync<string>(
-            "SELECT raw_payload FROM import_operations WHERE operation_id = @id",
-            new { id = claim.OperationId.Value.ToString("N") });
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT raw_payload FROM import_operations WHERE operation_id = $id";
+        cmd.Parameters.AddWithValue("$id", claim.OperationId.Value.ToString("N"));
+        var rawInDb = await cmd.ExecuteScalarAsync() as string;
 
         await Assert.That(rawInDb).IsNull()
             .Because("Sensitive imports like SP and PK must not store payloads into the database.");

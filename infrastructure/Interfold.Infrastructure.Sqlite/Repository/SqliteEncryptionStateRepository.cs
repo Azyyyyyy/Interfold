@@ -72,5 +72,4 @@ public sealed class SqliteEncryptionStateRepository : IEncryptionStateRepository
         return rows > 0;
     }
 
-    private sealed record EncryptionStateRow(long Initialized, string? Checksum, string? Salt);
 }

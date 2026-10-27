@@ -1,5 +1,10 @@
+using Interfold.Alters.Api.Json;
+using Interfold.Alters.Contracts;
 using Interfold.Alters.Domain;
+using Interfold.Shared.Api.Json;
+using Interfold.Shared.Domain;
 using Interfold.Shared.Domain.Abstractions;
+using Interfold.Socket.Contracts;
 
 namespace Interfold.Alters.Api.DependencyInjection;
 
@@ -7,7 +12,7 @@ namespace Interfold.Alters.Api.DependencyInjection;
 /// <c>AddSingleton</c> calls previously living in <see cref="Interfold.Infrastructure.DependencyInjection.ServiceCollectionExtensions.AddInterfoldDomainHandlers"/>.
 /// Consumed once from <c>Interfold.Api.Host/Program.cs</c> alongside the other
 /// module extensions.</summary>
-public static class AltersModuleServiceCollectionExtensions
+public static partial class AltersModuleServiceCollectionExtensions
 {
     /// <summary>Registers everything the Alters feature owns: the three alter
     /// command-handler singletons (Create/Update/Delete) plus the
@@ -16,11 +21,18 @@ public static class AltersModuleServiceCollectionExtensions
     /// features don't back-reference Alters.Domain). <c>IAlterRepository</c> itself
     /// is registered by the active persistence adapter (Sqlite / InMemory)
     /// via <c>AddInterfoldPersistence</c>, so no repository registration lives here.</summary>
-    public static IServiceCollection AddAltersModule(this IServiceCollection services) =>
+    public static IServiceCollection AddAltersModule(this IServiceCollection services)
+    {
         services
+            .AddInterfoldJsonContext(AltersContractsJsonContext.Default)
+            .AddInterfoldJsonContext(AltersApiJsonContext.Default);
+        CommandSerialization.AddTypeInfoResolver(AltersCommandJsonContext.Default);
+        SocketJson.AddTypeInfoResolver(AltersContractsJsonContext.Default);
+        return services
             .AddSingleton<CreateAlterCommandHandler>()
             .AddSingleton<UpdateAlterCommandHandler>()
             .AddSingleton<DeleteAlterCommandHandler>()
             .AddSingleton<IAlterDeletion, AlterDeletion>()
             .AddSingleton<IAlterExistenceCheck, AlterExistenceCheckAdapter>();
+    }
 }

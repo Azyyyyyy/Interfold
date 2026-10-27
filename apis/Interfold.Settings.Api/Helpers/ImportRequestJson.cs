@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text.Json;
+using Interfold.Settings.Contracts;
 using Interfold.Settings.Contracts.Models.Read;
 using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
@@ -9,12 +10,6 @@ namespace Interfold.Settings.Api.Helpers;
 
 public static class ImportRequestJson
 {
-    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        PropertyNameCaseInsensitive = true,
-    };
-
     public static bool TryDeserialize(
         JsonElement payload,
         [NotNullWhen(true)] out SettingsImportRequest? request,
@@ -29,7 +24,7 @@ public static class ImportRequestJson
 
         try
         {
-            request = payload.Deserialize<SettingsImportRequest>(Options);
+            request = payload.Deserialize(SettingsContractsJsonContext.Default.SettingsImportRequest);
             if (request is null)
             {
                 error = new ErrorResponse("Import payload cannot be empty.", ErrorCodes.BadRequest, HttpStatusCode.BadRequest);

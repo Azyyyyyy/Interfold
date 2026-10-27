@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Interfold.Shared.Contracts.Configuration;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
@@ -17,7 +18,8 @@ public static class HealthCheckExtensions
     /// <summary>Startup checks allow longer for cold-start migrations / initial connect.</summary>
     public static readonly TimeSpan StartupTimeout = TimeSpan.FromSeconds(30);
 
-    public static IHealthChecksBuilder AddReadyAndStartup<T>(
+    public static IHealthChecksBuilder AddReadyAndStartup<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(
         this IHealthChecksBuilder builder,
         string namePrefix)
         where T : class, IHealthCheck

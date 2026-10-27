@@ -30,6 +30,8 @@
          exercised end-to-end by the integration tests. -->
     <Compile Include="..\..\integration\Interfold.IntegrationTests.Shared\TestServices\TestBench\TestBenchLease.cs"
              Link="TestBench\Sut\TestBenchLease.cs" />
+    <Compile Include="..\..\integration\Interfold.IntegrationTests.Shared\TestServices\TestBench\TestBenchJsonContext.cs"
+             Link="TestBench\Sut\TestBenchJsonContext.cs" />
     <Compile Include="..\..\integration\Interfold.IntegrationTests.Shared\TestServices\TestBench\TestBenchIdleReaper.cs"
              Link="TestBench\Sut\TestBenchIdleReaper.cs" />
     <Compile Include="..\..\integration\Interfold.IntegrationTests.Shared\TestServices\DockerDaemonAvailability.cs"

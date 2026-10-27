@@ -703,8 +703,9 @@ your `.env`, they are dead values — the API no longer reads them.
 
 The API image itself (`/Dockerfile`) does not pin its listening ports — AppHost owns them
 end-to-end via the env vars above, plus the matching compose `targetPort` and the
-`curl http://localhost:<port>/health/ready` healthcheck. Operators who want to run the
-container standalone (outside AppHost) need to set `ASPNETCORE_URLS` themselves; otherwise
+`/app/http-ready-probe http://127.0.0.1:<port>/health/ready` healthcheck (a tiny GET
+binary; chiseled has no curl or shell). Operators who want to run the container
+standalone (outside AppHost) need to set `ASPNETCORE_URLS` themselves; otherwise
 ASP.NET Core falls through to its built-in default of `http://+:8080`.
 
 

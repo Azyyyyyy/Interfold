@@ -28,7 +28,7 @@ public readonly record struct TagId(Guid Value) : IParsable<TagId>
     }
 }
 
-internal sealed class TagIdJsonConverter : GuidIdJsonConverter<TagId>
+public sealed class TagIdJsonConverter : GuidIdJsonConverter<TagId>
 {
     protected override TagId Create(Guid value) => new(value);
     protected override Guid GetValue(TagId value) => value.Value;

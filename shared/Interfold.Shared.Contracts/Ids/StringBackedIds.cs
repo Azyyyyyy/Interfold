@@ -56,7 +56,7 @@ public abstract class GuidIdJsonConverter<T> : JsonConverter<T>
         => writer.WriteStringValue(GetValue(value).ToString("N"));
 }
 
-internal sealed class FieldIdJsonConverter : GuidIdJsonConverter<FieldId>
+public sealed class FieldIdJsonConverter : GuidIdJsonConverter<FieldId>
 {
     protected override FieldId Create(Guid value) => new(value);
     protected override Guid GetValue(FieldId value) => value.Value;

@@ -115,19 +115,36 @@ public sealed class SqliteMigrationService(
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     public Task StoppedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
+    // Explicit names so the trimmer keeps the embedded SQL without GetManifestResourceNames.
+    private static readonly string[] MigrationFileNames =
+    [
+        "000_create_secrets_table.sql",
+        "001_create_octocon_idempotency.sql",
+        "002_create_auth_tokens.sql",
+        "003_create_accounts_encryption_notification.sql",
+        "010_create_alters.sql",
+        "011_create_tags.sql",
+        "012_create_settings_fields.sql",
+        "020_create_friendships.sql",
+        "021_create_fronting.sql",
+        "022_create_polls.sql",
+        "030_create_journals.sql",
+        "031_create_import_operations.sql",
+        "032_add_raw_payload_to_import_operations.sql",
+    ];
+
     private static List<(string Name, string Sql)> GetMigrationScripts()
     {
         var assembly = Assembly.GetExecutingAssembly();
-        var prefix = "Interfold.Infrastructure.Sqlite.Migrations.";
+        const string prefix = "Interfold.Infrastructure.Sqlite.Migrations.";
 
-        return assembly.GetManifestResourceNames()
-            .Where(n => n.StartsWith(prefix, StringComparison.Ordinal) && n.EndsWith(".sql", StringComparison.Ordinal))
-            .OrderBy(n => n, StringComparer.Ordinal)
-            .Select(n =>
+        return MigrationFileNames
+            .Select(name =>
             {
-                using var stream = assembly.GetManifestResourceStream(n)!;
+                using var stream = assembly.GetManifestResourceStream(prefix + name)
+                    ?? throw new InvalidOperationException($"Missing embedded migration '{name}'.");
                 using var reader = new StreamReader(stream);
-                return (Name: n[prefix.Length..], Sql: reader.ReadToEnd());
+                return (Name: name, Sql: reader.ReadToEnd());
             })
             .ToList();
     }

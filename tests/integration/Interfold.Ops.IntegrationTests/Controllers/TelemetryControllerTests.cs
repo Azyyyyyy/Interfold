@@ -2,7 +2,9 @@ using System.Net;
 using System.Text.Json;
 using Interfold.IntegrationTests.Shared;
 using Interfold.IntegrationTests.Shared.TestServices;
-using Interfold.Ops.Api.Controllers;
+using Interfold.Ops.Api.DependencyInjection;
+using Interfold.Ops.Api.Json;
+using Interfold.Ops.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 
@@ -52,7 +54,7 @@ public class TelemetryControllerTests : BaseEndpointTest
         using var res = await client.SendAuthedGetAsync("/api/telemetry/otlp", principal);
 
         await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        var dto = JsonSerializer.Deserialize<OtlpDiscoveryResponse>(await res.Content.ReadAsStringAsync());
+        var dto = JsonSerializer.Deserialize(await res.Content.ReadAsStringAsync(), OpsApiJsonContext.Default.OtlpDiscoveryResponse);
         await Assert.That(dto!.OtlpHttpEndpoint).IsEqualTo(collector);
     }
 
@@ -75,7 +77,7 @@ public class TelemetryControllerTests : BaseEndpointTest
         await Assert.That(body).Contains("\"otlpHttpEndpoint\"");
         await Assert.That(body).DoesNotContain("\"data\"");
 
-        var dto = JsonSerializer.Deserialize<OtlpDiscoveryResponse>(body);
+        var dto = JsonSerializer.Deserialize(body, OpsApiJsonContext.Default.OtlpDiscoveryResponse);
         await Assert.That(dto!.OtlpHttpEndpoint).IsEqualTo(clientUrl);
     }
 
@@ -89,26 +91,26 @@ public class TelemetryControllerTests : BaseEndpointTest
         using var res = await client.GetAsync("/api/telemetry/otlp");
 
         await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        var dto = JsonSerializer.Deserialize<OtlpDiscoveryResponse>(await res.Content.ReadAsStringAsync());
+        var dto = JsonSerializer.Deserialize(await res.Content.ReadAsStringAsync(), OpsApiJsonContext.Default.OtlpDiscoveryResponse);
         await Assert.That(dto!.OtlpHttpEndpoint).IsEqualTo("http://otel-collector:4318");
     }
 
     [Test]
     public async Task ResolveDiscoveryEndpoint_RespectsPrecedence()
     {
-        await Assert.That(TelemetryController.ResolveDiscoveryEndpoint(new ObservabilityConfiguration
+        await Assert.That(OpsModuleServiceCollectionExtensions.ResolveDiscoveryEndpoint(new ObservabilityConfiguration
         {
             OtlpEndpoint = "http://server",
             AdvertiseOtlpToClients = false,
         })).IsNull();
 
-        await Assert.That(TelemetryController.ResolveDiscoveryEndpoint(new ObservabilityConfiguration
+        await Assert.That(OpsModuleServiceCollectionExtensions.ResolveDiscoveryEndpoint(new ObservabilityConfiguration
         {
             OtlpEndpoint = "http://server",
             AdvertiseOtlpToClients = true,
         })).IsEqualTo("http://server");
 
-        await Assert.That(TelemetryController.ResolveDiscoveryEndpoint(new ObservabilityConfiguration
+        await Assert.That(OpsModuleServiceCollectionExtensions.ResolveDiscoveryEndpoint(new ObservabilityConfiguration
         {
             OtlpEndpoint = "http://server",
             AdvertiseOtlpToClients = true,

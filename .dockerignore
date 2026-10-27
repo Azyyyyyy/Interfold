@@ -43,6 +43,14 @@ publish/
 **/TestResults/
 coveragereport/
 
+# Local dumps (Native AOT test exes are multi-GB). Product images publish
+# Api.Host / Bootstrapper only — they do not need the tests tree.
+artifacts/
+tests/
+
+# AppHost sqlite RunMode data dir
+hosts/Interfold.AppHost/.data/
+
 # Node tooling (none in-repo today, future-proofing)
 node_modules/
 

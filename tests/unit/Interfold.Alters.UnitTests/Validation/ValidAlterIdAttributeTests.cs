@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
+using Interfold.Fronting.Contracts;
 using Interfold.Fronting.Contracts.Models.Read;
 using Interfold.Journals.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Ids;
@@ -91,8 +92,7 @@ public sealed class ValidAlterIdAttributeTests
     [Test]
     public async Task FrontStartRequest_JsonWithValidId_DeserializesAndValidatesViaParameterAttribute()
     {
-        var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
-        var req = JsonSerializer.Deserialize<FrontStartRequest>("{\"id\":5}", opts)!;
+        var req = JsonSerializer.Deserialize("{\"id\":5}", FrontingContractsJsonContext.Default.FrontStartRequest)!;
 
         await Assert.That(req.Id).IsEqualTo(new AlterId(5));
         await Assert.That(ValidateRecordParameter<FrontStartRequest>("Id", req.Id)).IsTrue();
@@ -101,8 +101,7 @@ public sealed class ValidAlterIdAttributeTests
     [Test]
     public async Task FrontStartRequest_JsonWithMissingId_FailsValidationViaParameterAttribute()
     {
-        var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
-        var req = JsonSerializer.Deserialize<FrontStartRequest>("{}", opts)!;
+        var req = JsonSerializer.Deserialize("{}", FrontingContractsJsonContext.Default.FrontStartRequest)!;
 
         await Assert.That(req.Id).IsEqualTo(new AlterId(0));
         await Assert.That(ValidateRecordParameter<FrontStartRequest>("Id", req.Id)).IsFalse()
@@ -112,8 +111,7 @@ public sealed class ValidAlterIdAttributeTests
     [Test]
     public async Task FrontPrimaryRequest_JsonWithNullId_PassesValidationViaParameterAttribute()
     {
-        var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
-        var req = JsonSerializer.Deserialize<FrontPrimaryRequest>("{\"id\":null}", opts)!;
+        var req = JsonSerializer.Deserialize("{\"id\":null}", FrontingContractsJsonContext.Default.FrontPrimaryRequest)!;
 
         await Assert.That(req.Id).IsNull();
         await Assert.That(ValidateRecordParameter<FrontPrimaryRequest>("Id", req.Id)).IsTrue()
@@ -123,8 +121,7 @@ public sealed class ValidAlterIdAttributeTests
     [Test]
     public async Task FrontPrimaryRequest_JsonWithZeroId_FailsValidationViaParameterAttribute()
     {
-        var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
-        var req = JsonSerializer.Deserialize<FrontPrimaryRequest>("{\"id\":0}", opts)!;
+        var req = JsonSerializer.Deserialize("{\"id\":0}", FrontingContractsJsonContext.Default.FrontPrimaryRequest)!;
 
         await Assert.That(req.Id).IsEqualTo(new AlterId(0));
         await Assert.That(ValidateRecordParameter<FrontPrimaryRequest>("Id", req.Id)).IsFalse()

@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using Interfold.Auth.Api.Auth;
 
 namespace Interfold.Api.UnitTests.Auth;
@@ -18,11 +17,9 @@ public sealed class JwtEs256ValidatorTests
         var privateKeyPem = ecdsa.ExportPkcs8PrivateKeyPem();
         var publicKeyPem = ecdsa.ExportSubjectPublicKeyInfoPem();
 
-        var headerObj = alg != null ? new { alg } : null;
-        var header = headerObj != null ? JsonSerializer.Serialize(headerObj) : "{}";
-        
+        var header = alg is null ? "{}" : $$"""{"alg":"{{alg}}"}""";
         var expValue = exp ?? DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeSeconds();
-        var payload = JsonSerializer.Serialize(new { sub, aud, exp = expValue });
+        var payload = $$"""{"sub":"{{sub}}","aud":"{{aud}}","exp":{{expValue}}}""";
 
         var headerB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(header)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
         var payloadB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(payload)).TrimEnd('=').Replace('+', '-').Replace('/', '_');

@@ -1,4 +1,5 @@
 using Interfold.Auth.Api.Auth;
+using Interfold.Auth.Api.Json;
 using Interfold.Auth.Api.Services.OAuth;
 using Interfold.Auth.Contracts.Configuration;
 using Interfold.Shared.Contracts.Ids;
@@ -60,7 +61,8 @@ public sealed class GoogleOAuthService
                 return null;
             }
 
-            var tokenPayload = await tokenResponse.Content.ReadFromJsonAsync<OAuthTokenResponse>(cancellationToken);
+            var tokenPayload = await tokenResponse.Content.ReadFromJsonAsync(
+                AuthApiJsonContext.Default.OAuthTokenResponse, cancellationToken);
             if (string.IsNullOrWhiteSpace(tokenPayload?.AccessToken))
             {
                 return null;
@@ -77,7 +79,8 @@ public sealed class GoogleOAuthService
                 return null;
             }
 
-            var userInfo = await userInfoResponse.Content.ReadFromJsonAsync<GoogleUserInfoResponse>(cancellationToken);
+            var userInfo = await userInfoResponse.Content.ReadFromJsonAsync(
+                AuthApiJsonContext.Default.GoogleUserInfoResponse, cancellationToken);
             return string.IsNullOrWhiteSpace(userInfo?.Email) ? null : new Email(userInfo.Email);
         }
         catch

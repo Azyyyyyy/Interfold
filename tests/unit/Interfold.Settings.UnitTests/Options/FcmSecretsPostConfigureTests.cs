@@ -20,7 +20,7 @@ public sealed class FcmSecretsPostConfigureTests
             .ApplyPostConfigure<FcmSecretsPostConfigure, FcmConfiguration>();
 
         await Assert.That(options.ServiceAccountJson).IsEqualTo(ServiceAccountJson)
-            .Because("The fcm:service_account_json row must flow through verbatim — the Firebase Admin SDK, not this patcher, is responsible for parsing it.");
+            .Because("The fcm:service_account_json row must flow through verbatim — the FCM HTTP v1 sender, not this patcher, is responsible for parsing it.");
     }
 
     [Test]

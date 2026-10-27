@@ -57,7 +57,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         }
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var raw = await connection.ExecuteScalarAsync(
+        var raw = await connection.ExecuteScalarAsync<long?>(
             """
             SELECT level
             FROM friendships
@@ -65,12 +65,12 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             LIMIT 1
             """,
             new { user_id = systemId, friend_id = viewerSystemId });
-        if (raw is null or DBNull)
+        if (raw is null)
         {
             return null;
         }
 
-        return ((short)(long)raw).FromCode<FriendshipLevel>();
+        return ((short)raw.Value).FromCode<FriendshipLevel>();
     }
 
     public async Task<IReadOnlyList<FriendshipReadModel>> ListFriendshipsAsync(
@@ -361,10 +361,10 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         cancellationToken.ThrowIfCancellationRequested();
 
         await using var work = await SqliteWork.OpenAsync(_connectionFactory, cancellationToken);
-        var friendKeys = (await work.Connection.QueryAsync<SystemId>(
-            "SELECT friend_id FROM friendships WHERE user_id = @user_id",
+        var friendKeys = (await work.Connection.QueryAsync<SystemIdRow>(
+            "SELECT friend_id AS SystemId FROM friendships WHERE user_id = @user_id",
             new { user_id = systemId },
-            work.Transaction)).ToArray();
+            work.Transaction)).Select(r => r.SystemId).ToArray();
 
         await work.Connection.ExecuteAsync(
             """
@@ -411,7 +411,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         SystemId friendId,
         CancellationToken cancellationToken)
     {
-        var hit = await connection.ExecuteScalarAsync(
+        var hit = await connection.ExecuteScalarAsync<long?>(
             """
             SELECT 1 FROM friendships
             WHERE user_id = @user_id AND friend_id = @friend_id
@@ -419,7 +419,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             """,
             new { user_id = userId, friend_id = friendId },
             tx);
-        return hit is not null and not DBNull;
+        return hit is not null;
     }
 
     private static async Task<bool> RequestExistsAsync(
@@ -429,7 +429,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
         SystemId toUserId,
         CancellationToken cancellationToken)
     {
-        var hit = await connection.ExecuteScalarAsync(
+        var hit = await connection.ExecuteScalarAsync<long?>(
             """
             SELECT 1 FROM friend_requests
             WHERE from_user_id = @from AND to_user_id = @to
@@ -437,7 +437,7 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             """,
             new { from = fromUserId, to = toUserId },
             tx);
-        return hit is not null and not DBNull;
+        return hit is not null;
     }
 
     private async Task LinkFriendsAsync(
@@ -503,7 +503,4 @@ public sealed class SqliteFriendshipRepository : IFriendshipRepository
             new { from = fromUserId, to = toUserId },
             tx);
 
-    private sealed record FriendshipRow(SystemId FriendId, long Level, long Since);
-
-    private sealed record FriendRequestRow(SystemId OtherUserId, long DateSent);
 }

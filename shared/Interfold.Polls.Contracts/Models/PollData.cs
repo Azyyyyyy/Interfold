@@ -26,7 +26,7 @@ public readonly record struct PollChoiceId
     public override string ToString() => Value;
 }
 
-internal sealed class PollChoiceIdJsonConverter : StringBackedJsonConverter<PollChoiceId>
+public sealed class PollChoiceIdJsonConverter : StringBackedJsonConverter<PollChoiceId>
 {
     protected override PollChoiceId Create(string value) => new(value);
     protected override string GetValue(PollChoiceId value) => value.Value;
@@ -84,7 +84,15 @@ public static class PollDataJson
     }
 
     public static JsonElement ToJsonElement<T>(T data)
-        => JsonSerializer.SerializeToElement(data);
+    {
+        if (PollsContractsJsonContext.Default.GetTypeInfo(typeof(T)) is not
+            System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
+        {
+            throw new InvalidOperationException($"No source-gen metadata for {typeof(T)}.");
+        }
+
+        return JsonSerializer.SerializeToElement(data, typeInfo);
+    }
 
     /// <summary>Removes every top-level <c>responses[]</c> entry whose <c>alter_id</c>
     /// matches, preserving all other members (including unknown ones) verbatim and in

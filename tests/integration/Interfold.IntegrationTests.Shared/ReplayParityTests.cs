@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Interfold.IntegrationTests.Shared.Models;
 using Interfold.IntegrationTests.Shared.TestServices;
 
@@ -125,7 +126,7 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
         if (step.Body.HasValue)
         {
             var substitutedBody = SubstituteBodyValue(step.Body.Value, vars, principalMap);
-            var bodyJson = JsonSerializer.Serialize(substitutedBody);
+            var bodyJson = substitutedBody?.ToJsonString() ?? "null";
             request.Content = new StringContent(bodyJson, Encoding.UTF8, "application/json");
         }
 
@@ -220,7 +221,7 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
         return text;
     }
 
-    private static object? SubstituteBodyValue(
+    private static JsonNode? SubstituteBodyValue(
         JsonElement element,
         Dictionary<string, string> vars,
         IReadOnlyDictionary<string, string> principalMap)
@@ -229,31 +230,31 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
         {
             case JsonValueKind.Object:
             {
-                var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                var obj = new JsonObject();
                 foreach (var property in element.EnumerateObject())
                 {
-                    dict[property.Name] = SubstituteBodyValue(property.Value, vars, principalMap);
+                    obj[property.Name] = SubstituteBodyValue(property.Value, vars, principalMap);
                 }
 
-                return dict;
+                return obj;
             }
 
             case JsonValueKind.Array:
             {
-                var list = new List<object?>();
+                var array = new JsonArray();
                 foreach (var item in element.EnumerateArray())
                 {
-                    list.Add(SubstituteBodyValue(item, vars, principalMap));
+                    array.Add(SubstituteBodyValue(item, vars, principalMap));
                 }
 
-                return list;
+                return array;
             }
 
             case JsonValueKind.String:
             {
                 var value = element.GetString() ?? string.Empty;
                 if (TryResolvePlaceholderValue(value, vars, out var resolved))
-                    return resolved;
+                    return ToJsonNode(resolved);
 
                 return ApplyPrincipalRewrites(SubstituteVars(value, vars), principalMap);
             }
@@ -275,9 +276,22 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
                 return null;
 
             default:
-                return element.GetRawText();
+                return JsonNode.Parse(element.GetRawText());
         }
     }
+
+    private static JsonNode? ToJsonNode(object? value) => value switch
+    {
+        null => null,
+        JsonNode node => node,
+        string s => s,
+        int i => i,
+        long l => l,
+        decimal d => d,
+        double db => db,
+        bool b => b,
+        _ => value.ToString(),
+    };
 
     private static bool TryResolvePlaceholderValue(
         string value,

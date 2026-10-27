@@ -28,7 +28,6 @@ public enum PatchValueState
 /// (e.g. the Kotlin client's poll update) rely on this distinction, which a plain
 /// nullable property cannot represent.
 /// </summary>
-[JsonConverter(typeof(PatchValueJsonConverterFactory))]
 public readonly record struct PatchValue<T>
 {
     public PatchValueState State { get; }
@@ -53,20 +52,7 @@ public readonly record struct PatchValue<T>
     public bool IsInvalid => State is PatchValueState.Invalid;
 }
 
-public sealed class PatchValueJsonConverterFactory : JsonConverterFactory
-{
-    public override bool CanConvert(Type typeToConvert)
-        => typeToConvert.IsGenericType && typeToConvert.GetGenericTypeDefinition() == typeof(PatchValue<>);
-
-    public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
-    {
-        var inner = typeToConvert.GetGenericArguments()[0];
-        var converterType = typeof(PatchValueJsonConverter<>).MakeGenericType(inner);
-        return (JsonConverter)Activator.CreateInstance(converterType)!;
-    }
-}
-
-internal sealed class PatchValueJsonConverter<T> : JsonConverter<PatchValue<T>>
+public sealed class PatchValueJsonConverter<T> : JsonConverter<PatchValue<T>>
 {
     public override PatchValue<T> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
@@ -80,7 +66,8 @@ internal sealed class PatchValueJsonConverter<T> : JsonConverter<PatchValue<T>>
         var element = JsonElement.ParseValue(ref reader);
         try
         {
-            var value = element.Deserialize<T>(options);
+            var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>)options.GetTypeInfo(typeof(T));
+            var value = element.Deserialize(typeInfo);
             return value is null ? PatchValue<T>.OfNull() : PatchValue<T>.Of(value);
         }
         catch (JsonException)
@@ -95,9 +82,10 @@ internal sealed class PatchValueJsonConverter<T> : JsonConverter<PatchValue<T>>
 
     public override void Write(Utf8JsonWriter writer, PatchValue<T> value, JsonSerializerOptions options)
     {
-        if (value.State == PatchValueState.Value)
+        if (value.State == PatchValueState.Value && value.Value is { } set)
         {
-            JsonSerializer.Serialize(writer, value.Value, options);
+            var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>)options.GetTypeInfo(typeof(T));
+            JsonSerializer.Serialize(writer, set, typeInfo);
         }
         else
         {

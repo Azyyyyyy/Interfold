@@ -73,7 +73,7 @@ public readonly record struct SystemId : IParsable<SystemId>
     }
 }
 
-internal sealed class SystemIdJsonConverter : StringBackedJsonConverter<SystemId>
+public sealed class SystemIdJsonConverter : StringBackedJsonConverter<SystemId>
 {
     protected override SystemId Create(string value) => new(SystemId.StripRegionPrefix(value));
     protected override string GetValue(SystemId value) => value.Value;

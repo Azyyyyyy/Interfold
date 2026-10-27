@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Web;
 using Interfold.Alters.Contracts.Abstractions;
 using Interfold.Auth.Contracts.Configuration;
@@ -49,6 +50,21 @@ public sealed class SpImportTests : BaseEndpointTest
     private const long Date_2021_06_10_End = 1623337200000; // 2021-06-10T15:00:00Z
     private const long Date_2022_03_05 = 1646474400000;     // 2022-03-05T10:00:00Z
 
+    private static string JsonArr(params JsonObject[] items)
+    {
+        var array = new JsonArray();
+        foreach (var item in items)
+            array.Add(item);
+        return array.ToJsonString();
+    }
+
+    private static JsonObject SpEntity(string id, JsonObject content) => new()
+    {
+        ["exists"] = true,
+        ["id"] = id,
+        ["content"] = content,
+    };
+
     [Test]
     public async Task LiveFronter_WithRealStartTime_PreservesPastDate()
     {
@@ -58,15 +74,12 @@ public sealed class SpImportTests : BaseEndpointTest
         var frontId = MemberUuid();
 
         // Sticky live front with a real past startTime — must be preserved verbatim.
-        var liveFronters = JsonSerializer.Serialize(new[]
+        var liveFronters = JsonArr(SpEntity(frontId, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = frontId,
-                content = new { member = alpha, startTime = Date_2020_01_15, live = true },
-            },
-        });
+            ["member"] = alpha,
+            ["startTime"] = Date_2020_01_15,
+            ["live"] = true,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, currentFrontersJson: liveFronters);
 
@@ -100,21 +113,13 @@ public sealed class SpImportTests : BaseEndpointTest
         const string spFrontIdHistorical = "671425cd02c63d13c59ba474";
         var expectedStart = new DateTimeOffset(2024, 10, 19, 21, 34, 5, TimeSpan.Zero);
 
-        var liveFronters = JsonSerializer.Serialize(new[]
+        var liveFronters = JsonArr(SpEntity(spFrontIdHistorical, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spFrontIdHistorical,
-                content = new
-                {
-                    member = alpha,
-                    startTime = 0L,
-                    lastOperationTime = Date_2021_06_10,
-                    live = true,
-                },
-            },
-        });
+            ["member"] = alpha,
+            ["startTime"] = 0L,
+            ["lastOperationTime"] = Date_2021_06_10,
+            ["live"] = true,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, currentFrontersJson: liveFronters);
 
@@ -143,21 +148,13 @@ public sealed class SpImportTests : BaseEndpointTest
         var frontId = MemberUuid();
 
         // Both startTime and lastOperationTime missing — must be skipped, never stamped today.
-        var liveFronters = JsonSerializer.Serialize(new[]
+        var liveFronters = JsonArr(SpEntity(frontId, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = frontId,
-                content = new
-                {
-                    member = alpha,
-                    startTime = 0L,
-                    lastOperationTime = 0L,
-                    live = true,
-                },
-            },
-        });
+            ["member"] = alpha,
+            ["startTime"] = 0L,
+            ["lastOperationTime"] = 0L,
+            ["live"] = true,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, currentFrontersJson: liveFronters);
 
@@ -190,20 +187,12 @@ public sealed class SpImportTests : BaseEndpointTest
         // per chunk window with startTime/endTime query params; OnGetPrefix lets the same body
         // serve every chunk request. Each chunk returning the same payload is fine because
         // ImportFrontsAsync dedupes by SpEntity.Id.
-        var historyJson = JsonSerializer.Serialize(new[]
+        var historyJson = JsonArr(SpEntity(historicalFrontId, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = historicalFrontId,
-                content = new
-                {
-                    member = alpha,
-                    startTime = Date_2021_06_10,
-                    endTime = Date_2021_06_10_End,
-                },
-            },
-        });
+            ["member"] = alpha,
+            ["startTime"] = Date_2021_06_10,
+            ["endTime"] = Date_2021_06_10_End,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, frontHistoryJson: historyJson, currentFrontersJson: "[]");
 
@@ -274,21 +263,13 @@ public sealed class SpImportTests : BaseEndpointTest
         // truncated to 200/3000, leaving rows that the public API would reject on next edit.
         var longTitle = new string('t', 250);
         var longDesc = new string('d', 4000);
-        var pollsJson = JsonSerializer.Serialize(new[]
+        var pollsJson = JsonArr(SpEntity(MemberUuid(), new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = MemberUuid(),
-                content = new
-                {
-                    name = longTitle,
-                    desc = longDesc,
-                    custom = false,
-                    endTime = 0L,
-                },
-            },
-        });
+            ["name"] = longTitle,
+            ["desc"] = longDesc,
+            ["custom"] = false,
+            ["endTime"] = 0L,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, _) = await RunImportAsync(stub, systemId);
@@ -310,22 +291,14 @@ public sealed class SpImportTests : BaseEndpointTest
 
         // SP's v1 schema marks `options` as optional. Importing a custom poll with no options
         // would create a "choice" row that users can't vote on, so the importer should bail.
-        var pollsJson = JsonSerializer.Serialize(new[]
+        var pollsJson = JsonArr(SpEntity(spPollId, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spPollId,
-                content = new
-                {
-                    name = "synthetic choice",
-                    desc = "",
-                    custom = true,
-                    endTime = 0L,
-                    options = Array.Empty<object>(),
-                },
-            },
-        });
+            ["name"] = "synthetic choice",
+            ["desc"] = "",
+            ["custom"] = true,
+            ["endTime"] = 0L,
+            ["options"] = new JsonArray(),
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, logger) = await RunImportAsync(stub, systemId);
@@ -350,21 +323,13 @@ public sealed class SpImportTests : BaseEndpointTest
 
         // Same as the empty-array case but `options` is omitted entirely. SpPollContent maps
         // both shapes to a null `Options`, and the importer should treat them identically.
-        var pollsJson = JsonSerializer.Serialize(new[]
+        var pollsJson = JsonArr(SpEntity(spPollId, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spPollId,
-                content = new
-                {
-                    name = "synthetic choice no key",
-                    desc = "",
-                    custom = true,
-                    endTime = 0L,
-                },
-            },
-        });
+            ["name"] = "synthetic choice no key",
+            ["desc"] = "",
+            ["custom"] = true,
+            ["endTime"] = 0L,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, logger) = await RunImportAsync(stub, systemId);
@@ -391,28 +356,18 @@ public sealed class SpImportTests : BaseEndpointTest
         // Two votes: one from the imported member (mapped → alter), one from a member uuid we
         // never imported. The unmapped vote previously slipped through as a raw 24-char SP id
         // in the `votes[i].id` field; we now drop it and surface a per-poll warning.
-        var pollsJson = JsonSerializer.Serialize(new[]
+        var pollsJson = JsonArr(SpEntity(spPollId, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spPollId,
-                content = new
-                {
-                    name = "synthetic vote",
-                    desc = "",
-                    custom = false,
-                    endTime = 0L,
-                    allowAbstain = true,
-                    allowVeto = false,
-                    votes = new[]
-                    {
-                        new { id = alpha, vote = "yes", comment = "synthetic-mapped" },
-                        new { id = unmappedVoter, vote = "no", comment = "synthetic-unmapped" },
-                    },
-                },
-            },
-        });
+            ["name"] = "synthetic vote",
+            ["desc"] = "",
+            ["custom"] = false,
+            ["endTime"] = 0L,
+            ["allowAbstain"] = true,
+            ["allowVeto"] = false,
+            ["votes"] = new JsonArray(
+                new JsonObject { ["id"] = alpha, ["vote"] = "yes", ["comment"] = "synthetic-mapped" },
+                new JsonObject { ["id"] = unmappedVoter, ["vote"] = "no", ["comment"] = "synthetic-unmapped" }),
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, logger) = await RunImportAsync(stub, systemId);
@@ -445,27 +400,17 @@ public sealed class SpImportTests : BaseEndpointTest
 
         // Defensive coverage: SP's voteType only declares `id: string` without a minLength,
         // so blank ids could theoretically appear. They should never become rows in our data.
-        var pollsJson = JsonSerializer.Serialize(new[]
+        var pollsJson = JsonArr(SpEntity(spPollId, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spPollId,
-                content = new
-                {
-                    name = "synthetic blank-id votes",
-                    desc = "",
-                    custom = false,
-                    endTime = 0L,
-                    votes = new[]
-                    {
-                        new { id = "", vote = "yes", comment = "" },
-                        new { id = "   ", vote = "no", comment = "" },
-                        new { id = alpha, vote = "abstain", comment = "synthetic" },
-                    },
-                },
-            },
-        });
+            ["name"] = "synthetic blank-id votes",
+            ["desc"] = "",
+            ["custom"] = false,
+            ["endTime"] = 0L,
+            ["votes"] = new JsonArray(
+                new JsonObject { ["id"] = "", ["vote"] = "yes", ["comment"] = "" },
+                new JsonObject { ["id"] = "   ", ["vote"] = "no", ["comment"] = "" },
+                new JsonObject { ["id"] = alpha, ["vote"] = "abstain", ["comment"] = "synthetic" }),
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, _) = await RunImportAsync(stub, systemId);
@@ -488,25 +433,15 @@ public sealed class SpImportTests : BaseEndpointTest
 
         // An empty `vote` string is meaningless — SP wouldn't render it anywhere — so we
         // refuse to import it even when the voter id is otherwise valid.
-        var pollsJson = JsonSerializer.Serialize(new[]
+        var pollsJson = JsonArr(SpEntity(spPollId, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spPollId,
-                content = new
-                {
-                    name = "synthetic blank-vote",
-                    desc = "",
-                    custom = false,
-                    endTime = 0L,
-                    votes = new[]
-                    {
-                        new { id = alpha, vote = "", comment = "synthetic-blank" },
-                    },
-                },
-            },
-        });
+            ["name"] = "synthetic blank-vote",
+            ["desc"] = "",
+            ["custom"] = false,
+            ["endTime"] = 0L,
+            ["votes"] = new JsonArray(
+                new JsonObject { ["id"] = alpha, ["vote"] = "", ["comment"] = "synthetic-blank" }),
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, _) = await RunImportAsync(stub, systemId);
@@ -526,27 +461,17 @@ public sealed class SpImportTests : BaseEndpointTest
         var alpha = MemberUuid();
         var spPollId = MemberUuid();
 
-        var pollsJson = JsonSerializer.Serialize(new[]
+        var pollsJson = JsonArr(SpEntity(spPollId, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spPollId,
-                content = new
-                {
-                    name = "synthetic abstain vote",
-                    desc = "synthetic desc",
-                    custom = false,
-                    endTime = Date_2021_06_10_End,
-                    allowAbstain = true,
-                    allowVeto = true,
-                    votes = new[]
-                    {
-                        new { id = alpha, vote = "abstain", comment = "synthetic" },
-                    },
-                },
-            },
-        });
+            ["name"] = "synthetic abstain vote",
+            ["desc"] = "synthetic desc",
+            ["custom"] = false,
+            ["endTime"] = Date_2021_06_10_End,
+            ["allowAbstain"] = true,
+            ["allowVeto"] = true,
+            ["votes"] = new JsonArray(
+                new JsonObject { ["id"] = alpha, ["vote"] = "abstain", ["comment"] = "synthetic" }),
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, _) = await RunImportAsync(stub, systemId);
@@ -580,31 +505,19 @@ public sealed class SpImportTests : BaseEndpointTest
         var alpha = MemberUuid();
         var spPollId = MemberUuid();
 
-        var pollsJson = JsonSerializer.Serialize(new[]
+        var pollsJson = JsonArr(SpEntity(spPollId, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spPollId,
-                content = new
-                {
-                    name = "synthetic choice",
-                    desc = "",
-                    custom = true,
-                    endTime = 0L,
-                    options = new object[]
-                    {
-                        new { name = "One", color = "#111111" },
-                        new { name = "Two", color = "#222222" },
-                        new { name = "Three", color = "#333333" },
-                    },
-                    votes = new[]
-                    {
-                        new { id = alpha, vote = "Two", comment = "synthetic" },
-                    },
-                },
-            },
-        });
+            ["name"] = "synthetic choice",
+            ["desc"] = "",
+            ["custom"] = true,
+            ["endTime"] = 0L,
+            ["options"] = new JsonArray(
+                new JsonObject { ["name"] = "One", ["color"] = "#111111" },
+                new JsonObject { ["name"] = "Two", ["color"] = "#222222" },
+                new JsonObject { ["name"] = "Three", ["color"] = "#333333" }),
+            ["votes"] = new JsonArray(
+                new JsonObject { ["id"] = alpha, ["vote"] = "Two", ["comment"] = "synthetic" }),
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, _) = await RunImportAsync(stub, systemId);
@@ -641,22 +554,14 @@ public sealed class SpImportTests : BaseEndpointTest
         // *fallback* branch of the ObjectId-primary cascade.
         var spPollId = MemberUuid();
 
-        var pollsJson = JsonSerializer.Serialize(new[]
+        var pollsJson = JsonArr(SpEntity(spPollId, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spPollId,
-                content = new
-                {
-                    name = "synthetic historical poll",
-                    desc = "",
-                    custom = false,
-                    endTime = 0L,
-                    lastOperationTime = Date_2020_01_15,
-                },
-            },
-        });
+            ["name"] = "synthetic historical poll",
+            ["desc"] = "",
+            ["custom"] = false,
+            ["endTime"] = 0L,
+            ["lastOperationTime"] = Date_2020_01_15,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, logger) = await RunImportAsync(stub, systemId);
@@ -695,22 +600,14 @@ public sealed class SpImportTests : BaseEndpointTest
         const string spPollIdHistorical = "671425cd02c63d13c59ba474";
         var expectedInsertedAt = new DateTime(2024, 10, 19, 21, 34, 5, DateTimeKind.Utc);
 
-        var pollsJson = JsonSerializer.Serialize(new[]
+        var pollsJson = JsonArr(SpEntity(spPollIdHistorical, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spPollIdHistorical,
-                content = new
-                {
-                    name = "synthetic objectid poll",
-                    desc = "",
-                    custom = false,
-                    endTime = 0L,
-                    lastOperationTime = Date_2020_01_15,
-                },
-            },
-        });
+            ["name"] = "synthetic objectid poll",
+            ["desc"] = "",
+            ["custom"] = false,
+            ["endTime"] = 0L,
+            ["lastOperationTime"] = Date_2020_01_15,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, logger) = await RunImportAsync(stub, systemId);
@@ -747,22 +644,14 @@ public sealed class SpImportTests : BaseEndpointTest
 
         // SP either omits `lastOperationTime` or sends 0 on very old rows. We accept those
         // but log a warning so we can spot polls that lost their creation timestamp.
-        var pollsJson = JsonSerializer.Serialize(new[]
+        var pollsJson = JsonArr(SpEntity(spPollId, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spPollId,
-                content = new
-                {
-                    name = "synthetic missing-lastop poll",
-                    desc = "",
-                    custom = false,
-                    endTime = 0L,
-                    lastOperationTime = 0L,
-                },
-            },
-        });
+            ["name"] = "synthetic missing-lastop poll",
+            ["desc"] = "",
+            ["custom"] = false,
+            ["endTime"] = 0L,
+            ["lastOperationTime"] = 0L,
+        }));
 
         var importStarted = DateTime.UtcNow;
         var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
@@ -793,22 +682,14 @@ public sealed class SpImportTests : BaseEndpointTest
         const string spFieldIdHistorical = "671425cd02c63d13c59ba474";
         var expectedInsertedAt = new DateTime(2024, 10, 19, 21, 34, 5, DateTimeKind.Utc);
 
-        var customFieldsJson = JsonSerializer.Serialize(new[]
+        var customFieldsJson = JsonArr(SpEntity(spFieldIdHistorical, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spFieldIdHistorical,
-                content = new
-                {
-                    name = "synthetic-favourite-colour",
-                    type = 0,
-                    supportMarkdown = false,
-                    @private = false,
-                    preventTrusted = false,
-                },
-            },
-        });
+            ["name"] = "synthetic-favourite-colour",
+            ["type"] = 0,
+            ["supportMarkdown"] = false,
+            ["private"] = false,
+            ["preventTrusted"] = false,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, customFieldsJson: customFieldsJson);
         var (_, _, _, fieldRepo, _, _) = await RunImportAsync(stub, systemId);
@@ -889,22 +770,14 @@ public sealed class SpImportTests : BaseEndpointTest
         // pre-fix code did for every field). One per-row warning lets operators trace the skip.
         const string spFieldIdGarbage = "not-an-objectid";
 
-        var customFieldsJson = JsonSerializer.Serialize(new[]
+        var customFieldsJson = JsonArr(SpEntity(spFieldIdGarbage, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spFieldIdGarbage,
-                content = new
-                {
-                    name = "synthetic-cannot-decode",
-                    type = 0,
-                    supportMarkdown = false,
-                    @private = false,
-                    preventTrusted = false,
-                },
-            },
-        });
+            ["name"] = "synthetic-cannot-decode",
+            ["type"] = 0,
+            ["supportMarkdown"] = false,
+            ["private"] = false,
+            ["preventTrusted"] = false,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, customFieldsJson: customFieldsJson);
         var (_, _, _, fieldRepo, _, logger) = await RunImportAsync(stub, systemId);
@@ -932,24 +805,16 @@ public sealed class SpImportTests : BaseEndpointTest
         const string spGroupIdHistorical = "671425cd02c63d13c59ba474";
         var expectedInsertedAt = new DateTime(2024, 10, 19, 21, 34, 5, DateTimeKind.Utc);
 
-        var groupsJson = JsonSerializer.Serialize(new[]
+        var groupsJson = JsonArr(SpEntity(spGroupIdHistorical, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spGroupIdHistorical,
-                content = new
-                {
-                    name = "synthetic-friends-group",
-                    desc = "",
-                    color = "",
-                    parent = "root",
-                    members = Array.Empty<string>(),
-                    @private = false,
-                    preventTrusted = false,
-                },
-            },
-        });
+            ["name"] = "synthetic-friends-group",
+            ["desc"] = "",
+            ["color"] = "",
+            ["parent"] = "root",
+            ["members"] = new JsonArray(),
+            ["private"] = false,
+            ["preventTrusted"] = false,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, groupsJson: groupsJson);
         var (_, _, _, _, tagRepo, _) = await RunImportAsync(stub, systemId);
@@ -979,24 +844,16 @@ public sealed class SpImportTests : BaseEndpointTest
         // per-row warning lets operators trace the skip.
         const string spGroupIdGarbage = "not-an-objectid";
 
-        var groupsJson = JsonSerializer.Serialize(new[]
+        var groupsJson = JsonArr(SpEntity(spGroupIdGarbage, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spGroupIdGarbage,
-                content = new
-                {
-                    name = "synthetic-cannot-decode-group",
-                    desc = "",
-                    color = "",
-                    parent = "root",
-                    members = Array.Empty<string>(),
-                    @private = false,
-                    preventTrusted = false,
-                },
-            },
-        });
+            ["name"] = "synthetic-cannot-decode-group",
+            ["desc"] = "",
+            ["color"] = "",
+            ["parent"] = "root",
+            ["members"] = new JsonArray(),
+            ["private"] = false,
+            ["preventTrusted"] = false,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha, groupsJson: groupsJson);
         var (_, _, _, _, tagRepo, logger) = await RunImportAsync(stub, systemId);
@@ -1025,20 +882,12 @@ public sealed class SpImportTests : BaseEndpointTest
         // the ObjectId branch.
         const string spMemberIdHistorical = "671425cd02c63d13c59ba474";
 
-        var membersJson = JsonSerializer.Serialize(new[]
+        var membersJson = JsonArr(SpEntity(spMemberIdHistorical, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spMemberIdHistorical,
-                content = new
-                {
-                    name = "synthetic-no-date-alter",
-                    date = 0L,
-                    lastOperationTime = Date_2022_03_05,
-                },
-            },
-        });
+            ["name"] = "synthetic-no-date-alter",
+            ["date"] = 0L,
+            ["lastOperationTime"] = Date_2022_03_05,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha: spMemberIdHistorical, membersJson: membersJson);
         var (_, _, _, _, _, logger) = await RunImportAsync(stub, systemId);
@@ -1070,20 +919,12 @@ public sealed class SpImportTests : BaseEndpointTest
         // create the row.
         var spMemberIdGarbage = MemberUuid();
 
-        var membersJson = JsonSerializer.Serialize(new[]
+        var membersJson = JsonArr(SpEntity(spMemberIdGarbage, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = spMemberIdGarbage,
-                content = new
-                {
-                    name = "synthetic-garbage-id-alter",
-                    date = 0L,
-                    lastOperationTime = Date_2022_03_05,
-                },
-            },
-        });
+            ["name"] = "synthetic-garbage-id-alter",
+            ["date"] = 0L,
+            ["lastOperationTime"] = Date_2022_03_05,
+        }));
 
         var stub = BuildSp(sysId.Value, alpha: spMemberIdGarbage, membersJson: membersJson);
         var (_, _, _, _, _, logger) = await RunImportAsync(stub, systemId);
@@ -1111,27 +952,19 @@ public sealed class SpImportTests : BaseEndpointTest
         string? groupsJson = null,
         string? membersJson = null)
     {
-        var meJson = JsonSerializer.Serialize(new
+        var meJson = new JsonObject
         {
-            exists = true,
-            id = sysId,
-            content = new { desc = "synthetic test system" },
-        });
+            ["exists"] = true,
+            ["id"] = sysId,
+            ["content"] = new JsonObject { ["desc"] = "synthetic test system" },
+        }.ToJsonString();
 
-        var defaultMembersJson = JsonSerializer.Serialize(new[]
+        var defaultMembersJson = JsonArr(SpEntity(alpha, new JsonObject
         {
-            new
-            {
-                exists = true,
-                id = alpha,
-                content = new
-                {
-                    name = "alpha",
-                    date = Date_2022_03_05,
-                    lastOperationTime = Date_2022_03_05,
-                },
-            },
-        });
+            ["name"] = "alpha",
+            ["date"] = Date_2022_03_05,
+            ["lastOperationTime"] = Date_2022_03_05,
+        }));
 
         return new StubSpHandler()
             .OnGet("/v1/me", meJson)

@@ -25,7 +25,7 @@ public readonly record struct ErrorCode
     public override string ToString() => Value;
 }
 
-internal sealed class ErrorCodeJsonConverter : StringBackedJsonConverter<ErrorCode>
+public sealed class ErrorCodeJsonConverter : StringBackedJsonConverter<ErrorCode>
 {
     protected override ErrorCode Create(string value) => new(value);
     protected override string GetValue(ErrorCode value) => value.Value;

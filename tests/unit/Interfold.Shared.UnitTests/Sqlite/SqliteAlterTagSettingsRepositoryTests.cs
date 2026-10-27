@@ -151,7 +151,7 @@ public sealed class SqliteSettingsFieldRepositoryTests
 
             var list = await settings.ListAsync(systemId);
             await Assert.That(list.Count).IsEqualTo(1);
-            await Assert.That(list[0].Id).IsEqualTo(fieldId!);
+            await Assert.That(list[0].Id.Value).IsEqualTo(fieldId!.Value);
             await Assert.That(list[0].Name).IsEqualTo("Age");
             await Assert.That(list[0].Type).IsEqualTo(FieldType.Number);
             await Assert.That(list[0].SecurityLevel).IsEqualTo(VisibilityLevel.FriendsOnly);

@@ -28,7 +28,7 @@ public readonly record struct Jti
     public static Jti NewJti() => new(Guid.NewGuid().ToString("N"));
 }
 
-internal sealed class JtiJsonConverter : StringBackedJsonConverter<Jti>
+public sealed class JtiJsonConverter : StringBackedJsonConverter<Jti>
 {
     protected override Jti Create(string value) => new(value);
     protected override string GetValue(Jti value) => value.Value;

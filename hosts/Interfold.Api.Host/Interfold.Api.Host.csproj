@@ -6,10 +6,19 @@
     <UserSecretsId>d42494f5-0e2a-4d45-9ba3-b1750919ff1b</UserSecretsId>
     <!-- Local / unstamped builds. CI and Dockerfile pass InformationalVersion. -->
     <InformationalVersion Condition="'$(InformationalVersion)' == ''">0.0.0-dev</InformationalVersion>
+    <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <PublishAot>true</PublishAot>
+    <!-- Chiseled runtime-deps has no ICU; wire parsing already uses InvariantCulture. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Interfold.IntegrationTests.Shared" />
     <InternalsVisibleTo Include="Interfold.Shared.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\apis\Interfold.Alters.Api\Interfold.Alters.Api.csproj" />

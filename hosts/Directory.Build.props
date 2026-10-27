@@ -1,0 +1,9 @@
+<Project>
+  <!--
+    Interfold.Api.Host is the PublishAot target. AppHost overrides
+    IsAotCompatible=false — Aspire.AppHost.Sdk forbids PublishAot.
+  -->
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+</Project>

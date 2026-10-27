@@ -12,7 +12,7 @@ namespace Interfold.Auth.Api.Helpers;
 /// <see cref="System.IdentityModel.Tokens.Jwt.JwtHeader"/>, which is transitively imported
 /// by the socket handler.
 /// </remarks>
-internal sealed record JwsHeader
+public sealed record JwsHeader
 {
     /// <summary>The only signature algorithm Interfold accepts.</summary>
     public const string Es256 = "ES256";

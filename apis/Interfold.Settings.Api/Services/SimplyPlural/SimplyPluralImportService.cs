@@ -871,16 +871,11 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
 
-            // Prefer source-generated JsonTypeInfo (trim-safe); fall back to reflection.
             var typeInfoObj = Services.SimplyPlural.SpJsonContext.Default.GetTypeInfo(typeof(T));
-            if (typeInfoObj is System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typedInfo)
-            {
-                var result = await JsonSerializer.DeserializeAsync<T>(stream, typedInfo, ct).ConfigureAwait(false);
-                return result;
-            }
+            if (typeInfoObj is not System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typedInfo)
+                return default;
 
-            var fallback = await JsonSerializer.DeserializeAsync<T>(stream, cancellationToken: ct).ConfigureAwait(false);
-            return fallback;
+            return await JsonSerializer.DeserializeAsync(stream, typedInfo, ct).ConfigureAwait(false);
         }
         catch
         {

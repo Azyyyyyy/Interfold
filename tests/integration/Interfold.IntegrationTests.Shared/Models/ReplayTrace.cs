@@ -19,17 +19,10 @@ public sealed class ReplayTrace
     [JsonPropertyName("steps")]
     public List<ReplayStep> Steps { get; init; } = [];
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true
-    };
-
     public static ReplayTrace Load(string path)
     {
         var json = File.ReadAllText(path);
-        return JsonSerializer.Deserialize<ReplayTrace>(json, JsonOptions)
+        return JsonSerializer.Deserialize(json, ReplayTraceJsonContext.Default.ReplayTrace)
                ?? throw new InvalidOperationException($"Failed to deserialize trace at {path}");
     }
 

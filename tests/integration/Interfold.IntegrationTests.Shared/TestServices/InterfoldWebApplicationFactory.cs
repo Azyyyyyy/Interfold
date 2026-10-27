@@ -128,6 +128,9 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
         // Push snapshot via UseSetting so Program.cs sees values at DI-registration time
         // (AddInterfoldCluster, JWT registration, etc. read IConfiguration before
         // ConfigureAppConfiguration callbacks fire).
+        builder.UseContentRoot(AppContext.BaseDirectory);
+        builder.UseEnvironment("Development");
+
         foreach (var pair in _configProvider.Snapshot())
         {
             builder.UseSetting(pair.Key, pair.Value);

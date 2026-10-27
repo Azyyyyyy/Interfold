@@ -77,5 +77,4 @@ public sealed class SqliteIdempotencyStore : IIdempotencyStore
             });
     }
 
-    private sealed record IdempotencyRow(string PayloadHash, string OutcomeHash, string? OutcomePayload);
 }

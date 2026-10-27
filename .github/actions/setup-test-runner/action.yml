@@ -1,8 +1,8 @@
 name: Setup .NET test runner
 description: >
-  Preamble for jobs that launch MTP test-host DLLs from the `build` job's
-  artefact. Caller must run `actions/checkout@v4` first so this composite's
-  own path resolves.
+  Preamble for jobs that Native-AOT-publish test hosts and (for cobertura)
+  launch the JIT MTP DLLs from the `build` job's artefact. Caller must run
+  `actions/checkout@v4` first so this composite's own path resolves.
 
 inputs:
   dotnet-version:
@@ -39,6 +39,11 @@ runs:
     - name: Extract build output
       shell: bash
       run: tar -xzf dotnet-build.tar.gz
+
+    - name: Install Native AOT toolchain
+      if: runner.os == 'Linux'
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang llvm zlib1g-dev
 
     - name: Expose GitHub Actions Runtime
       uses: ./.github/actions/expose-actions-runtime

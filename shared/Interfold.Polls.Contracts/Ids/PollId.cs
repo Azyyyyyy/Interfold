@@ -28,7 +28,7 @@ public readonly record struct PollId(Guid Value) : IParsable<PollId>
     }
 }
 
-internal sealed class PollIdJsonConverter : GuidIdJsonConverter<PollId>
+public sealed class PollIdJsonConverter : GuidIdJsonConverter<PollId>
 {
     protected override PollId Create(Guid value) => new(value);
     protected override Guid GetValue(PollId value) => value.Value;

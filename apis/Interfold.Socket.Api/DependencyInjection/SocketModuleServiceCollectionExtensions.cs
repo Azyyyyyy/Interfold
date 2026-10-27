@@ -1,5 +1,9 @@
+using Interfold.Shared.Api.Json;
+using Interfold.Shared.Contracts;
 using Interfold.Socket.Api.Helpers;
+using Interfold.Socket.Api.Json;
 using Interfold.Socket.Api.Socket;
+using Interfold.Socket.Contracts;
 
 namespace Interfold.Socket.Api.DependencyInjection;
 
@@ -18,6 +22,13 @@ public static class SocketModuleServiceCollectionExtensions
     /// to loopback — see <c>WebSocketHandler.HandleEndpointProxyAsync</c>).</summary>
     public static IServiceCollection AddSocketModule(this IServiceCollection services)
     {
+        services
+            .AddInterfoldJsonContext(SocketJsonContext.Default)
+            .AddInterfoldJsonContext(SocketApiJsonContext.Default);
+        SocketJson.AddTypeInfoResolver(SharedContractsJsonContext.Default);
+        SocketJson.AddTypeInfoResolver(SocketJsonContext.Default);
+        SocketJson.AddTypeInfoResolver(SocketApiJsonContext.Default);
+
         services.AddSingleton<SocketJoinRateLimiter>();
 
         services.AddHttpClient(LoopbackHttpClient.Name)

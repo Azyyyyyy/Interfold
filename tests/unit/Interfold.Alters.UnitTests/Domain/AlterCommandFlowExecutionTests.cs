@@ -1,9 +1,11 @@
+using Interfold.Alters.Contracts;
 using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
+using Interfold.Shared.Domain;
 using Interfold.Shared.Domain.Abstractions;
 using TUnit.Mocks;
 using TUnit.Mocks.Arguments;
@@ -16,6 +18,10 @@ namespace Interfold.Api.UnitTests.Domain;
 // while HTTP-level tests still see the correct alter:not_found conflict.
 public sealed class AlterCommandFlowExecutionTests
 {
+    [Before(HookType.Class)]
+    public static void RegisterCommandJson()
+        => CommandSerialization.AddTypeInfoResolver(AltersCommandJsonContext.Default);
+
     private static readonly SystemId Principal = new SystemId("altrflw");
 
     private static readonly AlterId AnyAlterId = new(5);
